@@ -1,0 +1,21 @@
+# Cloudy daytime version of the outdoor terrain scene.
+# Inherits terrain, water, props, cave, and emitter geometry from outdoors.toml.
+#
+# Run with:
+#   go run . -scene scenes/outdoors-cloudy.toml
+#   go run ./cmd/preview -scene scenes/outdoors-cloudy.toml -o preview_cloudy.png
+
+extends = "outdoors.toml"
+
+[environment]
+sky = "cloudy"
+ambient_sky = [0.50, 0.54, 0.58]
+ambient_ground = [0.23, 0.22, 0.19]
+sun_dir = [-0.45, -0.80, 0.25]
+sun_color = [0.55, 0.52, 0.45]
+
+# Campfire is subtle against the flat daylight.
+[[campfire]]
+center = [0.0, 0.5, 3.0]
+color = [1.7, 0.85, 0.32]
+range = 10.0

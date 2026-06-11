@@ -1,0 +1,13 @@
+# Player movement tuning. A copy of this is embedded in the binary; override it
+# with:  go run . -player player.toml   (or any path).
+#
+# All distances are in world units and time is in 60 Hz "frame" units (the same
+# fixed dt the original used), so these are tuning knobs rather than SI values.
+
+[movement]
+walk_speed = 0.5        # horizontal speed (2.5x the original stroll)
+eye_height = 1.3         # camera height above the surface underfoot
+jump_velocity = 0.6      # initial jump impulse
+gravity = 0.20           # downward acceleration (high = brisk, non-floaty)
+collision_radius = 0.30  # how close you can get to walls before stopping
+step_height = 0.45       # ledges up to this height are stepped over freely

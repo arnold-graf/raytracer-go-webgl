@@ -1,0 +1,21 @@
+# Sunset ("vanilla sky") version of the outdoor terrain scene.
+# Inherits terrain, water, props, cave, and emitter geometry from outdoors.toml.
+#
+# Run with:
+#   go run . -scene scenes/outdoors-sunset.toml
+#   go run ./cmd/preview -scene scenes/outdoors-sunset.toml -o preview_sunset.png
+
+extends = "outdoors.toml"
+
+[environment]
+sky = "sunset"
+ambient_sky = [0.48, 0.30, 0.36]
+ambient_ground = [0.16, 0.11, 0.10]
+sun_dir = [-0.35, -0.22, 0.90]
+sun_color = [1.40, 0.55, 0.22]
+
+# Campfire starts to matter as the sun drops.
+[[campfire]]
+center = [0.0, 0.5, 3.0]
+color = [3.8, 1.9, 0.7]
+range = 14.0

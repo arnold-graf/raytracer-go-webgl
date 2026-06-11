@@ -1,0 +1,22 @@
+# Clear night version of the outdoor terrain scene.
+# Inherits terrain, water, props, cave, and emitter geometry from outdoors.toml.
+#
+# Run with:
+#   go run . -scene scenes/outdoors-night-stars.toml
+#   go run ./cmd/preview -scene scenes/outdoors-night-stars.toml -o preview_night_stars.png
+
+extends = "outdoors.toml"
+
+[environment]
+sky = "night_stars"
+ambient_sky = [0.035, 0.050, 0.090]
+ambient_ground = [0.018, 0.018, 0.025]
+sun_dir = [-0.25, -0.82, 0.42]
+sun_color = [0.10, 0.13, 0.20]
+
+# The campfire is the main local light at night: bright and lively.
+[[campfire]]
+center = [0.0, 0.5, 3.0]
+color = [5.5, 2.7, 0.95]
+range = 16.0
+flicker = 0.5

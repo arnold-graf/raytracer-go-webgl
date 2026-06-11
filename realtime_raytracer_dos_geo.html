@@ -1,0 +1,497 @@
+
+<canvas id="c" width="400" height="300" style="image-rendering:pixelated;display:block;margin:0 auto;border:2px solid #111;cursor:none"></canvas>
+<div style="display:flex;gap:10px;justify-content:center;align-items:center;margin:6px 0;flex-wrap:wrap;font-family:monospace;font-size:11px;color:var(--color-text-secondary)">
+  <span id="fps" style="color:#0f0;min-width:70px">-- fps</span>
+  <span id="info" style="color:#aaa">click canvas to capture mouse</span>
+  <label><input type="checkbox" id="chkMirror" checked> mirrors</label>
+  <label><input type="checkbox" id="chkShadow" checked> shadows</label>
+  <label><input type="checkbox" id="chkAO" checked> AO</label>
+  <label>px <select id="pixSz" style="font-size:11px"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option></select></label>
+</div>
+<div style="text-align:center;font-family:monospace;font-size:10px;color:var(--color-text-secondary)">WASD=move &nbsp; mouse=look &nbsp; Space=jump &nbsp; click canvas first</div>
+<script>
+const RW=400,RH=300;
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+const img=ctx.createImageData(RW,RH);
+const buf=img.data;
+
+// ---- primitives ----
+// mat: 0=diffuse,1=mirror,3=metal,4=glass,5=emit,6=diffuse+checker
+
+const spheres=[
+  {cx:0,cy:0.9,cz:0,r:0.9,mat:1,sr:0.95,sg:0.95,sb:0.98,rough:0.0},
+  {cx:2.2,cy:0.5,cz:0.5,r:0.5,mat:4,sr:0.88,sg:0.94,sb:1.0,ior:1.5},
+  {cx:-2.1,cy:0.45,cz:-0.3,r:0.45,mat:0,sr:0.9,sg:0.12,sb:0.1},
+  {cx:-0.9,cy:0.35,cz:2.0,r:0.35,mat:3,sr:1.0,sg:0.78,sb:0.2,rough:0.06},
+  {cx:1.6,cy:0.3,cz:-2.0,r:0.3,mat:0,sr:0.1,sg:0.25,sb:0.95},
+  {cx:2.0,cy:0.22,cz:1.8,r:0.22,mat:1,sr:0.9,sg:0.9,sb:0.9,rough:0.01},
+  {cx:1.0,cy:3.2,cz:-1.0,r:0.35,mat:5,sr:10,sg:8,sb:5},
+  {cx:-1.5,cy:2.8,cz:1.5,r:0.25,mat:5,sr:4,sg:6,sb:10},
+];
+
+const planes=[
+  {nx:0,ny:1,nz:0,d:0,mat:6,sr:0.75,sg:0.7,sb:0.65,sr2:0.15,sg2:0.15,sb2:0.18},
+  {nx:0,ny:0,nz:1,d:-5.5,mat:0,sr:0.5,sg:0.45,sb:0.75},
+  {nx:1,ny:0,nz:0,d:-4.5,mat:1,sr:0.85,sg:0.85,sb:0.90,rough:0.04},
+  {nx:-1,ny:0,nz:0,d:-4.5,mat:0,sr:0.2,sg:0.65,sb:0.25},
+  {nx:0,ny:-1,nz:0,d:-5.5,mat:0,sr:0.7,sg:0.7,sb:0.72},
+];
+
+// AABB boxes: {mn[3], mx[3], mat, sr,sg,sb, rough}
+const boxes=[
+  // tall pillar left
+  {mn:[-4.2,0,-1.5],mx:[-3.4,3.5,-0.7],mat:0,sr:0.7,sg:0.6,sb:0.5},
+  // tall pillar right
+  {mn:[3.4,0,-1.5],mx:[4.2,3.5,-0.7],mat:0,sr:0.7,sg:0.6,sb:0.5},
+  // low plinth under mirror ball
+  {mn:[-0.5,0,-0.5],mx:[0.5,0.18,0.5],mat:3,sr:0.8,sg:0.8,sb:0.85,rough:0.1},
+  // stepped platform back-left
+  {mn:[-4.0,0,-5.0],mx:[-1.5,0.4,-3.5],mat:0,sr:0.55,sg:0.5,sb:0.65},
+  {mn:[-3.5,0.4,-4.8],mx:[-2.0,0.8,-3.7],mat:0,sr:0.6,sg:0.55,sb:0.7},
+  {mn:[-3.0,0.8,-4.6],mx:[-2.5,1.2,-3.9],mat:3,sr:0.9,sg:0.7,sb:0.2,rough:0.08},
+  // long low bench right
+  {mn:[2.8,0,0.2],mx:[4.3,0.45,2.0],mat:0,sr:0.6,sg:0.35,sb:0.25},
+  // mirror slab standing
+  {mn:[-1.5,0,3.2],mx:[-0.5,2.2,3.6],mat:1,sr:0.92,sg:0.92,sb:0.96,rough:0.0},
+  // arch left foot
+  {mn:[-2.2,0,-0.3],mx:[-1.6,2.5,0.3],mat:0,sr:0.65,sg:0.62,sb:0.7},
+  // arch right foot
+  {mn:[1.6,0,-0.3],mx:[2.2,2.5,0.3],mat:0,sr:0.65,sg:0.62,sb:0.7},
+  // arch lintel
+  {mn:[-2.2,2.3,-0.35],mx:[2.2,2.9,0.35],mat:0,sr:0.65,sg:0.62,sb:0.7},
+];
+
+// Infinite cylinders (axis=Y): {cx,cz,r,ymin,ymax,mat,...}
+const cylinders=[
+  // four corner columns
+  {cx:-3.5,cz:-3.5,r:0.28,ymin:0,ymax:4,mat:0,sr:0.72,sg:0.68,sb:0.75},
+  {cx:3.5,cz:-3.5,r:0.28,ymin:0,ymax:4,mat:0,sr:0.72,sg:0.68,sb:0.75},
+  {cx:-3.5,cz:3.5,r:0.28,ymin:0,ymax:4,mat:3,sr:0.8,sg:0.82,sb:0.85,rough:0.05},
+  {cx:3.5,cz:3.5,r:0.28,ymin:0,ymax:4,mat:3,sr:0.8,sg:0.82,sb:0.85,rough:0.05},
+  // thin decorative column center-back
+  {cx:0,cz:-3.8,r:0.18,ymin:0,ymax:3.5,mat:1,sr:0.9,sg:0.88,sb:0.92,rough:0.02},
+];
+
+// Cones (axis=Y, tip at top): {cx,cz,cy_base,cy_tip,r_base,mat,...}
+const cones=[
+  {cx:-3.5,cz:-3.5,cy_base:4,cy_tip:4.9,r_base:0.45,mat:0,sr:0.72,sg:0.68,sb:0.75},
+  {cx:3.5,cz:-3.5,cy_base:4,cy_tip:4.9,r_base:0.45,mat:0,sr:0.72,sg:0.68,sb:0.75},
+  {cx:-3.5,cz:3.5,cy_base:4,cy_tip:4.9,r_base:0.45,mat:3,sr:0.8,sg:0.82,sb:0.85,rough:0.05},
+  {cx:3.5,cz:3.5,cy_base:4,cy_tip:4.9,r_base:0.45,mat:3,sr:0.8,sg:0.82,sb:0.85,rough:0.05},
+  // dunce hat on stepped platform
+  {cx:-2.75,cz:-4.25,cy_base:1.2,cy_tip:2.4,r_base:0.6,mat:0,sr:0.9,sg:0.2,sb:0.15},
+];
+
+// Torus (axis=Y): {cx,cy,cz, R(major),r(minor),mat,...}
+const tori=[
+  {cx:0,cy:1.5,cz:-3.0,R:0.8,r:0.22,mat:3,sr:1.0,sg:0.6,sb:0.1,rough:0.05},
+  {cx:3.2,cy:0.5,cz:-2.5,R:0.45,r:0.12,mat:1,sr:0.9,sg:0.9,sb:0.95,rough:0.01},
+];
+
+const lights=[
+  {x:1.0,y:3.2,z:-1.0,r:8,g:6,b:4,radius:0.35},
+  {x:-1.5,y:2.8,z:1.5,r:3,g:4,b:8,radius:0.25},
+  {x:0,y:4,z:2,r:2,g:2,b:2,radius:0.5},
+];
+
+// ---- intersection math ----
+
+function iSphere(ox,oy,oz,dx,dy,dz,s){
+  const bx=ox-s.cx,by=oy-s.cy,bz=oz-s.cz;
+  const b=bx*dx+by*dy+bz*dz;
+  const c=bx*bx+by*by+bz*bz-s.r*s.r;
+  const disc=b*b-c;
+  if(disc<0)return Infinity;
+  const sq=Math.sqrt(disc);
+  let t=-b-sq;if(t<1e-4)t=-b+sq;
+  return t<1e-4?Infinity:t;
+}
+
+function iPlane(ox,oy,oz,dx,dy,dz,pl){
+  const denom=dx*pl.nx+dy*pl.ny+dz*pl.nz;
+  if(Math.abs(denom)<1e-6)return Infinity;
+  const t=-(ox*pl.nx+oy*pl.ny+oz*pl.nz+pl.d)/denom;
+  return t<1e-4?Infinity:t;
+}
+
+function iBox(ox,oy,oz,dx,dy,dz,b){
+  const invx=1/dx,invy=1/dy,invz=1/dz;
+  let t1=(b.mn[0]-ox)*invx,t2=(b.mx[0]-ox)*invx;
+  if(t1>t2){const s=t1;t1=t2;t2=s;}
+  let t3=(b.mn[1]-oy)*invy,t4=(b.mx[1]-oy)*invy;
+  if(t3>t4){const s=t3;t3=t4;t4=s;}
+  let t5=(b.mn[2]-oz)*invz,t6=(b.mx[2]-oz)*invz;
+  if(t5>t6){const s=t5;t5=t6;t6=s;}
+  const tmin=Math.max(t1,t3,t5);
+  const tmax=Math.min(t2,t4,t6);
+  if(tmax<tmin||tmax<1e-4)return Infinity;
+  return tmin<1e-4?tmax:tmin;
+}
+
+function boxNormal(px,py,pz,b){
+  const cx=(b.mn[0]+b.mx[0])*0.5,cy=(b.mn[1]+b.mx[1])*0.5,cz=(b.mn[2]+b.mx[2])*0.5;
+  const ex=(b.mx[0]-b.mn[0])*0.5,ey=(b.mx[1]-b.mn[1])*0.5,ez=(b.mx[2]-b.mn[2])*0.5;
+  const lx=Math.abs((px-cx)/ex),ly=Math.abs((py-cy)/ey),lz=Math.abs((pz-cz)/ez);
+  if(lx>=ly&&lx>=lz)return[(px>cx?1:-1),0,0];
+  if(ly>=lx&&ly>=lz)return[0,(py>cy?1:-1),0];
+  return[0,0,(pz>cz?1:-1)];
+}
+
+function iCylinder(ox,oy,oz,dx,dy,dz,cyl){
+  const ex=ox-cyl.cx,ez=oz-cyl.cz;
+  const a=dx*dx+dz*dz;
+  if(a<1e-8)return Infinity;
+  const b=2*(ex*dx+ez*dz);
+  const c=ex*ex+ez*ez-cyl.r*cyl.r;
+  const disc=b*b-4*a*c;
+  if(disc<0)return Infinity;
+  const sq=Math.sqrt(disc);
+  let t=(-b-sq)/(2*a);
+  if(t<1e-4)t=(-b+sq)/(2*a);
+  if(t<1e-4)return Infinity;
+  const hy=oy+dy*t;
+  if(hy<cyl.ymin||hy>cyl.ymax){
+    // try caps
+    let tc=Infinity;
+    if(Math.abs(dy)>1e-6){
+      const tb=(cyl.ymin-oy)/dy;
+      if(tb>1e-4){const hx=ox+dx*tb,hz=oz+dz*tb;const dd=(hx-cyl.cx)*(hx-cyl.cx)+(hz-cyl.cz)*(hz-cyl.cz);if(dd<=cyl.r*cyl.r)tc=Math.min(tc,tb);}
+      const tt=(cyl.ymax-oy)/dy;
+      if(tt>1e-4){const hx=ox+dx*tt,hz=oz+dz*tt;const dd=(hx-cyl.cx)*(hx-cyl.cx)+(hz-cyl.cz)*(hz-cyl.cz);if(dd<=cyl.r*cyl.r)tc=Math.min(tc,tt);}
+    }
+    return tc;
+  }
+  return t;
+}
+
+function cylNormal(px,py,pz,cyl,t,ox,oy,oz,dx,dy,dz){
+  const hy=oy+dy*t;
+  if(hy<=cyl.ymin+1e-3)return[0,-1,0];
+  if(hy>=cyl.ymax-1e-3)return[0,1,0];
+  const len=Math.sqrt((px-cyl.cx)**2+(pz-cyl.cz)**2)||1;
+  return[(px-cyl.cx)/len,0,(pz-cyl.cz)/len];
+}
+
+function iCone(ox,oy,oz,dx,dy,dz,cn){
+  const h=cn.cy_tip-cn.cy_base;
+  const k=cn.r_base/h; // radius per unit height (tip is at top, radius=0 there)
+  // In local coords: tip at y=cy_tip, base at y=cy_base
+  // r(y) = k*(cy_tip - y)
+  const ey=oy-cn.cy_tip;
+  const a=dx*dx+dz*dz-(dy*dy)*(k*k);
+  const b2=(ox-cn.cx)*dx+(oz-cn.cz)*dz-ey*dy*k*k;
+  const c=(ox-cn.cx)**2+(oz-cn.cz)**2-ey*ey*k*k;
+  const disc=b2*b2-a*c;
+  if(disc<0)return Infinity;
+  const sq=Math.sqrt(Math.max(0,disc));
+  let t=(-b2-sq)/a;
+  const hy=oy+dy*t;
+  if(t<1e-4||hy<cn.cy_base||hy>cn.cy_tip){
+    t=(-b2+sq)/a;
+    const hy2=oy+dy*t;
+    if(t<1e-4||hy2<cn.cy_base||hy2>cn.cy_tip){
+      // base disk cap
+      if(Math.abs(dy)<1e-6)return Infinity;
+      const tc=(cn.cy_base-oy)/dy;
+      if(tc<1e-4)return Infinity;
+      const hx=ox+dx*tc,hz=oz+dz*tc;
+      const dd=(hx-cn.cx)**2+(hz-cn.cz)**2;
+      return dd<=cn.r_base*cn.r_base?tc:Infinity;
+    }
+  }
+  return t;
+}
+
+function coneNormal(px,py,pz,cn,t,ox,oy,oz,dx,dy,dz){
+  const hy=oy+dy*t;
+  if(Math.abs(hy-cn.cy_base)<0.01)return[0,-1,0];
+  const h=cn.cy_tip-cn.cy_base;
+  const k=cn.r_base/h;
+  const lx=px-cn.cx,lz=pz-cn.cz;
+  const lr=Math.sqrt(lx*lx+lz*lz)||1e-9;
+  // slant normal
+  const ny_=k/Math.sqrt(1+k*k);
+  const ns=1/Math.sqrt(1+k*k);
+  return[lx/lr*ns,ny_,lz/lr*ns];
+}
+
+// Torus intersection (Newton solve or analytic quartic - use iterative sphere-march style for speed)
+function iTorus(ox,oy,oz,dx,dy,dz,tr){
+  // Translate
+  const ex=ox-tr.cx,ey=oy-tr.cy,ez=oz-tr.cz;
+  const R=tr.R,r=tr.r;
+  const R2=R*R,r2=tr.r*tr.r;
+  // Analytic quartic: |p+t*d|^2 = (R^2+r^2) then...
+  // Sum = ex^2+ey^2+ez^2+R2-r2
+  // We use the standard quartic coefficients
+  const dd=dx*dx+dy*dy+dz*dz; // should be 1
+  const ed=ex*dx+ey*dy+ez*dz;
+  const ee=ex*ex+ey*ey+ez*ez;
+  const a4=dd*dd;
+  const a3=4*dd*ed;
+  const a2=2*dd*(ee-r2-R2)+4*ed*ed+4*R2*dy*dy;
+  const a1=4*ed*(ee-r2-R2)+8*R2*ey*dy;
+  const a0=(ee-r2-R2)**2-4*R2*(r2-ey*ey);
+  // Solve numerically: bisect on [0,20]
+  // Evaluate polynomial
+  function poly(t){return a4*t*t*t*t+a3*t*t*t+a2*t*t+a1*t+a0;}
+  // Sample a few points to find sign changes
+  const STEPS=64;
+  const TMAX=12;
+  let prevV=poly(1e-4),tBest=Infinity;
+  for(let i=1;i<=STEPS;i++){
+    const t=1e-4+i*(TMAX/STEPS);
+    const v=poly(t);
+    if(prevV*v<0){
+      // bisect
+      let lo=t-TMAX/STEPS,hi=t;
+      for(let j=0;j<16;j++){const m=(lo+hi)*0.5;poly(m)*prevV<0?hi=m:lo=m;}
+      const tr2=(lo+hi)*0.5;
+      if(tr2>1e-4&&tr2<tBest){tBest=tr2;break;}
+    }
+    prevV=v;
+  }
+  return tBest<Infinity?tBest:Infinity;
+}
+
+function torusNormal(px,py,pz,tr){
+  const ex=px-tr.cx,ey=py-tr.cy,ez=pz-tr.cz;
+  const R=tr.R;
+  const l=Math.sqrt(ex*ex+ez*ez)||1e-9;
+  const cx2=ex/l*R,cz2=ez/l*R;
+  const nx=ex-cx2,ny=ey,nz=ez-cz2;
+  const nl=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+  return[nx/nl,ny/nl,nz/nl];
+}
+
+// Hit record
+const H={t:0,px:0,py:0,pz:0,nx:0,ny:0,nz:0,sr:0,sg:0,sb:0,mat:0,rough:0,ior:1.5};
+
+function intersect(ox,oy,oz,dx,dy,dz,h){
+  let tmin=1e10,obj=null,otype=-1;
+
+  for(let i=0;i<spheres.length;i++){
+    const t=iSphere(ox,oy,oz,dx,dy,dz,spheres[i]);
+    if(t<tmin){tmin=t;obj=spheres[i];otype=0;}
+  }
+  for(let i=0;i<planes.length;i++){
+    const t=iPlane(ox,oy,oz,dx,dy,dz,planes[i]);
+    if(t<tmin){tmin=t;obj=planes[i];otype=1;}
+  }
+  for(let i=0;i<boxes.length;i++){
+    const t=iBox(ox,oy,oz,dx,dy,dz,boxes[i]);
+    if(t<tmin){tmin=t;obj=boxes[i];otype=2;}
+  }
+  for(let i=0;i<cylinders.length;i++){
+    const t=iCylinder(ox,oy,oz,dx,dy,dz,cylinders[i]);
+    if(t<tmin){tmin=t;obj=cylinders[i];otype=3;}
+  }
+  for(let i=0;i<cones.length;i++){
+    const t=iCone(ox,oy,oz,dx,dy,dz,cones[i]);
+    if(t<tmin){tmin=t;obj=cones[i];otype=4;}
+  }
+  for(let i=0;i<tori.length;i++){
+    const t=iTorus(ox,oy,oz,dx,dy,dz,tori[i]);
+    if(t<tmin){tmin=t;obj=tori[i];otype=5;}
+  }
+
+  if(!obj)return false;
+  h.t=tmin;h.mat=obj.mat;h.rough=obj.rough||0;h.ior=obj.ior||1.5;
+  const px=ox+dx*tmin,py=oy+dy*tmin,pz=oz+dz*tmin;
+  h.px=px;h.py=py;h.pz=pz;
+
+  let nx,ny,nz,sr,sg,sb;
+  if(otype===0){
+    nx=(px-obj.cx)/obj.r;ny=(py-obj.cy)/obj.r;nz=(pz-obj.cz)/obj.r;
+    sr=obj.sr;sg=obj.sg;sb=obj.sb;
+  }else if(otype===1){
+    nx=obj.nx;ny=obj.ny;nz=obj.nz;
+    if(obj.mat===6){const cx=Math.floor(px+0.5),cz=Math.floor(pz+0.5);if((cx+cz)&1){sr=obj.sr2;sg=obj.sg2;sb=obj.sb2;}else{sr=obj.sr;sg=obj.sg;sb=obj.sb;}}
+    else{sr=obj.sr;sg=obj.sg;sb=obj.sb;}
+  }else if(otype===2){
+    const nn=boxNormal(px,py,pz,obj);nx=nn[0];ny=nn[1];nz=nn[2];
+    sr=obj.sr;sg=obj.sg;sb=obj.sb;
+  }else if(otype===3){
+    const nn=cylNormal(px,py,pz,obj,tmin,ox,oy,oz,dx,dy,dz);nx=nn[0];ny=nn[1];nz=nn[2];
+    sr=obj.sr;sg=obj.sg;sb=obj.sb;
+  }else if(otype===4){
+    const nn=coneNormal(px,py,pz,obj,tmin,ox,oy,oz,dx,dy,dz);nx=nn[0];ny=nn[1];nz=nn[2];
+    sr=obj.sr;sg=obj.sg;sb=obj.sb;
+  }else{
+    const nn=torusNormal(px,py,pz,obj);nx=nn[0];ny=nn[1];nz=nn[2];
+    sr=obj.sr;sg=obj.sg;sb=obj.sb;
+  }
+  h.nx=nx;h.ny=ny;h.nz=nz;h.sr=sr;h.sg=sg;h.sb=sb;
+  return true;
+}
+
+function shadow(ox,oy,oz,dx,dy,dz,maxT){
+  for(const s of spheres){if(s.mat===5)continue;const t=iSphere(ox,oy,oz,dx,dy,dz,s);if(t>1e-4&&t<maxT-0.05)return true;}
+  for(const pl of planes){const t=iPlane(ox,oy,oz,dx,dy,dz,pl);if(t>1e-4&&t<maxT-0.05)return true;}
+  for(const b of boxes){const t=iBox(ox,oy,oz,dx,dy,dz,b);if(t>1e-4&&t<maxT-0.05)return true;}
+  for(const cy of cylinders){const t=iCylinder(ox,oy,oz,dx,dy,dz,cy);if(t>1e-4&&t<maxT-0.05)return true;}
+  for(const cn of cones){const t=iCone(ox,oy,oz,dx,dy,dz,cn);if(t>1e-4&&t<maxT-0.05)return true;}
+  // skip tori in shadow for perf
+  return false;
+}
+
+function skyR(dx,dy,dz){const t=Math.max(0,Math.min(1,dy*0.5+0.5));const s=0.05+0.1*t;const sd=Math.max(0,dx*0.4+dy*0.8+dz*-0.45);return s+Math.pow(sd,64)*3;}
+function skyG(dx,dy,dz){const t=Math.max(0,Math.min(1,dy*0.5+0.5));return 0.07+0.12*t+Math.pow(Math.max(0,dx*0.4+dy*0.8+dz*-0.45),64)*2.5;}
+function skyB(dx,dy,dz){const t=Math.max(0,Math.min(1,dy*0.5+0.5));return 0.12+0.22*t+Math.pow(Math.max(0,dx*0.4+dy*0.8+dz*-0.45),64)*1.5;}
+
+const H1={t:0,px:0,py:0,pz:0,nx:0,ny:0,nz:0,sr:0,sg:0,sb:0,mat:0,rough:0,ior:1.5};
+const H2={t:0,px:0,py:0,pz:0,nx:0,ny:0,nz:0,sr:0,sg:0,sb:0,mat:0,rough:0,ior:1.5};
+
+function traceR(ox,oy,oz,dx,dy,dz,doMirror,doShadow,doAO,pixX,pixY){
+  let ar=1,ag=1,ab=1,fr=0,fg=0,fb=0;
+  let curOx=ox,curOy=oy,curOz=oz,curDx=dx,curDy=dy,curDz=dz;
+  let h=H1;
+
+  for(let bounce=0;bounce<3;bounce++){
+    if(!intersect(curOx,curOy,curOz,curDx,curDy,curDz,h)){
+      fr+=ar*skyR(curDx,curDy,curDz);
+      fg+=ag*skyG(curDx,curDy,curDz);
+      fb+=ab*skyB(curDx,curDy,curDz);
+      break;
+    }
+    const mat=h.mat;
+    if(mat===5){fr+=ar*h.sr;fg+=ag*h.sg;fb+=ab*h.sb;break;}
+
+    const px=h.px,py=h.py,pz=h.pz;
+    let nx=h.nx,ny=h.ny,nz=h.nz;
+    if(nx*curDx+ny*curDy+nz*curDz>0){nx=-nx;ny=-ny;nz=-nz;}
+    const sr=h.sr,sg=h.sg,sb=h.sb;
+    const epx=px+nx*5e-4,epy=py+ny*5e-4,epz=pz+nz*5e-4;
+
+    if((mat===1||mat===3)&&doMirror&&bounce<2){
+      const rough=h.rough;
+      const dp=curDx*nx+curDy*ny+curDz*nz;
+      let rdx=curDx-nx*(2*dp),rdy=curDy-ny*(2*dp),rdz=curDz-nz*(2*dp);
+      if(rough>0){
+        rdx+=(Math.sin(px*73.1+py*17.3)*0.5)*rough;
+        rdy+=(Math.sin(py*91.7+pz*37.1)*0.5)*rough;
+        rdz+=(Math.sin(pz*53.3+px*61.7)*0.5)*rough;
+        const rl=Math.sqrt(rdx*rdx+rdy*rdy+rdz*rdz)||1;
+        rdx/=rl;rdy/=rl;rdz/=rl;
+      }
+      ar*=sr*0.96;ag*=sg*0.96;ab*=sb*0.96;
+      curOx=epx;curOy=epy;curOz=epz;curDx=rdx;curDy=rdy;curDz=rdz;
+      h=H2;continue;
+    }
+    if(mat===4&&doMirror&&bounce<2){
+      const ior=h.ior;
+      const cosi=-(curDx*nx+curDy*ny+curDz*nz);
+      const sint2=1-(cosi*cosi)*(ior*ior);
+      let rdx,rdy,rdz;
+      if(sint2<0){const dp=curDx*nx+curDy*ny+curDz*nz;rdx=curDx-nx*(2*dp);rdy=curDy-ny*(2*dp);rdz=curDz-nz*(2*dp);curOx=epx;curOy=epy;curOz=epz;}
+      else{const cost=Math.sqrt(Math.max(0,sint2));rdx=curDx/ior+(cosi/ior-cost)*nx;rdy=curDy/ior+(cosi/ior-cost)*ny;rdz=curDz/ior+(cosi/ior-cost)*nz;curOx=px-nx*5e-4;curOy=py-ny*5e-4;curOz=pz-nz*5e-4;}
+      const rl=Math.sqrt(rdx*rdx+rdy*rdy+rdz*rdz)||1;
+      curDx=rdx/rl;curDy=rdy/rl;curDz=rdz/rl;
+      ar*=sr;ag*=sg;ab*=sb;h=H2;continue;
+    }
+
+    let lr=0.04*sr,lg=0.04*sg,lb=0.04*sb;
+    for(const L of lights){
+      const ldx=L.x-px,ldy=L.y-py,ldz=L.z-pz;
+      const ldist=Math.sqrt(ldx*ldx+ldy*ldy+ldz*ldz)||1;
+      const lnx=ldx/ldist,lny=ldy/ldist,lnz=ldz/ldist;
+      const ndl=Math.max(0,nx*lnx+ny*lny+nz*lnz);
+      if(ndl<0.001)continue;
+      const blocked=doShadow&&shadow(epx,epy,epz,lnx,lny,lnz,ldist);
+      if(!blocked){const att=Math.min(1,1/(0.5+ldist*ldist*0.08));lr+=L.r*att*ndl*sr;lg+=L.g*att*ndl*sg;lb+=L.b*att*ndl*sb;}
+    }
+
+    if(doAO){
+      let s=Math.sin(pixX*127.1+pixY*311.7+bounce*99.3)*43758.5453;s=s-(s|0);
+      for(let ai=0;ai<2;ai++){
+        s=s*1664525+1013904223;s=s-(s|0);
+        const th=(s%1)*6.2831;
+        s=s*1664525+1013904223;s=s-(s|0);
+        const ph=Math.acos(Math.max(-1,Math.min(1,1-2*(s%1))));
+        let ax=Math.sin(ph)*Math.cos(th),ay=Math.cos(ph),az=Math.sin(ph)*Math.sin(th);
+        if(ax*nx+ay*ny+az*nz<0){ax=-ax;ay=-ay;az=-az;}
+        const H3={t:0,px:0,py:0,pz:0,nx:0,ny:0,nz:0,sr:0,sg:0,sb:0,mat:0,rough:0,ior:1.5};
+        if(intersect(epx,epy,epz,ax,ay,az,H3)&&H3.t<0.9){const occ=1-H3.t/0.9;lr*=1-occ*0.35;lg*=1-occ*0.35;lb*=1-occ*0.35;}
+      }
+    }
+
+    fr+=ar*lr;fg+=ag*lg;fb+=ab*lb;
+    break;
+  }
+  return[fr,fg,fb];
+}
+
+function tm(x){return Math.max(0,Math.min(1,(x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14)));}
+function gm(x){return Math.pow(Math.max(0,x),1/2.2);}
+
+let camX=0,camY=1.6,camZ=5;
+let yaw=Math.PI,pitch=0;
+const keys={};
+let locked=false;
+
+document.addEventListener('keydown',e=>{keys[e.code]=true;e.preventDefault&&(e.code.startsWith('Arrow')||e.code==='Space')&&e.preventDefault();});
+document.addEventListener('keyup',e=>{keys[e.code]=false;});
+canvas.addEventListener('click',()=>canvas.requestPointerLock());
+document.addEventListener('pointerlockchange',()=>{
+  locked=document.pointerLockElement===canvas;
+  document.getElementById('info').textContent=locked?'ESC to release mouse':'click canvas to capture mouse';
+});
+document.addEventListener('mousemove',e=>{if(!locked)return;yaw+=e.movementX*0.003;pitch=Math.max(-1.3,Math.min(1.3,pitch-e.movementY*0.003));});
+
+let pixSize=4;
+document.getElementById('pixSz').addEventListener('change',e=>{pixSize=parseInt(e.target.value);});
+
+const BAYER4=[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+let lastTime=performance.now(),frameCount=0,fps=0,lastFPS=performance.now();
+let velY=0;
+
+function frame(){
+  requestAnimationFrame(frame);
+  const now=performance.now();
+  const dt=Math.min(0.1,(now-lastTime)/16.67);
+  lastTime=now;
+
+  const doMirror=document.getElementById('chkMirror').checked;
+  const doShadow=document.getElementById('chkShadow').checked;
+  const doAO=document.getElementById('chkAO').checked;
+
+  const sy=Math.sin(yaw),cy=Math.cos(yaw);
+  const spd=0.07*dt*2;
+  if(keys['KeyW']||keys['ArrowUp']){camX-=sy*spd;camZ-=cy*spd;}
+  if(keys['KeyS']||keys['ArrowDown']){camX+=sy*spd;camZ+=cy*spd;}
+  if(keys['KeyA']||keys['ArrowLeft']){camX-=cy*spd;camZ+=sy*spd;}
+  if(keys['KeyD']||keys['ArrowRight']){camX+=cy*spd;camZ-=sy*spd;}
+  if(keys['Space']&&camY<=1.65){velY=0.12;}
+  velY-=0.01*dt;camY+=velY*dt;
+  if(camY<1.6){camY=1.6;velY=0;}
+
+  const fwdX=-sy*Math.cos(pitch),fwdY=Math.sin(pitch),fwdZ=-cy*Math.cos(pitch);
+  const rightX=cy,rightY=0,rightZ=-sy;
+  const upX=-(fwdY*rightZ-fwdZ*rightY),upY=-(fwdZ*rightX-fwdX*rightZ),upZ=-(fwdX*rightY-fwdY*rightX);
+  const aspect=RW/RH,fovScale=Math.tan(60*Math.PI/360);
+
+  for(let py=0;py<RH;py+=pixSize){
+    for(let px2=0;px2<RW;px2+=pixSize){
+      const u=(px2+pixSize*0.5)/RW*2-1;
+      const v=1-(py+pixSize*0.5)/RH*2;
+      const rdx=fwdX+rightX*u*aspect*fovScale+upX*v*fovScale;
+      const rdy=fwdY+rightY*u*aspect*fovScale+upY*v*fovScale;
+      const rdz=fwdZ+rightZ*u*aspect*fovScale+upZ*v*fovScale;
+      const rl=Math.sqrt(rdx*rdx+rdy*rdy+rdz*rdz)||1;
+      const[cr,cg,cb]=traceR(camX,camY,camZ,rdx/rl,rdy/rl,rdz/rl,doMirror,doShadow,doAO,px2,py);
+      const bdt=(BAYER4[py&3][px2&3]/16-0.5)*6;
+      const fr=Math.min(255,Math.max(0,(gm(tm(cr))*255+bdt)|0));
+      const fg=Math.min(255,Math.max(0,(gm(tm(cg))*255+bdt)|0));
+      const fb=Math.min(255,Math.max(0,(gm(tm(cb))*255+bdt)|0));
+      for(let dy=0;dy<pixSize&&py+dy<RH;dy++)for(let dx=0;dx<pixSize&&px2+dx<RW;dx++){const i=((py+dy)*RW+(px2+dx))*4;buf[i]=fr;buf[i+1]=fg;buf[i+2]=fb;buf[i+3]=255;}
+    }
+  }
+  ctx.putImageData(img,0,0);
+
+  frameCount++;
+  if(now-lastFPS>500){fps=Math.round(frameCount*1000/(now-lastFPS));frameCount=0;lastFPS=now;}
+  document.getElementById('fps').textContent=fps+' fps';
+}
+frame();
+</script>

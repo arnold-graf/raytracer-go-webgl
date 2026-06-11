@@ -1,0 +1,314 @@
+# Texture showcase -- same geometry as the default scene, but with procedural
+# textures applied. Run with:  go run . -scene scenes/textured.toml
+#
+# Textures are world-space and need no UVs. Available: wood, brick, stone,
+# cement, marble. The `albedo` of a textured surface acts as a color tint
+# (use [1.0, 1.0, 1.0] for the texture's natural colors).
+
+# ---------------------------------------------------------------- spheres ----
+
+[[sphere]] # mirror ball (untextured)
+center = [0.0, 0.9, 0.0]
+radius = 0.9
+material = "mirror"
+albedo = [0.95, 0.95, 0.98]
+
+[[sphere]] # glass ball (untextured)
+center = [2.2, 0.5, 0.5]
+radius = 0.5
+material = "glass"
+albedo = [0.88, 0.94, 1.0]
+
+[[sphere]] # marble ball
+center = [-2.1, 0.45, -0.3]
+radius = 0.45
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "marble"
+
+[[sphere]] # gold metal ball (untextured)
+center = [-0.9, 0.35, 2.0]
+radius = 0.35
+material = "metal"
+albedo = [1.0, 0.78, 0.2]
+rough = 0.06
+
+[[sphere]] # stone ball
+center = [1.6, 0.3, -2.0]
+radius = 0.3
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "stone"
+
+[[sphere]] # small mirror ball (untextured)
+center = [2.0, 0.22, 1.8]
+radius = 0.22
+material = "mirror"
+albedo = [0.9, 0.9, 0.9]
+rough = 0.01
+
+[[sphere]] # warm light
+center = [1.0, 3.2, -1.0]
+radius = 0.35
+material = "emit"
+albedo = [10.0, 8.0, 5.0]
+
+[[sphere]] # cool light
+center = [-1.5, 2.8, 1.5]
+radius = 0.25
+material = "emit"
+albedo = [4.0, 6.0, 10.0]
+
+# ----------------------------------------------------------------- planes ----
+
+[[plane]] # stone floor
+normal = [0.0, 1.0, 0.0]
+d = 0.0
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "stone"
+
+[[plane]] # back wall: brick
+normal = [0.0, 0.0, 1.0]
+d = -5.5
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "brick"
+
+[[plane]] # right wall: cement
+normal = [1.0, 0.0, 0.0]
+d = -4.5
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "cement"
+
+[[plane]] # left wall: brick
+normal = [-1.0, 0.0, 0.0]
+d = -4.5
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "brick"
+
+[[plane]] # ceiling: cement
+normal = [0.0, -1.0, 0.0]
+d = -5.5
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "cement"
+
+# ------------------------------------------------------------------ boxes ----
+
+[[box]] # tall pillar left: stone
+min = [-4.2, 0.0, -1.5]
+max = [-3.4, 3.5, -0.7]
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "stone"
+
+[[box]] # tall pillar right: stone
+min = [3.4, 0.0, -1.5]
+max = [4.2, 3.5, -0.7]
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "stone"
+
+[[box]] # low plinth under mirror ball (untextured metal)
+min = [-0.5, 0.0, -0.5]
+max = [0.5, 0.18, 0.5]
+material = "metal"
+albedo = [0.8, 0.8, 0.85]
+rough = 0.1
+
+[[box]] # stepped platform (base): cement
+min = [-4.0, 0.0, -5.0]
+max = [-1.5, 0.4, -3.5]
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "cement"
+
+[[box]] # stepped platform (mid): cement
+min = [-3.5, 0.4, -4.8]
+max = [-2.0, 0.8, -3.7]
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "cement"
+
+[[box]] # stepped platform (top): wood
+min = [-3.0, 0.8, -4.6]
+max = [-2.5, 1.2, -3.9]
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "wood"
+
+[[box]] # long low bench right: wood
+min = [2.8, 0.0, 0.2]
+max = [4.3, 0.45, 2.0]
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "wood"
+
+[[box]] # mirror slab standing (untextured)
+min = [-1.5, 0.0, 3.2]
+max = [-0.5, 2.2, 3.6]
+material = "mirror"
+albedo = [0.92, 0.92, 0.96]
+
+[[box]] # arch left foot: stone
+min = [-2.2, 0.0, -0.3]
+max = [-1.6, 2.5, 0.3]
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "stone"
+
+[[box]] # arch right foot: stone
+min = [1.6, 0.0, -0.3]
+max = [2.2, 2.5, 0.3]
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "stone"
+
+[[box]] # arch lintel: wood
+min = [-2.2, 2.3, -0.35]
+max = [2.2, 2.9, 0.35]
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "wood"
+
+# -------------------------------------------------------------- cylinders ----
+
+[[cylinder]] # back-left column: stone
+cx = -3.5
+cz = -3.5
+radius = 0.28
+ymin = 0.0
+ymax = 4.0
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "stone"
+
+[[cylinder]] # back-right column: stone
+cx = 3.5
+cz = -3.5
+radius = 0.28
+ymin = 0.0
+ymax = 4.0
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "stone"
+
+[[cylinder]] # front-left column (untextured metal)
+cx = -3.5
+cz = 3.5
+radius = 0.28
+ymin = 0.0
+ymax = 4.0
+material = "metal"
+albedo = [0.8, 0.82, 0.85]
+rough = 0.05
+
+[[cylinder]] # front-right column (untextured metal)
+cx = 3.5
+cz = 3.5
+radius = 0.28
+ymin = 0.0
+ymax = 4.0
+material = "metal"
+albedo = [0.8, 0.82, 0.85]
+rough = 0.05
+
+[[cylinder]] # thin decorative column center-back (untextured mirror)
+cx = 0.0
+cz = -3.8
+radius = 0.18
+ymin = 0.0
+ymax = 3.5
+material = "mirror"
+albedo = [0.9, 0.88, 0.92]
+rough = 0.02
+
+# ------------------------------------------------------------------ cones ----
+
+[[cone]] # cap on back-left column: stone
+cx = -3.5
+cz = -3.5
+ybase = 4.0
+ytip = 4.9
+rbase = 0.45
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "stone"
+
+[[cone]] # cap on back-right column: stone
+cx = 3.5
+cz = -3.5
+ybase = 4.0
+ytip = 4.9
+rbase = 0.45
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "stone"
+
+[[cone]] # cap on front-left column (untextured metal)
+cx = -3.5
+cz = 3.5
+ybase = 4.0
+ytip = 4.9
+rbase = 0.45
+material = "metal"
+albedo = [0.8, 0.82, 0.85]
+rough = 0.05
+
+[[cone]] # cap on front-right column (untextured metal)
+cx = 3.5
+cz = 3.5
+ybase = 4.0
+ytip = 4.9
+rbase = 0.45
+material = "metal"
+albedo = [0.8, 0.82, 0.85]
+rough = 0.05
+
+[[cone]] # dunce hat on stepped platform: brick
+cx = -2.75
+cz = -4.25
+ybase = 1.2
+ytip = 2.4
+rbase = 0.6
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "brick"
+
+# ------------------------------------------------------------------- tori ----
+
+[[torus]] # untextured metal
+center = [0.0, 1.5, -3.0]
+major = 0.8
+minor = 0.22
+material = "metal"
+albedo = [1.0, 0.6, 0.1]
+rough = 0.05
+
+[[torus]] # untextured mirror
+center = [3.2, 0.5, -2.5]
+major = 0.45
+minor = 0.12
+material = "mirror"
+albedo = [0.9, 0.9, 0.95]
+rough = 0.01
+
+# ----------------------------------------------------------------- lights ----
+
+[[light]]
+pos = [1.0, 3.2, -1.0]
+color = [8.0, 6.0, 4.0]
+radius = 0.35
+
+[[light]]
+pos = [-1.5, 2.8, 1.5]
+color = [3.0, 4.0, 8.0]
+radius = 0.25
+
+[[light]]
+pos = [0.0, 4.0, 2.0]
+color = [2.0, 2.0, 2.0]
+radius = 0.5
