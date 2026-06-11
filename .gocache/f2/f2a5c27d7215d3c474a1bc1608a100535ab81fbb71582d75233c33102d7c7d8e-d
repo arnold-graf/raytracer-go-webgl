@@ -1,4 +1,0 @@
-=== RUN   TestDefaultTOMLMatchesDefaultScene
---- PASS: TestDefaultTOMLMatchesDefaultScene (0.00s)
-PASS
-ok  	raytracer/internal/sceneio	0.514s

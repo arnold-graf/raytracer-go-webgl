@@ -1,4 +1,0 @@
-=== RUN   TestRenderProducesImage
---- PASS: TestRenderProducesImage (0.01s)
-PASS
-ok  	raytracer/internal/render	1.937s

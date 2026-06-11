@@ -1,7 +1,0 @@
-./elf.go
-./goobj.go
-./macho.go
-./objfile.go
-./pe.go
-./plan9obj.go
-./xcoff.go
