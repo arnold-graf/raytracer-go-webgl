@@ -1,0 +1,3 @@
+./render.go
+./bench_test.go
+./render_test.go

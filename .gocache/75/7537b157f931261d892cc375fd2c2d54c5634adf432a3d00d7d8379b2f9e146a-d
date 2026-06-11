@@ -1,0 +1,8 @@
+./arg.go
+./csr_string.go
+./decode.go
+./gnu.go
+./inst.go
+./plan9x.go
+./tables.go
+./vector.go
