@@ -89,6 +89,24 @@ func TestSlantedRoofDoesNotBlock(t *testing.T) {
 	}
 }
 
+// TestStepMaterialAtPicksTopSurface verifies footstep material follows the
+// highest surface underfoot: terrain reads as grass, a textured box floor reads
+// by its texture, and a transformed (included) floor is honored in world space.
+func TestStepMaterialAtPicksTopSurface(t *testing.T) {
+	ter := Terrain{OriginX: -40, OriginZ: -40, SizeX: 80, SizeZ: 80, Base: 0, Step: 0.3}
+	ter.Prepare()
+	marbleFloor := Box{Min: vec.New(10, -0.3, -8), Max: vec.New(20, 0.4, 4),
+		Surface: Surface{Tex: 5 /* texture.Marble */}}
+	s := &Scene{Terrains: []Terrain{ter}, Boxes: []Box{marbleFloor}}
+
+	if m := s.StepMaterialAt(0, 20, 2.0); m != StepGrass {
+		t.Fatalf("open terrain should be grass, got %d", m)
+	}
+	if m := s.StepMaterialAt(15, 0, 2.0); m != StepHard {
+		t.Fatalf("marble floor should be hard, got %d", m)
+	}
+}
+
 func TestBlockedAtWallButNotDoorOrFloor(t *testing.T) {
 	s := buildingScene()
 	feetY, headY, r, step := 0.4, 2.0, 0.3, 0.45

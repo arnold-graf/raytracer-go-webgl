@@ -174,21 +174,21 @@ Add `TestConstantsMatchWGSL` that parses the emitted snippet.
 Every phase ends with: `go test ./...` green, CPU unchanged, optional GPU
 parity snapshot. Merge when the phase passes its gate.
 
-### Phase 0 — Skeleton (≈ 1 day)
+### Phase 0 — Skeleton
 
 - [ ] Add `github.com/rajveermalviya/go-webgpu/wgpu` (or `cogentcore/webgpu`)
 - [ ] `internal/webgpu`: open device, compile empty compute shader, write gradient
 - [ ] `-renderer webgpu` flag; app still defaults to CPU
 - [ ] **Gate:** window opens, gradient visible, CPU path unaffected
 
-### Phase 1 — Camera + sky (≈ 1 day)
+### Phase 1 — Camera + sky
 
 - [ ] Port `camera.Ray`, `clearSky` (only)
 - [ ] Uniform buffer: camera basis, aspect, fov
 - [ ] **Gate:** GPU sky matches CPU `clearSky` on 4 fixed rays (unit test);
   visual match on default scene (no geometry)
 
-### Phase 2 — Primitives + diffuse (≈ 2–3 days)
+### Phase 2 — Primitives + diffuse
 
 - [ ] `gpuscene.Pack`: spheres, boxes, planes → storage buffer
 - [ ] Port intersections + `shade` with ambient only (no lights yet)
@@ -196,44 +196,44 @@ parity snapshot. Merge when the phase passes its gate.
 - [ ] **Gate:** `parity.Compare(cpu, gpu, default.toml, tol=1/255)` passes on
   3 fixed cameras with mirror/shadow/AO **off**
 
-### Phase 3 — Lights + shadows (≈ 2 days)
+### Phase 3 — Lights + shadows
 
 - [ ] Upload lights with precomputed cull data
 - [ ] Port `addPointLight`, `shadowed`, blocker BVH `AnyHit`
 - [ ] **Gate:** parity with shadow on; indoor-outdoor interior view
 
-### Phase 4 — BVH on GPU (≈ 1–2 days)
+### Phase 4 — BVH on GPU
 
 - [ ] Upload CPU-built SAH BVH node array
 - [ ] Port `bvh.Nearest` / `AnyHit` traversal
 - [ ] Remove brute-force primitive loop
 - [ ] **Gate:** parity on textured.toml + indoor-outdoor; profile shows BVH working
 
-### Phase 5 — Procedural textures (≈ 2–3 days)
+### Phase 5 — Procedural textures
 
 - [ ] Port `noise.go` (perm table as const)
 - [ ] Port all textures: wood, brick, stone, cement, marble, grass, dirt, snow,
   wallpaper (3 variants)
 - [ ] **Gate:** parity on textured.toml + indoor-outdoor wallpaper walls
 
-### Phase 6 — Reflections + semi-reflect (≈ 1–2 days)
+### Phase 6 — Reflections + semi-reflect
 
 - [ ] Port bounce loop: mirror, metal, glass, `reflect` blend
 - [ ] **Gate:** parity on default.toml (reflective floor) with mirror on
 
-### Phase 7 — Terrain + water + pads (≈ 2–3 days)
+### Phase 7 — Terrain + water + pads
 
 - [ ] Upload terrain height/normal/coarse grids + pad params
 - [ ] Port `terrain.march`, `IntersectWithin`, water pool
 - [ ] **Gate:** parity on outdoors.toml + indoor-outdoor.toml (pad under room)
 
-### Phase 8 — AO volume + campfires (≈ 1–2 days)
+### Phase 8 — AO volume + campfires
 
 - [ ] Upload AO 3D texture (CPU still bakes; GPU samples)
 - [ ] Port campfire `LightAt` flicker + shadow gate
 - [ ] **Gate:** full parity on indoor-outdoor.toml, all toggles on
 
-### Phase 9 — Hot reload + polish (≈ 1 day)
+### Phase 9 — Hot reload + polish
 
 - [ ] GPU buffer rebuild on scene reload (reuse existing `app.checkReload`)
 - [ ] Invalidate AO bake + BVH on reload

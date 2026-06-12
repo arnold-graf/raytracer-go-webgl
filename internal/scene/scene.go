@@ -24,6 +24,7 @@ type Scene struct {
 	Waters    []WaterPool
 	Lights    []Light
 	Campfires []Campfire
+	Ambiences []Ambience
 	Start     CameraStart
 	Env       Environment
 }

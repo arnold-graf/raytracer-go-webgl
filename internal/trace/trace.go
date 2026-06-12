@@ -314,6 +314,17 @@ func (tr *Tracer) intersect(r vec.Ray, h *hit, tc *Texel) bool {
 	return true
 }
 
+// ProbeDistance returns the distance to the nearest solid surface (finite
+// primitives via the BVH, plus planes) along a ray from origin in dir, capped at
+// maxT. It is the acoustic ray query used to estimate room enclosure for
+// reverb: rays that hit nearby walls in many directions imply an enclosed,
+// reverberant space, while rays that fly off to maxT imply the open outdoors.
+// Terrain is intentionally excluded (it is the ground, not a reflecting wall),
+// which conveniently makes the outdoors read as dry.
+func (tr *Tracer) ProbeDistance(origin, dir vec.V, maxT float64) float64 {
+	return tr.nearestDist(vec.Ray{Origin: origin, Dir: dir.Normalize()}, maxT)
+}
+
 // nearestDist returns the distance to the closest primitive along r, capped at
 // maxT (anything farther is reported as maxT). It skips normal/material work,
 // making it cheaper than intersect for occlusion probes (AO).

@@ -71,6 +71,13 @@ func New() *Camera {
 // SetConfig replaces the movement tuning.
 func (c *Camera) SetConfig(cfg Config) { c.cfg = cfg }
 
+// OnGround reports whether the player is currently standing on a surface (as
+// opposed to airborne mid-jump/fall). Used to gate footstep sounds.
+func (c *Camera) OnGround() bool { return c.onGround }
+
+// EyeHeight returns the configured camera height above the surface underfoot.
+func (c *Camera) EyeHeight() float64 { return c.cfg.EyeHeight }
+
 // SetWorld attaches the collision/terrain world (nil = flat plane at y=0).
 func (c *Camera) SetWorld(w World) { c.world = w }
 
@@ -140,14 +147,31 @@ func (c *Camera) Update(m Move, dt float64) {
 		c.velY = c.cfg.JumpVelocity
 		c.onGround = false
 	}
-	c.velY -= c.cfg.Gravity * dt
-	c.Pos.Y += c.velY * dt
-	if c.Pos.Y <= standEye {
-		c.Pos.Y = standEye
-		c.velY = 0
-		c.onGround = true
+
+	if c.onGround {
+		// Stay glued to the ground while walking, following small rises and dips
+		// in the terrain without ever going airborne. Without this, walking
+		// downhill leaves the eye briefly above the lowered ground, registering a
+		// one-frame "fall" and "landing" every frame — which the footstep system
+		// hears as a rapid drumroll of landing thuds. Only a drop larger than a
+		// single step (a real ledge) starts an actual fall.
+		const stepDownLimit = 0.75
+		if c.Pos.Y-standEye > stepDownLimit {
+			c.onGround = false
+			c.velY -= c.cfg.Gravity * dt
+			c.Pos.Y += c.velY * dt
+		} else {
+			c.Pos.Y = standEye
+			c.velY = 0
+		}
 	} else {
-		c.onGround = false
+		c.velY -= c.cfg.Gravity * dt
+		c.Pos.Y += c.velY * dt
+		if c.Pos.Y <= standEye {
+			c.Pos.Y = standEye
+			c.velY = 0
+			c.onGround = true
+		}
 	}
 }
 

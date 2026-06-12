@@ -5,6 +5,8 @@ package app
 
 import (
 	"fmt"
+	"math"
+	"math/rand"
 	"os"
 	"time"
 
@@ -12,11 +14,13 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
+	"raytracer/internal/audio"
 	"raytracer/internal/camera"
 	"raytracer/internal/render"
 	"raytracer/internal/scene"
 	"raytracer/internal/sceneio"
 	"raytracer/internal/trace"
+	"raytracer/internal/vec"
 )
 
 // Game is the Ebiten game implementing the render loop and input handling.
@@ -48,6 +52,22 @@ type Game struct {
 	reloadPoll            int
 	reloadMsg             string
 	reloadMsgAt           time.Time
+
+	// Audio + footsteps. snd is nil when no audio device is available, in which
+	// case every audio call is a no-op. strideAccum sums horizontal distance
+	// walked while grounded; a footstep fires each time it passes strideLen.
+	snd         *audio.Engine
+	prevPos     vec.V
+	strideAccum float64
+	wasGround   bool
+	reverbPoll  int
+	// Smoothed reverb parameters; updateReverb eases these toward their target
+	// each poll so entering/leaving a room fades rather than snapping. wetL/wetR
+	// are per-ear so reflections favor the side with nearby walls.
+	reverbWetL float64
+	reverbWetR float64
+	reverbFb   float64
+	reverbDamp float64
 }
 
 // New builds a game with the given internal render resolution rendering the
@@ -79,7 +99,215 @@ func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath s
 	// reload of the files we just loaded.
 	g.sceneDeps = seedSceneDeps(scenePath)
 	g.playerMod, _ = fileModTime(playerPath)
+
+	// Audio is best-effort: if no device can be opened (headless/CI), keep snd
+	// nil and run silently rather than failing to launch.
+	if snd, err := audio.NewEngine(); err == nil {
+		g.snd = snd
+	}
+	g.prevPos = g.cam.Pos
+	g.wasGround = g.cam.OnGround()
+	g.reverbFb, g.reverbDamp = 0.75, 0.5
+	g.setupAmbience()
 	return g
+}
+
+// Footstep tuning. strideLen is the horizontal distance between steps; the
+// pitch of each step is jittered within ±pitchJitter for a natural cadence.
+const (
+	strideLen   = 1.15
+	pitchJitter = 0.12
+)
+
+// updateFootsteps accumulates walked distance and fires a footstep sound each
+// stride, picking the sound from the surface underfoot and jittering pitch and
+// gain per step. It also plays a single, slightly heavier step on landing.
+func (g *Game) updateFootsteps() {
+	if g.snd == nil {
+		return
+	}
+	pos := g.cam.Pos
+	onGround := g.cam.OnGround()
+
+	// Landing thud: airborne → grounded transition.
+	if onGround && !g.wasGround {
+		g.playStep(pos, 1.0, -0.15)
+		g.strideAccum = 0
+	} else if onGround {
+		dx := pos.X - g.prevPos.X
+		dz := pos.Z - g.prevPos.Z
+		g.strideAccum += math.Hypot(dx, dz)
+		if g.strideAccum >= strideLen {
+			g.strideAccum -= strideLen
+			g.playStep(pos, 0.0, 0)
+		}
+	}
+
+	g.prevPos = pos
+	g.wasGround = onGround
+}
+
+// playStep synthesizes one footstep for the surface under pos. extraGain and
+// pitchBias let callers tweak emphasis (e.g. a landing step is louder/lower).
+func (g *Game) playStep(pos vec.V, extraGain, pitchBias float64) {
+	headY := pos.Y
+	mat := surfaceToAudio(g.tr.Scene.StepMaterialAt(pos.X, pos.Z, headY))
+	pitch := 1 + pitchBias + (rand.Float64()*2-1)*pitchJitter
+	gain := 0.9 + extraGain + (rand.Float64()*2-1)*0.1
+	g.snd.Footstep(mat, gain, pitch)
+}
+
+// surfaceToAudio maps the scene's step material to the audio engine's surface.
+func surfaceToAudio(m scene.StepMaterial) audio.Surface {
+	switch m {
+	case scene.StepHard:
+		return audio.Hard
+	case scene.StepWood:
+		return audio.Wood
+	case scene.StepSnow:
+		return audio.Snow
+	default:
+		return audio.Grass
+	}
+}
+
+// updateReverb probes the scene around the listener with a few rays and sets the
+// reverb to match the enclosure: many nearby wall hits → a wet, longer tail
+// (indoors); rays flying off into the open → dry (outdoors). Throttled since the
+// acoustics change slowly relative to the frame rate.
+func (g *Game) updateReverb() {
+	if g.snd == nil {
+		return
+	}
+	g.reverbPoll++
+	if g.reverbPoll < 6 {
+		return
+	}
+	g.reverbPoll = 0
+
+	const maxProbe = 25.0
+	// Ceiling proximity ramps the reverb in rather than gating it: at/under
+	// ceilingNear it's fully "indoors", past ceilingFar it's fully "outdoors",
+	// and it blends between. Combined with the temporal easing below, this turns
+	// the old hard on/off at a doorway into a smooth fade.
+	const ceilingNear, ceilingFar = 4.0, 11.0
+	origin := g.cam.Pos
+
+	upDist := g.tr.ProbeDistance(origin, vec.V{Y: 1}, maxProbe)
+	ceilFac := clampf((ceilingFar-upDist)/(ceilingFar-ceilingNear), 0, 1)
+
+	// Probe a horizontal fan and bucket each ray's wall hit into the left/right
+	// ear by its direction relative to the player's "right" vector. A wall on one
+	// side then raises the reverb in that ear only, so walking beside a wall with
+	// open space on the other side is heard as one-sided reflections.
+	_, right, _ := g.cam.Basis()
+	dirs := []vec.V{
+		{X: 1}, {X: -1}, {Z: 1}, {Z: -1},
+		{X: 0.7, Z: 0.7}, {X: -0.7, Z: 0.7}, {X: 0.7, Z: -0.7}, {X: -0.7, Z: -0.7},
+	}
+	var hits int
+	var sum, lAcc, lW, rAcc, rW float64
+	for _, d := range dirs {
+		hit := 0.0
+		if dist := g.tr.ProbeDistance(origin, d, maxProbe); dist < maxProbe {
+			hit = 1
+			hits++
+			sum += dist
+		}
+		// Pan weight: +1 fully to the right ear, -1 fully to the left.
+		pan := d.Normalize().Dot(right)
+		rWeight := clampf((pan+1)/2, 0, 1)
+		lWeight := 1 - rWeight
+		lAcc += hit * lWeight
+		lW += lWeight
+		rAcc += hit * rWeight
+		rW += rWeight
+	}
+	leftEncl, rightEncl := 0.0, 0.0
+	if lW > 0 {
+		leftEncl = lAcc / lW
+	}
+	if rW > 0 {
+		rightEncl = rAcc / rW
+	}
+	enclosure := float64(hits) / float64(len(dirs)) // overall, for tail character
+	avg := maxProbe
+	if hits > 0 {
+		avg = sum / float64(hits)
+	}
+
+	const wetScale = 0.35
+	targetWetL := leftEncl * wetScale * ceilFac
+	targetWetR := rightEncl * wetScale * ceilFac
+	targetFb := 0.72 + clampf(avg/maxProbe, 0, 1)*0.20
+	targetDamp := 0.25 + (1-enclosure)*0.35
+
+	// Ease toward the target so crossing a threshold fades over ~0.5 s rather
+	// than popping (this poll runs roughly every 0.1 s).
+	const k = 0.2
+	g.reverbWetL += (targetWetL - g.reverbWetL) * k
+	g.reverbWetR += (targetWetR - g.reverbWetR) * k
+	g.reverbFb += (targetFb - g.reverbFb) * k
+	g.reverbDamp += (targetDamp - g.reverbDamp) * k
+	g.snd.SetReverb(g.reverbFb, g.reverbDamp, g.reverbWetL, g.reverbWetR)
+}
+
+// setupAmbience (re)builds looping spatial sounds from the scene's [[sound]]
+// tables (e.g. crickets in trees). Called on startup and after a scene reload.
+func (g *Game) setupAmbience() {
+	if g.snd == nil {
+		return
+	}
+	var emitters []audio.AmbientEmitter
+	for _, a := range g.tr.Scene.Ambiences {
+		emitters = append(emitters, audio.AmbientEmitter{
+			Sound:  a.Sound,
+			Pos:    a.Pos,
+			Gain:   a.Gain,
+			Radius: a.Radius,
+		})
+	}
+	g.snd.SetAmbients(emitters)
+}
+
+// updateAmbience refreshes distance attenuation, stereo pan, and wall occlusion
+// for each ambient emitter from the listener pose.
+func (g *Game) updateAmbience() {
+	if g.snd == nil {
+		return
+	}
+	_, right, _ := g.cam.Basis()
+	g.snd.UpdateAmbients(g.cam.Pos, right, g.ambientOcclusion)
+}
+
+// ambientOcclusion ray-traces from the listener toward an ambient emitter. A wall
+// hit before the source heavily muffles the sound (cubed falloff), so crickets
+// outside are near-silent indoors even when within the distance radius.
+func (g *Game) ambientOcclusion(listener, target vec.V) float64 {
+	dx := target.X - listener.X
+	dy := target.Y - listener.Y
+	dz := target.Z - listener.Z
+	dist := math.Hypot(dx, math.Hypot(dy, dz))
+	if dist < 0.2 {
+		return 1
+	}
+	dir := vec.V{X: dx / dist, Y: dy / dist, Z: dz / dist}
+	hit := g.tr.ProbeDistance(listener, dir, dist)
+	ratio := hit / dist
+	if ratio >= 0.95 {
+		return 1 // clear line of sight (or emitter is the nearest surface)
+	}
+	return ratio * ratio * ratio
+}
+
+func clampf(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // seedSceneDeps resolves every file scenePath depends on and records their
@@ -129,6 +357,11 @@ func (g *Game) Update() error {
 		Right:   ebiten.IsKeyPressed(ebiten.KeyD) || ebiten.IsKeyPressed(ebiten.KeyArrowRight),
 		Jump:    ebiten.IsKeyPressed(ebiten.KeySpace),
 	}, dt)
+
+	// Footsteps, room reverb, and spatial ambients derive from the post-move state.
+	g.updateReverb()
+	g.updateAmbience()
+	g.updateFootsteps()
 
 	// Advance the animation clock (Update runs at a fixed 60 Hz).
 	g.elapsed += 1.0 / 60.0
@@ -191,6 +424,7 @@ func (g *Game) reloadScene() bool {
 	g.tr = tr
 	g.cam.SetWorld(sc) // collisions/ground use the new geometry; pose unchanged
 	g.sceneDeps = depTimes(deps)
+	g.setupAmbience()
 	g.setReloadMsg("scene reloaded")
 	return true
 }

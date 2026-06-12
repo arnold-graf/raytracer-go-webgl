@@ -174,6 +174,34 @@ type campfireDTO struct {
 	Seed       float64 `toml:"seed"`
 }
 
+type soundDTO struct {
+	Sound  string  `toml:"sound"`
+	At     vec3    `toml:"at"`
+	Gain   float64 `toml:"gain"`
+	Radius float64 `toml:"radius"`
+}
+
+// build resolves a spatial ambience emitter, filling in sensible defaults.
+func (d soundDTO) build() (scene.Ambience, error) {
+	if d.Sound == "" {
+		return scene.Ambience{}, fmt.Errorf("missing sound")
+	}
+	gain := d.Gain
+	if gain == 0 {
+		gain = 0.3
+	}
+	radius := d.Radius
+	if radius == 0 {
+		radius = 20
+	}
+	return scene.Ambience{
+		Sound:  d.Sound,
+		Pos:    d.At.toV(),
+		Gain:   gain,
+		Radius: radius,
+	}, nil
+}
+
 // build resolves a campfire, filling in sensible defaults for any omitted
 // flicker parameters so a bare [[campfire]] with just a center already looks
 // like a fire.
@@ -300,6 +328,7 @@ type sceneDTO struct {
 	Water       []waterDTO      `toml:"water"`
 	Light       []lightDTO      `toml:"light"`
 	Campfire    []campfireDTO   `toml:"campfire"`
+	Sound       []soundDTO      `toml:"sound"`
 }
 
 // tintOrWhite returns v as a color, defaulting an omitted (all-zero) vector to
@@ -518,6 +547,13 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 	for _, d := range dto.Campfire {
 		s.Campfires = append(s.Campfires, d.build())
 	}
+	for i, d := range dto.Sound {
+		a, err := d.build()
+		if err != nil {
+			return nil, fmt.Errorf("sound[%d]: %w", i, err)
+		}
+		s.Ambiences = append(s.Ambiences, a)
+	}
 	if dto.Camera != nil {
 		s.Start = scene.CameraStart{Set: true, Pos: dto.Camera.Pos.toV(), Yaw: dto.Camera.Yaw, Pitch: dto.Camera.Pitch}
 	}
@@ -614,6 +650,13 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 			c.Center = xf.ToWorld(c.Center)
 		}
 		dst.Campfires = append(dst.Campfires, c)
+	}
+	for i := range sub.Ambiences {
+		a := sub.Ambiences[i]
+		if xf != nil {
+			a.Pos = xf.ToWorld(a.Pos)
+		}
+		dst.Ambiences = append(dst.Ambiences, a)
 	}
 }
 
