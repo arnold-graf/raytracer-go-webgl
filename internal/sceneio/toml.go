@@ -111,6 +111,20 @@ type lightDTO struct {
 	Color  vec3    `toml:"color"`
 	Radius float64 `toml:"radius"`
 	Range  float64 `toml:"range"`
+	// Brightness scales the light's intensity independently of its color/range
+	// (1 = as authored), mirroring the campfire's brightness knob. It is folded
+	// into the color at load time, so culling and shading honor it for free.
+	Brightness float64 `toml:"brightness"`
+}
+
+// build resolves a light, applying the brightness multiplier (default 1) to the
+// color so the rest of the engine only sees a single effective intensity.
+func (d lightDTO) build() scene.Light {
+	b := d.Brightness
+	if b == 0 {
+		b = 1
+	}
+	return scene.Light{Pos: d.Pos.toV(), Color: d.Color.toV().Scale(b), Radius: d.Radius, Range: d.Range}
 }
 
 type campfireDTO struct {
@@ -197,6 +211,17 @@ type terrainDTO struct {
 	SnowHi   float64 `toml:"snow_hi"`
 
 	Feature []terrainFeatureDTO `toml:"feature"`
+	Pad     []terrainPadDTO     `toml:"pad"`
+}
+
+// terrainPadDTO flattens a building site into the terrain. center/half are the
+// inner flat rectangle (X/Z); level is the flattened height; margin is the
+// width of the smooth blend ring around it.
+type terrainPadDTO struct {
+	Center [2]float64 `toml:"center"`
+	Half   [2]float64 `toml:"half"`
+	Level  float64    `toml:"level"`
+	Margin float64    `toml:"margin"`
 }
 
 type cameraDTO struct {
@@ -310,7 +335,7 @@ func (dto sceneDTO) applyOverrides(s *scene.Scene) error {
 	if dto.Light != nil {
 		s.Lights = s.Lights[:0]
 		for _, d := range dto.Light {
-			s.Lights = append(s.Lights, scene.Light{Pos: d.Pos.toV(), Color: d.Color.toV(), Radius: d.Radius, Range: d.Range})
+			s.Lights = append(s.Lights, d.build())
 		}
 	}
 	if dto.Campfire != nil {
@@ -389,7 +414,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		})
 	}
 	for _, d := range dto.Light {
-		s.Lights = append(s.Lights, scene.Light{Pos: d.Pos.toV(), Color: d.Color.toV(), Radius: d.Radius, Range: d.Range})
+		s.Lights = append(s.Lights, d.build())
 	}
 	for _, d := range dto.Campfire {
 		s.Campfires = append(s.Campfires, d.build())
@@ -475,6 +500,13 @@ func (d terrainDTO) build() (scene.Terrain, error) {
 		ter.Features = append(ter.Features, scene.TerrainFeature{
 			PosX: f.Pos[0], PosZ: f.Pos[1], Height: h, Width: w, Steepness: st,
 			ExtendX: ext[0], ExtendZ: ext[1], Angle: f.Angle,
+		})
+	}
+	for _, p := range d.Pad {
+		ter.Pads = append(ter.Pads, scene.TerrainPad{
+			CenterX: p.Center[0], CenterZ: p.Center[1],
+			HalfX: p.Half[0], HalfZ: p.Half[1],
+			Level: p.Level, Margin: p.Margin,
 		})
 	}
 	ter.Prepare()

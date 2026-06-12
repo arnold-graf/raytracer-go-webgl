@@ -25,18 +25,24 @@ const (
 	Grass
 	Dirt
 	Snow
+	WallpaperNavy
+	WallpaperGreen
+	WallpaperRose
 )
 
 var byName = map[string]int{
-	"none":   None,
-	"wood":   Wood,
-	"brick":  Brick,
-	"stone":  Stone,
-	"cement": Cement,
-	"marble": Marble,
-	"grass":  Grass,
-	"dirt":   Dirt,
-	"snow":   Snow,
+	"none":            None,
+	"wood":            Wood,
+	"brick":           Brick,
+	"stone":           Stone,
+	"cement":          Cement,
+	"marble":          Marble,
+	"grass":           Grass,
+	"dirt":            Dirt,
+	"snow":            Snow,
+	"wallpaper_navy":  WallpaperNavy,
+	"wallpaper_green": WallpaperGreen,
+	"wallpaper_rose":  WallpaperRose,
 }
 
 // ID resolves a texture name to its id. Ok is false for unknown names.
@@ -66,6 +72,8 @@ func Eval(id int, p, base vec.V) vec.V {
 		return dirt(p, base)
 	case Snow:
 		return snow(p, base)
+	case WallpaperNavy, WallpaperGreen, WallpaperRose:
+		return wallpaper(p, base, id)
 	default:
 		return base
 	}

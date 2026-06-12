@@ -60,7 +60,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	game := app.New(renderW, renderH, sc, cfg)
+	game := app.New(renderW, renderH, sc, cfg, *scenePath, *playerPath)
 
 	ebiten.SetWindowSize(renderW*scale, renderH*scale)
 	ebiten.SetWindowTitle("Realtime Raytracer (Go + Ebiten)")

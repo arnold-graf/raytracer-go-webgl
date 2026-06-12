@@ -21,6 +21,19 @@ type TerrainFeature struct {
 	Angle            float64
 }
 
+// TerrainPad flattens a rectangular building site into the height field: inside
+// the inner rectangle (CenterX/Z ± HalfX/Z) the terrain is forced to Level, and
+// over a Margin-wide ring outside it the natural terrain is smoothly blended
+// down to that level. It lets a building/road/plaza sit on flat, seam-free
+// ground without the surrounding relief poking through its floor. The effect is
+// baked into the height cache, so it costs nothing at render time.
+type TerrainPad struct {
+	CenterX, CenterZ float64
+	HalfX, HalfZ     float64
+	Level            float64
+	Margin           float64
+}
+
 // Terrain is a single-valued height field y = Height(x,z) over a rectangular
 // footprint, rendered by ray marching. Material is blended between a grass, a
 // rock, and a snow texture by slope and altitude.
@@ -31,6 +44,7 @@ type Terrain struct {
 	Detail           float64 // fBm amplitude of fine relief
 	DetailScale      float64 // fBm frequency
 	Features         []TerrainFeature
+	Pads             []TerrainPad
 
 	Grass, Rock, Snow          int   // texture ids
 	GrassCol, RockCol, SnowCol vec.V // per-layer tint
@@ -66,6 +80,15 @@ func (t *Terrain) Prepare() {
 			maxY += h
 		} else {
 			minY += h
+		}
+	}
+	// Pads can clamp the field to an arbitrary Level; widen the band to include
+	// it so the marching slab never misses a flattened region.
+	for i := range t.Pads {
+		if l := t.Pads[i].Level; l > maxY {
+			maxY = l
+		} else if l < minY {
+			minY = l
 		}
 	}
 	t.MinY = minY - 0.5
@@ -221,6 +244,29 @@ func (t *Terrain) heightAnalytic(x, z float64) float64 {
 	}
 	if t.Detail != 0 {
 		h += t.Detail * texture.FBM(x*t.DetailScale, 0, z*t.DetailScale, 4)
+	}
+	// Building pads flatten the site and blend the surrounding relief down to
+	// Level over a Margin-wide ring. Applied last so they override features and
+	// detail, and applied in order so overlapping pads layer predictably.
+	for i := range t.Pads {
+		p := &t.Pads[i]
+		dx := math.Abs(x-p.CenterX) - p.HalfX
+		dz := math.Abs(z-p.CenterZ) - p.HalfZ
+		if dx < 0 {
+			dx = 0
+		}
+		if dz < 0 {
+			dz = 0
+		}
+		var w float64
+		if p.Margin <= 0 {
+			if dx == 0 && dz == 0 {
+				w = 1
+			}
+		} else {
+			w = 1 - smoothstep(0, p.Margin, math.Hypot(dx, dz))
+		}
+		h += (p.Level - h) * w
 	}
 	return h
 }

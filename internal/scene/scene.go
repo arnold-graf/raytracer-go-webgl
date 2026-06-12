@@ -94,7 +94,7 @@ func Default() *Scene {
 			{Center: vec.New(-1.5, 2.8, 1.5), Radius: 0.25, Surface: surf(MatEmit, 4, 6, 10, 0.0, 1.5)},
 		},
 		Planes: []Plane{
-			{N: vec.New(0, 1, 0), D: 0, Surface: surf(MatChecker, 0.75, 0.7, 0.65, 0, 1.5), Albedo2: vec.New(0.15, 0.15, 0.18)},
+			{N: vec.New(0, 1, 0), D: 0, Surface: Surface{Mat: MatChecker, Albedo: vec.New(0.75, 0.7, 0.65), Rough: 0.02, IOR: 1.5, Reflect: 0.25}, Albedo2: vec.New(0.15, 0.15, 0.18)},
 			{N: vec.New(0, 0, 1), D: -5.5, Surface: surf(MatDiffuse, 0.5, 0.45, 0.75, 0, 1.5)},
 			{N: vec.New(1, 0, 0), D: -4.5, Surface: surf(MatMirror, 0.85, 0.85, 0.90, 0.04, 1.5)},
 			{N: vec.New(-1, 0, 0), D: -4.5, Surface: surf(MatDiffuse, 0.2, 0.65, 0.25, 0, 1.5)},
