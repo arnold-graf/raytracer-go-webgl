@@ -54,6 +54,41 @@ func TestGroundHeightFollowsTerrain(t *testing.T) {
 	}
 }
 
+// TestBlockedHonorsBoxTransform guards against the regression where collision
+// used a box's local Min/Max and ignored its world transform, producing a
+// phantom wall at the origin and none at the real (translated) location.
+func TestBlockedHonorsBoxTransform(t *testing.T) {
+	xf := NewInstanceTransform(0, 0, 0, vec.New(16, 0, -2))
+	s := &Scene{Boxes: []Box{
+		// A wall authored in local space (around the origin), placed at world
+		// (16,0,-2) via the include transform.
+		{Min: vec.New(-1, 0, -1), Max: vec.New(1, 6, 1), Surface: Surface{Xform: xf}},
+	}}
+	feetY, headY, r, step := 0.0, 2.0, 0.3, 0.45
+
+	// The wall is really at world (16,0,-2); local coords would have it at origin.
+	if !s.Blocked(16, -2, feetY, headY, r, step) {
+		t.Fatalf("expected the wall to block at its world position (16,-2)")
+	}
+	if s.Blocked(0, 0, feetY, headY, r, step) {
+		t.Fatalf("origin must be clear (no phantom wall from local coords)")
+	}
+}
+
+// TestSlantedRoofDoesNotBlock checks hypothesis B: a high tilted roof box stays
+// above the player's head in world space and never blocks walking.
+func TestSlantedRoofDoesNotBlock(t *testing.T) {
+	roof := NewTransform(-12, 0, 0, vec.New(0, 5.9, 0))
+	place := NewInstanceTransform(0, 0, 0, vec.New(16, 0, -2))
+	s := &Scene{Boxes: []Box{
+		{Min: vec.New(-4.7, 5.8, -5.7), Max: vec.New(4.7, 6.1, 5.7),
+			Surface: Surface{Xform: place.Compose(roof)}},
+	}}
+	if s.Blocked(16, -2, 0.0, 2.0, 0.3, 0.45) {
+		t.Fatalf("slanted roof (overhead) should not block a walking player")
+	}
+}
+
 func TestBlockedAtWallButNotDoorOrFloor(t *testing.T) {
 	s := buildingScene()
 	feetY, headY, r, step := 0.4, 2.0, 0.3, 0.45

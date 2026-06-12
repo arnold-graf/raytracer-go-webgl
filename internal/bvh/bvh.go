@@ -75,25 +75,34 @@ func build(s *scene.Scene, blockersOnly bool) *BVH {
 
 	for i := range s.Spheres {
 		o := &s.Spheres[i]
-		if blockersOnly && o.Mat == scene.MatEmit {
-			continue // emissive spheres cast no shadow
+		if blockersOnly && (o.Mat == scene.MatEmit || o.Mat == scene.MatGlass) {
+			continue // emissive spheres and glass cast no shadow
 		}
 		rad := vec.V{X: o.Radius, Y: o.Radius, Z: o.Radius}
-		b.add(KindSphere, i, o.Center.Sub(rad), o.Center.Add(rad))
+		b.addBounded(KindSphere, i, o.Xform, o.Center.Sub(rad), o.Center.Add(rad))
 	}
 	for i := range s.Boxes {
 		o := &s.Boxes[i]
-		b.add(KindBox, i, o.Min, o.Max)
+		if blockersOnly && o.Mat == scene.MatGlass {
+			continue
+		}
+		b.addBounded(KindBox, i, o.Xform, o.Min, o.Max)
 	}
 	for i := range s.Cylinders {
 		o := &s.Cylinders[i]
-		b.add(KindCylinder, i,
+		if blockersOnly && o.Mat == scene.MatGlass {
+			continue
+		}
+		b.addBounded(KindCylinder, i, o.Xform,
 			vec.V{X: o.CX - o.Radius, Y: o.YMin, Z: o.CZ - o.Radius},
 			vec.V{X: o.CX + o.Radius, Y: o.YMax, Z: o.CZ + o.Radius})
 	}
 	for i := range s.Cones {
 		o := &s.Cones[i]
-		b.add(KindCone, i,
+		if blockersOnly && o.Mat == scene.MatGlass {
+			continue
+		}
+		b.addBounded(KindCone, i, o.Xform,
 			vec.V{X: o.CX - o.RBase, Y: o.YBase, Z: o.CZ - o.RBase},
 			vec.V{X: o.CX + o.RBase, Y: o.YTip, Z: o.CZ + o.RBase})
 	}
@@ -128,6 +137,31 @@ func (b *BVH) add(kind, idx int, min, max vec.V) {
 		kind: kind, idx: idx, min: min, max: max,
 		centroid: min.Add(max).Scale(0.5),
 	})
+}
+
+// addBounded registers a primitive whose local-space AABB is (lmin, lmax). When
+// xform is non-nil the eight corners are transformed into world space so the BVH
+// bounds match the rotated geometry.
+func (b *BVH) addBounded(kind, idx int, xform *scene.Transform, lmin, lmax vec.V) {
+	if xform == nil {
+		b.add(kind, idx, lmin, lmax)
+		return
+	}
+	wmin, wmax := lmin, lmax
+	for _, dx := range [2]float64{0, 1} {
+		for _, dy := range [2]float64{0, 1} {
+			for _, dz := range [2]float64{0, 1} {
+				c := xform.ToWorld(vec.V{
+					X: lmin.X + dx*(lmax.X-lmin.X),
+					Y: lmin.Y + dy*(lmax.Y-lmin.Y),
+					Z: lmin.Z + dz*(lmax.Z-lmin.Z),
+				})
+				wmin = minV(wmin, c)
+				wmax = maxV(wmax, c)
+			}
+		}
+	}
+	b.add(kind, idx, wmin, wmax)
 }
 
 // buildRange recursively builds the subtree covering prims[start:end] and
@@ -419,15 +453,20 @@ func (b *BVH) primIntersect(p *primRef, r vec.Ray) float64 {
 	s := b.s
 	switch p.kind {
 	case KindSphere:
-		return s.Spheres[p.idx].Intersect(r)
+		o := &s.Spheres[p.idx]
+		return o.Intersect(o.Xform.LocalRay(r))
 	case KindBox:
-		return s.Boxes[p.idx].Intersect(r)
+		o := &s.Boxes[p.idx]
+		return o.Intersect(o.Xform.LocalRay(r))
 	case KindCylinder:
-		return s.Cylinders[p.idx].Intersect(r)
+		o := &s.Cylinders[p.idx]
+		return o.Intersect(o.Xform.LocalRay(r))
 	case KindCone:
-		return s.Cones[p.idx].Intersect(r)
+		o := &s.Cones[p.idx]
+		return o.Intersect(o.Xform.LocalRay(r))
 	case KindTorus:
-		return s.Tori[p.idx].Intersect(r)
+		o := &s.Tori[p.idx]
+		return o.Intersect(o.Xform.LocalRay(r))
 	}
 	return scene.Inf
 }

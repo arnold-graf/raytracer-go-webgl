@@ -199,6 +199,7 @@ type hit struct {
 	rough   float64
 	ior     float64
 	reflect float64
+	transmit float64
 }
 
 // intersect finds the nearest primitive along the ray and fills h. When tc is
@@ -235,44 +236,79 @@ func (tr *Tracer) intersect(r vec.Ray, h *hit, tc *Texel) bool {
 	h.t = tmin
 	h.p = r.At(tmin)
 	var tex int
+	texP := h.p // procedural texture coords (local space when transformed)
 	switch kind {
 	case 0:
 		o := &s.Spheres[idx]
-		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect = o.Normal(h.p), o.Albedo, o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect
+		lp := h.p
+		if o.Xform != nil {
+			lp = o.Xform.LocalRay(r).At(tmin)
+		}
+		texP = lp
+		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect, h.transmit =
+			o.Xform.WorldNormal(o.Normal(lp)), o.Albedo, o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect, o.Transmit
 	case 1:
 		o := &s.Planes[idx]
-		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect = o.N, o.AlbedoAt(h.p), o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect
+		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect, h.transmit =
+			o.N, o.AlbedoAt(h.p), o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect, o.Transmit
 	case 2:
 		o := &s.Boxes[idx]
-		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect = o.Normal(h.p), o.Albedo, o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect
+		lp := h.p
+		if o.Xform != nil {
+			lp = o.Xform.LocalRay(r).At(tmin)
+		}
+		texP = lp
+		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect, h.transmit =
+			o.Xform.WorldNormal(o.Normal(lp)), o.Albedo, o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect, o.Transmit
 	case 3:
 		o := &s.Cylinders[idx]
-		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect = o.Normal(h.p, r, tmin), o.Albedo, o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect
+		lr := r
+		if o.Xform != nil {
+			lr = o.Xform.LocalRay(r)
+		}
+		lp := lr.At(tmin)
+		texP = lp
+		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect, h.transmit =
+			o.Xform.WorldNormal(o.Normal(lp, lr, tmin)), o.Albedo, o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect, o.Transmit
 	case 4:
 		o := &s.Cones[idx]
-		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect = o.Normal(h.p, r, tmin), o.Albedo, o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect
+		lr := r
+		if o.Xform != nil {
+			lr = o.Xform.LocalRay(r)
+		}
+		lp := lr.At(tmin)
+		texP = lp
+		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect, h.transmit =
+			o.Xform.WorldNormal(o.Normal(lp, lr, tmin)), o.Albedo, o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect, o.Transmit
 	case 5:
 		o := &s.Tori[idx]
-		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect = o.Normal(h.p), o.Albedo, o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect
+		lp := h.p
+		if o.Xform != nil {
+			lp = o.Xform.LocalRay(r).At(tmin)
+		}
+		texP = lp
+		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect, h.transmit =
+			o.Xform.WorldNormal(o.Normal(lp)), o.Albedo, o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect, o.Transmit
 	case 6:
 		o := &s.Terrains[idx]
 		n := o.Normal(h.p)
-		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect = n, o.AlbedoAt(h.p, n), scene.MatDiffuse, 0, 1.5, texture.None, 0
+		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect, h.transmit = n, o.AlbedoAt(h.p, n), scene.MatDiffuse, 0, 1.5, texture.None, 0, 0
 	case 7:
 		o := &s.Waters[idx]
-		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect = o.NormalAt(h.p, tr.Time), o.Albedo, o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect
+		h.n, h.albedo, h.mat, h.rough, h.ior, tex, h.reflect, h.transmit =
+			o.NormalAt(h.p, tr.Time), o.Albedo, o.Mat, o.Rough, o.IOR, o.Tex, o.Reflect, o.Transmit
 	}
 	if tex != texture.None {
 		if tc != nil {
-			if out, ok := tc.lookup(tex, h.p, h.albedo); ok {
+			if out, ok := tc.lookup(tex, texP, h.albedo); ok {
 				h.albedo = out
 			} else {
-				out = texture.Eval(tex, h.p, h.albedo)
-				tc.store(tex, h.p, h.albedo, out)
+				out = texture.Eval(tex, texP, h.albedo)
+				tc.store(tex, texP, h.albedo, out)
 				h.albedo = out
 			}
 		} else {
-			h.albedo = texture.Eval(tex, h.p, h.albedo)
+			h.albedo = texture.Eval(tex, texP, h.albedo)
 		}
 	}
 	return true
@@ -556,22 +592,72 @@ func (tr *Tracer) li(r vec.Ray, depth int, tc *Texel) vec.V {
 		return h.albedo.Scale(0.96).Mul(refl)
 	}
 
-	// Dielectric / glass refraction with total internal reflection.
+	// Tinted, rough glass. Reflection is driven purely by the Fresnel term, so a
+	// clear pane (transmit=1) is fully see-through head-on and only turns
+	// mirror-like at grazing angles, exactly like real glass. transmit (0..1)
+	// lowers clarity by raising the reflective floor: 1 is a clean window, lower
+	// values look progressively frostier/more reflective. Albedo tints the
+	// transmitted light; rough frosts both the reflected and transmitted lobes.
 	if h.mat == scene.MatGlass && reflective {
 		ior := h.ior
-		cosi := -r.Dir.Dot(n)
-		sint2 := 1 - cosi*cosi*ior*ior
-		var rd, origin vec.V
-		if sint2 < 0 {
-			rd = r.Dir.Reflect(n)
-			origin = ep
-		} else {
-			cost := math.Sqrt(math.Max(0, sint2))
-			rd = r.Dir.Scale(1 / ior).Add(n.Scale(cosi/ior - cost))
-			origin = h.p.Sub(n.Scale(5e-4))
+		if ior == 0 {
+			ior = 1.5
 		}
-		refr := tr.li(vec.Ray{Origin: origin, Dir: rd.Normalize()}, depth+1, nil)
-		return h.albedo.Mul(refr)
+		cosi := fmax(0, -r.Dir.Dot(n))
+		// Schlick reflectance at normal incidence (R0) for the given IOR.
+		r0 := (1 - ior) / (1 + ior)
+		r0 = r0 * r0
+		fres := r0 + (1-r0)*math.Pow(1-cosi, 5)
+
+		t := h.transmit
+		if t == 0 {
+			t = 0.9 // default: a mostly-clear pane
+		}
+		reflectance := fres + (1-fres)*(1-t)
+
+		// Refraction ratio for an air→glass crossing is 1/ior (the pane is treated
+		// as a single thin interface). k < 0 is true total internal reflection,
+		// which for eta < 1 only occurs in degenerate cases.
+		eta := 1.0 / ior
+		k := 1 - eta*eta*(1-cosi*cosi)
+		tir := k < 0
+		w := reflectance
+		if tir {
+			w = 1
+		}
+
+		// Transmitted (see-through) lobe. Skipped near grazing angles where it is
+		// almost fully reflected anyway — saving the expensive ray that often
+		// marches the whole scene behind the glass.
+		var refr vec.V
+		if !tir && w < 0.98 {
+			cost := math.Sqrt(k)
+			rr := r.Dir.Scale(eta).Add(n.Scale(eta*cosi - cost)).Normalize()
+			// Refraction magnifies angular jitter far more than reflection (the
+			// transmitted ray travels deep into the scene), so frost the
+			// transmitted lobe more gently for the same authored roughness.
+			rr = tr.jitterDir(rr, h.p, h.rough*0.35)
+			refr = h.albedo.Mul(tr.li(vec.Ray{Origin: h.p.Sub(n.Scale(5e-4)), Dir: rr}, depth+1, nil))
+		}
+
+		// Reflected lobe. Skip it when its Fresnel weight is negligible, and keep
+		// only strong (grazing) reflections at deeper bounces so the ray tree
+		// stays bounded — secondary glass reflections contribute little but cost a
+		// full recursive trace each.
+		reflMin := 0.02
+		if depth > 0 {
+			reflMin = 0.2
+		}
+		var refl vec.V
+		if w > reflMin {
+			rd := tr.reflectDir(r.Dir, n, h.p, h.rough)
+			refl = tr.li(vec.Ray{Origin: ep, Dir: rd}, depth+1, nil)
+		}
+
+		if tir {
+			return refl
+		}
+		return mixV(refr, refl, reflectance)
 	}
 
 	lit := tr.shade(&h, n, ep)
@@ -587,18 +673,24 @@ func (tr *Tracer) li(r vec.Ray, depth int, tc *Texel) vec.V {
 	return lit
 }
 
-// reflectDir returns the mirror reflection of dir about n, perturbed by a
-// cheap position-hashed jitter when rough > 0 (a blurry/glossy reflection).
-func (tr *Tracer) reflectDir(dir, n, p vec.V, rough float64) vec.V {
-	rd := dir.Reflect(n)
-	if rough > 0 {
-		rd = rd.Add(vec.V{
-			X: math.Sin(p.X*73.1+p.Y*17.3) * 0.5 * rough,
-			Y: math.Sin(p.Y*91.7+p.Z*37.1) * 0.5 * rough,
-			Z: math.Sin(p.Z*53.3+p.X*61.7) * 0.5 * rough,
-		}).Normalize()
+// jitterDir perturbs a (unit) direction by a cheap position-hashed offset when
+// rough > 0, giving a blurry/glossy lobe without the cost of stochastic
+// sampling. The same hash is used for reflection and refraction so a rough
+// surface frosts both what it mirrors and what it sees through.
+func (tr *Tracer) jitterDir(d, p vec.V, rough float64) vec.V {
+	if rough <= 0 {
+		return d
 	}
-	return rd
+	return d.Add(vec.V{
+		X: math.Sin(p.X*73.1+p.Y*17.3) * 0.5 * rough,
+		Y: math.Sin(p.Y*91.7+p.Z*37.1) * 0.5 * rough,
+		Z: math.Sin(p.Z*53.3+p.X*61.7) * 0.5 * rough,
+	}).Normalize()
+}
+
+// reflectDir returns the mirror reflection of dir about n, perturbed by rough.
+func (tr *Tracer) reflectDir(dir, n, p vec.V, rough float64) vec.V {
+	return tr.jitterDir(dir.Reflect(n), p, rough)
 }
 
 // shade computes the diffuse direct lighting at a hit: ambient (flat or

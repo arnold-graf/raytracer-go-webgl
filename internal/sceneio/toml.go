@@ -8,6 +8,7 @@ package sceneio
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
@@ -42,6 +43,7 @@ type surfaceDTO struct {
 	IOR      *float64 `toml:"ior"`
 	Texture  string   `toml:"texture"`
 	Reflect  float64  `toml:"reflect"`
+	Transmit float64  `toml:"transmit"`
 }
 
 func (s surfaceDTO) toSurface() (scene.Surface, error) {
@@ -59,12 +61,32 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 	if s.IOR != nil {
 		ior = *s.IOR
 	}
-	return scene.Surface{Mat: mat, Albedo: s.Albedo.toV(), Rough: s.Rough, IOR: ior, Tex: tex, Reflect: s.Reflect}, nil
+	return scene.Surface{
+		Mat: mat, Albedo: s.Albedo.toV(), Rough: s.Rough, IOR: ior, Tex: tex,
+		Reflect: s.Reflect, Transmit: s.Transmit,
+	}, nil
+}
+
+// transformDTO holds optional per-primitive rotation (degrees) about a pivot.
+// Omitted fields default to zero (no rotation).
+type transformDTO struct {
+	RotateX float64 `toml:"rotate_x"`
+	RotateY float64 `toml:"rotate_y"`
+	RotateZ float64 `toml:"rotate_z"`
+	Pivot   vec3    `toml:"pivot"`
+}
+
+func (t transformDTO) build() *scene.Transform {
+	if t.RotateX == 0 && t.RotateY == 0 && t.RotateZ == 0 {
+		return nil
+	}
+	return scene.NewTransform(t.RotateX, t.RotateY, t.RotateZ, t.Pivot.toV())
 }
 
 type sphereDTO struct {
 	Center vec3    `toml:"center"`
 	Radius float64 `toml:"radius"`
+	transformDTO
 	surfaceDTO
 }
 
@@ -72,12 +94,23 @@ type planeDTO struct {
 	Normal  vec3    `toml:"normal"`
 	D       float64 `toml:"d"`
 	Albedo2 vec3    `toml:"albedo2"`
+	transformDTO
 	surfaceDTO
 }
 
-type boxDTO struct {
+// holeDTO is a rectangular opening subtracted from a box (see scene.AABB). It
+// is authored as a [[box.hole]] sub-table and should pierce fully through the
+// faces it cuts.
+type holeDTO struct {
 	Min vec3 `toml:"min"`
 	Max vec3 `toml:"max"`
+}
+
+type boxDTO struct {
+	Min  vec3      `toml:"min"`
+	Max  vec3      `toml:"max"`
+	Hole []holeDTO `toml:"hole"`
+	transformDTO
 	surfaceDTO
 }
 
@@ -87,6 +120,7 @@ type cylinderDTO struct {
 	Radius float64 `toml:"radius"`
 	YMin   float64 `toml:"ymin"`
 	YMax   float64 `toml:"ymax"`
+	transformDTO
 	surfaceDTO
 }
 
@@ -96,6 +130,7 @@ type coneDTO struct {
 	YBase float64 `toml:"ybase"`
 	YTip  float64 `toml:"ytip"`
 	RBase float64 `toml:"rbase"`
+	transformDTO
 	surfaceDTO
 }
 
@@ -103,6 +138,7 @@ type torusDTO struct {
 	Center vec3    `toml:"center"`
 	Major  float64 `toml:"major"`
 	Minor  float64 `toml:"minor"`
+	transformDTO
 	surfaceDTO
 }
 
@@ -238,10 +274,22 @@ type environmentDTO struct {
 	SunColor      vec3   `toml:"sun_color"`
 }
 
+// includeDTO references another TOML file as a composite object. The included
+// file's primitives are merged into the parent scene after applying the instance
+// transform (rotate about the sub-scene origin, then translate by at).
+type includeDTO struct {
+	File    string `toml:"file"`
+	At      vec3   `toml:"at"`
+	RotateX float64 `toml:"rotate_x"`
+	RotateY float64 `toml:"rotate_y"`
+	RotateZ float64 `toml:"rotate_z"`
+}
+
 type sceneDTO struct {
 	Extends     string          `toml:"extends"`
 	Camera      *cameraDTO      `toml:"camera"`
 	Environment *environmentDTO `toml:"environment"`
+	Include     []includeDTO    `toml:"include"`
 	Sphere      []sphereDTO     `toml:"sphere"`
 	Plane       []planeDTO      `toml:"plane"`
 	Box         []boxDTO        `toml:"box"`
@@ -277,10 +325,39 @@ func texOrDefault(name string, def int) (int, error) {
 
 // Load reads and decodes a TOML scene file from disk.
 func Load(path string) (*scene.Scene, error) {
-	return load(path, map[string]bool{})
+	s, _, err := LoadDeps(path)
+	return s, err
 }
 
-func load(path string, seen map[string]bool) (*scene.Scene, error) {
+// LoadDeps is Load that also reports every file the scene depends on: the file
+// itself plus everything reached through "extends" and [[include]]. Callers
+// (e.g. the hot-reload watcher) can stat these to detect edits to included
+// sub-scenes, not just the top-level file. Paths are absolute and deduplicated.
+func LoadDeps(path string) (*scene.Scene, []string, error) {
+	var deps []string
+	s, err := load(path, map[string]bool{}, &deps)
+	return s, deps, err
+}
+
+// recordDep appends path's absolute form to *deps if not already present.
+func recordDep(deps *[]string, path string) {
+	if deps == nil {
+		return
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	for _, d := range *deps {
+		if d == abs {
+			return
+		}
+	}
+	*deps = append(*deps, abs)
+}
+
+func load(path string, seen map[string]bool, deps *[]string) (*scene.Scene, error) {
+	recordDep(deps, path)
 	abs, err := filepath.Abs(path)
 	if err == nil {
 		if seen[abs] {
@@ -299,16 +376,28 @@ func load(path string, seen map[string]bool) (*scene.Scene, error) {
 		if !filepath.IsAbs(basePath) {
 			basePath = filepath.Join(filepath.Dir(path), basePath)
 		}
-		base, err := load(basePath, seen)
+		base, err := load(basePath, seen, deps)
 		if err != nil {
 			return nil, err
 		}
 		if err := dto.applyOverrides(base); err != nil {
 			return nil, fmt.Errorf("apply scene overrides %q: %w", path, err)
 		}
+		for i, inc := range dto.Include {
+			incPath := inc.File
+			if !filepath.IsAbs(incPath) {
+				incPath = filepath.Join(filepath.Dir(path), incPath)
+			}
+			sub, err := load(incPath, seen, deps)
+			if err != nil {
+				return nil, fmt.Errorf("include[%d] %q: %w", i, inc.File, err)
+			}
+			xf := scene.NewInstanceTransform(inc.RotateX, inc.RotateY, inc.RotateZ, inc.At.toV())
+			mergeScene(base, sub, xf)
+		}
 		return base, nil
 	}
-	return dto.build()
+	return dto.buildWithIncludes(path, seen, deps)
 }
 
 // Decode decodes a TOML scene from an in-memory byte slice (used for the
@@ -355,6 +444,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("sphere[%d]: %w", i, err)
 		}
+		surf.Xform = d.transformDTO.build()
 		s.Spheres = append(s.Spheres, scene.Sphere{Center: d.Center.toV(), Radius: d.Radius, Surface: surf})
 	}
 	for i, d := range dto.Plane {
@@ -362,6 +452,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("plane[%d]: %w", i, err)
 		}
+		surf.Xform = d.transformDTO.build()
 		s.Planes = append(s.Planes, scene.Plane{N: d.Normal.toV(), D: d.D, Surface: surf, Albedo2: d.Albedo2.toV()})
 	}
 	for i, d := range dto.Box {
@@ -369,13 +460,19 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("box[%d]: %w", i, err)
 		}
-		s.Boxes = append(s.Boxes, scene.Box{Min: d.Min.toV(), Max: d.Max.toV(), Surface: surf})
+		surf.Xform = d.transformDTO.build()
+		var holes []scene.AABB
+		for _, h := range d.Hole {
+			holes = append(holes, scene.AABB{Min: h.Min.toV(), Max: h.Max.toV()})
+		}
+		s.Boxes = append(s.Boxes, scene.Box{Min: d.Min.toV(), Max: d.Max.toV(), Holes: holes, Surface: surf})
 	}
 	for i, d := range dto.Cylinder {
 		surf, err := d.toSurface()
 		if err != nil {
 			return nil, fmt.Errorf("cylinder[%d]: %w", i, err)
 		}
+		surf.Xform = d.transformDTO.build()
 		s.Cylinders = append(s.Cylinders, scene.Cylinder{CX: d.CX, CZ: d.CZ, Radius: d.Radius, YMin: d.YMin, YMax: d.YMax, Surface: surf})
 	}
 	for i, d := range dto.Cone {
@@ -383,6 +480,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cone[%d]: %w", i, err)
 		}
+		surf.Xform = d.transformDTO.build()
 		s.Cones = append(s.Cones, scene.Cone{CX: d.CX, CZ: d.CZ, YBase: d.YBase, YTip: d.YTip, RBase: d.RBase, Surface: surf})
 	}
 	for i, d := range dto.Torus {
@@ -390,6 +488,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("torus[%d]: %w", i, err)
 		}
+		surf.Xform = d.transformDTO.build()
 		s.Tori = append(s.Tori, scene.Torus{Center: d.Center.toV(), R: d.Major, Rm: d.Minor, Surface: surf})
 	}
 	for i, d := range dto.Terrain {
@@ -431,6 +530,102 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 	}
 
 	return s, nil
+}
+
+// buildWithIncludes builds the scene and merges any [[include]] composite files.
+func (dto sceneDTO) buildWithIncludes(path string, seen map[string]bool, deps *[]string) (*scene.Scene, error) {
+	s, err := dto.build()
+	if err != nil {
+		return nil, err
+	}
+	for i, inc := range dto.Include {
+		incPath := inc.File
+		if !filepath.IsAbs(incPath) {
+			incPath = filepath.Join(filepath.Dir(path), incPath)
+		}
+		sub, err := load(incPath, seen, deps)
+		if err != nil {
+			return nil, fmt.Errorf("include[%d] %q: %w", i, inc.File, err)
+		}
+		xf := scene.NewInstanceTransform(inc.RotateX, inc.RotateY, inc.RotateZ, inc.At.toV())
+		mergeScene(s, sub, xf)
+	}
+	return s, nil
+}
+
+// mergeScene appends every primitive from sub into dst, composing each
+// primitive's local transform with the instance transform xf.
+func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
+	for i := range sub.Spheres {
+		o := sub.Spheres[i]
+		o.Xform = xf.Compose(o.Xform)
+		o.Center = xf.ToWorld(o.Center)
+		dst.Spheres = append(dst.Spheres, o)
+	}
+	for i := range sub.Planes {
+		o := sub.Planes[i]
+		o.Xform = xf.Compose(o.Xform)
+		if xf != nil {
+			pp := planePoint(o.N, o.D)
+			o.N = xf.WorldNormal(o.N)
+			o.D = -o.N.Dot(xf.ToWorld(pp))
+		}
+		dst.Planes = append(dst.Planes, o)
+	}
+	for i := range sub.Boxes {
+		o := sub.Boxes[i]
+		o.Xform = xf.Compose(o.Xform)
+		dst.Boxes = append(dst.Boxes, o)
+	}
+	for i := range sub.Cylinders {
+		o := sub.Cylinders[i]
+		o.Xform = xf.Compose(o.Xform)
+		if xf != nil {
+			c := xf.ToWorld(vec.V{X: o.CX, Y: (o.YMin + o.YMax) * 0.5, Z: o.CZ})
+			o.CX, o.CZ = c.X, c.Z
+		}
+		dst.Cylinders = append(dst.Cylinders, o)
+	}
+	for i := range sub.Cones {
+		o := sub.Cones[i]
+		o.Xform = xf.Compose(o.Xform)
+		if xf != nil {
+			c := xf.ToWorld(vec.V{X: o.CX, Y: (o.YBase + o.YTip) * 0.5, Z: o.CZ})
+			o.CX, o.CZ = c.X, c.Z
+		}
+		dst.Cones = append(dst.Cones, o)
+	}
+	for i := range sub.Tori {
+		o := sub.Tori[i]
+		o.Xform = xf.Compose(o.Xform)
+		o.Center = xf.ToWorld(o.Center)
+		dst.Tori = append(dst.Tori, o)
+	}
+	for i := range sub.Lights {
+		l := sub.Lights[i]
+		if xf != nil {
+			l.Pos = xf.ToWorld(l.Pos)
+		}
+		dst.Lights = append(dst.Lights, l)
+	}
+	for i := range sub.Campfires {
+		c := sub.Campfires[i]
+		if xf != nil {
+			c.Center = xf.ToWorld(c.Center)
+		}
+		dst.Campfires = append(dst.Campfires, c)
+	}
+}
+
+// planePoint returns any point on the plane n·x + D = 0.
+func planePoint(n vec.V, d float64) vec.V {
+	if math.Abs(n.Y) > 1e-6 {
+		return vec.V{Y: -d / n.Y}
+	}
+	if math.Abs(n.X) > 1e-6 {
+		return vec.V{X: -d / n.X}
+	}
+	return vec.V{Z: -d / n.Z}
 }
 
 func (e *environmentDTO) build() (scene.Environment, error) {

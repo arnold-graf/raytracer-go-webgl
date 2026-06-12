@@ -253,10 +253,11 @@ albedo = [0.55, 0.55, 0.57]
 texture = "stone"
 
 # ============================================================ THE BUILDING ====
-# A walk-in stone building housing the indoor showcase. Interior clear span:
-#   x in [11.5, 20.5], z in [-7.5, 3.5], floor y=0.4, ceiling y=5.9.
-# Walls are 0.4 thick; the door opening (x in [14.5, 16.5], y up to 3.0) faces
-# +z toward the spawn point.
+# Composite object: see scenes/building.toml (slanted roof + glass window).
+
+[[include]]
+file = "building.toml"
+at = [16.0, 0.0, -2.0]
 
 [[terrain.pad]]       # flat building site under the indoor room
 # Covers the room footprint (x in [11.1, 20.9], z in [-7.9, 3.9]) and blends
@@ -266,112 +267,6 @@ center = [16.0, -2.0]
 half = [4.9, 5.9]
 level = 0.0
 margin = 4.0
-
-[[box]] # foundation / stone floor slab (top hides terrain relief)
-min = [11.1, -0.3, -7.9]
-max = [20.9, 0.4, 3.9]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "marble"
-# Polished stone: keep the texture but pick up a soft reflection of the room.
-reflect = 0.2
-rough = 0.03
-
-[[box]] # ceiling (cement)
-min = [11.1, 5.9, -7.9]
-max = [20.9, 6.3, 3.9]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "cement"
-
-[[box]] # north (back) wall: brick
-min = [11.1, 0.0, -7.9]
-max = [20.9, 6.3, -7.5]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "brick"
-
-[[box]] # west (left) wall: brick
-min = [11.1, 0.0, -7.9]
-max = [11.5, 6.3, 3.9]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "brick"
-
-[[box]] # east (right) wall: brick
-min = [20.5, 0.0, -7.9]
-max = [20.9, 6.3, 3.9]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "brick"
-
-[[box]] # south wall, left of door: brick
-min = [11.1, 0.0, 3.5]
-max = [14.5, 6.3, 3.9]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "brick"
-
-[[box]] # south wall, right of door: brick
-min = [16.5, 0.0, 3.5]
-max = [20.9, 6.3, 3.9]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "brick"
-
-[[box]] # door lintel (brick) above the opening
-min = [14.5, 3.0, 3.5]
-max = [16.5, 6.3, 3.9]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "brick"
-
-# Interior wallpaper lining (Art-Nouveau gilt ogee/iris). Thin panels set just
-# inside the brick walls so the structure still reads as brick from outside.
-# Swap the colorway by changing "wallpaper_navy" to "wallpaper_green" or
-# "wallpaper_rose" on these six panels.
-
-[[box]] # north wall lining
-min = [11.5, 0.4, -7.50]
-max = [20.5, 5.9, -7.42]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "wallpaper_navy"
-
-[[box]] # west wall lining
-min = [11.50, 0.4, -7.42]
-max = [11.58, 5.9, 3.42]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "wallpaper_navy"
-
-[[box]] # east wall lining
-min = [20.42, 0.4, -7.42]
-max = [20.50, 5.9, 3.42]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "wallpaper_navy"
-
-[[box]] # south wall lining, left of door
-min = [11.5, 0.4, 3.42]
-max = [14.5, 5.9, 3.50]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "wallpaper_navy"
-
-[[box]] # south wall lining, right of door
-min = [16.5, 0.4, 3.42]
-max = [20.5, 5.9, 3.50]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "wallpaper_navy"
-
-[[box]] # door lintel lining (above the opening)
-min = [14.5, 3.0, 3.42]
-max = [16.5, 5.9, 3.50]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "wallpaper_navy"
 
 # ================================================= INDOOR SHOWCASE (moved) ====
 # textured.toml contents translated by (+16, +0.4, -2).

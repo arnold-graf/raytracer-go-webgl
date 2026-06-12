@@ -23,6 +23,12 @@ type Surface struct {
 	// reflection just as it does for mirror/metal. Ignored by materials that are
 	// already reflective/refractive (mirror, metal, glass, emit).
 	Reflect float64
+	// Transmit (0..1) is the glass transparency: 0 is opaque, 1 is fully
+	// transparent. The glass tint comes from Albedo. Ignored by other materials.
+	Transmit float64
+	// Xform, when non-nil, maps the primitive from local space into world space.
+	// Intersection and normals are evaluated in local space and transformed back.
+	Xform *Transform
 }
 
 // Sphere is a simple analytic sphere.
@@ -91,66 +97,190 @@ func (p *Plane) AlbedoAt(hit vec.V) vec.V {
 	return p.Albedo
 }
 
-// Box is an axis-aligned bounding box.
-type Box struct {
+// AABB is an axis-aligned box region, used to carve rectangular openings out of
+// a Box (see Box.Holes).
+type AABB struct {
 	Min vec.V
 	Max vec.V
+}
+
+// Box is an axis-aligned bounding box. When Holes is non-empty each listed AABB
+// is subtracted from the box (constructive solid geometry), producing genuine
+// see-through openings: windows, doorways, etc. The holes are expressed in the
+// box's own (untransformed) coordinates and should poke fully through whatever
+// faces they pierce.
+type Box struct {
+	Min   vec.V
+	Max   vec.V
+	Holes []AABB
 	Surface
 }
 
-// Intersect returns the nearest positive hit distance, or Inf on a miss.
-func (b *Box) Intersect(r vec.Ray) float64 {
+// WorldBounds returns the box's axis-aligned bounds in world space. For an
+// untransformed box this is just (Min, Max); for a rotated/translated box it is
+// the AABB enclosing the eight transformed corners. Holes only shrink the solid,
+// so they never enlarge the bounds. Used by collision, which works in world
+// space.
+func (b *Box) WorldBounds() (vec.V, vec.V) {
+	if b.Xform == nil {
+		return b.Min, b.Max
+	}
+	wmin := vec.V{X: math.Inf(1), Y: math.Inf(1), Z: math.Inf(1)}
+	wmax := vec.V{X: math.Inf(-1), Y: math.Inf(-1), Z: math.Inf(-1)}
+	for _, dx := range [2]float64{0, 1} {
+		for _, dy := range [2]float64{0, 1} {
+			for _, dz := range [2]float64{0, 1} {
+				c := b.Xform.ToWorld(vec.V{
+					X: b.Min.X + dx*(b.Max.X-b.Min.X),
+					Y: b.Min.Y + dy*(b.Max.Y-b.Min.Y),
+					Z: b.Min.Z + dz*(b.Max.Z-b.Min.Z),
+				})
+				wmin = vec.V{X: math.Min(wmin.X, c.X), Y: math.Min(wmin.Y, c.Y), Z: math.Min(wmin.Z, c.Z)}
+				wmax = vec.V{X: math.Max(wmax.X, c.X), Y: math.Max(wmax.Y, c.Y), Z: math.Max(wmax.Z, c.Z)}
+			}
+		}
+	}
+	return wmin, wmax
+}
+
+// slabInterval returns the [tmin, tmax] parametric span over which the ray is
+// inside the AABB [min, max], or ok=false on a miss. tmax may be negative when
+// the box is entirely behind the origin.
+func slabInterval(min, max vec.V, r vec.Ray) (tmin, tmax float64, ok bool) {
 	invx, invy, invz := 1/r.Dir.X, 1/r.Dir.Y, 1/r.Dir.Z
-	t1, t2 := (b.Min.X-r.Origin.X)*invx, (b.Max.X-r.Origin.X)*invx
+	t1, t2 := (min.X-r.Origin.X)*invx, (max.X-r.Origin.X)*invx
 	if t1 > t2 {
 		t1, t2 = t2, t1
 	}
-	t3, t4 := (b.Min.Y-r.Origin.Y)*invy, (b.Max.Y-r.Origin.Y)*invy
+	t3, t4 := (min.Y-r.Origin.Y)*invy, (max.Y-r.Origin.Y)*invy
 	if t3 > t4 {
 		t3, t4 = t4, t3
 	}
-	t5, t6 := (b.Min.Z-r.Origin.Z)*invz, (b.Max.Z-r.Origin.Z)*invz
+	t5, t6 := (min.Z-r.Origin.Z)*invz, (max.Z-r.Origin.Z)*invz
 	if t5 > t6 {
 		t5, t6 = t6, t5
 	}
-	tmin := t1
+	tmin = t1
 	if t3 > tmin {
 		tmin = t3
 	}
 	if t5 > tmin {
 		tmin = t5
 	}
-	tmax := t2
+	tmax = t2
 	if t4 < tmax {
 		tmax = t4
 	}
 	if t6 < tmax {
 		tmax = t6
 	}
-	if tmax < tmin || tmax < eps {
-		return Inf
+	if tmax < tmin {
+		return 0, 0, false
 	}
-	if tmin < eps {
-		return tmax
-	}
-	return tmin
+	return tmin, tmax, true
 }
 
-// Normal returns the outward unit normal at surface point p.
-func (b *Box) Normal(p vec.V) vec.V {
-	c := b.Min.Add(b.Max).Scale(0.5)
-	e := b.Max.Sub(b.Min).Scale(0.5)
-	lx := math.Abs((p.X - c.X) / e.X)
-	ly := math.Abs((p.Y - c.Y) / e.Y)
-	lz := math.Abs((p.Z - c.Z) / e.Z)
-	switch {
-	case lx >= ly && lx >= lz:
-		return vec.V{X: math.Copysign(1, p.X-c.X)}
-	case ly >= lx && ly >= lz:
-		return vec.V{Y: math.Copysign(1, p.Y-c.Y)}
-	default:
-		return vec.V{Z: math.Copysign(1, p.Z-c.Z)}
+// Intersect returns the nearest positive hit distance, or Inf on a miss.
+func (b *Box) Intersect(r vec.Ray) float64 {
+	tmin, tmax, ok := slabInterval(b.Min, b.Max, r)
+	if !ok || tmax < eps {
+		return Inf
 	}
+	if len(b.Holes) == 0 {
+		if tmin < eps {
+			return tmax
+		}
+		return tmin
+	}
+
+	// CSG difference: the solid is [tmin, tmax] with each hole's span removed.
+	// Walk the disjoint solid segments and return the nearest boundary >= eps.
+	// segs holds up to a few [lo, hi] spans; holes rarely overlap so this stays
+	// tiny in practice.
+	type span struct{ lo, hi float64 }
+	segs := [8]span{{tmin, tmax}}
+	n := 1
+	for hi := range b.Holes {
+		h0, h1, hok := slabInterval(b.Holes[hi].Min, b.Holes[hi].Max, r)
+		if !hok || h1 <= h0 {
+			continue
+		}
+		m := 0
+		var next [8]span
+		for i := 0; i < n; i++ {
+			s := segs[i]
+			if h1 <= s.lo || h0 >= s.hi { // no overlap
+				next[m] = s
+				m++
+				continue
+			}
+			if h0 > s.lo && m < len(next) { // solid part before the hole
+				next[m] = span{s.lo, h0}
+				m++
+			}
+			if h1 < s.hi && m < len(next) { // solid part after the hole
+				next[m] = span{h1, s.hi}
+				m++
+			}
+		}
+		segs = next
+		n = m
+	}
+
+	best := Inf
+	for i := 0; i < n; i++ {
+		s := segs[i]
+		switch {
+		case s.lo >= eps:
+			if s.lo < best {
+				best = s.lo
+			}
+		case s.hi >= eps: // origin sits inside this solid segment
+			if s.hi < best {
+				best = s.hi
+			}
+		}
+	}
+	return best
+}
+
+// faceAxis returns the outward axis normal of the [min,max] box face nearest to
+// point p, plus the distance to that face.
+func faceAxis(min, max, p vec.V) (vec.V, float64) {
+	dxl, dxh := math.Abs(p.X-min.X), math.Abs(p.X-max.X)
+	dyl, dyh := math.Abs(p.Y-min.Y), math.Abs(p.Y-max.Y)
+	dzl, dzh := math.Abs(p.Z-min.Z), math.Abs(p.Z-max.Z)
+	n := vec.V{X: -1}
+	d := dxl
+	if dxh < d {
+		n, d = vec.V{X: 1}, dxh
+	}
+	if dyl < d {
+		n, d = vec.V{Y: -1}, dyl
+	}
+	if dyh < d {
+		n, d = vec.V{Y: 1}, dyh
+	}
+	if dzl < d {
+		n, d = vec.V{Z: -1}, dzl
+	}
+	if dzh < d {
+		n, d = vec.V{Z: 1}, dzh
+	}
+	return n, d
+}
+
+// Normal returns the outward unit normal at surface point p. For a holed box the
+// point may lie on the inner face of a cutout, whose outward normal points into
+// the opening (the negative of the hole's own face normal).
+func (b *Box) Normal(p vec.V) vec.V {
+	bestN, bestD := faceAxis(b.Min, b.Max, p)
+	for i := range b.Holes {
+		if n, d := faceAxis(b.Holes[i].Min, b.Holes[i].Max, p); d < bestD {
+			bestN, bestD = n.Neg(), d
+		}
+	}
+	return bestN
 }
 
 // Cylinder is a finite Y-axis-aligned cylinder with flat caps.

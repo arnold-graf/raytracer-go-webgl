@@ -39,8 +39,12 @@ type Game struct {
 	// Hot-reload: when a -scene/-player file was given on the command line, its
 	// modification time is polled and the scene/config is rebuilt on change so
 	// edits show up live. Empty paths disable watching (e.g. the embedded scene).
+	// sceneDeps maps every file the scene depends on (the file itself plus all
+	// "extends"/[[include]] targets) to the mod time last seen, so editing an
+	// included sub-scene (e.g. building.toml) also triggers a reload.
 	scenePath, playerPath string
-	sceneMod, playerMod   time.Time
+	sceneDeps             map[string]time.Time
+	playerMod             time.Time
 	reloadPoll            int
 	reloadMsg             string
 	reloadMsgAt           time.Time
@@ -72,10 +76,35 @@ func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath s
 	}
 	g.cam.SnapToGround()
 	// Seed the watch timestamps so the first poll doesn't trigger a needless
-	// reload of the file we just loaded.
-	g.sceneMod, _ = fileModTime(scenePath)
+	// reload of the files we just loaded.
+	g.sceneDeps = seedSceneDeps(scenePath)
 	g.playerMod, _ = fileModTime(playerPath)
 	return g
+}
+
+// seedSceneDeps resolves every file scenePath depends on and records their
+// current mod times. It falls back to watching just the top-level file if the
+// dependency walk fails.
+func seedSceneDeps(scenePath string) map[string]time.Time {
+	if scenePath == "" {
+		return nil
+	}
+	if _, deps, err := sceneio.LoadDeps(scenePath); err == nil && len(deps) > 0 {
+		return depTimes(deps)
+	}
+	return depTimes([]string{scenePath})
+}
+
+// depTimes stats each path and returns a path→mod-time map (unreadable files
+// are skipped).
+func depTimes(paths []string) map[string]time.Time {
+	m := make(map[string]time.Time, len(paths))
+	for _, p := range paths {
+		if mt, ok := fileModTime(p); ok {
+			m[p] = mt
+		}
+	}
+	return m
 }
 
 // Update advances input and camera state once per tick (60 Hz).
@@ -122,12 +151,8 @@ func (g *Game) checkReload() {
 	}
 	g.reloadPoll = 0
 
-	if g.scenePath != "" {
-		if mt, ok := fileModTime(g.scenePath); ok && mt.After(g.sceneMod) {
-			if g.reloadScene() {
-				g.sceneMod = mt
-			}
-		}
+	if g.scenePath != "" && g.sceneDirty() {
+		g.reloadScene() // refreshes the dep timestamps on success
 	}
 	if g.playerPath != "" {
 		if mt, ok := fileModTime(g.playerPath); ok && mt.After(g.playerMod) {
@@ -138,11 +163,23 @@ func (g *Game) checkReload() {
 	}
 }
 
-// reloadScene reloads the scene file and swaps in a fresh tracer, preserving the
-// current camera pose and feature toggles. Returns false (keeping the old scene)
-// if the file fails to parse.
+// sceneDirty reports whether any watched scene dependency file changed since it
+// was last loaded.
+func (g *Game) sceneDirty() bool {
+	for p, mt := range g.sceneDeps {
+		if cur, ok := fileModTime(p); ok && cur.After(mt) {
+			return true
+		}
+	}
+	return false
+}
+
+// reloadScene reloads the scene (and all its included files) and swaps in a
+// fresh tracer, preserving the current camera pose and feature toggles. Returns
+// false (keeping the old scene) if any file fails to parse; the dependency
+// timestamps are only refreshed on success, so a bad edit is retried next poll.
 func (g *Game) reloadScene() bool {
-	sc, err := sceneio.Load(g.scenePath)
+	sc, deps, err := sceneio.LoadDeps(g.scenePath)
 	if err != nil {
 		g.setReloadMsg("scene reload FAILED: " + err.Error())
 		return false
@@ -153,6 +190,7 @@ func (g *Game) reloadScene() bool {
 	tr.Prepare() // bake the new AO volume before the next frame uses it
 	g.tr = tr
 	g.cam.SetWorld(sc) // collisions/ground use the new geometry; pose unchanged
+	g.sceneDeps = depTimes(deps)
 	g.setReloadMsg("scene reloaded")
 	return true
 }

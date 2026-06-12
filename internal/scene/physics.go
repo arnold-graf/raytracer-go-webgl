@@ -19,10 +19,10 @@ func (s *Scene) GroundHeight(x, z, headY float64) float64 {
 	}
 
 	for i := range s.Boxes {
-		b := &s.Boxes[i]
-		if b.Max.Y <= headY && x >= b.Min.X && x <= b.Max.X && z >= b.Min.Z && z <= b.Max.Z {
-			if b.Max.Y > g {
-				g = b.Max.Y
+		mn, mx := s.Boxes[i].WorldBounds()
+		if mx.Y <= headY && x >= mn.X && x <= mx.X && z >= mn.Z && z <= mx.Z {
+			if mx.Y > g {
+				g = mx.Y
 			}
 		}
 	}
@@ -42,11 +42,11 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 	walkTop := feetY + step
 
 	for i := range s.Boxes {
-		b := &s.Boxes[i]
-		if b.Max.Y <= walkTop || b.Min.Y >= headY {
+		mn, mx := s.Boxes[i].WorldBounds()
+		if mx.Y <= walkTop || mn.Y >= headY {
 			continue
 		}
-		if x > b.Min.X-radius && x < b.Max.X+radius && z > b.Min.Z-radius && z < b.Max.Z+radius {
+		if x > mn.X-radius && x < mx.X+radius && z > mn.Z-radius && z < mx.Z+radius {
 			return true
 		}
 	}
