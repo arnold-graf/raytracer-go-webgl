@@ -6,10 +6,15 @@
 min = [-4.9, -0.3, -5.9]
 max = [4.9, 0.4, 5.9]
 material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "marble"
-reflect = 0.2
-rough = 0.03
+# albedo = [1.0, 1.0, 1.0]
+# texture = "marble"
+# reflect = 0.05
+# rough = 0.01
+# for a wood texture
+albedo = [0.25, 0.25, 0.25]
+texture = "wood"
+reflect = 0.01
+rough = 0.01
 
 [[box]] # slanted roof (cement); pitched toward the door (+z)
 min = [-4.7, 5.8, -5.7]
