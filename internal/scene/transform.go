@@ -114,12 +114,37 @@ func (x *Transform) ToWorld(p vec.V) vec.V {
 	return x.fwd.mul(p).Add(x.t)
 }
 
+// ToLocal maps a world-space point into the primitive's local space (the inverse
+// of ToWorld): local = inv * (p - t).
+func (x *Transform) ToLocal(p vec.V) vec.V {
+	if x == nil {
+		return p
+	}
+	return x.inv.mul(p.Sub(x.t))
+}
+
 // Translation returns the transform's world-space translation (zero for nil).
 func (x *Transform) Translation() vec.V {
 	if x == nil {
 		return vec.V{}
 	}
 	return x.t
+}
+
+// GPUData returns the rows of the world→local rotation (inv) together with the
+// world-space translation t, for uploading the transform to the GPU. A nil
+// transform reports the identity. The shader maps a world point to local space
+// as inv*(p - t) and a local normal back to world as inv^T * n (inv is
+// orthonormal, so its transpose is the local→world rotation). Returning the
+// inverse rows keeps the per-ray hot path a few dot products.
+func (x *Transform) GPUData() (r0, r1, r2, t vec.V) {
+	if x == nil {
+		return vec.V{X: 1}, vec.V{Y: 1}, vec.V{Z: 1}, vec.V{}
+	}
+	return vec.V{X: x.inv[0], Y: x.inv[1], Z: x.inv[2]},
+		vec.V{X: x.inv[3], Y: x.inv[4], Z: x.inv[5]},
+		vec.V{X: x.inv[6], Y: x.inv[7], Z: x.inv[8]},
+		x.t
 }
 
 // Compose returns the transform equivalent to applying inner first, then the

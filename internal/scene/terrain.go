@@ -70,6 +70,30 @@ type Terrain struct {
 	cmin, cmax     []float64
 }
 
+// TerrainCacheSnapshot is a read-only copy of the prepared terrain grids for
+// renderer backends that upload the CPU-baked height field to another device.
+type TerrainCacheSnapshot struct {
+	GNX, GNZ     int
+	InvDx, InvDz float64
+	Height       []float64
+	Normal       []vec.V
+}
+
+// CacheSnapshot returns copies of the prepared height and normal grids. It calls
+// Prepare lazily when needed so scene loaders that have not explicitly prepared
+// a terrain still get a complete snapshot.
+func (t *Terrain) CacheSnapshot() TerrainCacheSnapshot {
+	if t.hgrid == nil || t.ngrid == nil {
+		t.Prepare()
+	}
+	h := append([]float64(nil), t.hgrid...)
+	n := append([]vec.V(nil), t.ngrid...)
+	return TerrainCacheSnapshot{
+		GNX: t.gnx, GNZ: t.gnz, InvDx: t.invDx, InvDz: t.invDz,
+		Height: h, Normal: n,
+	}
+}
+
 // Prepare computes the conservative vertical bounds, fills defaults, and builds
 // the height/normal cache. Call once after construction.
 func (t *Terrain) Prepare() {

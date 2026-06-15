@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"raytracer/internal/bvh"
+	"raytracer/internal/gpuscene"
 	"raytracer/internal/scene"
 	"raytracer/internal/texture"
 	"raytracer/internal/vec"
@@ -55,7 +56,7 @@ type Tracer struct {
 // (unshadowed, best-case) contribution is treated as invisible and culled. It
 // sits well under one 8-bit level after tonemapping, so auto-culling does not
 // change the rendered image.
-const lightCullEps = 0.0025
+const lightCullEps = gpuscene.LightCullEps
 
 // New returns a tracer bound to a scene, building a BVH over its finite
 // primitives once up front (the scene is static at runtime). It also
@@ -67,8 +68,9 @@ func New(s *scene.Scene) *Tracer {
 }
 
 // buildLightCulling fills lightCullR2/lightInvR2 from each light's intensity and
-// optional Range. The attenuation model is att = 1/(0.5 + 0.08*d^2) (matching
-// the shading loop), so the auto cull distance solves Cmax*att = lightCullEps.
+// optional Range. The attenuation model is
+// 1/(LightAttenBase + LightAttenQuadratic*d^2) (matching the shading loop), so
+// the auto cull distance solves Cmax*att = lightCullEps.
 func (tr *Tracer) buildLightCulling() {
 	lights := tr.Scene.Lights
 	tr.lightCullR2 = make([]float64, len(lights))
@@ -79,8 +81,8 @@ func (tr *Tracer) buildLightCulling() {
 
 		// Auto cull distance: where the best-case contribution drops below eps.
 		autoR2 := 0.0
-		if cmax > lightCullEps*0.5 {
-			autoR2 = (cmax/lightCullEps - 0.5) / 0.08
+		if cmax > lightCullEps*gpuscene.LightAttenBase {
+			autoR2 = (cmax/lightCullEps - gpuscene.LightAttenBase) / gpuscene.LightAttenQuadratic
 			if autoR2 < 0 {
 				autoR2 = 0
 			}
@@ -102,8 +104,8 @@ func (tr *Tracer) buildLightCulling() {
 	for i := range fires {
 		cmax := fires[i].PeakChannel()
 		autoR2 := 0.0
-		if cmax > lightCullEps*0.5 {
-			autoR2 = (cmax/lightCullEps - 0.5) / 0.08
+		if cmax > lightCullEps*gpuscene.LightAttenBase {
+			autoR2 = (cmax/lightCullEps - gpuscene.LightAttenBase) / gpuscene.LightAttenQuadratic
 			if autoR2 < 0 {
 				autoR2 = 0
 			}
@@ -138,7 +140,7 @@ func (tr *Tracer) addPointLight(lit, hp, albedo, n, ep, pos, color vec.V, cullR2
 	if ndl < 0.001 {
 		return lit
 	}
-	att := fmin(1, 1/(0.5+d2*0.08))
+	att := fmin(1, 1/(gpuscene.LightAttenBase+d2*gpuscene.LightAttenQuadratic))
 	if invR2 > 0 {
 		x := d2 * invR2
 		w := 1 - x*x
@@ -191,14 +193,14 @@ func (t *Texel) store(tex int, p, base, out vec.V) {
 
 // hit is the surface record produced by the nearest intersection.
 type hit struct {
-	t       float64
-	p       vec.V
-	n       vec.V
-	albedo  vec.V
-	mat     int
-	rough   float64
-	ior     float64
-	reflect float64
+	t        float64
+	p        vec.V
+	n        vec.V
+	albedo   vec.V
+	mat      int
+	rough    float64
+	ior      float64
+	reflect  float64
 	transmit float64
 }
 
@@ -772,7 +774,7 @@ func (tr *Tracer) shade(h *hit, n, ep vec.V) vec.V {
 
 // aoMaxDist is the occlusion probe range; hits beyond it are ignored. It is the
 // radius used when baking the AO volume (see aovolume.go).
-const aoMaxDist = 0.9
+const aoMaxDist = gpuscene.AOMaxDist
 
 // tonemapChannel applies the ACES-style filmic curve used by the original.
 func tonemapChannel(x float64) float64 {
@@ -781,7 +783,7 @@ func tonemapChannel(x float64) float64 {
 
 // gammaLUT precomputes the 1/2.2 gamma encode over the [0,1] domain (which is
 // exactly the range tonemapChannel produces), replacing a per-pixel math.Pow.
-const gammaLUTSize = 4096
+const gammaLUTSize = gpuscene.GammaLUTSize
 
 var gammaLUT [gammaLUTSize]float64
 

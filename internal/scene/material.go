@@ -1,5 +1,7 @@
 package scene
 
+import "raytracer/internal/gpuscene"
+
 // Material identifiers. The numeric values match the original JavaScript
 // renderer so the scene data ports across unchanged.
 const (
@@ -11,4 +13,4 @@ const (
 	MatChecker = 6 // diffuse with a procedural checkerboard albedo
 )
 
-const eps = 1e-4 // shared ray-epsilon to avoid self-intersection
+const eps = gpuscene.RayEpsilon // shared ray-epsilon to avoid self-intersection

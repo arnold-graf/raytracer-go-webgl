@@ -95,9 +95,25 @@ func frac(x float64) float64 { return x - math.Floor(x) }
 
 // cellRand returns a stable pseudo-random value in [0,1) for a grid cell,
 // decorrelated by seed. Used to give each brick its own identity.
+//
+// It is an integer bit-mixing hash rather than the more common
+// frac(sin(...)*43758) trick: that chaotic sine diverges wildly between Go's
+// float64 and the GPU's float32 (the argument is large, so a sub-ulp input
+// difference flips the result), which made brick walls impossible to match on
+// the GPU. Integer wrap-around arithmetic is identical on both, so the WGSL
+// port in trace.wgsl (cell_rand) reproduces this bit-for-bit. The cell
+// coordinates and seed are always small integers, passed as float64 for a
+// convenient call site.
 func cellRand(c, r, seed float64) float64 {
-	s := math.Sin(c*127.1+r*311.7+seed*74.69) * 43758.5453
-	return s - math.Floor(s)
+	h := uint32(int32(c))*0x27d4eb2d + uint32(int32(r))*0x9e3779b1 + uint32(int32(seed))*0x85ebca6b
+	h ^= h >> 15
+	h *= 0x2c1b3c6d
+	h ^= h >> 13
+	h *= 0x297a2d39
+	h ^= h >> 16
+	// Keep only the top 24 bits so the value is exactly representable in f32,
+	// matching the GPU division.
+	return float64(h>>8) / float64(1<<24)
 }
 
 // wood: concentric growth rings around the X axis, warped by turbulence so the

@@ -12,15 +12,16 @@ import (
 	"math"
 	"sort"
 
+	"raytracer/internal/gpuscene"
 	"raytracer/internal/scene"
 	"raytracer/internal/vec"
 )
 
-const eps = 1e-4 // matches scene's ray epsilon
+const eps = gpuscene.RayEpsilon // matches scene's ray epsilon
 
 // sahBins is the number of buckets used by the binned surface-area-heuristic
 // split. 12 is the usual sweet spot between build cost and tree quality.
-const sahBins = 12
+const sahBins = gpuscene.BVHSAHBins
 
 // Kind codes, matching trace's dispatch switch.
 const (
@@ -31,7 +32,7 @@ const (
 	KindTorus    = 5
 )
 
-const leafSize = 2 // max primitives per leaf
+const leafSize = gpuscene.BVHLeafSize // max primitives per leaf
 
 type primRef struct {
 	kind     int

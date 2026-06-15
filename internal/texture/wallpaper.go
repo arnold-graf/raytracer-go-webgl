@@ -3,6 +3,7 @@ package texture
 import (
 	"math"
 
+	"raytracer/internal/gpuscene"
 	"raytracer/internal/vec"
 )
 
@@ -29,8 +30,8 @@ var wallpaperPalettes = map[int]wallpaperPalette{
 }
 
 const (
-	wpTileW = 0.55  // world units per horizontal repeat
-	wpTileH = 0.775 // world units per vertical repeat
+	wpTileW = gpuscene.WallpaperTileW // world units per horizontal repeat
+	wpTileH = gpuscene.WallpaperTileH // world units per vertical repeat
 )
 
 func wallpaper(p, tint vec.V, id int) vec.V {

@@ -1,0 +1,229 @@
+# Stormy outdoor world with the Art-Nouveau villa on a flat pad.
+# Inherits terrain, water, props, cave, and lake campfire from outdoors-night-storm.toml.
+#
+# Run with:
+#   go run . -scene scenes/outdoors-night-storm-villa.toml
+#   go run ./cmd/preview -scene scenes/outdoors-night-storm-villa.toml -o preview_villa_storm.png
+
+# ---------------------------------------------------------------- camera ----
+# Approach from the valley, facing the villa facade (+Z). Warm firelight from
+# the hearth and lake campfire contrasts with the cold storm sky.
+
+[camera]
+pos = [0.0, 2.0, 14.0]
+yaw = 0.0
+pitch = 0.04
+
+[environment]
+sky = "night_storm"
+ambient_sky = [0.060, 0.075, 0.100]
+ambient_ground = [0.018, 0.020, 0.026]
+sun_dir = [0.08, -0.42, 0.90]
+sun_color = [0.16, 0.19, 0.27]
+
+# --------------------------------------------------------------- terrain ----
+# A single height field. Peaks have positive height, valleys negative (or use
+# kind="valley"). grass/rock/snow are blended by slope (slope_lo..slope_hi) and
+# altitude (snow_lo..snow_hi).
+
+[[terrain]]
+origin = [-40.0, 0.0, -40.0]
+size = [80.0, 80.0]
+base = 0.0
+detail = 0.35           # fine fBm relief
+detail_scale = 0.12
+step = 0.28             # marching step
+grass = "grass"
+rock = "stone"
+snow = "snow"
+slope_lo = 0.32
+slope_hi = 0.68
+snow_lo = 7.5
+snow_hi = 10.5
+
+  [[terrain.feature]]   # snowy mountain (back-left)
+  kind = "peak"
+  pos = [-16.0, -24.0]
+  height = 12.0
+  width = 11.0
+  steepness = 2.0
+
+  [[terrain.feature]]   # mountain (back-right)
+  kind = "peak"
+  pos = [15.0, -26.0]
+  height = 10.0
+  width = 11.0
+  steepness = 2.0
+
+  [[terrain.feature]]   # long ridge across the back
+  kind = "peak"
+  pos = [0.0, -33.0]
+  height = 9.0
+  width = 24.0
+  steepness = 2.0
+  extend = [3.0, 1.0]
+
+  [[terrain.feature]]   # gentle foreground hill (left)
+  kind = "peak"
+  pos = [-24.0, -8.0]
+  height = 3.5
+  width = 13.0
+  steepness = 2.0
+
+  [[terrain.feature]]   # valley basin holding the pond (front-center)
+  kind = "valley"
+  pos = [0.0, 8.0]
+  height = 4.0
+  width = 6.0
+  steepness = 3.0
+
+
+# ================================================================ THE VILLA ====
+
+[[include]]
+file = "objects/art-nouveau-villa.toml"
+at = [0.0, 0.0, -10.0]
+
+
+# ----------------------------------------------------------------- water ----
+# Reflective pool sitting in the valley basin; reflects terrain, sky and light.
+
+[[water]]
+pos = [0.0, 8.0]
+radius = 5.5
+level = -1.2
+ripple = 0.05
+ripple_animation_speed = 0.6     # drift the waves over time (wind)
+ripple_direction = [1.0, 0.4]    # wind drift direction in x,z (optional)
+material = "mirror"
+albedo = [0.55, 0.70, 0.85]
+
+# ------------------------------------------------------------------ trees ----
+# Pines = cylinder trunk + cone foliage. Round tree = trunk + sphere foliage.
+# Foliage uses the grass texture for natural green mottling.
+
+[[cylinder]] # pine 1 trunk
+cx = -9.0
+cz = 2.0
+radius = 0.2
+ymin = -1.0
+ymax = 1.4
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "wood"
+
+[[cone]] # pine 1 foliage
+cx = -9.0
+cz = 2.0
+ybase = 0.8
+ytip = 4.6
+rbase = 1.3
+material = "diffuse"
+albedo = [0.8, 1.0, 0.8]
+texture = "grass"
+
+[[cylinder]] # pine 2 trunk
+cx = 8.0
+cz = 2.5
+radius = 0.22
+ymin = -1.0
+ymax = 1.5
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "wood"
+
+[[cone]] # pine 2 foliage
+cx = 8.0
+cz = 2.5
+ybase = 0.9
+ytip = 4.9
+rbase = 1.4
+material = "diffuse"
+albedo = [0.8, 1.0, 0.8]
+texture = "grass"
+
+[[cylinder]] # round tree trunk
+cx = -14.0
+cz = -2.0
+radius = 0.28
+ymin = -1.0
+ymax = 2.2
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "wood"
+
+[[sphere]] # round tree foliage
+center = [-14.0, 3.2, -2.0]
+radius = 1.7
+material = "diffuse"
+albedo = [0.85, 1.0, 0.85]
+texture = "grass"
+
+[[sound]] # pine 1 crickets
+sound = "crickets"
+at = [-9.0, 2.7, 2.0]
+gain = 0.32
+radius = 20.0
+
+[[sound]] # pine 2 crickets
+sound = "crickets"
+at = [8.0, 2.9, 2.5]
+gain = 0.32
+radius = 20.0
+
+[[sound]] # round tree crickets
+sound = "crickets"
+at = [-14.0, 3.2, -2.0]
+gain = 0.32
+radius = 20.0
+
+# ----------------------------------------------------------------- campfire ----
+# A campfire on the lake shore (replaces the old lantern orb). The visible part
+# is just three glowing orbs (which also reflect in the water); the light is a
+# [[campfire]] -- a cluster of warm point lights that flicker in intensity and
+# position over time, so the surrounding shadows dance.
+
+[[sphere]] # orb 1 (red-orange)
+center = [0.0, 0.24, 3.18]
+radius = 0.18
+material = "emit"
+albedo = [3.6, 1.3, 0.35]
+
+[[sphere]] # orb 2 (orange)
+center = [0.24, 0.22, 2.86]
+radius = 0.16
+material = "emit"
+albedo = [4.0, 1.9, 0.6]
+
+[[sphere]] # orb 3 (yellow)
+center = [-0.24, 0.22, 2.9]
+radius = 0.16
+material = "emit"
+albedo = [3.8, 2.6, 0.95]
+
+# The flickering light cluster. center sits just above the orbs.
+# color sets the warm hue; brightness scales the overall intensity (so you can
+# tune how bright the fire glows without touching its color or its reach).
+#   brightness - overall intensity multiplier on color (1 = as authored)
+#   range      - how far the firelight reaches (cull/falloff distance)
+#   jitter     - position wobble radius (world units)
+#   flicker    - intensity wobble amount in [0,1]
+#   speed      - flicker speed multiplier
+#   seed       - phase offset (use different values for multiple fires)
+[[campfire]]
+center = [0.0, 0.42, 3.0]
+color = [3.6, 1.7, 0.55]
+brightness = 1.0
+range = 14.0
+jitter = 0.16
+flicker = 0.45
+speed = 1.0
+
+# Strong warm campfire against the cold storm light.
+[[campfire]]
+center = [0.0, 0.5, 3.0]
+color = [6.5, 3.2, 1.1]
+range = 17.0
+flicker = 0.55
+
+

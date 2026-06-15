@@ -7,9 +7,13 @@
 package sceneio
 
 import (
+	"bytes"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
+	"strconv"
+	"text/template"
 
 	"github.com/BurntSushi/toml"
 
@@ -305,12 +309,19 @@ type environmentDTO struct {
 // includeDTO references another TOML file as a composite object. The included
 // file's primitives are merged into the parent scene after applying the instance
 // transform (rotate about the sub-scene origin, then translate by at).
+//
+// Params are passed to the included file as Go text/template data, so an object
+// can be parameterized (e.g. params = { stem_len = 2.0 }). The object reads them
+// as {{.stem_len}} and can derive geometry with the add/sub/mul/div/neg helpers;
+// missing params fall back to the object's own `or .x <default>` defaults. Files
+// with no {{ }} are passed through verbatim, so this is opt-in per object.
 type includeDTO struct {
-	File    string `toml:"file"`
-	At      vec3   `toml:"at"`
-	RotateX float64 `toml:"rotate_x"`
-	RotateY float64 `toml:"rotate_y"`
-	RotateZ float64 `toml:"rotate_z"`
+	File    string         `toml:"file"`
+	At      vec3           `toml:"at"`
+	RotateX float64        `toml:"rotate_x"`
+	RotateY float64        `toml:"rotate_y"`
+	RotateZ float64        `toml:"rotate_z"`
+	Params  map[string]any `toml:"params"`
 }
 
 type sceneDTO struct {
@@ -364,7 +375,7 @@ func Load(path string) (*scene.Scene, error) {
 // sub-scenes, not just the top-level file. Paths are absolute and deduplicated.
 func LoadDeps(path string) (*scene.Scene, []string, error) {
 	var deps []string
-	s, err := load(path, map[string]bool{}, &deps)
+	s, err := load(path, nil, map[string]bool{}, &deps)
 	return s, deps, err
 }
 
@@ -385,7 +396,10 @@ func recordDep(deps *[]string, path string) {
 	*deps = append(*deps, abs)
 }
 
-func load(path string, seen map[string]bool, deps *[]string) (*scene.Scene, error) {
+// load reads, templates and decodes the scene at path. params is the template
+// data supplied by a parent [[include]] (nil for the top-level file and for
+// "extends" bases, which take no parameters).
+func load(path string, params map[string]any, seen map[string]bool, deps *[]string) (*scene.Scene, error) {
 	recordDep(deps, path)
 	abs, err := filepath.Abs(path)
 	if err == nil {
@@ -396,16 +410,16 @@ func load(path string, seen map[string]bool, deps *[]string) (*scene.Scene, erro
 		defer delete(seen, abs)
 	}
 
-	var dto sceneDTO
-	if _, err := toml.DecodeFile(path, &dto); err != nil {
-		return nil, fmt.Errorf("load scene %q: %w", path, err)
+	dto, err := decodeSceneFile(path, params)
+	if err != nil {
+		return nil, err
 	}
 	if dto.Extends != "" {
 		basePath := dto.Extends
 		if !filepath.IsAbs(basePath) {
 			basePath = filepath.Join(filepath.Dir(path), basePath)
 		}
-		base, err := load(basePath, seen, deps)
+		base, err := load(basePath, nil, seen, deps)
 		if err != nil {
 			return nil, err
 		}
@@ -417,7 +431,7 @@ func load(path string, seen map[string]bool, deps *[]string) (*scene.Scene, erro
 			if !filepath.IsAbs(incPath) {
 				incPath = filepath.Join(filepath.Dir(path), incPath)
 			}
-			sub, err := load(incPath, seen, deps)
+			sub, err := load(incPath, inc.Params, seen, deps)
 			if err != nil {
 				return nil, fmt.Errorf("include[%d] %q: %w", i, inc.File, err)
 			}
@@ -427,6 +441,100 @@ func load(path string, seen map[string]bool, deps *[]string) (*scene.Scene, erro
 		return base, nil
 	}
 	return dto.buildWithIncludes(path, seen, deps)
+}
+
+// decodeSceneFile reads the file at path, runs it through the object template
+// engine with params (a no-op for files that contain no {{ }} actions) and
+// decodes the resulting TOML into a sceneDTO.
+func decodeSceneFile(path string, params map[string]any) (sceneDTO, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return sceneDTO{}, fmt.Errorf("read scene %q: %w", path, err)
+	}
+	rendered, err := renderObjectTemplate(path, raw, params)
+	if err != nil {
+		return sceneDTO{}, err
+	}
+	var dto sceneDTO
+	if _, err := toml.Decode(string(rendered), &dto); err != nil {
+		return sceneDTO{}, fmt.Errorf("load scene %q: %w", path, err)
+	}
+	return dto, nil
+}
+
+// renderObjectTemplate expands {{ }} template actions in an object file using
+// params as the data. Files without any "{{" are returned verbatim so ordinary
+// scenes never pay the templating cost (and can't trip over a stray brace).
+func renderObjectTemplate(path string, raw []byte, params map[string]any) ([]byte, error) {
+	if !bytes.Contains(raw, []byte("{{")) {
+		return raw, nil
+	}
+	t, err := template.New(filepath.Base(path)).Funcs(objectTemplateFuncs).Option("missingkey=zero").Parse(string(raw))
+	if err != nil {
+		return nil, fmt.Errorf("parse object template %q: %w", path, err)
+	}
+	if params == nil {
+		params = map[string]any{}
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, params); err != nil {
+		return nil, fmt.Errorf("render object template %q: %w", path, err)
+	}
+	return buf.Bytes(), nil
+}
+
+// objectTemplateFuncs are the arithmetic helpers available to parameterized
+// object files. They coerce ints/floats/strings to float64 so derived geometry
+// (e.g. an orb that hangs below a variable-length stem) can be computed inline.
+var objectTemplateFuncs = template.FuncMap{
+	"add": func(xs ...any) float64 {
+		var s float64
+		for _, x := range xs {
+			s += toFloat(x)
+		}
+		return s
+	},
+	"sub": func(a, b any) float64 { return toFloat(a) - toFloat(b) },
+	"mul": func(xs ...any) float64 {
+		p := 1.0
+		for _, x := range xs {
+			p *= toFloat(x)
+		}
+		return p
+	},
+	"div": func(a, b any) float64 { return toFloat(a) / toFloat(b) },
+	"neg": func(a any) float64 { return -toFloat(a) },
+	// seq returns [0, 1, …, n-1] for use with {{range}} in parameterized objects
+	// (e.g. generating staircase steps from params.steps).
+	"seq": func(n any) []int {
+		count := int(toFloat(n))
+		if count <= 0 {
+			return nil
+		}
+		out := make([]int, count)
+		for i := range out {
+			out[i] = i
+		}
+		return out
+	},
+}
+
+// toFloat coerces a template value (TOML decodes numbers as int64/float64) to a
+// float64; unparseable values become 0.
+func toFloat(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case int64:
+		return float64(n)
+	case int:
+		return float64(n)
+	case string:
+		f, _ := strconv.ParseFloat(n, 64)
+		return f
+	default:
+		return 0
+	}
 }
 
 // Decode decodes a TOML scene from an in-memory byte slice (used for the
@@ -462,6 +570,22 @@ func (dto sceneDTO) applyOverrides(s *scene.Scene) error {
 			s.Campfires = append(s.Campfires, d.build())
 		}
 	}
+	// Extends children may add [[terrain.pad]] tables (with a stub [[terrain]]
+	// header so TOML decode succeeds). Merge pads into the base heightfield.
+	var pads []scene.TerrainPad
+	for _, td := range dto.Terrain {
+		for _, p := range td.Pad {
+			pads = append(pads, scene.TerrainPad{
+				CenterX: p.Center[0], CenterZ: p.Center[1],
+				HalfX: p.Half[0], HalfZ: p.Half[1],
+				Level: p.Level, Margin: p.Margin,
+			})
+		}
+	}
+	if len(pads) > 0 && len(s.Terrains) == 0 {
+		return fmt.Errorf("scene defines terrain.pad but base has no terrain")
+	}
+	addTerrainPads(s, pads)
 	return nil
 }
 
@@ -579,7 +703,7 @@ func (dto sceneDTO) buildWithIncludes(path string, seen map[string]bool, deps *[
 		if !filepath.IsAbs(incPath) {
 			incPath = filepath.Join(filepath.Dir(path), incPath)
 		}
-		sub, err := load(incPath, seen, deps)
+		sub, err := load(incPath, inc.Params, seen, deps)
 		if err != nil {
 			return nil, fmt.Errorf("include[%d] %q: %w", i, inc.File, err)
 		}
@@ -592,16 +716,23 @@ func (dto sceneDTO) buildWithIncludes(path string, seen map[string]bool, deps *[
 // mergeScene appends every primitive from sub into dst, composing each
 // primitive's local transform with the instance transform xf.
 func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
+	// Finite primitives keep their geometry in the sub-scene's local space and
+	// carry the composed instance transform; the BVH, CPU tracer and GPU all
+	// intersect in local space and map back via Xform (see bvh.addBounded and
+	// trace.intersect). Baking the placement into the center/extent as well as
+	// the Xform would translate the primitive twice, so we only compose Xform —
+	// exactly as boxes already did.
 	for i := range sub.Spheres {
 		o := sub.Spheres[i]
 		o.Xform = xf.Compose(o.Xform)
-		o.Center = xf.ToWorld(o.Center)
 		dst.Spheres = append(dst.Spheres, o)
 	}
 	for i := range sub.Planes {
 		o := sub.Planes[i]
 		o.Xform = xf.Compose(o.Xform)
 		if xf != nil {
+			// Planes are not in the BVH; the tracer uses their world-space N/D
+			// directly (ignoring Xform), so bake the placement into N and D.
 			pp := planePoint(o.N, o.D)
 			o.N = xf.WorldNormal(o.N)
 			o.D = -o.N.Dot(xf.ToWorld(pp))
@@ -616,25 +747,16 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 	for i := range sub.Cylinders {
 		o := sub.Cylinders[i]
 		o.Xform = xf.Compose(o.Xform)
-		if xf != nil {
-			c := xf.ToWorld(vec.V{X: o.CX, Y: (o.YMin + o.YMax) * 0.5, Z: o.CZ})
-			o.CX, o.CZ = c.X, c.Z
-		}
 		dst.Cylinders = append(dst.Cylinders, o)
 	}
 	for i := range sub.Cones {
 		o := sub.Cones[i]
 		o.Xform = xf.Compose(o.Xform)
-		if xf != nil {
-			c := xf.ToWorld(vec.V{X: o.CX, Y: (o.YBase + o.YTip) * 0.5, Z: o.CZ})
-			o.CX, o.CZ = c.X, c.Z
-		}
 		dst.Cones = append(dst.Cones, o)
 	}
 	for i := range sub.Tori {
 		o := sub.Tori[i]
 		o.Xform = xf.Compose(o.Xform)
-		o.Center = xf.ToWorld(o.Center)
 		dst.Tori = append(dst.Tori, o)
 	}
 	for i := range sub.Lights {
@@ -657,6 +779,34 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 			a.Pos = xf.ToWorld(a.Pos)
 		}
 		dst.Ambiences = append(dst.Ambiences, a)
+	}
+	// An included object can flatten the ground under itself by declaring
+	// [[terrain.pad]] entries (with a stub [[terrain]] header so the TOML
+	// decodes). We don't merge the sub-scene's own height field — objects ride
+	// on the parent terrain — only its pads, placed by the instance transform.
+	var pads []scene.TerrainPad
+	for i := range sub.Terrains {
+		for _, p := range sub.Terrains[i].Pads {
+			if xf != nil {
+				c := xf.ToWorld(vec.New(p.CenterX, 0, p.CenterZ))
+				p.CenterX, p.CenterZ = c.X, c.Z
+			}
+			pads = append(pads, p)
+		}
+	}
+	addTerrainPads(dst, pads)
+}
+
+// addTerrainPads appends pads to every terrain in dst and re-Prepares the
+// affected height fields. Pads on a scene with no terrain are dropped (an
+// object may be included in a scene that has no ground).
+func addTerrainPads(dst *scene.Scene, pads []scene.TerrainPad) {
+	if len(pads) == 0 || len(dst.Terrains) == 0 {
+		return
+	}
+	for i := range dst.Terrains {
+		dst.Terrains[i].Pads = append(dst.Terrains[i].Pads, pads...)
+		dst.Terrains[i].Prepare()
 	}
 }
 

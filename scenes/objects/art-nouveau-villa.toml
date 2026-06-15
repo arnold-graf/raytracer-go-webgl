@@ -1,0 +1,568 @@
+# Art-Nouveau villa (approximation), in local coordinates.
+#
+# Origin (0,0,0) is the centre of the front at grade; the house faces +Z.
+# Symmetrical layout: projecting side wings, a recessed central block, and a
+# ground-floor bay window.  Stone plinth (~1.2 m), two 4.5 m storeys, plain
+# interior with a stair to the upper floor and an open fireplace.
+#
+#   y = 1.2   ground floor
+#   y = 5.7   second floor   (4.5 m floor-to-floor)
+#   y = 10.2  eaves / roof base
+#
+# Place with [[include]], e.g.:
+#
+#   [[include]]
+#   file = "objects/art-nouveau-villa.toml"
+#   at = [0.0, 0.0, -10.0]
+#
+# Plaster ~ cream, stone base, dark tile roofs, dark wood window frames.
+
+# Flatten the ground under the house. The stub [[terrain]] only exists so the
+# [[terrain.pad]] below decodes; an object never carries its own height field,
+# so the pad is merged into whatever terrain the parent scene defines. The pad
+# is in this object's local coordinates and is moved by the include's `at`.
+[[terrain]]
+
+[[terrain.pad]] # flat site under the villa (footprint ~15 × 13 m + margin)
+center = [0.0, 0.0]
+half = [8.5, 8.0]
+level = 0.0
+margin = 5.0
+
+# ============================================================ STONE PLINTH ====
+
+[[box]] # rough stone base (full footprint incl. bay)
+albedo = [0.58, 0.54, 0.48]
+material = "diffuse"
+max = [7.6, 1.2, 7.8]
+min = [-7.6, 0.0, -5.6]
+texture = "stone"
+
+# ===================================================== GROUND FLOOR SLAB ====
+
+[[box]] # interior ground floor (stone flags)
+albedo = [0.72, 0.70, 0.66]
+material = "diffuse"
+max = [7.0, 1.28, 6.8]
+min = [-7.0, 1.2, -5.2]
+texture = "marble"
+reflect = 0.03
+rough = 0.02
+
+# =========================================================== EXTERIOR WALLS ====
+# Wall thickness 0.45.  Ground floor walls rise y = 1.2 .. 5.85.
+
+# ---- back wall (-Z) ----
+
+[[box]]
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [7.2, 5.85, -5.15]
+min = [-7.2, 1.2, -5.6]
+texture = "cement"
+
+# ================================ ENTRANCE STAIRCASE ====
+[[include]]
+file = "staircase.toml"
+at = [-3, 0.0, 10.0]
+rotate_y = 90
+params = { steps = 5, run = 0.5, rise = 0.3, width = 6, texture = "marble" }
+
+# ---- left wing front (+Z), pair of tall windows ----
+
+[[box]]
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [-3.05, 5.85, 6.55]
+min = [-7.15, 1.2, 6.1]
+texture = "cement"
+[[box.hole]]
+max = [-4.0, 4.8, 6.65]
+min = [-5.4, 1.6, 6.05]
+[[box.hole]]
+max = [-5.6, 4.8, 6.65]
+min = [-6.8, 1.6, 6.05]
+
+[[box]] # left wing glass L
+albedo = [0.80, 0.88, 0.96]
+material = "glass"
+max = [-4.0, 4.8, 6.52]
+min = [-5.4, 1.6, 6.12]
+transmit = 0.82
+rough = 0.01
+ior = 1.45
+
+[[box]] # left wing glass R
+albedo = [0.80, 0.88, 0.96]
+material = "glass"
+max = [-5.6, 4.8, 6.52]
+min = [-6.8, 1.6, 6.12]
+transmit = 0.82
+rough = 0.01
+ior = 1.45
+
+# ---- right wing front (+Z) ----
+
+[[box]]
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [7.15, 5.85, 6.55]
+min = [3.05, 1.2, 6.1]
+texture = "cement"
+[[box.hole]]
+max = [5.4, 4.8, 6.65]
+min = [4.0, 1.6, 6.05]
+[[box.hole]]
+max = [6.8, 4.8, 6.65]
+min = [5.6, 1.6, 6.05]
+
+[[box]]
+albedo = [0.80, 0.88, 0.96]
+material = "glass"
+max = [5.4, 4.8, 6.52]
+min = [4.0, 1.6, 6.12]
+transmit = 0.82
+rough = 0.03
+ior = 1.45
+
+[[box]]
+albedo = [0.80, 0.88, 0.96]
+material = "glass"
+max = [6.8, 4.8, 6.52]
+min = [5.6, 1.6, 6.12]
+transmit = 0.82
+rough = 0.03
+ior = 1.45
+
+# ---- central recessed front (+Z), door + bay windows ----
+
+[[box]] # central block front, left of door
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [-0.9, 5.85, 4.55]
+min = [-3.05, 1.2, 4.1]
+texture = "cement"
+
+[[box]] # central block front, right of door
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [3.05, 5.85, 4.55]
+min = [0.9, 1.2, 4.1]
+texture = "cement"
+
+[[box]] # door lintel
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [0.9, 5.85, 4.55]
+min = [-0.9, 3.4, 4.1]
+texture = "cement"
+
+[[box]] # projecting bay side (left)
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [-2.05, 5.85, 7.55]
+min = [-2.5, 1.2, 4.45]
+texture = "cement"
+[[box.hole]]
+max = [-2.0, 4.6, 7.65]
+min = [-2.45, 1.6, 6.2]
+
+[[box]] # projecting bay side (right)
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [2.5, 5.85, 7.55]
+min = [2.05, 1.2, 4.45]
+texture = "cement"
+[[box.hole]]
+max = [2.45, 4.6, 7.65]
+min = [2.0, 1.6, 6.2]
+
+[[box]] # bay front
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [2.05, 5.85, 7.55]
+min = [-2.05, 1.2, 7.1]
+texture = "cement"
+[[box.hole]]
+max = [0.7, 4.6, 7.65]
+min = [-0.7, 1.6, 7.05]
+[[box.hole]]
+max = [2.0, 4.6, 7.65]
+min = [0.85, 1.6, 7.05]
+[[box.hole]]
+max = [-0.85, 4.6, 7.65]
+min = [-2.0, 1.6, 7.05]
+
+[[box]] # bay glass right
+albedo = [0.82, 0.90, 0.98]
+material = "glass"
+max = [2.0, 4.6, 7.52]
+min = [0.85, 1.6, 7.12]
+transmit = 0.85
+rough = 0.02
+reflect = 1
+ior = 1.45
+
+[[box]] # bay glass left
+albedo = [0.82, 0.90, 0.98]
+material = "glass"
+max = [-0.85, 4.6, 7.52]
+min = [-2.0, 1.6, 7.12]
+transmit = 0.85
+rough = 0.02
+ior = 1.45
+
+[[box]] # small curved bay roof (dark tiles)
+albedo = [0.38, 0.24, 0.18]
+material = "diffuse"
+max = [2.3, 6.15, 7.7]
+min = [-2.3, 5.85, 4.35]
+texture = "brick"
+
+# ---- side walls (±X) ----
+
+[[box]] # west (-X) wall, left wing
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [-6.7, 5.85, 6.1]
+min = [-7.15, 1.2, -5.15]
+texture = "cement"
+
+[[box]] # west wall, centre
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [-3.05, 5.85, 4.1]
+min = [-7.15, 1.2, -5.15]
+texture = "cement"
+
+[[box]] # east (+X) wall, right wing
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [7.15, 5.85, 6.1]
+min = [6.7, 1.2, -5.15]
+texture = "cement"
+
+[[box]] # east wall, centre
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [7.15, 5.85, 4.1]
+min = [3.05, 1.2, -5.15]
+texture = "cement"
+
+# ---- wing side returns (inner step of facade) ----
+
+[[box]] # left wing inner return (+Z step)
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [-3.05, 5.85, 6.1]
+min = [-3.5, 1.2, 4.05]
+texture = "cement"
+
+[[box]] # right wing inner return
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [3.5, 5.85, 6.1]
+min = [3.05, 1.2, 4.05]
+texture = "cement"
+
+# ---- facade corner cylinders (softened corners) ----
+
+[[cylinder]] # left wing front corner
+albedo = [0.94, 0.93, 0.90]
+cx = -3.3
+cz = 6.35
+radius = 0.35
+material = "diffuse"
+texture = "cement"
+ymax = 5.85
+ymin = 1.2
+
+[[cylinder]] # right wing front corner
+albedo = [0.94, 0.93, 0.90]
+cx = 3.3
+cz = 6.35
+radius = 0.35
+material = "diffuse"
+texture = "cement"
+ymax = 5.85
+ymin = 1.2
+
+# ========================================================= SECOND FLOOR WALLS ====
+# y = 5.7 .. 10.15
+
+[[box]] # 2F back wall
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [7.2, 10.15, -5.15]
+min = [-7.2, 5.7, -5.6]
+texture = "cement"
+
+[[box]] # 2F left wing front — large arched window (rect opening + arch lintel)
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [-3.05, 10.15, 6.55]
+min = [-7.15, 5.7, 6.1]
+texture = "cement"
+[[box.hole]]
+max = [-4.2, 9.2, 6.65]
+min = [-6.6, 6.4, 6.05]
+
+
+[[box]] # 2F left arch glass
+albedo = [0.80, 0.88, 0.96]
+material = "glass"
+max = [-4.2, 9.0, 6.52]
+min = [-6.6, 6.4, 6.12]
+transmit = 0.80
+rough = 0.03
+ior = 1.45
+
+[[box]] # 2F right wing front
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [7.15, 10.15, 6.55]
+min = [3.05, 5.7, 6.1]
+texture = "cement"
+[[box.hole]]
+max = [6.6, 9.2, 6.65]
+min = [4.2, 6.4, 6.05]
+
+
+[[box]] # 2F right arch glass
+albedo = [0.80, 0.88, 0.96]
+material = "glass"
+max = [6.6, 9.0, 6.52]
+min = [4.2, 6.4, 6.12]
+transmit = 0.80
+rough = 0.03
+ior = 1.45
+
+# ---- 2F pill windows (horizontal ovals approximated as wide holes) ----
+
+[[box]] # left wing upper front (small windows band)
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [-3.05, 10.15, 6.55]
+min = [-7.15, 9.2, 6.1]
+texture = "cement"
+[[box.hole]]
+max = [-4.5, 9.85, 6.65]
+min = [-6.3, 9.35, 6.05]
+
+[[box]] # right wing upper front
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [7.15, 10.15, 6.55]
+min = [3.05, 9.2, 6.1]
+texture = "cement"
+[[box.hole]]
+max = [6.3, 9.85, 6.65]
+min = [4.5, 9.35, 6.05]
+
+[[box]] # 2F central front
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [3.05, 10.15, 4.55]
+min = [-3.05, 5.7, 4.1]
+texture = "cement"
+[[box.hole]]
+max = [1.8, 8.8, 4.65]
+min = [-1.8, 6.2, 4.05]
+
+[[box]] # 2F side walls (west/east)
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [-6.7, 10.15, 6.1]
+min = [-7.15, 5.7, -5.15]
+texture = "cement"
+
+[[box]]
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [7.15, 10.15, 6.1]
+min = [6.7, 5.7, -5.15]
+texture = "cement"
+
+[[box]]
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [-3.05, 10.15, 4.1]
+min = [-7.15, 5.7, -5.15]
+texture = "cement"
+
+[[box]]
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [7.15, 10.15, 4.1]
+min = [3.05, 5.7, -5.15]
+texture = "cement"
+
+# =========================================================== SECOND FLOOR SLAB ====
+
+[[box]] # upper floor deck (with stairwell opening)
+albedo = [0.78, 0.62, 0.48]
+material = "diffuse"
+max = [-3, 5.78, -3.0]
+min = [3, 5.7, -6.0]
+texture = "wood"
+
+
+# ============================================================== INTERIOR ====
+
+# ---- open fireplace (ground floor, west side) ----
+
+[[box]] # hearth floor slab
+albedo = [0.55, 0.52, 0.48]
+material = "diffuse"
+max = [-5.8, 1.35, 3.5]
+min = [-6.8, 1.2, 1.2]
+texture = "stone"
+
+[[box]] # firebox back
+albedo = [0.45, 0.42, 0.40]
+material = "diffuse"
+max = [-6.75, 3.2, 3.4]
+min = [-7.05, 1.2, 1.3]
+texture = "stone"
+
+[[box]] # firebox left jamb
+albedo = [0.50, 0.47, 0.44]
+material = "diffuse"
+max = [-6.0, 3.0, 1.55]
+min = [-6.75, 1.2, 1.25]
+texture = "stone"
+
+[[box]] # firebox right jamb
+albedo = [0.50, 0.47, 0.44]
+material = "diffuse"
+max = [-6.0, 3.0, 3.45]
+min = [-6.75, 1.2, 3.15]
+texture = "stone"
+
+[[box]] # mantel shelf
+albedo = [0.55, 0.52, 0.48]
+material = "diffuse"
+max = [-5.6, 3.15, 3.6]
+min = [-7.0, 3.0, 1.1]
+texture = "stone"
+
+[[box]] # chimney breast (interior, rises through both floors)
+albedo = [0.55, 0.52, 0.48]
+material = "diffuse"
+max = [-5.5, 10.0, 3.6]
+min = [-6.9, 3.0, 1.0]
+texture = "stone"
+
+[[campfire]] # open fire in the hearth
+brightness = 0.35
+center = [-6.35, 1.55, 2.35]
+color = [5.0, 2.2, 0.8]
+flicker = 0.6
+range = 14.0
+
+[[sphere]] # fire glow (visible embers)
+albedo = [4.0, 1.6, 0.5]
+center = [-6.35, 1.7, 2.35]
+material = "emit"
+radius = 0.25
+
+# ---- staircase to second floor (10 × 0.45 m rise = 4.5 m) ----
+
+[[include]]
+file = "staircase.toml"
+at = [-3, 1, 2.0]
+rotate_y = 90
+params = { steps = 10, run = 0.5, rise = 0.45, width = 1.8 }
+
+# ================================================================ ROOFS ====
+
+[[box]] # left wing flat roof cap
+albedo = [0.38, 0.24, 0.18]
+material = "diffuse"
+max = [-3.0, 10.35, 6.8]
+min = [-7.1, 10.15, -5.0]
+texture = "brick"
+
+[[box]] # left roof overhang (eaves)
+albedo = [0.38, 0.24, 0.18]
+material = "diffuse"
+max = [-2.9, 10.25, 7.0]
+min = [-7.0, 10.05, 6.4]
+texture = "brick"
+
+[[box]] # right wing flat roof cap
+albedo = [0.38, 0.24, 0.18]
+material = "diffuse"
+max = [7.1, 10.35, 6.8]
+min = [3.0, 10.15, -5.0]
+texture = "brick"
+
+[[box]] # right roof overhang
+albedo = [0.38, 0.24, 0.18]
+material = "diffuse"
+max = [7.0, 10.25, 7.0]
+min = [2.9, 10.05, 6.4]
+texture = "brick"
+
+[[box]] # central gable roof (sloped)
+albedo = [0.38, 0.24, 0.18]
+material = "diffuse"
+max = [3.2, 10.55, 4.2]
+min = [-3.2, 10.15, -5.0]
+pivot = [0.0, 10.15, 0.0]
+rotate_x = -18.0
+texture = "brick"
+
+[[box]] # central attic vent (arched slats suggestion)
+albedo = [0.30, 0.20, 0.16]
+material = "diffuse"
+max = [0.8, 10.45, 3.8]
+min = [-0.8, 9.9, 3.2]
+texture = "wood"
+
+# ============================================================== CHIMNEYS ====
+
+[[box]] # left chimney stack (exterior)
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [-3.8, 13.0, -0.5]
+min = [-5.2, 10.15, -1.9]
+texture = "cement"
+
+[[box]] # right chimney stack
+albedo = [0.94, 0.93, 0.90]
+material = "diffuse"
+max = [5.2, 13.0, -0.5]
+min = [3.8, 10.15, -1.9]
+texture = "cement"
+
+# =========================================================== INTERIOR LIGHT ====
+
+# [[light]] # ground floor hall (warm, range-limited)
+[[include]]
+file = "otto-wagner-sphere-lamp.toml"
+at = [0.0, 10, 1.0]
+params = { stem_len = 4.0, orb_radius = 0.4, brightness = 0.3 }
+
+[[include]]
+file = "otto-wagner-sphere-lamp.toml"
+at = [-0.5, 10, 0]
+params = { stem_len = 3, orb_radius = 0.4, brightness = 0.2 }
+
+[[include]]
+file = "otto-wagner-sphere-lamp.toml"
+at = [0.5, 10, -0.5]
+params = { stem_len = 2.7, orb_radius = 0.4, brightness = 0.3 }
+
+# [[light]] # ground floor hall (warm, range-limited)
+# color = [4.0, 3.2, 2.2]
+# pos = [0.0, 4.5, 1.0]
+# radius = 0.4
+# range = 14.0
+
+# [[light]] # second floor (dimmer)
+# brightness = 0.6
+# color = [3.0, 2.6, 2.0]
+# pos = [0.0, 8.5, 0.0]
+# radius = 0.35
+# range = 12.0

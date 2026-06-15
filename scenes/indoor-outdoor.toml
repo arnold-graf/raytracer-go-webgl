@@ -18,20 +18,20 @@
 # Spawn outside, on the ground, facing the lit doorway. Walk forward (W) to enter.
 
 [camera]
+pitch = 0.02
 pos = [16.0, 1.6, 16.0]
 yaw = 0.0
-pitch = 0.02
 
 # ----------------------------------------------------------- environment ----
 # Clear night with a starfield + faint moon glow. Outdoor light is dim; the
 # building's interior emitters provide the warm glow spilling out the door.
 
 [environment]
-sky = "night_stars"
-ambient_sky = [0.035, 0.050, 0.090]
 ambient_ground = [0.018, 0.018, 0.025]
-sun_dir = [-0.25, -0.82, 0.42]
+ambient_sky = [0.035, 0.050, 0.090]
+sky = "night_stars"
 sun_color = [0.10, 0.13, 0.20]
+sun_dir = [-0.25, -0.82, 0.42]
 
 # =========================================================== OUTDOOR WORLD ====
 # (terrain, water, village houses, trees and cave, copied from outdoors.toml)
@@ -39,245 +39,245 @@ sun_color = [0.10, 0.13, 0.20]
 # --------------------------------------------------------------- terrain ----
 
 [[terrain]]
-origin = [-40.0, 0.0, -40.0]
-size = [80.0, 80.0]
 base = 0.0
 detail = 0.35
 detail_scale = 0.12
-step = 0.28
 grass = "grass"
+origin = [-40.0, 0.0, -40.0]
 rock = "stone"
-snow = "snow"
-slope_lo = 0.32
+size = [80.0, 80.0]
 slope_hi = 0.68
-snow_lo = 7.5
+slope_lo = 0.32
+snow = "snow"
 snow_hi = 10.5
+snow_lo = 7.5
+step = 0.28
 
-  [[terrain.feature]]   # snowy mountain (back-left)
-  kind = "peak"
-  pos = [-16.0, -24.0]
-  height = 12.0
-  width = 11.0
-  steepness = 2.0
+[[terrain.feature]] # snowy mountain (back-left)
+height = 12.0
+kind = "peak"
+pos = [-16.0, -24.0]
+steepness = 2.0
+width = 11.0
 
-  [[terrain.feature]]   # mountain (back-right)
-  kind = "peak"
-  pos = [15.0, -26.0]
-  height = 10.0
-  width = 11.0
-  steepness = 2.0
+[[terrain.feature]] # mountain (back-right)
+height = 10.0
+kind = "peak"
+pos = [15.0, -26.0]
+steepness = 2.0
+width = 11.0
 
-  [[terrain.feature]]   # long ridge across the back
-  kind = "peak"
-  pos = [0.0, -33.0]
-  height = 9.0
-  width = 24.0
-  steepness = 2.0
-  extend = [3.0, 1.0]
+[[terrain.feature]] # long ridge across the back
+extend = [3.0, 1.0]
+height = 9.0
+kind = "peak"
+pos = [0.0, -33.0]
+steepness = 2.0
+width = 24.0
 
-  [[terrain.feature]]   # gentle foreground hill (left)
-  kind = "peak"
-  pos = [-24.0, -8.0]
-  height = 3.5
-  width = 13.0
-  steepness = 2.0
+[[terrain.feature]] # gentle foreground hill (left)
+height = 3.5
+kind = "peak"
+pos = [-24.0, -8.0]
+steepness = 2.0
+width = 13.0
 
-  [[terrain.feature]]   # valley basin holding the pond (front-center)
-  kind = "valley"
-  pos = [0.0, 8.0]
-  height = 4.0
-  width = 6.0
-  steepness = 3.0
+[[terrain.feature]] # valley basin holding the pond (front-center)
+height = 4.0
+kind = "valley"
+pos = [0.0, 8.0]
+steepness = 3.0
+width = 6.0
 
 # ----------------------------------------------------------------- water ----
 
 [[water]]
+albedo = [0.55, 0.70, 0.85]
+level = -1.2
+material = "mirror"
 pos = [0.0, 8.0]
 radius = 5.5
-level = -1.2
 ripple = 0.05
 ripple_animation_speed = 0.6
 ripple_direction = [1.0, 0.4]
-material = "mirror"
-albedo = [0.55, 0.70, 0.85]
 
 # ---------------------------------------------------------- village houses ----
 
 [[box]] # cabin walls (wood)
-min = [-5.0, -1.0, -1.5]
-max = [-2.0, 2.0, 1.5]
-material = "diffuse"
 albedo = [1.0, 1.0, 1.0]
+material = "diffuse"
+max = [-2.0, 2.0, 1.5]
+min = [-5.0, -1.0, -1.5]
 texture = "wood"
 
 [[cone]] # cabin roof
+albedo = [0.42, 0.13, 0.10]
 cx = -3.5
 cz = 0.0
+material = "diffuse"
+rbase = 2.4
 ybase = 1.9
 ytip = 3.7
-rbase = 2.4
-material = "diffuse"
-albedo = [0.42, 0.13, 0.10]
 
 [[box]] # stone house walls
-min = [2.5, -1.0, -2.0]
-max = [5.5, 2.2, 1.0]
-material = "diffuse"
 albedo = [1.0, 1.0, 1.0]
+material = "diffuse"
+max = [5.5, 2.2, 1.0]
+min = [2.5, -1.0, -2.0]
 texture = "stone"
 
 [[cone]] # stone house roof
+albedo = [0.35, 0.16, 0.11]
 cx = 4.0
 cz = -0.5
+material = "diffuse"
+rbase = 2.6
 ybase = 2.1
 ytip = 4.0
-rbase = 2.6
-material = "diffuse"
-albedo = [0.35, 0.16, 0.11]
 
 # ------------------------------------------------------------------ trees ----
 
 [[cylinder]] # pine 1 trunk
+albedo = [1.0, 1.0, 1.0]
 cx = -9.0
 cz = 2.0
-radius = 0.2
-ymin = -1.0
-ymax = 1.4
 material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
+radius = 0.2
 texture = "wood"
+ymax = 1.4
+ymin = -1.0
 
 [[cone]] # pine 1 foliage
+albedo = [0.8, 1.0, 0.8]
 cx = -9.0
 cz = 2.0
+material = "diffuse"
+rbase = 1.3
+texture = "grass"
 ybase = 0.8
 ytip = 4.6
-rbase = 1.3
-material = "diffuse"
-albedo = [0.8, 1.0, 0.8]
-texture = "grass"
 
 [[cylinder]] # pine 2 trunk
+albedo = [1.0, 1.0, 1.0]
 cx = 8.0
 cz = 2.5
-radius = 0.22
-ymin = -1.0
-ymax = 1.5
 material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
+radius = 0.22
 texture = "wood"
+ymax = 1.5
+ymin = -1.0
 
 [[cone]] # pine 2 foliage
+albedo = [0.8, 1.0, 0.8]
 cx = 8.0
 cz = 2.5
+material = "diffuse"
+rbase = 1.4
+texture = "grass"
 ybase = 0.9
 ytip = 4.9
-rbase = 1.4
-material = "diffuse"
-albedo = [0.8, 1.0, 0.8]
-texture = "grass"
 
 [[cylinder]] # round tree trunk
+albedo = [1.0, 1.0, 1.0]
 cx = -14.0
 cz = -2.0
-radius = 0.28
-ymin = -1.0
-ymax = 2.2
 material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
+radius = 0.28
 texture = "wood"
+ymax = 2.2
+ymin = -1.0
 
 [[sphere]] # round tree foliage
-center = [-14.0, 3.2, -2.0]
-radius = 1.7
-material = "diffuse"
 albedo = [0.85, 1.0, 0.85]
+center = [-14.0, 3.2, -2.0]
+material = "diffuse"
+radius = 1.7
 texture = "grass"
 
 [[sound]] # pine 1 crickets
-sound = "crickets"
 at = [-9.0, 2.7, 2.0]
 gain = 0.32
 radius = 20.0
+sound = "crickets"
 
 [[sound]] # pine 2 crickets
-sound = "crickets"
 at = [8.0, 2.9, 2.5]
 gain = 0.32
 radius = 20.0
+sound = "crickets"
 
 [[sound]] # round tree crickets
-sound = "crickets"
 at = [-14.0, 3.2, -2.0]
 gain = 0.32
 radius = 20.0
+sound = "crickets"
 
 # ------------------------------------------------------------------- cave ----
 
 [[box]] # back wall (dark interior)
-min = [-12.0, -1.0, -7.0]
-max = [-7.0, 4.6, -6.0]
-material = "diffuse"
 albedo = [0.32, 0.32, 0.34]
+material = "diffuse"
+max = [-7.0, 4.6, -6.0]
+min = [-12.0, -1.0, -7.0]
 texture = "stone"
 
 [[box]] # left wall
-min = [-12.0, -1.0, -7.0]
-max = [-11.0, 4.6, -3.2]
-material = "diffuse"
 albedo = [0.34, 0.34, 0.36]
+material = "diffuse"
+max = [-11.0, 4.6, -3.2]
+min = [-12.0, -1.0, -7.0]
 texture = "stone"
 
 [[box]] # right wall
-min = [-8.0, -1.0, -7.0]
-max = [-7.0, 4.6, -3.2]
-material = "diffuse"
 albedo = [0.34, 0.34, 0.36]
+material = "diffuse"
+max = [-7.0, 4.6, -3.2]
+min = [-8.0, -1.0, -7.0]
 texture = "stone"
 
 [[box]] # roof slab
-min = [-12.5, 4.2, -7.5]
-max = [-6.5, 5.0, -3.5]
-material = "diffuse"
 albedo = [0.40, 0.40, 0.42]
+material = "diffuse"
+max = [-6.5, 5.0, -3.5]
+min = [-12.5, 4.2, -7.5]
 texture = "stone"
 
 [[sphere]] # boulder over the roof
-center = [-9.5, 5.2, -5.5]
-radius = 2.7
-material = "diffuse"
 albedo = [0.6, 0.6, 0.62]
+center = [-9.5, 5.2, -5.5]
+material = "diffuse"
+radius = 2.7
 texture = "stone"
 
 [[sphere]] # boulder, left shoulder
-center = [-12.8, 2.5, -5.0]
-radius = 2.4
-material = "diffuse"
 albedo = [0.58, 0.58, 0.6]
+center = [-12.8, 2.5, -5.0]
+material = "diffuse"
+radius = 2.4
 texture = "stone"
 
 [[sphere]] # boulder, right shoulder
-center = [-6.2, 2.5, -5.0]
-radius = 2.4
-material = "diffuse"
 albedo = [0.58, 0.58, 0.6]
+center = [-6.2, 2.5, -5.0]
+material = "diffuse"
+radius = 2.4
 texture = "stone"
 
 [[sphere]] # boulder behind, building up the mound
-center = [-9.5, 3.0, -8.0]
-radius = 3.0
-material = "diffuse"
 albedo = [0.55, 0.55, 0.57]
+center = [-9.5, 3.0, -8.0]
+material = "diffuse"
+radius = 3.0
 texture = "stone"
 
 # ============================================================ THE BUILDING ====
 # Composite object: see scenes/building.toml (slanted roof + glass window).
 
 [[include]]
-file = "building.toml"
 at = [16.0, 0.0, -2.0]
+file = "objects/building.toml"
 
-[[terrain.pad]]       # flat building site under the indoor room
+[[terrain.pad]] # flat building site under the indoor room
 # Covers the room footprint (x in [11.1, 20.9], z in [-7.9, 3.9]) and blends
 # the surrounding relief down to 0.0 so nothing pokes through the floor slab
 # (top y=0.4). The walls hide the seam at the footprint edge.
@@ -286,311 +286,36 @@ half = [4.9, 5.9]
 level = 0.0
 margin = 4.0
 
-# ================================================= INDOOR SHOWCASE (moved) ====
-# textured.toml contents translated by (+16, +0.4, -2).
-
-# ---------------------------------------------------------------- spheres ----
-
-[[sphere]] # mirror ball
-center = [16.0, 1.3, -2.0]
-radius = 0.9
-material = "mirror"
-albedo = [0.95, 0.95, 0.98]
-
-[[sphere]] # glass ball
-center = [18.2, 0.9, -1.5]
-radius = 0.5
-material = "glass"
-albedo = [0.88, 0.94, 1.0]
-
-[[sphere]] # marble ball
-center = [13.9, 0.85, -2.3]
-radius = 0.45
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "marble"
-
-[[sphere]] # gold metal ball
-center = [15.1, 0.75, 0.0]
-radius = 0.35
-material = "metal"
-albedo = [1.0, 0.78, 0.2]
-rough = 0.06
-
-[[sphere]] # stone ball
-center = [17.6, 0.7, -4.0]
-radius = 0.3
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "stone"
-
-[[sphere]] # small mirror ball
-center = [18.0, 0.62, -0.2]
-radius = 0.22
-material = "mirror"
-albedo = [0.9, 0.9, 0.9]
-rough = 0.01
-
-[[sphere]] # warm light (emitter)
-center = [17.0, 3.6, -3.0]
-radius = 0.35
-material = "emit"
-albedo = [10.0, 8.0, 5.0]
-
-[[sphere]] # cool light (emitter)
-center = [14.5, 3.2, -0.5]
-radius = 0.25
-material = "emit"
-albedo = [4.0, 6.0, 10.0]
-
-# ------------------------------------------------------------- furniture ----
-
-[[box]] # tall pillar left: stone
-min = [11.8, 0.4, -3.5]
-max = [12.6, 3.9, -2.7]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "stone"
-
-[[box]] # tall pillar right: stone
-min = [19.4, 0.4, -3.5]
-max = [20.2, 3.9, -2.7]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "stone"
-
-[[box]] # low plinth under mirror ball (metal)
-min = [15.5, 0.4, -2.5]
-max = [16.5, 0.58, -1.5]
-material = "metal"
-albedo = [0.8, 0.8, 0.85]
-rough = 0.1
-
-[[box]] # stepped platform (base): cement
-min = [12.0, 0.4, -7.0]
-max = [14.5, 0.8, -5.5]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "cement"
-
-[[box]] # stepped platform (mid): cement
-min = [12.5, 0.8, -6.8]
-max = [14.0, 1.2, -5.7]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "cement"
-
-[[box]] # stepped platform (top): wood
-min = [13.0, 1.2, -6.6]
-max = [13.5, 1.6, -5.9]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "wood"
-
-[[box]] # long low bench right: wood
-min = [18.8, 0.4, -1.8]
-max = [20.3, 0.85, 0.0]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "wood"
-
-[[box]] # mirror slab standing (moved aside so it doesn't block the door)
-min = [12.0, 0.4, 1.2]
-max = [13.0, 2.6, 1.6]
-material = "mirror"
-albedo = [0.92, 0.92, 0.96]
-
-[[box]] # arch left foot: stone
-min = [13.8, 0.4, -2.3]
-max = [14.4, 2.9, -1.7]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "stone"
-
-[[box]] # arch right foot: stone
-min = [17.6, 0.4, -2.3]
-max = [18.2, 2.9, -1.7]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "stone"
-
-[[box]] # arch lintel: wood
-min = [13.8, 2.7, -2.35]
-max = [18.2, 3.3, -1.65]
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "wood"
-
-# -------------------------------------------------------------- columns ----
-
-[[cylinder]] # back-left column: stone
-cx = 12.5
-cz = -5.5
-radius = 0.28
-ymin = 0.4
-ymax = 4.4
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "stone"
-
-[[cylinder]] # back-right column: stone
-cx = 19.5
-cz = -5.5
-radius = 0.28
-ymin = 0.4
-ymax = 4.4
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "stone"
-
-[[cylinder]] # front-left column (metal)
-cx = 12.5
-cz = 1.5
-radius = 0.28
-ymin = 0.4
-ymax = 4.4
-material = "metal"
-albedo = [0.8, 0.82, 0.85]
-rough = 0.05
-
-[[cylinder]] # front-right column (metal)
-cx = 19.5
-cz = 1.5
-radius = 0.28
-ymin = 0.4
-ymax = 4.4
-material = "metal"
-albedo = [0.8, 0.82, 0.85]
-rough = 0.05
-
-[[cylinder]] # thin decorative column center-back (mirror)
-cx = 16.0
-cz = -5.8
-radius = 0.18
-ymin = 0.4
-ymax = 3.9
-material = "mirror"
-albedo = [0.9, 0.88, 0.92]
-rough = 0.02
-
-# ---------------------------------------------------------------- cones ----
-
-[[cone]] # cap on back-left column: stone
-cx = 12.5
-cz = -5.5
-ybase = 4.4
-ytip = 5.3
-rbase = 0.45
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "stone"
-
-[[cone]] # cap on back-right column: stone
-cx = 19.5
-cz = -5.5
-ybase = 4.4
-ytip = 5.3
-rbase = 0.45
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "stone"
-
-[[cone]] # cap on front-left column (metal)
-cx = 12.5
-cz = 1.5
-ybase = 4.4
-ytip = 5.3
-rbase = 0.45
-material = "metal"
-albedo = [0.8, 0.82, 0.85]
-rough = 0.05
-
-[[cone]] # cap on front-right column (metal)
-cx = 19.5
-cz = 1.5
-ybase = 4.4
-ytip = 5.3
-rbase = 0.45
-material = "metal"
-albedo = [0.8, 0.82, 0.85]
-rough = 0.05
-
-[[cone]] # dunce hat on stepped platform: brick
-cx = 13.25
-cz = -6.25
-ybase = 1.6
-ytip = 2.8
-rbase = 0.6
-material = "diffuse"
-albedo = [1.0, 1.0, 1.0]
-texture = "brick"
-
-# ----------------------------------------------------------------- tori ----
-
-[[torus]] # metal
-center = [16.0, 1.9, -5.0]
-major = 0.8
-minor = 0.22
-material = "metal"
-albedo = [1.0, 0.6, 0.1]
-rough = 0.05
-
-[[torus]] # mirror
-center = [19.2, 0.9, -4.5]
-major = 0.45
-minor = 0.12
-material = "mirror"
-albedo = [0.9, 0.9, 0.95]
-rough = 0.01
-
-# ----------------------------------------------------------------- lights ----
-
-[[light]] # interior warm
-pos = [17.0, 3.6, -3.0]
-color = [8.0, 6.0, 4.0]
-radius = 0.35
-range = 16.0    # local to the room; culled (with its shadow ray) once you walk outside
-
-[[light]] # interior cool
-pos = [14.5, 3.2, -0.5]
-color = [3.0, 4.0, 8.0]
-radius = 0.25
-brightness = 0.25
-range = 14.0
-
-[[light]] # interior fill
-pos = [16.0, 4.4, 0.0]
-color = [2.0, 2.0, 2.0]
-radius = 0.5
-brightness = 0.25
-range = 12.0
+# The building's interior (spheres, furniture, columns, cones, tori and the two
+# Otto-Wagner pendant lamps) now lives inside objects/building.toml so the whole
+# room travels with the building include above.
 
 # ---- campfire on the lake shore (three glowing orbs + a flickering light) ----
 
 [[sphere]] # orb 1 (red-orange)
-center = [0.0, 0.24, 3.18]
-radius = 0.18
-material = "emit"
 albedo = [3.6, 1.3, 0.35]
+center = [0.0, 0.24, 3.18]
+material = "emit"
+radius = 0.18
 
 [[sphere]] # orb 2 (orange)
-center = [0.24, 0.22, 2.86]
-radius = 0.16
-material = "emit"
 albedo = [4.0, 1.9, 0.6]
+center = [0.24, 0.22, 2.86]
+material = "emit"
+radius = 0.16
 
 [[sphere]] # orb 3 (yellow)
-center = [-0.24, 0.22, 2.9]
-radius = 0.16
-material = "emit"
 albedo = [3.8, 2.6, 0.95]
+center = [-0.24, 0.22, 2.9]
+material = "emit"
+radius = 0.16
 
 # brightness scales intensity independently of color/range (1 = as authored).
 [[campfire]] # bright, lively fire under the night sky; culled inside the building
+brightness = 0.25
 center = [0.0, 0.42, 3.0]
 color = [5.5, 2.7, 0.95]
-brightness = 0.25
-range = 20
-jitter = 0.16
 flicker = 0.75
+jitter = 0.16
+range = 20
 speed = 1

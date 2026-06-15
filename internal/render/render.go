@@ -13,6 +13,33 @@ import (
 	"raytracer/internal/vec"
 )
 
+// Renderer is the backend contract app.Game depends on. The CPU implementation
+// below is still the default/reference renderer; the WebGPU path can implement
+// the same contract during bring-up before it grows its own presentation path.
+type Renderer interface {
+	Render(buf []byte, cam *camera.Camera, tr *trace.Tracer, pixSize int)
+}
+
+// PhaseTimings breaks one WebGPU frame into pack/upload/shade/readback phases
+// (milliseconds). Only the WebGPU backend implements PhaseTimingsProvider.
+type PhaseTimings struct {
+	Pack, Upload, GPU, Readback, Total float64
+	Prims, Blockers, BVHNodes, Holes   int
+}
+
+// PhaseTimingsProvider is optionally implemented by the WebGPU backend so the
+// HUD can show a live per-phase breakdown without importing webgpu from app.
+type PhaseTimingsProvider interface {
+	LastPhaseTimings() PhaseTimings
+}
+
+// BackendNamer is optionally implemented by a renderer to report its backend
+// name for the HUD (e.g. "webgpu"). Renderers that don't implement it are
+// reported as "cpu".
+type BackendNamer interface {
+	BackendName() string
+}
+
 // bayer4 is the 4x4 ordered-dither matrix from the original renderer.
 var bayer4 = [4][4]int{
 	{0, 8, 2, 10},
@@ -21,8 +48,8 @@ var bayer4 = [4][4]int{
 	{15, 7, 13, 5},
 }
 
-// Renderer produces frames at a fixed internal resolution.
-type Renderer struct {
+// CPU produces frames at a fixed internal resolution using the Go tracer.
+type CPU struct {
 	W, H     int
 	fovScale float64
 	aspect   float64
@@ -32,9 +59,9 @@ type Renderer struct {
 	tex []trace.Texel
 }
 
-// New creates a renderer for the given internal resolution.
-func New(w, h int) *Renderer {
-	return &Renderer{
+// New creates the CPU renderer for the given internal resolution.
+func New(w, h int) *CPU {
+	return &CPU{
 		W:        w,
 		H:        h,
 		fovScale: math.Tan(60 * math.Pi / 360),
@@ -47,7 +74,7 @@ func New(w, h int) *Renderer {
 // Render fills buf (len = W*H*4, RGBA) by tracing the scene from cam. pixSize
 // renders one ray per pixSize x pixSize block and replicates the result,
 // trading resolution for speed. Work is split across CPU cores by row.
-func (r *Renderer) Render(buf []byte, cam *camera.Camera, tr *trace.Tracer, pixSize int) {
+func (r *CPU) Render(buf []byte, cam *camera.Camera, tr *trace.Tracer, pixSize int) {
 	if pixSize < 1 {
 		pixSize = 1
 	}
@@ -70,7 +97,7 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, tr *trace.Tracer, pixS
 }
 
 // renderRow renders a single block-row (height pixSize) into buf.
-func (r *Renderer) renderRow(buf []byte, py, pixSize int, cam *camera.Camera, tr *trace.Tracer, fwd, right, up vec.V) {
+func (r *CPU) renderRow(buf []byte, py, pixSize int, cam *camera.Camera, tr *trace.Tracer, fwd, right, up vec.V) {
 	for px := 0; px < r.W; px += pixSize {
 		u := (float64(px)+float64(pixSize)*0.5)/float64(r.W)*2 - 1
 		v := 1 - (float64(py)+float64(pixSize)*0.5)/float64(r.H)*2

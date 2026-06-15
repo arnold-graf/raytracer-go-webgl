@@ -1,0 +1,64 @@
+# Otto-Wagner-style sphere pendant lamp, in local coordinates.
+#
+# Origin (0,0,0) is the ceiling mount point; the lamp hangs straight down in -Y.
+# A short bronze canopy caps the ceiling, a slender bronze stem drops, and a
+# glass orb hangs at the bottom with a small warm filament emitter inside it
+# (plus a real point light) so it glows like an incandescent bulb.
+#
+# Parameterized via [[include]] params (all optional; defaults below):
+#   stem_len   stem length in units            (default 1.5)
+#   orb_radius glass orb radius                 (default 0.4)
+#
+#   [[include]]
+#   file = "objects/otto-wagner-sphere-lamp.toml"
+#   at = [14.5, 5.7, -2.0]
+#   params = { stem_len = 2.0, orb_radius = 0.5 }
+#
+# The orb, filament and light hang just below the stem end, so they follow
+# stem_len/orb_radius automatically. The stem/canopy are "metal" with moderate
+# roughness so they read as bronze with a soft (not mirror) sheen.
+{{$stem := or .stem_len 1.5}}
+{{$brightness := or .brightness 1}}
+{{$orb := or .orb_radius 0.4}}
+{{$orbY := neg (add $stem (mul $orb 0.875))}}
+[[cylinder]] # ceiling canopy (bronze)
+albedo = [0.66, 0.45, 0.24]
+cx = 0.0
+cz = 0.0
+material = "metal"
+radius = 0.18
+rough = 0.22
+ymax = 0.0
+ymin = -0.08
+
+[[cylinder]] # stem / suspension rod (bronze)
+albedo = [0.70, 0.48, 0.26]
+cx = 0.0
+cz = 0.0
+material = "metal"
+radius = 0.045
+ymax = 0.0
+ymin = {{neg $stem}}
+
+[[sphere]] # glass orb
+albedo = [0.95, 0.92, 0.85]
+center = [0.0, {{$orbY}}, 0.0]
+ior = 1.5
+material = "glass"
+radius = {{$orb}}
+reflect = 0.1
+rough = 0.02
+transmit = 0.9
+
+[[sphere]] # filament (warm emitter inside the orb)
+albedo = [9.0, 5.4, 2.2]
+center = [0.0, {{$orbY}}, 0.0]
+material = "emit"
+radius = {{mul $orb 0.15}}
+
+[[light]]
+brightness = {{$brightness}}
+color = [3.5, 3.5, 2.4]
+pos = [0.0, {{$orbY}}, 0.0]
+radius = 0.5
+range = 16.0

@@ -1,6 +1,6 @@
 # Plan: WebGPU Renderer Port
 
-## Status: NOT STARTED
+## Status: IN PROGRESS
 
 ## Goal
 
@@ -46,7 +46,7 @@ per frame → GPU.
 
 ## Architecture (keep it boring)
 
-```
+```text
 TOML ──► scene.Scene ──► PreparedScene ──┬──► CPURenderer  (existing)
                                           │         ▲
                                           │    parity tests
@@ -57,7 +57,7 @@ TOML ──► scene.Scene ──► PreparedScene ──┬──► CPURendere
 
 ### New packages (proposed)
 
-```
+```text
 internal/
   render/          # add Renderer interface; CPU impl stays here
   gpuscene/        # PreparedScene: pack scene → []byte / GPU structs
@@ -84,7 +84,7 @@ hot reload, same toggles.
 Each workgroup item = one pixel. No intermediate G-buffers, no separate shadow
 pass, no wavefront queues.
 
-```
+```text
 for each pixel (gpu_id):
     ray = camera_ray(pixel)
   for bounce in 0..2:
@@ -176,69 +176,154 @@ parity snapshot. Merge when the phase passes its gate.
 
 ### Phase 0 — Skeleton
 
-- [ ] Add `github.com/rajveermalviya/go-webgpu/wgpu` (or `cogentcore/webgpu`)
-- [ ] `internal/webgpu`: open device, compile empty compute shader, write gradient
-- [ ] `-renderer webgpu` flag; app still defaults to CPU
+- [x] Add `github.com/rajveermalviya/go-webgpu/wgpu` (or `cogentcore/webgpu`)
+- [x] `internal/webgpu`: open device, compile empty compute shader, write gradient
+- [x] `-renderer webgpu` flag; app still defaults to CPU
 - [ ] **Gate:** window opens, gradient visible, CPU path unaffected
 
 ### Phase 1 — Camera + sky
 
-- [ ] Port `camera.Ray`, `clearSky` (only)
-- [ ] Uniform buffer: camera basis, aspect, fov
-- [ ] **Gate:** GPU sky matches CPU `clearSky` on 4 fixed rays (unit test);
+- [x] Port `camera.Ray`, `clearSky` (only)
+- [x] Uniform buffer: camera basis, aspect, fov
+- [ ] **Gate:** GPU sky matches CPU `clearSky` on 4 fixed rays (unit test passes);
   visual match on default scene (no geometry)
 
 ### Phase 2 — Primitives + diffuse
 
-- [ ] `gpuscene.Pack`: spheres, boxes, planes → storage buffer
-- [ ] Port intersections + `shade` with ambient only (no lights yet)
-- [ ] Port tonemap/gamma
-- [ ] **Gate:** `parity.Compare(cpu, gpu, default.toml, tol=1/255)` passes on
-  3 fixed cameras with mirror/shadow/AO **off**
+- [x] `webgpu.PackPrimitives`: spheres, boxes, planes → std430 storage buffer
+  (`GPUPrimitive`, 64-byte stride, layout-guarded by `TestGPUPrimitiveLayout`).
+  Transforms / box holes / plane checker deferred to later phases.
+- [x] Port intersections (sphere, plane, box slab) + `shade` ambient-only
+  (flat 0.04), emissive passthrough, sky on miss
+- [x] Port tonemap/gamma + ordered dither (exact `clampByte(col*255+bdt)` match)
+- [x] **Gate:** CPU↔GPU parity test passes with mirror/shadow/AO **off**.
+  Uses a controlled diffuse scene (`diffuseScene`) instead of `default.toml`
+  because default's lights/emit/checker need Phase 3+; mean err 0.03 LSB,
+  outliers (edges) 0.03% of pixels. Re-point the gate at `default.toml` once
+  lights + checker land.
 
 ### Phase 3 — Lights + shadows
 
-- [ ] Upload lights with precomputed cull data
-- [ ] Port `addPointLight`, `shadowed`, blocker BVH `AnyHit`
-- [ ] **Gate:** parity with shadow on; indoor-outdoor interior view
+- [x] Upload static point lights with CPU-matched precomputed cull/range data
+  (`GPULight`, 48-byte stride, layout-guarded by `TestGPULightLayout`)
+- [x] Upload shadow-casting primitive array (sphere/plane/box blockers,
+  excluding emissive/glass where the CPU blocker BVH does)
+- [x] Port `addPointLight` attenuation, range window, contribution culling, hit
+  normals and hard `shadowed` rays. Shadow traversal now uses the GPU blocker
+  BVH for finite primitives; infinite planes remain a separate loop, matching
+  the CPU tracer split.
+- [x] **Gate:** CPU↔GPU parity with `Shadow` on passes on controlled lit diffuse
+  scene (`TestPointLightShadowParityMatchesCPU`): mean err 0.05 LSB, outliers
+  0.03% of pixels (shadow/silhouette edges).
+- [ ] Re-point gate to `indoor-outdoor` interior view once Phase 4+ cover BVH,
+  textures, transformed/holed boxes, cylinders/cones, terrain, campfires and
+  hemispheric/sun lighting.
 
 ### Phase 4 — BVH on GPU
 
-- [ ] Upload CPU-built SAH BVH node array
-- [ ] Port `bvh.Nearest` / `AnyHit` traversal
-- [ ] Remove brute-force primitive loop
-- [ ] **Gate:** parity on textured.toml + indoor-outdoor; profile shows BVH working
+- [x] Upload CPU-built SAH BVH node/index arrays for currently ported finite
+  primitives (spheres/boxes). Planes stay outside the BVH because they are
+  infinite, matching the CPU tracer.
+- [x] Port `bvh.Nearest` / `AnyHit` style traversal to WGSL for primary hits and
+  shadow blockers (`BVHNode` + primitive-index leaf refs, 64-entry stack)
+- [x] Remove brute-force finite-primitive loops from WGSL. Only plane loops
+  remain until non-boundable/infinite primitives are handled separately.
+- [x] **Gate:** existing Phase 2/3 CPU↔GPU parity still passes after traversal
+  swap (`TestPrimitiveParityMatchesCPU`, `TestPointLightShadowParityMatchesCPU`)
+  with unchanged error bounds.
+- [x] Cylinder, cone and torus added to the GPU prim buffer + BVH bounds, so all
+  finite analytic kinds now traverse the BVH.
+- [x] Arbitrary primitive transforms (`Xform`): each prim carries its
+  world→local rotation rows + translation (`Xf0..Xf2`); the BVH bounds enclose
+  the transformed corners and `hit_prim` maps the ray into local space, with the
+  normal rotated back. Gated by `TestTransformParityMatchesCPU` (mean 0.01 LSB).
+- [x] Box-hole CSG: each box carries a (start,count) range into a shared holes
+  buffer; `hit_box` runs the same segment-subtraction difference as the CPU and
+  the normal picks the nearest (negated) hole face. Composes with transforms.
+  Gated by `TestBoxHoleParityMatchesCPU` (mean 0.01 LSB).
 
 ### Phase 5 — Procedural textures
 
-- [ ] Port `noise.go` (perm table as const)
-- [ ] Port all textures: wood, brick, stone, cement, marble, grass, dirt, snow,
-  wallpaper (3 variants)
-- [ ] **Gate:** parity on textured.toml + indoor-outdoor wallpaper walls
+- [x] Port exact `noise.go` Perlin permutation table (uploaded as a storage
+  buffer) plus `perlin`/`fbm`/`turbulence`/`cellRand`, then faithful WGSL ports
+  of every texture: wood, brick, stone, cement, marble, grass, dirt, snow,
+  wallpaper (3 variants). Terrain albedo jitter and water ripple normals now use
+  the same exact Perlin.
+- [x] Brick parity: the per-brick cell hash was the one texture that diverged
+  (the old `frac(sin(x)*43758)` is chaotic and f32/f64 disagree on large
+  arguments). Reworked `texture.cellRand` into an integer bit-mix hash that the
+  WGSL `cell_rand` reproduces bit-for-bit, so brick now matches.
+- [x] **Gate:** `TestTextureParityMatchesCPU` (marble/stone/wood/wallpaper/
+  cement/grass/**brick**): mean err 0.10 LSB, no outliers.
 
 ### Phase 6 — Reflections + semi-reflect
 
-- [ ] Port bounce loop: mirror, metal, glass, `reflect` blend
-- [ ] **Gate:** parity on default.toml (reflective floor) with mirror on
+- [x] Port bounded bounce loop: mirror, metal, rough jitter, diffuse `reflect`
+  blend, and thin-pane glass Fresnel/refraction path.
+- [x] Glass now blends **both** lobes like the CPU (refraction tinted by albedo
+  *and* the Fresnel reflection of the world in front), instead of selecting a
+  single lobe. `ray_color` is a bounded work-stack ray-tree evaluator (max 16
+  live segments) that transcribes `trace.li`, gated by `params.mirror` to match
+  `tr.Opts.Mirror`. The depth cap now falls through to diffuse shading exactly
+  like the CPU, which also tightened mirror/reflect parity.
+- [x] Analytic checker plane material (`Plane.AlbedoAt`) ported with a per-prim
+  second albedo; gated by `TestCheckerParityMatchesCPU` (mean 0.16 LSB).
+- [x] **Gate:** `TestReflectionParityMatchesCPU` (mean 0.02 LSB, no outliers)
+  and `TestGlassParityMatchesCPU` (mean 0.01 LSB, no outliers).
 
 ### Phase 7 — Terrain + water + pads
 
-- [ ] Upload terrain height/normal/coarse grids + pad params
-- [ ] Port `terrain.march`, `IntersectWithin`, water pool
-- [ ] **Gate:** parity on outdoors.toml + indoor-outdoor.toml (pad under room)
+- [x] Upload CPU-baked terrain height/normal grids as compact samples
+  (`normal.xyz,height`) plus terrain material/pad-baked descriptors. Pads stay in
+  Go and are already baked into the uploaded height grid.
+- [x] Port terrain slab + adaptive fine march + bisection refinement,
+  `IntersectWithin`-style max distance cap, terrain normals/albedo blend, terrain
+  shadow occlusion, and water pool disk/ripple normals
+- [x] **Gate:** focused flat terrain + water parity
+  (`TestTerrainWaterParityMatchesCPU`): mean err 0.04 LSB, no outliers
+- [ ] Coarse-DDA terrain skipping is a perf-only follow-up (parity already met).
 
 ### Phase 8 — AO volume + campfires
 
-- [ ] Upload AO 3D texture (CPU still bakes; GPU samples)
-- [ ] Port campfire `LightAt` flicker + shadow gate
-- [ ] **Gate:** full parity on indoor-outdoor.toml, all toggles on
+- [x] Upload the CPU-baked ambient-occlusion volume (ambient cube, six faces per
+  cell) as a storage buffer; GPU samples it with the exact `aoVolume.sample`
+  trilinear + face-blend logic. Device now requests the adapter's full limits so
+  the 11 storage buffers (prims, lights, blockers, bvh, terrain, terrain samples,
+  water, perm, AO, campfires, output) fit past the default 8-buffer cap.
+- [x] Port campfire `LightAt` flicker + the shared core shadow early-out + the
+  per-sub-light shadow rays (the "dancing shadows"). Sub-lights are resolved on
+  the CPU each frame at `tr.Time` and packed with the cluster cull radius.
+- [x] **Gate:** `TestAOVolumeParityMatchesCPU` (mean 0.05 LSB) and
+  `TestCampfireParityMatchesCPU` (mean 0.03 LSB).
+
+### Geometry feature coverage — COMPLETE
+
+Every analytic geometry feature the CPU renderer supports now has a GPU port
+with a focused parity gate: spheres, planes, boxes, cylinders, cones, tori,
+checker planes, all procedural textures (incl. brick), arbitrary transforms and
+box-hole CSG. The remaining open items are whole-scene integration gates
+(pointing the harness at `indoor-outdoor.toml` etc.) and the standalone
+`cmd/parity` tool, which are wired up alongside Phase 9 hot reload.
 
 ### Phase 9 — Hot reload + polish
 
-- [ ] GPU buffer rebuild on scene reload (reuse existing `app.checkReload`)
-- [ ] Invalidate AO bake + BVH on reload
-- [ ] HUD shows `webgpu` backend + reload status
-- [ ] **Gate:** edit TOML, save, GPU scene updates live; no crash on bad TOML
+- [x] GPU buffer rebuild on scene reload (reuses existing `app.checkReload`).
+  `reloadScene` swaps in a fresh `trace.Tracer` (new `*scene.Scene`); the
+  WebGPU `sceneCache` is keyed on (scene pointer, `Generation()`), so the next
+  `Render` sees a stale cache and re-packs/re-uploads every static buffer. No
+  webgpu-specific reload plumbing was needed — the cache contract from Phase 8.5
+  already covers it.
+- [x] Invalidate AO bake + BVH on reload. `reloadScene` calls `tr.Prepare()`
+  (re-bakes the AO volume) and `cache.rebuild` re-runs `PackBVH`/`PackAOVolume`
+  from the new scene, so both follow the geometry edit live.
+- [x] HUD shows the active backend (`cpu`/`webgpu`, via the optional
+  `render.BackendNamer`) alongside fps + the transient reload status toast.
+  Pressing `0` hides the dev overlay for a clean view while keeping the reload
+  toast so edits are still confirmed.
+- [x] **Gate:** edit a watched TOML (top-level or an `[[include]]` like
+  `objects/building.toml`), save, and the GPU scene updates live; a parse error
+  mid-save keeps the current scene and is retried next poll (no crash), since
+  `reloadScene` only swaps on success.
 
 ### Phase 10 — Default to GPU (when ready)
 
@@ -248,7 +333,12 @@ parity snapshot. Merge when the phase passes its gate.
 
 ## Parity harness (build this in Phase 2, use forever)
 
-```
+> Status: an in-package parity check exists (`compareFrames` in
+> `internal/webgpu/device_test.go`) reporting mean/max error and outlier
+> fraction, gating Phase 2. A standalone `cmd/parity` with the flags below and
+> the 5 canonical testdata views is still to be built (folded into Phase 3+).
+
+```text
 cmd/parity/
   -scene scenes/indoor-outdoor.toml
   -camera 16,2.4,1.8,0,-0.12
@@ -320,10 +410,10 @@ debugging.
 
 When picking this up, do **only Phase 0 + start Phase 1**:
 
-1. `go get github.com/rajveermalviya/go-webgpu/wgpu@latest`
-2. Create `internal/webgpu/device.go` — init instance/adapter/device
-3. Create `internal/webgpu/shaders/gradient.wgsl` — sanity compute shader
-4. Wire `-renderer webgpu` in `main.go` (no-op fallback if device fails)
-5. Confirm gradient in window; `go test ./...` still green
+1. [x] `go get github.com/rajveermalviya/go-webgpu/wgpu@latest`
+2. [x] Create `internal/webgpu/device.go` — init instance/adapter/device
+3. [x] Create `internal/webgpu/shaders/gradient.wgsl` — sanity compute shader
+4. [x] Wire `-renderer webgpu` in `main.go` (no-op fallback if device fails)
+5. [ ] Confirm gradient in window; `go test ./...` still green
 
 Do not port intersections until sky parity passes.

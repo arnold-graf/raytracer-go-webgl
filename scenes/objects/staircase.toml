@@ -1,0 +1,47 @@
+# A single straight flight of stairs, in local coordinates.
+#
+# Origin (0,0,0) is the bottom-front corner. The flight ascends in +X. Each step
+# is a solid block from the flight base up to that step's top (a filled
+# staircase, not floating treads).
+#
+# Parameterized via [[include]] params (all optional):
+#   steps  number of treads              (default 8)
+#   run    horizontal depth per step     (default 0.5)
+#   rise   vertical height per step     (default 0.375)
+#   width  width in Z                   (default 1.6)
+#
+# With defaults the flight climbs 3.0 units over a 4.0 run (8 × 0.375 rise,
+# 8 × 0.5 run). Override for taller/shorter flights, e.g.:
+#
+#   params = { steps = 12, run = 0.45, rise = 0.25, width = 1.8 }
+#
+# Place it with [[include]] and an instance transform. Because the rotation
+# pivots about this origin, a 180-degree turn (rotate_y = 180) flips the flight
+# to ascend in -X, which is how the Manhattan towers build a switchback:
+#
+#   [[include]]                 # up-and-to-the-right flight
+#   file = "objects/staircase.toml"
+#   at = [-4.0, 0.0, -6.0]
+#
+#   [[include]]                 # next flight, turned 180 deg into the back lane
+#   file = "objects/staircase.toml"
+#   at = [0.0, 3.0, -2.6]
+#   rotate_y = 180.0
+#
+# Transformed boxes render on both the CPU and GPU and report correct world
+# bounds, so the steps stay walkable after rotation (a 180-degree turn keeps
+# them axis-aligned).
+{{$steps := or .steps 8}}
+{{$run := or .run 0.5}}
+{{$rise := or .rise 0.375}}
+{{$width := or .width 1.6}}
+{{$texture := or .texture "cement"}}
+{{range $i := seq $steps}}
+[[box]] # step {{$i}}
+min = [{{mul $i $run}}, 0.0, 0.0]
+max = [{{mul (add $i 1) $run}}, {{mul (add $i 1) $rise}}, {{$width}}]
+material = "diffuse"
+albedo = [0.5, 0.49, 0.47]
+texture = "{{$texture}}"
+
+{{end}}

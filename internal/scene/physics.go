@@ -19,9 +19,13 @@ func (s *Scene) GroundHeight(x, z, headY float64) float64 {
 	}
 
 	for i := range s.Boxes {
-		mn, mx := s.Boxes[i].WorldBounds()
+		b := &s.Boxes[i]
+		mn, mx := b.WorldBounds()
 		if mx.Y <= headY && x >= mn.X && x <= mx.X && z >= mn.Z && z <= mx.Z {
-			if mx.Y > g {
+			// A hole that breaches the top face (a stairwell/trap opening) means
+			// there's no standing surface here, so the player falls through to
+			// whatever lies below.
+			if mx.Y > g && !b.TopOpenAt(x, z) {
 				g = mx.Y
 			}
 		}
@@ -42,11 +46,17 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 	walkTop := feetY + step
 
 	for i := range s.Boxes {
-		mn, mx := s.Boxes[i].WorldBounds()
+		b := &s.Boxes[i]
+		mn, mx := b.WorldBounds()
 		if mx.Y <= walkTop || mn.Y >= headY {
 			continue
 		}
 		if x > mn.X-radius && x < mx.X+radius && z > mn.Z-radius && z < mx.Z+radius {
+			// A doorway/window cut into the wall (Box.Holes) lets the player
+			// pass when their body lines up with the opening.
+			if b.PassableThroughHole(x, z, walkTop, headY, radius) {
+				continue
+			}
 			return true
 		}
 	}

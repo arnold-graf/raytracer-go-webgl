@@ -1,0 +1,546 @@
+# Scene & Object TOML Reference
+
+How scenes and reusable objects are described in this raytracer. Scenes are
+plain [TOML](https://toml.io) files that the loader in
+`internal/sceneio/toml.go` decodes into a `scene.Scene`. There is no scene
+editor — you hand-write these files and (optionally) hot-reload them while the
+app runs.
+
+- [Quick start](#quick-start)
+- [Coordinate system & conventions](#coordinate-system--conventions)
+- [Top-level structure](#top-level-structure)
+- [Shared surface fields](#shared-surface-fields)
+- [Per-primitive transforms](#per-primitive-transforms)
+- [Primitives](#primitives)
+- [Lights, campfires & sounds](#lights-campfires--sounds)
+- [Terrain & water](#terrain--water)
+- [Camera & environment](#camera--environment)
+- [Composing scenes: `extends`](#composing-scenes-extends)
+- [Reusable objects: `[[include]]`](#reusable-objects-include)
+- [Parameterized objects (templating)](#parameterized-objects-templating)
+- [Hot reload](#hot-reload)
+- [Enumerations (materials, textures, skies, sounds)](#enumerations)
+- [Gotchas](#gotchas)
+
+---
+
+## Quick start
+
+Run a scene:
+
+```bash
+go run . -scene scenes/indoor-outdoor.toml                 # interactive (Ebiten window)
+go run . -scene scenes/indoor-outdoor.toml -renderer webgpu # GPU backend
+go run ./cmd/preview -scene scenes/indoor-outdoor.toml -o out.png -w 900 -h 600
+```
+
+A minimal scene:
+
+```toml
+[camera]
+pos = [0.0, 1.6, 5.0]
+yaw = 0.0
+pitch = 0.0
+
+[environment]
+sky = "clear"
+
+[[sphere]]
+center = [0.0, 1.0, 0.0]
+radius = 1.0
+material = "diffuse"
+albedo = [0.8, 0.3, 0.3]
+
+[[plane]]
+normal = [0.0, 1.0, 0.0]
+d = 0.0
+material = "checker"
+albedo = [0.9, 0.9, 0.9]
+albedo2 = [0.2, 0.2, 0.2]
+```
+
+---
+
+## Coordinate system & conventions
+
+- **Right-handed, Y-up.** `+Y` is up; the floor is usually `y = 0`.
+- **Units are arbitrary** but treated as meters by convention (player eye height
+  is ~1.3, walls a few units tall).
+- **Vectors** are 3-element arrays `[x, y, z]`. Colors are also `[r, g, b]`,
+  usually `0..1` but emitters/lights use values `> 1` for intensity.
+- **Camera `yaw`/`pitch` are radians** (not degrees). Pitch is clamped to
+  ±1.3 rad in-engine.
+- **Rotation fields (`rotate_x/y/z`) are degrees.** Rotations apply in X→Y→Z
+  order about a pivot.
+- **Numbers:** floats are safest (`0.0`), but the decoder accepts integer
+  literals in float fields too (`range = 16`).
+
+---
+
+## Top-level structure
+
+A scene file is a single TOML document. These top-level keys are recognized
+(all optional):
+
+| Key | Kind | Purpose |
+|-----|------|---------|
+| `extends` | string | Inherit from a base scene (see [extends](#composing-scenes-extends)) |
+| `[camera]` | table | Spawn pose |
+| `[environment]` | table | Sky, ambient light, sun |
+| `[[include]]` | array | Merge a reusable object/sub-scene |
+| `[[sphere]]` | array | Sphere primitives |
+| `[[plane]]` | array | Infinite planes |
+| `[[box]]` | array | Axis-aligned boxes (with optional CSG holes) |
+| `[[cylinder]]` | array | Finite cylinders |
+| `[[cone]]` | array | Finite cones |
+| `[[torus]]` | array | Tori (ring lies flat in XZ, axis = Y) |
+| `[[terrain]]` | array | Heightfield terrain (+ features & pads) |
+| `[[water]]` | array | Circular water pools |
+| `[[light]]` | array | Point lights |
+| `[[campfire]]` | array | Animated flickering lights |
+| `[[sound]]` | array | Spatial ambient emitters |
+
+`[[name]]` is TOML's "array of tables": repeat the block to add more of that
+kind.
+
+---
+
+## Shared surface fields
+
+Every primitive (sphere, plane, box, cylinder, cone, torus, water) accepts the
+same shading fields:
+
+| Field | Type | Default | Meaning |
+|-------|------|---------|---------|
+| `material` | string | — (required) | One of the [materials](#materials) |
+| `albedo` | `[r,g,b]` | `[0,0,0]` | Base color (or tint for a texture; emitters use `>1` for brightness) |
+| `texture` | string | none | Procedural [texture](#textures) layered over `albedo` |
+| `rough` | float | `0.0` | Microfacet roughness (blurs reflections/refractions) |
+| `ior` | float | `1.5` | Index of refraction (glass) |
+| `reflect` | float | `0.0` | `0..1` mirror reflection blended on top of a diffuse/textured surface |
+| `transmit` | float | `0.0` | `0..1` glass transparency (tint from `albedo`) |
+
+Notes:
+- `reflect` adds a mirror layer to an otherwise diffuse surface; it's ignored by
+  materials that are already reflective/refractive (`mirror`, `metal`, `glass`,
+  `emit`).
+- `texture` multiplies/tints by `albedo`; if `albedo` is omitted the texture
+  shows its natural colors.
+
+---
+
+## Per-primitive transforms
+
+Any primitive may be rotated in place by adding rotation fields. Rotation is
+about `pivot` (defaults to the origin `[0,0,0]`), in **degrees**, X→Y→Z order:
+
+```toml
+[[box]]
+min = [-1.0, 0.0, -1.0]
+max = [ 1.0, 2.0,  1.0]
+material = "diffuse"
+albedo = [0.8, 0.8, 0.8]
+rotate_y = 30.0
+pivot = [0.0, 0.0, 0.0]
+```
+
+Internally the renderer intersects in the primitive's local space and maps the
+normal back to world space, so rotated geometry is exact (no AABB
+approximation). Omitting all three `rotate_*` leaves the primitive
+axis-aligned (no transform overhead).
+
+---
+
+## Primitives
+
+### Sphere
+```toml
+[[sphere]]
+center = [0.0, 1.0, 0.0]
+radius = 1.0
+material = "metal"
+albedo = [1.0, 0.78, 0.2]
+rough = 0.06
+```
+
+### Plane (infinite)
+```toml
+[[plane]]
+normal = [0.0, 1.0, 0.0]
+d = 0.0                 # plane is  normal·x + d = 0
+material = "checker"
+albedo  = [0.9, 0.9, 0.9]
+albedo2 = [0.1, 0.1, 0.1]  # second checker color (only for material = "checker")
+```
+Planes are infinite, so they're best for fully enclosed scenes or as a ground
+in an outdoor scene without terrain. (In mixed indoor/outdoor scenes use boxes
+for floors so they don't slice through the open world.)
+
+### Box (with optional CSG holes)
+```toml
+[[box]]
+min = [-4.9, 0.0, -5.9]
+max = [-4.5, 6.3,  5.9]
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+texture = "brick"
+
+# A real see-through opening cut through the box (constructive solid geometry).
+# Make it overshoot the wall thickness so it pierces both faces cleanly.
+[[box.hole]]
+min = [-5.0, 1.5, -1.0]
+max = [-4.4, 3.5,  1.0]
+```
+`[[box.hole]]` sub-tables subtract rectangular volumes from the box — used for
+windows and doorways. A box may have multiple holes.
+
+### Cylinder (finite, axis = Y)
+```toml
+[[cylinder]]
+cx = 0.0
+cz = 0.0
+radius = 0.28
+ymin = 0.4
+ymax = 4.4
+material = "diffuse"
+texture = "stone"
+```
+
+### Cone (finite, axis = Y)
+```toml
+[[cone]]
+cx = 0.0
+cz = 0.0
+rbase = 0.45    # radius at ybase; tapers to a point at ytip
+ybase = 4.4
+ytip  = 5.3
+material = "metal"
+```
+
+### Torus (ring in XZ plane, axis = Y)
+```toml
+[[torus]]
+center = [0.0, 1.9, 0.0]
+major = 0.8     # ring radius
+minor = 0.22    # tube radius (so total height = 2*minor)
+material = "metal"
+albedo = [1.0, 0.6, 0.1]
+```
+
+Spheres, boxes, cylinders, cones and tori are accelerated by a BVH. Planes,
+terrain and water are tested directly.
+
+---
+
+## Lights, campfires & sounds
+
+### Point light
+```toml
+[[light]]
+pos = [0.0, 4.0, 0.0]
+color = [8.0, 6.0, 4.0]  # per-channel intensity (HDR, can exceed 1)
+radius = 0.35            # informational (soft-shadow size)
+range = 16.0            # cull distance: beyond it the light + its shadow ray are skipped (0 = infinite)
+brightness = 1.0        # scales color (folded in at load; default 1)
+```
+`range` is the key performance/locality knob: a light with `range = 16` only
+affects geometry within 16 units, so interior lights vanish (with their shadow
+rays) once you walk outside.
+
+### Campfire (animated flicker)
+```toml
+[[campfire]]
+center = [0.0, 0.42, 3.0]
+color = [5.5, 2.7, 0.95]  # default warm [3.6,1.7,0.55] if omitted
+brightness = 0.25         # default 1
+range = 20.0
+flicker = 0.75            # flicker depth (default 0.45)
+jitter = 0.16             # positional jitter of sub-lights / "dancing shadows" (default 0.16)
+speed = 1.0               # flicker speed (default 1)
+seed = 0.0                # optional, for deterministic variation
+```
+A bare `[[campfire]]` with just a `center` already looks like a fire (all other
+fields default).
+
+### Sound (spatial ambience)
+```toml
+[[sound]]
+sound = "crickets"   # only registered ambient sound currently
+at = [-9.0, 2.7, 2.0]
+gain = 0.32          # default 0.3
+radius = 20.0        # default 20; audible falloff radius
+```
+Ambient emitters are ray-occluded: a wall between you and the emitter muffles
+it (so crickets outside go quiet indoors). Footstep sounds are derived
+automatically from the surface you walk on — they are not authored here.
+
+---
+
+## Terrain & water
+
+### Terrain (heightfield)
+```toml
+[[terrain]]
+origin = [-40.0, 0.0, -40.0]
+size = [80.0, 80.0]
+base = 0.0
+detail = 0.35          # fine noise amplitude
+detail_scale = 0.12    # fine noise frequency
+step = 0.28
+grass = "grass"        # textures for the three height/slope bands
+rock  = "stone"
+snow  = "snow"
+slope_lo = 0.32        # below this slope = grass; above slope_hi = rock
+slope_hi = 0.68
+snow_lo = 7.5          # height where snow begins/ends
+snow_hi = 10.5
+
+[[terrain.feature]]    # sculpt hills/valleys/ridges
+kind = "peak"          # "peak" or "valley"
+pos = [-16.0, -24.0]   # X,Z
+height = 12.0
+width = 11.0
+steepness = 2.0
+extend = [3.0, 1.0]    # optional: stretch into a ridge
+angle = 0.0            # optional: rotate the feature
+
+[[terrain.pad]]        # flatten a building site into the terrain
+center = [16.0, -2.0]  # X,Z
+half = [4.9, 5.9]      # inner flat half-extent
+level = 0.0            # flattened height
+margin = 4.0           # smooth blend ring around the pad
+```
+Use `[[terrain.pad]]` to give buildings a flat footprint so floors don't poke
+through uneven ground.
+
+### Water (circular pool)
+```toml
+[[water]]
+pos = [0.0, 8.0]       # X,Z center
+radius = 5.5
+level = -1.2           # water surface height
+material = "mirror"
+albedo = [0.55, 0.70, 0.85]
+ripple = 0.05
+ripple_animation_speed = 0.6
+ripple_direction = [1.0, 0.4]
+```
+
+---
+
+## Camera & environment
+
+```toml
+[camera]
+pos = [16.0, 1.6, 16.0]
+yaw = 0.0      # radians
+pitch = 0.02   # radians
+
+[environment]
+sky = "night_stars"             # see Skies; default "clear"
+ambient_sky    = [0.035, 0.050, 0.090]  # hemispheric ambient (up)
+ambient_ground = [0.018, 0.018, 0.025]  # hemispheric ambient (down)
+sun_dir   = [-0.25, -0.82, 0.42]        # normalized at load
+sun_color = [0.10, 0.13, 0.20]
+```
+The GPU and CPU backends share the same sky/ambient model, so a scene looks the
+same on both.
+
+---
+
+## Composing scenes: `extends`
+
+A scene can inherit from a base scene and override parts of it:
+
+```toml
+extends = "outdoors.toml"   # path relative to this file
+
+[environment]
+sky = "sunset"
+```
+
+`extends` is used for sky-preset variants (see `scenes/outdoors-*.toml`).
+
+**What a child can override:** `camera`, `environment`, `[[light]]` (replaces
+the base's entire light list), and `[[campfire]]` (replaces the base's
+campfires). It may also add `[[include]]` blocks.
+
+**Important limitation:** loose primitive tables (`[[sphere]]`, `[[box]]`, …)
+written directly in an `extends` child are **ignored** — only overrides and
+includes are applied on top of the base. To add geometry to an extended scene,
+put it in a separate file and pull it in via `[[include]]`.
+
+---
+
+## Reusable objects: `[[include]]`
+
+An object is just a scene file written in **local coordinates** (origin =
+the object's natural anchor point). You drop it into a parent scene with
+`[[include]]`, which merges all of its primitives after applying an instance
+transform:
+
+```toml
+[[include]]
+file = "objects/staircase.toml"  # path relative to the including file
+at = [16.0, 0.0, -2.0]           # translate the whole object here
+rotate_x = 0.0                   # optional rotation (degrees) about the object origin
+rotate_y = 180.0
+rotate_z = 0.0
+```
+
+How it works:
+- The object's geometry stays in its local space; the include attaches a
+  transform (rotate about the object origin, then translate by `at`). The
+  renderer maps rays into local space and back, so rotated composites are exact.
+- **Includes nest.** An object can itself `[[include]]` other objects; the
+  transforms compose. For example `objects/building.toml` includes
+  `objects/otto-wagner-sphere-lamp.toml`, and both compose with wherever the
+  building is placed.
+- All primitive kinds (spheres, cylinders, cones, tori, boxes, lights,
+  campfires, sounds) are merged and placed correctly.
+
+Real objects live in `scenes/objects/` — `building.toml`, `staircase.toml`,
+`otto-wagner-sphere-lamp.toml`, `tiled-stove-round.toml` are good examples.
+
+---
+
+## Parameterized objects (templating)
+
+Objects can be parameterized so one file produces variants. This is layered on
+top of the include system using Go's `text/template`: before a file is parsed
+as TOML, it is rendered as a template with the include's `params` as data.
+
+Pass parameters from the include with an inline `params` table:
+
+```toml
+[[include]]
+file = "objects/otto-wagner-sphere-lamp.toml"
+at = [14.5, 5.7, -2.0]
+params = { stem_len = 2.0, orb_radius = 0.5 }
+```
+
+Read them in the object with `{{.name}}`, declare defaults with `or`, and
+derive geometry with the math helpers:
+
+```toml
+{{$stem := or .stem_len 1.5}}
+{{$orb := or .orb_radius 0.4}}
+{{$orbY := neg (add $stem (mul $orb 0.875))}}
+
+[[cylinder]] # stem
+ymax = 0.0
+ymin = {{neg $stem}}
+
+[[sphere]]   # orb hangs just below the stem end
+center = [0.0, {{$orbY}}, 0.0]
+radius = {{$orb}}
+```
+
+Rules and helpers:
+- **Opt-in:** files that contain no `{{` are passed through verbatim, so
+  ordinary scenes pay no cost and can't trip on a stray brace.
+- **Defaults:** use `{{$x := or .x <default>}}`. A missing/zero param falls back
+  to the default, so an include without `params` renders the object's defaults.
+- **Math helpers:** `add`, `sub`, `mul`, `div`, `neg` (e.g. `{{add $a $b}}`,
+  `{{neg $x}}`). `add`/`mul` are variadic. Inputs are coerced to float64.
+- **Loops:** use `seq` with `{{range}}` to generate repeated primitives:
+  `{{range $i := seq (or .steps 8)}}` yields `$i` = 0, 1, …, steps−1.
+- **Derived geometry:** because you can compute fields, dependent parts (an orb
+  that hangs below a variable-length stem, a light at the orb center) follow the
+  parameters automatically.
+
+Example — parameterized staircase (`objects/staircase.toml`):
+
+```toml
+{{$steps := or .steps 8}}
+{{$run := or .run 0.5}}
+{{$rise := or .rise 0.375}}
+{{$width := or .width 1.6}}
+{{range $i := seq $steps}}
+[[box]]
+min = [{{mul $i $run}}, 0.0, 0.0]
+max = [{{mul (add $i 1) $run}}, {{mul (add $i 1) $rise}}, {{$width}}]
+material = "diffuse"
+...
+{{end}}
+```
+
+**Tradeoff:** a templated object file is no longer plain TOML, so:
+- A generic TOML validator / editor tooling may flag the `{{ }}`.
+- You can't `cmd/preview` a templated object **directly** (its placeholders
+  won't parse standalone) — preview it through a parent scene that includes it.
+- Bad numeric params coerce to `0` rather than erroring, so a typo can produce
+  wrong geometry instead of a clean failure.
+
+See `scenes/objects/otto-wagner-sphere-lamp.toml` for a complete example.
+
+---
+
+## Hot reload
+
+When you pass `-scene <file>` (and/or `-player <file>`), the app watches those
+files **and everything they reach** through `extends` and `[[include]]`, and
+rebuilds the scene live when any of them changes:
+
+- Editing an included object (e.g. `objects/building.toml`) or its params in the
+  parent triggers a reload — the watcher tracks the full dependency set.
+- Reloads are polled a few times per second; the camera pose and feature
+  toggles are preserved across a reload.
+- **Bad edits are safe.** A template error, a TOML syntax error, or an unknown
+  material/texture makes the reload fail; the app keeps the last good scene,
+  shows a `scene reload FAILED: …` toast, and retries on the next poll. It never
+  crashes on a malformed save.
+- Works on both CPU and WebGPU backends (the GPU scene buffers rebuild on the
+  swap).
+
+Press `0` in-app to hide/show the dev HUD (fps, backend, timings); the reload
+toast still appears so you get confirmation while iterating.
+
+---
+
+## Enumerations
+
+### Materials
+`diffuse`, `mirror`, `metal`, `glass`, `emit`, `checker`
+
+- `diffuse` — matte (add `reflect`/`texture` to embellish).
+- `metal` — glossy reflective; tinted by `albedo`, blurred by `rough`.
+- `mirror` — near-perfect reflection.
+- `glass` — refraction (tint from `albedo`, `transmit`, `ior`) blended with a
+  Fresnel reflection.
+- `emit` — light-emitting; `albedo` values `> 1` set brightness.
+- `checker` — diffuse checkerboard using `albedo` + `albedo2` (planes).
+
+### Textures
+`wood`, `brick`, `stone`, `cement`, `marble`, `grass`, `dirt`, `snow`,
+`wallpaper_navy`, `wallpaper_green`, `wallpaper_rose` (and `none`).
+
+All are procedural (world-space Perlin/fBm), so there are no image files — they
+tint by `albedo` and cost nothing to "store". They're CPU/GPU bit-parity
+matched.
+
+### Skies
+`clear`, `cloudy`, `night_stars`, `night_storm`, `sunset` (default `clear`).
+
+### Sounds (ambient)
+`crickets` (attach to trees with `[[sound]]`).
+
+---
+
+## Gotchas
+
+- **Camera angles are radians, rotations are degrees.** Easy to mix up.
+- **`extends` children can't add loose primitives** — only override
+  camera/environment/lights/campfires and add includes. Use an include for
+  geometry.
+- **Box holes should overshoot** the wall thickness so they pierce both faces;
+  a hole flush with the face can leave a sliver.
+- **Infinite planes** will slice through an open outdoor world — use boxes for
+  floors/walls in mixed indoor-outdoor scenes.
+- **Object files use local coordinates.** Author them around their own origin,
+  then place with `at`/`rotate_*` in the include — don't bake world positions
+  into the object.
+- **Templated objects aren't standalone-previewable** (see the templating
+  tradeoff above).
+- **Light `range`** is what keeps interior lights local; without it (or with
+  `0`) a light is global and you pay for its shadow rays everywhere.

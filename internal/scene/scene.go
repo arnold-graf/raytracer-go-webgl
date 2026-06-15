@@ -27,7 +27,28 @@ type Scene struct {
 	Ambiences []Ambience
 	Start     CameraStart
 	Env       Environment
+
+	// gen is bumped by Touch whenever the scene's geometry/materials change. It
+	// is the invalidation signal renderers use to cache expensive per-scene work
+	// (e.g. the WebGPU backend's packed/uploaded GPU buffers). A static scene
+	// keeps gen constant, so that backend can skip per-frame packing entirely.
+	gen uint64
 }
+
+// Generation returns a counter that changes whenever the scene's geometry or
+// materials are mutated (see Touch). Renderers key cached, scene-derived data
+// (packed GPU buffers, acceleration structures) off this value and rebuild only
+// when it changes. Time-based animation that lives in the shader (water ripples,
+// campfire flicker via params.time) does not bump it.
+func (s *Scene) Generation() uint64 { return s.gen }
+
+// Touch marks the scene's geometry as changed, invalidating any renderer caches
+// keyed off Generation. Call it after moving primitives, swapping materials, or
+// otherwise editing the world. The forthcoming animation system will call Touch
+// each tick it relocates objects, which transparently forces the GPU backend to
+// re-pack and re-upload; a future refinement can use the same signal to upload
+// only the dirty primitives instead of the whole scene.
+func (s *Scene) Touch() { s.gen++ }
 
 // Sky variants. The zero value (SkyClear) reproduces the original clear-day
 // gradient + sun used by every existing scene.

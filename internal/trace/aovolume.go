@@ -71,6 +71,37 @@ func (tr *Tracer) ambientOcclusion(ep, n vec.V) float64 {
 	return tr.aoVol.sample(ep, n)
 }
 
+// AOVolumeData is a read-only snapshot of the baked ambient-occlusion volume,
+// exposed so the WebGPU packer can upload the exact same ambient cube the CPU
+// samples. Data is nx*ny*nz*6 float32s, face-major within each cell (face order
+// +x,-x,+y,-y,+z,-z), matching aoVolume.sample.
+type AOVolumeData struct {
+	Min            vec.V
+	Inv, Cell, Bias float64
+	NX, NY, NZ     int
+	Data           []float32
+}
+
+// AOVolumeSnapshot bakes the AO volume if needed and returns a snapshot. ok is
+// false when the scene has no finite geometry to occlude against (no volume).
+func (tr *Tracer) AOVolumeSnapshot() (AOVolumeData, bool) {
+	tr.aoOnce.Do(tr.bakeAOVolume)
+	v := tr.aoVol
+	if v == nil {
+		return AOVolumeData{}, false
+	}
+	return AOVolumeData{
+		Min:  v.min,
+		Inv:  v.inv,
+		Cell: v.cell,
+		Bias: v.bias,
+		NX:   v.nx,
+		NY:   v.ny,
+		NZ:   v.nz,
+		Data: v.data,
+	}, true
+}
+
 // Prepare performs any one-time setup (currently the AO volume bake) so the cost
 // is paid up front rather than on the first rendered frame. It is safe to call
 // multiple times and from any goroutine.

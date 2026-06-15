@@ -27,7 +27,7 @@ import (
 type Game struct {
 	rw, rh int
 
-	ren *render.Renderer
+	ren render.Renderer
 	cam *camera.Camera
 	tr  *trace.Tracer
 
@@ -39,6 +39,11 @@ type Game struct {
 	prevCX  int
 	prevCY  int
 	elapsed float64 // animation clock in seconds
+
+	// hudHidden hides the dev overlay (fps/status/timings/help) when true; the
+	// transient hot-reload toast still shows so scene edits are confirmed even
+	// on a clean view. Toggled with the "0" key.
+	hudHidden bool
 
 	// Hot-reload: when a -scene/-player file was given on the command line, its
 	// modification time is polled and the scene/config is rebuilt on change so
@@ -110,6 +115,14 @@ func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath s
 	g.reverbFb, g.reverbDamp = 0.75, 0.5
 	g.setupAmbience()
 	return g
+}
+
+// SetRenderer swaps the draw backend. New defaults to the CPU renderer; main
+// uses this to install the experimental WebGPU backend when requested.
+func (g *Game) SetRenderer(ren render.Renderer) {
+	if ren != nil {
+		g.ren = ren
+	}
 }
 
 // Footstep tuning. strideLen is the horizontal distance between steps; the
@@ -484,6 +497,9 @@ func (g *Game) handleToggles() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit4) {
 		g.cam.NoClip = !g.cam.NoClip
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyDigit0) {
+		g.hudHidden = !g.hudHidden
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyMinus) || inpututil.IsKeyJustPressed(ebiten.KeyLeftBracket) {
 		if g.pixSize < 8 {
 			g.pixSize++
@@ -502,19 +518,42 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.frame.WritePixels(g.buf)
 	screen.DrawImage(g.frame, nil)
 
-	hud := fmt.Sprintf("%.0f fps  |  %s", ebiten.ActualFPS(), g.statusLine())
-	ebitenutil.DebugPrintAt(screen, hud, 4, 4)
-	ebitenutil.DebugPrintAt(screen, g.helpLine(), 4, g.rh-14)
+	// "0" hides the dev overlay for a clean view; the reload toast below still
+	// shows so hot-reloads are confirmed while iterating on a scene.
+	y := 4
+	if !g.hudHidden {
+		hud := fmt.Sprintf("%.0f fps  |  %s  |  %s", ebiten.ActualFPS(), g.backendName(), g.statusLine())
+		ebitenutil.DebugPrintAt(screen, hud, 4, y)
+		y += 14
 
-	// Briefly surface the result of a hot-reload.
-	if g.reloadMsg != "" && time.Since(g.reloadMsgAt) < 3*time.Second {
-		ebitenutil.DebugPrintAt(screen, g.reloadMsg, 4, 18)
+		if prof, ok := g.ren.(render.PhaseTimingsProvider); ok {
+			t := prof.LastPhaseTimings()
+			ebitenutil.DebugPrintAt(screen, fmt.Sprintf(
+				"gpu pack %.1f  upload %.1f  shade %.1f  read %.1f ms  (%d prims %d holes)",
+				t.Pack, t.Upload, t.GPU, t.Readback, t.Prims, t.Holes,
+			), 4, y)
+			y += 14
+		}
+		ebitenutil.DebugPrintAt(screen, g.helpLine(), 4, g.rh-14)
 	}
+
+	// Briefly surface the result of a hot-reload (kept even when the HUD is off).
+	if g.reloadMsg != "" && time.Since(g.reloadMsgAt) < 3*time.Second {
+		ebitenutil.DebugPrintAt(screen, g.reloadMsg, 4, y)
+	}
+}
+
+// backendName reports the active renderer's backend label for the HUD.
+func (g *Game) backendName() string {
+	if b, ok := g.ren.(render.BackendNamer); ok {
+		return b.BackendName()
+	}
+	return "cpu"
 }
 
 func (g *Game) statusLine() string {
 	if g.locked {
-		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s px[-/+]:%d  ESC release",
+		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s px[-/+]:%d  HUD[0]  ESC release",
 			onOff(g.tr.Opts.Mirror), onOff(g.tr.Opts.Shadow), onOff(g.tr.Opts.AO), onOff(g.cam.NoClip), g.pixSize)
 	}
 	return "click to capture mouse"

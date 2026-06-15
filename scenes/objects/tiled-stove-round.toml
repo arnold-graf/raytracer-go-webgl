@@ -1,0 +1,165 @@
+# Round tiled stove (Kachelofen), in local coordinates.
+# Origin (0,0,0) is the floor center; the stove stands in +Y, 2.5 m tall.
+# Place in a parent scene with [[include]], sitting it on the floor, e.g.:
+#
+#   [[include]]
+#   file = "objects/tiled-stove-round.toml"
+#   at = [3.7, 0.4, -4.7]
+#
+# Approximation of a classical corner Kachelofen: wide plinth, stout firebox
+# cylinder, stepped waist moldings, a tall upper shaft, a cornice belt, a domed
+# cap and a small urn finial. All cream marble, slightly glossy.
+#
+# Profile (bottom → top):
+#   plinth           y 0.00 – 0.10
+#   firebox body     y 0.10 – 0.82
+#   waist moldings   y 0.82 – 0.98   (two stepped rings)
+#   upper shaft      y 0.98 – 2.00
+#   cornice belt     y 2.00 – 2.14   (two stepped rings)
+#   cap drum         y 2.14 – 2.22
+#   dome             y 2.22 – 2.36
+#   finial           y 2.36 – 2.50   (sphere + knob)
+
+# Shared surface: warm cream marble, polished ceramic sheen.
+# (repeat on every primitive below)
+
+# ----------------------------------------------------------- plinth base ----
+
+[[cylinder]]
+albedo = [0.98, 0.97, 0.94]
+cx = 0.0
+cz = 0.0
+material = "diffuse"
+radius = 0.62
+reflect = 0.22
+rough = 0.08
+texture = "marble"
+ymax = 0.10
+ymin = 0.0
+
+# -------------------------------------------------------- firebox section ----
+
+[[cylinder]] # lower body (wider firebox block)
+albedo = [0.98, 0.97, 0.94]
+cx = 0.0
+cz = 0.0
+material = "diffuse"
+radius = 0.55
+reflect = 0.22
+rough = 0.08
+texture = "marble"
+ymax = 0.82
+ymin = 0.10
+
+[[box]] # curved firebox door (glass inset, +Z face toward the room)
+albedo = [0.35, 0.18, 0.08]
+ior = 1.45
+material = "glass"
+max = [0.22, 0.62, 0.56]
+min = [-0.22, 0.28, 0.52]
+rough = 0.04
+transmit = 0.75
+
+# ------------------------------------------------------ waist moldings ----
+# Stepped belt where the lower block transitions into the upper shaft.
+
+[[cylinder]] # flare out
+albedo = [0.98, 0.97, 0.94]
+cx = 0.0
+cz = 0.0
+material = "diffuse"
+radius = 0.58
+reflect = 0.22
+rough = 0.08
+texture = "marble"
+ymax = 0.90
+ymin = 0.82
+
+[[cylinder]] # step back in
+albedo = [0.98, 0.97, 0.94]
+cx = 0.0
+cz = 0.0
+material = "diffuse"
+radius = 0.52
+reflect = 0.22
+rough = 0.08
+texture = "marble"
+ymax = 0.98
+ymin = 0.90
+
+# ---------------------------------------------------------- upper shaft ----
+
+[[cylinder]] # tall upper body (slender column)
+albedo = [0.98, 0.97, 0.94]
+cx = 0.0
+cz = 0.0
+material = "diffuse"
+radius = 0.48
+reflect = 0.22
+rough = 0.08
+texture = "marble"
+ymax = 2.50
+ymin = 0.98
+
+# -------------------------------------------------------- cornice belt ----
+
+[[cylinder]] # cornice flare
+albedo = [0.98, 0.97, 0.94]
+cx = 0.0
+cz = 0.0
+material = "diffuse"
+radius = 0.54
+reflect = 0.22
+rough = 0.08
+texture = "marble"
+ymax = 2.57
+ymin = 2.50
+
+[[cylinder]] # cornice neck
+albedo = [0.98, 0.97, 0.94]
+cx = 0.0
+cz = 0.0
+material = "diffuse"
+radius = 0.50
+reflect = 0.22
+rough = 0.08
+texture = "marble"
+ymax = 2.64
+ymin = 2.57
+
+# ------------------------------------------------------------- cap dome ----
+
+[[cylinder]] # cap drum under the dome
+albedo = [0.98, 0.97, 0.94]
+cx = 0.0
+cz = 0.0
+material = "diffuse"
+radius = 0.46
+reflect = 0.22
+rough = 0.08
+texture = "marble"
+ymax = 2.72
+ymin = 2.64
+
+[[cone]] # domed top
+albedo = [0.98, 0.97, 0.94]
+cx = 0.0
+cz = 0.0
+material = "diffuse"
+rbase = 0.42
+reflect = 0.22
+rough = 0.08
+texture = "marble"
+ybase = 2.72
+ytip = 3
+
+# ----------------------------------------------------------- urn finial ----
+
+[[sphere]] # urn body
+albedo = [0.98, 0.97, 0.94]
+center = [0.0, 3.0, 0.0]
+material = "diffuse"
+radius = 0.07
+reflect = 0.22
+rough = 0.08
+texture = "marble"

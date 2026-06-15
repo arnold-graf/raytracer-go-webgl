@@ -31,6 +31,11 @@ func init() {
 	}
 }
 
+// PermTable returns a copy of Perlin's 512-entry permutation table so other
+// packages (e.g. the WebGPU packer) can upload the exact same gradients the CPU
+// noise uses, keeping GPU procedural textures bit-faithful to the CPU.
+func PermTable() [512]int { return perm }
+
 func fade(t float64) float64 { return t * t * t * (t*(t*6-15) + 10) }
 
 func lerp(t, a, b float64) float64 { return a + t*(b-a) }

@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"raytracer/internal/gpuscene"
 	"raytracer/internal/scene"
 	"raytracer/internal/vec"
 )
@@ -22,7 +23,7 @@ func TestLightCulling(t *testing.T) {
 	if tr.lightInvR2[0] != 0 {
 		t.Errorf("auto light invR2 = %v, want 0 (no window)", tr.lightInvR2[0])
 	}
-	wantAuto := (8/lightCullEps - 0.5) / 0.08
+	wantAuto := (8/lightCullEps - gpuscene.LightAttenBase) / gpuscene.LightAttenQuadratic
 	if math.Abs(tr.lightCullR2[0]-wantAuto) > 1e-6 {
 		t.Errorf("auto light cullR2 = %v, want %v", tr.lightCullR2[0], wantAuto)
 	}

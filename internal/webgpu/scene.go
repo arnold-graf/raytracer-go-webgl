@@ -1,0 +1,596 @@
+package webgpu
+
+import (
+	"unsafe"
+
+	"raytracer/internal/gpuscene"
+	"raytracer/internal/scene"
+	"raytracer/internal/texture"
+	"raytracer/internal/trace"
+	"raytracer/internal/vec"
+)
+
+// Primitive kinds, mirrored by PRIM_* in trace.wgsl. Sphere/box/cylinder/cone/
+// torus reuse the CPU bvh.Kind* codes so the dispatch stays aligned; plane is
+// 1 (planes are not in the CPU BVH but the GPU prim buffer needs a code).
+const (
+	primSphere   uint32 = 0
+	primPlane    uint32 = 1
+	primBox      uint32 = 2
+	primCylinder uint32 = 3
+	primCone     uint32 = 4
+	primTorus    uint32 = 5
+)
+
+// maxPrims caps the GPU primitive storage buffer. The current scenes use far
+// fewer; anything beyond this is dropped (and logged by the caller) rather than
+// silently corrupting the buffer.
+const maxPrims = 4096
+
+const maxLights = 256
+
+const (
+	maxTerrains    = 8
+	maxTerrainVals = 1 << 20
+	maxWaters      = 64
+)
+
+const (
+	// permCount is Perlin's duplicated permutation table length.
+	permCount = 512
+	// maxAOFloats sizes the ambient-occlusion volume buffer: aoVolMaxCells (1e6)
+	// cells x 6 ambient-cube faces. Volumes larger than this are truncated.
+	maxAOFloats = 6_000_000
+	// maxCampfires caps the per-frame resolved campfire clusters.
+	maxCampfires = 64
+)
+
+// GPUPrimitive is the std430 layout consumed by trace.wgsl. Every field is a
+// 32-bit lane so the Go struct packs with no padding and can be uploaded by a
+// straight reinterpret-cast. Keep this in lockstep with struct Prim in the
+// shader; primStride and TestGPUPrimitiveLayout guard the size.
+//
+//	GeoA: sphere -> (center.xyz, radius); plane -> (n.xyz, d); box -> (min.xyz, _)
+//	      cylinder -> (cx, cz, radius, ymin); cone -> (cx, cz, rbase, ybase)
+//	      torus -> (center.xyz, majorR)
+//	GeoB: box -> (max.xyz, _); cylinder -> (ymax,..); cone -> (ytip,..);
+//	      torus -> (minorR,..); unused otherwise
+//	Albedo: linear rgb in xyz
+//	Albedo2: checker second color (planes with MatChecker)
+//	Params: (rough, ior, reflect, transmit)
+//	Meta: (kind, material, texture, flags); flags bit0 = transformed
+//	Xf0/Xf1/Xf2: world->local rotation rows (xyz) + translation t in .w, valid
+//	      only when flags bit0 is set (see scene.Transform.GPUData)
+//
+// For a box GeoA.w/GeoB.w double as the hole range (holeStart, holeCount) into
+// the shared holes buffer; see PackHoles.
+type GPUPrimitive struct {
+	GeoA    [4]float32
+	GeoB    [4]float32
+	Albedo  [4]float32
+	Albedo2 [4]float32
+	Params  [4]float32
+	Meta    [4]uint32
+	Xf0     [4]float32
+	Xf1     [4]float32
+	Xf2     [4]float32
+}
+
+// primStride is the byte stride of one GPUPrimitive / Prim element.
+const primStride = 144
+
+// primFlagTransformed marks a primitive whose Xf0..Xf2 hold a valid
+// world->local transform (mirrored by PRIM_FLAG_TRANSFORMED in trace.wgsl).
+const primFlagTransformed uint32 = 1
+
+// maxHoles caps the shared box-hole CSG buffer.
+const maxHoles = 1024
+
+// GPUHole is one axis-aligned subtracted region in a box's local space
+// (std430, 32-byte stride), mirrored by struct Hole in trace.wgsl.
+type GPUHole struct {
+	Min [4]float32
+	Max [4]float32
+}
+
+const holeStride = 32
+
+// GPULight is the std430 layout consumed by trace.wgsl.
+//
+//	Pos: light position in xyz
+//	Color: per-channel radiance in xyz
+//	Falloff: (cullR2, invR2, _, _)
+type GPULight struct {
+	Pos     [4]float32
+	Color   [4]float32
+	Falloff [4]float32
+}
+
+const lightStride = 48
+
+type GPUTerrain struct {
+	Bounds0  [4]float32 // originX, originZ, sizeX, sizeZ
+	Bounds1  [4]float32 // minY, maxY, step, _
+	Grid     [4]uint32  // gnx, gnz, heightOffset, normalOffset
+	Material [4]uint32  // grass, rock, snow, _
+	Color0   [4]float32 // grass tint
+	Color1   [4]float32 // rock tint
+	Color2   [4]float32 // snow tint
+	Blend    [4]float32 // slopeLo, slopeHi, snowLo, snowHi
+}
+
+const terrainStride = 128
+
+type GPUWater struct {
+	Geom   [4]float32 // cx, cz, radius, level
+	Params [4]float32 // ripple, rippleSpeed, dirX, dirZ
+	Albedo [4]float32
+	Surf   [4]float32 // rough, ior, reflect, transmit
+	Meta   [4]uint32  // material, texture, _, _
+}
+
+const waterStride = 80
+
+// PackPrimitives flattens the scene's analytic primitives into the GPU
+// primitive layout, including rotated/translated primitives (Xform) and boxes
+// with CSG holes. Transforms ride along in Xf0..Xf2 and holes are referenced by
+// (start,count) into the buffer PackHoles produces. Planes ignore Xform, just
+// like the CPU tracer.
+func PackPrimitives(s *scene.Scene) []GPUPrimitive {
+	if s == nil {
+		return nil
+	}
+	out := make([]GPUPrimitive, 0, len(s.Spheres)+len(s.Planes)+len(s.Boxes))
+
+	for i := range s.Spheres {
+		sp := &s.Spheres[i]
+		p := GPUPrimitive{
+			GeoA:   [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
+			Albedo: albedo(sp.Albedo),
+			Params: surfaceParams(sp.Surface),
+			Meta:   [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
+		}
+		setXform(&p, sp.Xform)
+		out = append(out, p)
+	}
+	for i := range s.Planes {
+		pl := &s.Planes[i]
+		out = append(out, GPUPrimitive{
+			GeoA:    [4]float32{f(pl.N.X), f(pl.N.Y), f(pl.N.Z), f(pl.D)},
+			Albedo:  albedo(pl.Albedo),
+			Albedo2: albedo(pl.Albedo2),
+			Params:  surfaceParams(pl.Surface),
+			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), 0},
+		})
+	}
+	holeStart := uint32(0)
+	for i := range s.Boxes {
+		bx := &s.Boxes[i]
+		out = append(out, boxPrim(bx, holeStart))
+		holeStart += uint32(len(bx.Holes))
+	}
+	for i := range s.Cylinders {
+		out = append(out, cylinderPrim(&s.Cylinders[i]))
+	}
+	for i := range s.Cones {
+		out = append(out, conePrim(&s.Cones[i]))
+	}
+	for i := range s.Tori {
+		out = append(out, torusPrim(&s.Tori[i]))
+	}
+	if len(out) > maxPrims {
+		out = out[:maxPrims]
+	}
+	return out
+}
+
+// setXform stores a primitive's world->local transform in Xf0..Xf2 and sets the
+// transformed flag, or leaves the identity (flag clear) for a nil transform.
+func setXform(p *GPUPrimitive, x *scene.Transform) {
+	if x == nil {
+		return
+	}
+	r0, r1, r2, t := x.GPUData()
+	p.Xf0 = [4]float32{f(r0.X), f(r0.Y), f(r0.Z), f(t.X)}
+	p.Xf1 = [4]float32{f(r1.X), f(r1.Y), f(r1.Z), f(t.Y)}
+	p.Xf2 = [4]float32{f(r2.X), f(r2.Y), f(r2.Z), f(t.Z)}
+	p.Meta[3] |= primFlagTransformed
+}
+
+func boxPrim(bx *scene.Box, holeStart uint32) GPUPrimitive {
+	holeCount := uint32(len(bx.Holes))
+	p := GPUPrimitive{
+		GeoA:   [4]float32{f(bx.Min.X), f(bx.Min.Y), f(bx.Min.Z), f32u(holeStart)},
+		GeoB:   [4]float32{f(bx.Max.X), f(bx.Max.Y), f(bx.Max.Z), f32u(holeCount)},
+		Albedo: albedo(bx.Albedo),
+		Params: surfaceParams(bx.Surface),
+		Meta:   [4]uint32{primBox, uint32(bx.Mat), uint32(bx.Tex), 0},
+	}
+	setXform(&p, bx.Xform)
+	return p
+}
+
+func cylinderPrim(c *scene.Cylinder) GPUPrimitive {
+	p := GPUPrimitive{
+		GeoA:   [4]float32{f(c.CX), f(c.CZ), f(c.Radius), f(c.YMin)},
+		GeoB:   [4]float32{f(c.YMax), 0, 0, 0},
+		Albedo: albedo(c.Albedo),
+		Params: surfaceParams(c.Surface),
+		Meta:   [4]uint32{primCylinder, uint32(c.Mat), uint32(c.Tex), 0},
+	}
+	setXform(&p, c.Xform)
+	return p
+}
+
+func conePrim(c *scene.Cone) GPUPrimitive {
+	p := GPUPrimitive{
+		GeoA:   [4]float32{f(c.CX), f(c.CZ), f(c.RBase), f(c.YBase)},
+		GeoB:   [4]float32{f(c.YTip), 0, 0, 0},
+		Albedo: albedo(c.Albedo),
+		Params: surfaceParams(c.Surface),
+		Meta:   [4]uint32{primCone, uint32(c.Mat), uint32(c.Tex), 0},
+	}
+	setXform(&p, c.Xform)
+	return p
+}
+
+func torusPrim(t *scene.Torus) GPUPrimitive {
+	p := GPUPrimitive{
+		GeoA:   [4]float32{f(t.Center.X), f(t.Center.Y), f(t.Center.Z), f(t.R)},
+		GeoB:   [4]float32{f(t.Rm), 0, 0, 0},
+		Albedo: albedo(t.Albedo),
+		Params: surfaceParams(t.Surface),
+		Meta:   [4]uint32{primTorus, uint32(t.Mat), uint32(t.Tex), 0},
+	}
+	setXform(&p, t.Xform)
+	return p
+}
+
+// PackHoles flattens every box's CSG holes into one buffer in box order, so the
+// (holeStart, holeCount) ranges PackPrimitives and PackBlockers bake into each
+// box prim address the same slice. Holes are stored in the box's local space.
+func PackHoles(s *scene.Scene) []GPUHole {
+	if s == nil {
+		return nil
+	}
+	var out []GPUHole
+	for i := range s.Boxes {
+		for _, h := range s.Boxes[i].Holes {
+			out = append(out, GPUHole{
+				Min: [4]float32{f(h.Min.X), f(h.Min.Y), f(h.Min.Z), 0},
+				Max: [4]float32{f(h.Max.X), f(h.Max.Y), f(h.Max.Z), 0},
+			})
+			if len(out) >= maxHoles {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+// PackBlockers flattens the primitives that should cast shadows. It mirrors the
+// CPU blocker BVH's material filtering for the primitives currently ported to
+// WGSL: emissive/glass spheres do not cast shadows, glass boxes do not cast
+// shadows, and planes are tested separately by the CPU shadow path so they are
+// included here as blocker primitives.
+func PackBlockers(s *scene.Scene) []GPUPrimitive {
+	if s == nil {
+		return nil
+	}
+	out := make([]GPUPrimitive, 0, len(s.Spheres)+len(s.Planes)+len(s.Boxes))
+	for i := range s.Spheres {
+		sp := &s.Spheres[i]
+		if sp.Mat == scene.MatEmit || sp.Mat == scene.MatGlass {
+			continue
+		}
+		p := GPUPrimitive{
+			GeoA:   [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
+			Albedo: albedo(sp.Albedo),
+			Params: surfaceParams(sp.Surface),
+			Meta:   [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
+		}
+		setXform(&p, sp.Xform)
+		out = append(out, p)
+	}
+	for i := range s.Planes {
+		pl := &s.Planes[i]
+		out = append(out, GPUPrimitive{
+			GeoA:    [4]float32{f(pl.N.X), f(pl.N.Y), f(pl.N.Z), f(pl.D)},
+			Albedo:  albedo(pl.Albedo),
+			Albedo2: albedo(pl.Albedo2),
+			Params:  surfaceParams(pl.Surface),
+			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), 0},
+		})
+	}
+	// holeStart accumulates over every box (even skipped glass ones) so the
+	// ranges baked here index the same PackHoles buffer as PackPrimitives.
+	holeStart := uint32(0)
+	for i := range s.Boxes {
+		bx := &s.Boxes[i]
+		if bx.Mat != scene.MatGlass {
+			out = append(out, boxPrim(bx, holeStart))
+		}
+		holeStart += uint32(len(bx.Holes))
+	}
+	for i := range s.Cylinders {
+		cy := &s.Cylinders[i]
+		if cy.Mat == scene.MatGlass {
+			continue
+		}
+		out = append(out, cylinderPrim(cy))
+	}
+	for i := range s.Cones {
+		co := &s.Cones[i]
+		if co.Mat == scene.MatGlass {
+			continue
+		}
+		out = append(out, conePrim(co))
+	}
+	// Tori are intentionally excluded: the CPU shadow path skips tori entirely.
+	if len(out) > maxPrims {
+		out = out[:maxPrims]
+	}
+	return out
+}
+
+// PackLights mirrors trace.buildLightCulling for static point lights. Campfire
+// sub-lights are animated and will be packed in a later phase.
+func PackLights(s *scene.Scene) []GPULight {
+	if s == nil {
+		return nil
+	}
+	out := make([]GPULight, 0, len(s.Lights))
+	for i := range s.Lights {
+		l := &s.Lights[i]
+		cullR2, invR2 := lightCull(l.Color, l.Range)
+		out = append(out, GPULight{
+			Pos:     [4]float32{f(l.Pos.X), f(l.Pos.Y), f(l.Pos.Z), 0},
+			Color:   albedo(l.Color),
+			Falloff: [4]float32{f(cullR2), f(invR2), 0, 0},
+		})
+	}
+	if len(out) > maxLights {
+		out = out[:maxLights]
+	}
+	return out
+}
+
+func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32) {
+	if s == nil {
+		return nil, nil
+	}
+	terrains := make([]GPUTerrain, 0, len(s.Terrains))
+	samples := make([]float32, 0)
+	for i := range s.Terrains {
+		t := &s.Terrains[i]
+		snap := t.CacheSnapshot()
+		off := len(samples) / 4
+		for i, h := range snap.Height {
+			n := snap.Normal[i]
+			samples = append(samples, f(n.X), f(n.Y), f(n.Z), f(h))
+		}
+		terrains = append(terrains, GPUTerrain{
+			Bounds0:  [4]float32{f(t.OriginX), f(t.OriginZ), f(t.SizeX), f(t.SizeZ)},
+			Bounds1:  [4]float32{f(t.MinY), f(t.MaxY), f(t.Step), 0},
+			Grid:     [4]uint32{uint32(snap.GNX), uint32(snap.GNZ), uint32(off), 0},
+			Material: [4]uint32{uint32(t.Grass), uint32(t.Rock), uint32(t.Snow), 0},
+			Color0:   albedo(t.GrassCol),
+			Color1:   albedo(t.RockCol),
+			Color2:   albedo(t.SnowCol),
+			Blend:    [4]float32{f(t.SlopeLo), f(t.SlopeHi), f(t.SnowLo), f(t.SnowHi)},
+		})
+		if len(terrains) >= maxTerrains || len(samples)/4 >= maxTerrainVals {
+			break
+		}
+	}
+	return terrains, samples
+}
+
+func PackWaters(s *scene.Scene) []GPUWater {
+	if s == nil {
+		return nil
+	}
+	out := make([]GPUWater, 0, len(s.Waters))
+	for i := range s.Waters {
+		w := &s.Waters[i]
+		out = append(out, GPUWater{
+			Geom:   [4]float32{f(w.CX), f(w.CZ), f(w.Radius), f(w.Level)},
+			Params: [4]float32{f(w.Ripple), f(w.RippleSpeed), f(w.RippleDirX), f(w.RippleDirZ)},
+			Albedo: albedo(w.Albedo),
+			Surf:   surfaceParams(w.Surface),
+			Meta:   [4]uint32{uint32(w.Mat), uint32(w.Tex), 0, 0},
+		})
+		if len(out) >= maxWaters {
+			break
+		}
+	}
+	return out
+}
+
+// GPUCampfire is a per-frame resolved campfire cluster: the fire core (for the
+// shared shadow early-out) plus its CampfireLights flickering sub-lights with
+// positions/colors evaluated on the CPU at the current animation time. Mirrors
+// struct Campfire in trace.wgsl (std430, 128-byte stride).
+type GPUCampfire struct {
+	Core  [4]float32 // cx, cy, cz, cullR2
+	Extra [4]float32 // invR2, _, _, _
+	S0Pos [4]float32
+	S0Col [4]float32
+	S1Pos [4]float32
+	S1Col [4]float32
+	S2Pos [4]float32
+	S2Col [4]float32
+}
+
+const campfireStride = 128
+
+// PackPerm returns Perlin's 512-entry permutation table for the GPU noise.
+func PackPerm() []uint32 {
+	tbl := texture.PermTable()
+	out := make([]uint32, permCount)
+	for i := range out {
+		out[i] = uint32(tbl[i])
+	}
+	return out
+}
+
+// PackCampfires resolves each campfire's sub-lights at animation time t and
+// packs them with the cluster's cull radius. It mirrors trace.buildLightCulling
+// (campfire branch): the cull distance uses the fire's PeakChannel so flicker
+// peaks are never clipped.
+func PackCampfires(s *scene.Scene, t float64) []GPUCampfire {
+	if s == nil {
+		return nil
+	}
+	out := make([]GPUCampfire, 0, len(s.Campfires))
+	for i := range s.Campfires {
+		fr := &s.Campfires[i]
+		cullR2, invR2 := fireCull(fr.PeakChannel(), fr.Range)
+		c := GPUCampfire{
+			Core:  [4]float32{f(fr.Center.X), f(fr.Center.Y), f(fr.Center.Z), f(cullR2)},
+			Extra: [4]float32{f(invR2), 0, 0, 0},
+		}
+		pos0, col0 := fr.LightAt(0, t)
+		pos1, col1 := fr.LightAt(1, t)
+		pos2, col2 := fr.LightAt(2, t)
+		c.S0Pos, c.S0Col = albedo(pos0), albedo(col0)
+		c.S1Pos, c.S1Col = albedo(pos1), albedo(col1)
+		c.S2Pos, c.S2Col = albedo(pos2), albedo(col2)
+		out = append(out, c)
+		if len(out) >= maxCampfires {
+			break
+		}
+	}
+	return out
+}
+
+// AOVolume is the GPU-side handle for a baked ambient-occlusion volume: scalar
+// grid params live in the uniform Params; Data is the nx*ny*nz*6 ambient cube.
+type AOVolume struct {
+	Min            vec.V
+	Inv, Cell, Bias float64
+	NX, NY, NZ     int
+	Data           []float32
+}
+
+// PackAOVolume returns the baked volume snapshot for upload, or ok=false when
+// AO is disabled or the scene has no occluding geometry.
+func PackAOVolume(tr *trace.Tracer) (AOVolume, bool) {
+	if tr == nil || !tr.Opts.AO {
+		return AOVolume{}, false
+	}
+	snap, ok := tr.AOVolumeSnapshot()
+	if !ok {
+		return AOVolume{}, false
+	}
+	data := snap.Data
+	if len(data) > maxAOFloats {
+		data = data[:maxAOFloats]
+	}
+	return AOVolume{
+		Min: snap.Min, Inv: snap.Inv, Cell: snap.Cell, Bias: snap.Bias,
+		NX: snap.NX, NY: snap.NY, NZ: snap.NZ, Data: data,
+	}, true
+}
+
+func campfireBytes(fires []GPUCampfire) []byte {
+	if len(fires) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(&fires[0])), len(fires)*campfireStride)
+}
+
+func u32Bytes(v []uint32) []byte {
+	if len(v) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(&v[0])), len(v)*4)
+}
+
+// fireCull mirrors the campfire branch of trace.buildLightCulling.
+func fireCull(peak, rng float64) (cullR2, invR2 float64) {
+	autoR2 := 0.0
+	if peak > gpuscene.LightCullEps*gpuscene.LightAttenBase {
+		autoR2 = (peak/gpuscene.LightCullEps - gpuscene.LightAttenBase) / gpuscene.LightAttenQuadratic
+		if autoR2 < 0 {
+			autoR2 = 0
+		}
+	}
+	if rng > 0 {
+		r2 := rng * rng
+		return r2, 1 / r2
+	}
+	return autoR2, 0
+}
+
+func lightCull(color vec.V, rng float64) (cullR2, invR2 float64) {
+	cmax := max(color.X, max(color.Y, color.Z))
+	autoR2 := 0.0
+	if cmax > gpuscene.LightCullEps*gpuscene.LightAttenBase {
+		autoR2 = (cmax/gpuscene.LightCullEps - gpuscene.LightAttenBase) / gpuscene.LightAttenQuadratic
+		if autoR2 < 0 {
+			autoR2 = 0
+		}
+	}
+	if rng > 0 {
+		r2 := rng * rng
+		return r2, 1 / r2
+	}
+	return autoR2, 0
+}
+
+// primBytes reinterprets the packed primitives as the raw little-endian buffer
+// uploaded to the GPU. GPUPrimitive is all 32-bit lanes with no padding, so the
+// in-memory layout already matches std430.
+func primBytes(prims []GPUPrimitive) []byte {
+	if len(prims) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(&prims[0])), len(prims)*primStride)
+}
+
+func lightBytes(lights []GPULight) []byte {
+	if len(lights) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(&lights[0])), len(lights)*lightStride)
+}
+
+func waterBytes(waters []GPUWater) []byte {
+	if len(waters) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(&waters[0])), len(waters)*waterStride)
+}
+
+func terrainBytes(terrains []GPUTerrain) []byte {
+	if len(terrains) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(&terrains[0])), len(terrains)*terrainStride)
+}
+
+func floatBytes(values []float32) []byte {
+	if len(values) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(&values[0])), len(values)*4)
+}
+
+func surfaceParams(s scene.Surface) [4]float32 {
+	return [4]float32{f(s.Rough), f(s.IOR), f(s.Reflect), f(s.Transmit)}
+}
+
+func albedo(v vec.V) [4]float32 { return [4]float32{f(v.X), f(v.Y), f(v.Z), 0} }
+
+func f(x float64) float32 { return float32(x) }
+
+// f32u stores a small unsigned count in an f32 lane; exact for v < 2^24.
+func f32u(v uint32) float32 { return float32(v) }
+
+func holeBytes(holes []GPUHole) []byte {
+	if len(holes) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(&holes[0])), len(holes)*holeStride)
+}

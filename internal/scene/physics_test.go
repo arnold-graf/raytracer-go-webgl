@@ -107,6 +107,73 @@ func TestStepMaterialAtPicksTopSurface(t *testing.T) {
 	}
 }
 
+// TestGroundHeightFallsThroughFloorHole checks that a stairwell opening cut into
+// an upper floor slab (Box.Holes) removes the standing surface there, so the
+// player drops to the surface below instead of floating on the hole.
+func TestGroundHeightFallsThroughFloorHole(t *testing.T) {
+	s := &Scene{Boxes: []Box{
+		// Ground floor slab, top at y=0.4.
+		{Min: vec.New(-5, 0, -5), Max: vec.New(5, 0.4, 5)},
+		// Upper deck, top at y=4.0, with a stairwell hole over x[-2,0], z[-2,2].
+		{Min: vec.New(-5, 3.9, -5), Max: vec.New(5, 4.0, 5),
+			Holes: []AABB{{Min: vec.New(-2, 3.85, -2), Max: vec.New(0, 4.05, 2)}}},
+	}}
+
+	// Over solid upper deck: stand on it.
+	if g := s.GroundHeight(3, 0, 100); math.Abs(g-4.0) > 1e-9 {
+		t.Fatalf("on solid upper deck = %v, want 4.0", g)
+	}
+	// Over the stairwell hole: fall to the ground floor slab below.
+	if g := s.GroundHeight(-1, 0, 100); math.Abs(g-0.4) > 1e-9 {
+		t.Fatalf("over stairwell hole = %v, want 0.4 (floor below)", g)
+	}
+}
+
+// TestBlockedHonorsBoxHole checks that a doorway cut into a single wall box (via
+// Box.Holes / CSG) is walkable, while the solid wall on either side still blocks.
+func TestBlockedHonorsBoxHole(t *testing.T) {
+	// A wall facing +Z (thin in Z) spanning x[-4,4], with a door hole at
+	// x[-1,1] piercing the full thickness from the floor up to y=2.5.
+	wall := Box{
+		Min: vec.New(-4, 0, 3.5), Max: vec.New(4, 6, 3.9),
+		Holes: []AABB{{Min: vec.New(-1, 0, 3.4), Max: vec.New(1, 2.5, 4.0)}},
+	}
+	s := &Scene{Boxes: []Box{wall}}
+	feetY, headY, r, step := 0.0, 2.0, 0.3, 0.45
+
+	if !s.Blocked(3, 3.7, feetY, headY, r, step) {
+		t.Fatalf("solid part of the wall should block")
+	}
+	if s.Blocked(0, 3.7, feetY, headY, r, step) {
+		t.Fatalf("door hole should be passable")
+	}
+	// Too close to the jamb to fit the player radius.
+	if !s.Blocked(0.85, 3.7, feetY, headY, r, step) {
+		t.Fatalf("hole edge should block (player radius does not clear the jamb)")
+	}
+}
+
+// TestBlockedHoleWithTransform checks hole passage works after the box is placed
+// by an include transform (holes are authored in local space).
+func TestBlockedHoleWithTransform(t *testing.T) {
+	xf := NewInstanceTransform(0, 0, 0, vec.New(16, 0, -2))
+	wall := Box{
+		Min: vec.New(-4, 0, -0.2), Max: vec.New(4, 6, 0.2),
+		Holes:   []AABB{{Min: vec.New(-1, 0, -0.3), Max: vec.New(1, 2.5, 0.3)}},
+		Surface: Surface{Xform: xf},
+	}
+	s := &Scene{Boxes: []Box{wall}}
+	feetY, headY, r, step := 0.0, 2.0, 0.3, 0.45
+
+	// Wall sits at world x[12,20], z≈-2; door centered at world (16,-2).
+	if !s.Blocked(19, -2, feetY, headY, r, step) {
+		t.Fatalf("solid wall should block at world (19,-2)")
+	}
+	if s.Blocked(16, -2, feetY, headY, r, step) {
+		t.Fatalf("door hole should be passable at world (16,-2)")
+	}
+}
+
 func TestBlockedAtWallButNotDoorOrFloor(t *testing.T) {
 	s := buildingScene()
 	feetY, headY, r, step := 0.4, 2.0, 0.3, 0.45

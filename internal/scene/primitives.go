@@ -143,6 +143,82 @@ func (b *Box) WorldBounds() (vec.V, vec.V) {
 	return wmin, wmax
 }
 
+// TopOpenAt reports whether a hole breaches the box's top face at world (x,z),
+// so the box offers no standing surface there and the player falls through (e.g.
+// a stairwell opening cut into an upper floor slab). Holes are authored in the
+// box's local coordinates, so the query point is mapped into the box frame; the
+// hole must reach the top face to count (a shallow recess that stops short of
+// the top still leaves a floor to stand on).
+func (b *Box) TopOpenAt(x, z float64) bool {
+	if len(b.Holes) == 0 {
+		return false
+	}
+	p := b.Xform.ToLocal(vec.V{X: x, Y: b.Max.Y, Z: z})
+	const eps = 1e-4
+	for i := range b.Holes {
+		h := b.Holes[i]
+		if h.Max.Y < b.Max.Y-eps {
+			continue // hole does not reach the top face
+		}
+		if p.X > h.Min.X && p.X < h.Max.X && p.Z > h.Min.Z && p.Z < h.Max.Z {
+			return true
+		}
+	}
+	return false
+}
+
+// PassableThroughHole reports whether a player standing at world (x,z), with its
+// blocking body spanning the vertical band [bandLo, headY] and the given radius,
+// is lined up with an opening (one of Box.Holes) that pierces this box — a
+// doorway or low window the player can walk through. Holes are authored in the
+// box's local coordinates, so the query column is mapped into the box frame
+// first; rotation is orthonormal, so the world radius carries over unchanged.
+//
+// An opening qualifies when (1) it spans the player's whole vertical band (no
+// solid lintel or sill in the way) and (2) the player's footprint clears the
+// opening's side jambs by `radius` along the wall's wide horizontal axis. The
+// thin horizontal axis is the direction of travel through the wall, where the
+// hole pokes fully through, so no radius margin is required there.
+func (b *Box) PassableThroughHole(x, z, bandLo, headY, radius float64) bool {
+	if len(b.Holes) == 0 {
+		return false
+	}
+	lo := b.Xform.ToLocal(vec.V{X: x, Y: bandLo, Z: z})
+	hi := b.Xform.ToLocal(vec.V{X: x, Y: headY, Z: z})
+	yLo := math.Min(lo.Y, hi.Y)
+	yHi := math.Max(lo.Y, hi.Y)
+	// The wall is thin along one horizontal axis; that axis is the travel
+	// direction through the opening, the other is the opening's width.
+	travelAlongX := (b.Max.X - b.Min.X) <= (b.Max.Z - b.Min.Z)
+	const eps = 1e-4
+	for i := range b.Holes {
+		h := b.Holes[i]
+		if h.Min.Y > yLo+eps || h.Max.Y < yHi-eps {
+			continue // a sill or lintel still crosses the player's body
+		}
+		// Along the travel (thin) axis the opening pierces the whole wall, so the
+		// span is widened by `radius`: the world-space AABB collision test also
+		// pads the wall by `radius`, and without the same pad here the player
+		// would be stopped a radius short of the opening and never reach it.
+		if travelAlongX {
+			if lo.X < h.Min.X-radius-eps || lo.X > h.Max.X+radius+eps {
+				continue
+			}
+			if lo.Z > h.Min.Z+radius && lo.Z < h.Max.Z-radius {
+				return true
+			}
+		} else {
+			if lo.Z < h.Min.Z-radius-eps || lo.Z > h.Max.Z+radius+eps {
+				continue
+			}
+			if lo.X > h.Min.X+radius && lo.X < h.Max.X-radius {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // slabInterval returns the [tmin, tmax] parametric span over which the ray is
 // inside the AABB [min, max], or ok=false on a miss. tmax may be negative when
 // the box is entirely behind the origin.
