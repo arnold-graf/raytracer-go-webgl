@@ -17,7 +17,7 @@ this entire plan:
      means deep descents and fat nodes.
   2. **Ray *length*** — long views make terrain marching and shadow rays travel
      far. This scales with *distance*, not object count.
-  3. **Baked-volume memory** — the AO volume (`internal/trace/aovolume.go`) and
+  3. **Baked-volume memory** — the AO volume (`internal/probe/ao.go`) and
      terrain caches (`internal/scene/terrain.go`) are *dense grids*. These are
      what literally explode at 2 km, not the geometry.
 

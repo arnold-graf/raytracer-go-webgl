@@ -28,6 +28,7 @@ const (
 	WallpaperNavy
 	WallpaperGreen
 	WallpaperRose
+	StoneWall
 )
 
 var byName = map[string]int{
@@ -43,6 +44,7 @@ var byName = map[string]int{
 	"wallpaper_navy":  WallpaperNavy,
 	"wallpaper_green": WallpaperGreen,
 	"wallpaper_rose":  WallpaperRose,
+	"stone_wall":      StoneWall,
 }
 
 // ID resolves a texture name to its id. Ok is false for unknown names.
@@ -55,6 +57,12 @@ func ID(name string) (int, bool) {
 // the surface's configured albedo, used as a tint so a texture can be recolored
 // per-surface. For None it is returned unchanged.
 func Eval(id int, p, base vec.V) vec.V {
+	return EvalWithNormal(id, p, vec.New(0, 0, 1), base)
+}
+
+// EvalWithNormal is Eval plus a surface normal, used by orientation-aware
+// textures such as stone_wall's triplanar projection.
+func EvalWithNormal(id int, p, n, base vec.V) vec.V {
 	switch id {
 	case Wood:
 		return wood(p, base)
@@ -74,6 +82,8 @@ func Eval(id int, p, base vec.V) vec.V {
 		return snow(p, base)
 	case WallpaperNavy, WallpaperGreen, WallpaperRose:
 		return wallpaper(p, base, id)
+	case StoneWall:
+		return stoneWall(p, n, base)
 	default:
 		return base
 	}
@@ -254,6 +264,98 @@ func dirt(p, tint vec.V) vec.V {
 	base := vec.New(0.26, 0.17, 0.10)
 	dark := vec.New(0.15, 0.10, 0.06)
 	return mix(dark, base, n).Mul(tint)
+}
+
+// stoneWallPalette: natural limestone/sandstone rubble tones — light greys and
+// warm beiges. Each stone draws one and then jitters it.
+var stoneWallPalette = [...]vec.V{
+	{X: 0.80, Y: 0.79, Z: 0.76}, // light grey
+	{X: 0.78, Y: 0.73, Z: 0.62}, // pale beige
+	{X: 0.64, Y: 0.63, Z: 0.60}, // mid grey
+	{X: 0.72, Y: 0.66, Z: 0.54}, // warm tan
+	{X: 0.74, Y: 0.71, Z: 0.66}, // light warm grey
+	{X: 0.55, Y: 0.54, Z: 0.52}, // darker grey
+}
+
+// stoneWall2D: irregular natural-stone masonry (rubble wall). A Worley/Voronoi
+// cellular pattern makes each cell a rounded stone; sandy mortar fills the gaps
+// where two cells are nearly equidistant (small F2-F1). Each stone takes a
+// stable palette color from its owning cell plus brightness/hue jitter, fBm
+// surface mottling, and a center-bright relief gradient so it reads as rounded.
+func stoneWall2D(p vec.V, u, v float64) vec.V {
+	const cell = 0.34 // average stone size in world units
+	u /= cell
+	v /= cell
+	cu := math.Floor(u)
+	cv := math.Floor(v)
+	fu := u - cu
+	fv := v - cv
+
+	// Find the nearest (F1) and second-nearest (F2) jittered feature points in
+	// the 3x3 neighborhood; the nearest point's cell owns this stone.
+	f1, f2 := 1e9, 1e9
+	var ox, oy float64
+	for j := -1; j <= 1; j++ {
+		for i := -1; i <= 1; i++ {
+			cx := cu + float64(i)
+			cy := cv + float64(j)
+			px := float64(i) + cellRand(cx, cy, 11)
+			py := float64(j) + cellRand(cx, cy, 12)
+			dx := px - fu
+			dy := py - fv
+			d := math.Sqrt(dx*dx + dy*dy)
+			if d < f1 {
+				f2, f1, ox, oy = f1, d, cx, cy
+			} else if d < f2 {
+				f2 = d
+			}
+		}
+	}
+	edge := f2 - f1
+
+	// Per-stone color from the owning cell.
+	pick := cellRand(ox, oy, 1)
+	bright := cellRand(ox, oy, 2)
+	base := stoneWallPalette[int(pick*float64(len(stoneWallPalette)))]
+	base = base.Scale(0.62 + 0.55*bright)
+	base.X *= 0.94 + 0.12*cellRand(ox, oy, 5)
+	base.Y *= 0.94 + 0.12*cellRand(ox, oy, 6)
+	base.Z *= 0.92 + 0.14*cellRand(ox, oy, 7)
+
+	// Surface: mottling decorrelated per stone plus fine grain.
+	mottle := 0.84 + 0.16*fbm(p.X*7+ox*3, p.Y*7+oy*3, p.Z*7, 4)
+	grain := 0.90 + 0.10*fbm(p.X*32, p.Y*32, p.Z*32, 3)
+	// Relief: a gentle center-bright gradient (darker toward the rim, from the
+	// distance f1 to the stone's own feature point) for a subtly rounded look.
+	// No separate contact-shadow band, so neighbouring stones are divided by a
+	// single mortar line rather than a doubled edge.
+	relief := 1 - 0.18*smoothstep(0.05, 0.5, f1)
+	face := base.Scale(mottle * grain * relief)
+
+	// Sandy mortar in the gaps, much darker than the stones so it reads as a
+	// recessed shadow line between them.
+	mortarCol := vec.New(0.40, 0.37, 0.31).Scale(0.78 + 0.30*fbm(p.X*6, p.Y*6, p.Z*6, 3))
+
+	mask := smoothstep(0.02, 0.12, edge)
+	return mix(mortarCol, face, mask)
+}
+
+// stoneWall uses triplanar projection: XY for +/-Z faces, ZY for +/-X faces,
+// and XZ for floors/ceilings. Axis-aligned walls choose a single projection;
+// curved or slanted surfaces blend by the absolute normal.
+func stoneWall(p, n, tint vec.V) vec.V {
+	aw := vec.New(math.Abs(n.X), math.Abs(n.Y), math.Abs(n.Z))
+	// Sharpen the weights so box-like surfaces stay crisp near edges while still
+	// blending smoothly on curved geometry.
+	aw = vec.New(aw.X*aw.X*aw.X*aw.X, aw.Y*aw.Y*aw.Y*aw.Y, aw.Z*aw.Z*aw.Z*aw.Z)
+	sum := aw.X + aw.Y + aw.Z
+	if sum == 0 {
+		return stoneWall2D(p, p.X, p.Y).Mul(tint)
+	}
+	xProj := stoneWall2D(p, p.Z, p.Y).Scale(aw.X)
+	yProj := stoneWall2D(p, p.X, p.Z).Scale(aw.Y)
+	zProj := stoneWall2D(p, p.X, p.Y).Scale(aw.Z)
+	return xProj.Add(yProj).Add(zProj).Scale(1 / sum).Mul(tint)
 }
 
 // snow: bright, faintly blue, with subtle drift mottling and a sparse sparkle.

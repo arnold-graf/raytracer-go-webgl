@@ -4,9 +4,9 @@ import (
 	"unsafe"
 
 	"raytracer/internal/gpuscene"
+	"raytracer/internal/render"
 	"raytracer/internal/scene"
 	"raytracer/internal/texture"
-	"raytracer/internal/trace"
 	"raytracer/internal/vec"
 )
 
@@ -333,8 +333,9 @@ func PackBlockers(s *scene.Scene) []GPUPrimitive {
 	return out
 }
 
-// PackLights mirrors trace.buildLightCulling for static point lights. Campfire
-// sub-lights are animated and will be packed in a later phase.
+// PackLights computes the per-light cull distance and falloff for static point
+// lights (the same model the shader's add_point_light_raw uses). Campfire
+// sub-lights are animated and packed separately (PackCampfires).
 func PackLights(s *scene.Scene) []GPULight {
 	if s == nil {
 		return nil
@@ -435,9 +436,8 @@ func PackPerm() []uint32 {
 }
 
 // PackCampfires resolves each campfire's sub-lights at animation time t and
-// packs them with the cluster's cull radius. It mirrors trace.buildLightCulling
-// (campfire branch): the cull distance uses the fire's PeakChannel so flicker
-// peaks are never clipped.
+// packs them with the cluster's cull radius (see fireCull): the cull distance
+// uses the fire's PeakChannel so flicker peaks are never clipped.
 func PackCampfires(s *scene.Scene, t float64) []GPUCampfire {
 	if s == nil {
 		return nil
@@ -473,23 +473,20 @@ type AOVolume struct {
 	Data           []float32
 }
 
-// PackAOVolume returns the baked volume snapshot for upload, or ok=false when
-// AO is disabled or the scene has no occluding geometry.
-func PackAOVolume(tr *trace.Tracer) (AOVolume, bool) {
-	if tr == nil || !tr.Opts.AO {
+// PackAOVolume returns the view's baked volume snapshot for upload, or ok=false
+// when the scene has no occluding geometry. The AO runtime toggle (View.AO) is
+// applied per frame in Render, not here, so toggling it costs no re-pack.
+func PackAOVolume(v *render.View) (AOVolume, bool) {
+	if v == nil || !v.AOok {
 		return AOVolume{}, false
 	}
-	snap, ok := tr.AOVolumeSnapshot()
-	if !ok {
-		return AOVolume{}, false
-	}
-	data := snap.Data
+	data := v.AOData.Data
 	if len(data) > maxAOFloats {
 		data = data[:maxAOFloats]
 	}
 	return AOVolume{
-		Min: snap.Min, Inv: snap.Inv, Cell: snap.Cell, Bias: snap.Bias,
-		NX: snap.NX, NY: snap.NY, NZ: snap.NZ, Data: data,
+		Min: v.AOData.Min, Inv: v.AOData.Inv, Cell: v.AOData.Cell, Bias: v.AOData.Bias,
+		NX: v.AOData.NX, NY: v.AOData.NY, NZ: v.AOData.NZ, Data: data,
 	}, true
 }
 
@@ -507,7 +504,8 @@ func u32Bytes(v []uint32) []byte {
 	return unsafe.Slice((*byte)(unsafe.Pointer(&v[0])), len(v)*4)
 }
 
-// fireCull mirrors the campfire branch of trace.buildLightCulling.
+// fireCull computes a campfire cluster's squared cull distance and windowed
+// inverse-square falloff from its peak channel and range.
 func fireCull(peak, rng float64) (cullR2, invR2 float64) {
 	autoR2 := 0.0
 	if peak > gpuscene.LightCullEps*gpuscene.LightAttenBase {

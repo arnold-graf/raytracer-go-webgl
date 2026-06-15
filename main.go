@@ -1,5 +1,5 @@
-// Command raytracer is a realtime CPU raytracer rendered with Ebiten. It is a
-// modular Go port of the original single-file realtime_raytracer_dos_geo.html,
+// Command raytracer is a realtime WebGPU path tracer rendered with Ebiten. It is
+// a modular Go port of the original single-file realtime_raytracer_dos_geo.html,
 // preserving the WASD + mouse-look FPS controls (click to capture the mouse,
 // ESC to release) and jump.
 //
@@ -16,7 +16,6 @@ import (
 
 	"raytracer/internal/app"
 	"raytracer/internal/camera"
-	"raytracer/internal/render"
 	"raytracer/internal/scene"
 	"raytracer/internal/sceneio"
 	"raytracer/internal/webgpu"
@@ -37,7 +36,6 @@ var defaultPlayerTOML []byte
 func main() {
 	scenePath := flag.String("scene", "", "path to a TOML scene file (default: built-in scene)")
 	playerPath := flag.String("player", "", "path to a TOML player-movement config (default: built-in)")
-	renderer := flag.String("renderer", "cpu", "renderer backend: cpu|webgpu")
 	flag.Parse()
 
 	var (
@@ -63,23 +61,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var ren render.Renderer = render.New(renderW, renderH)
-	if *renderer == "webgpu" {
-		gpu, err := webgpu.New(renderW, renderH)
-		if err != nil {
-			log.Printf("webgpu unavailable, falling back to cpu: %v", err)
-		} else {
-			ren = gpu
-		}
-	} else if *renderer != "cpu" {
-		log.Fatalf("unknown renderer %q (want cpu|webgpu)", *renderer)
+	ren, err := webgpu.New(renderW, renderH)
+	if err != nil {
+		log.Fatalf("webgpu renderer unavailable: %v", err)
 	}
 
-	game := app.New(renderW, renderH, sc, cfg, *scenePath, *playerPath)
-	game.SetRenderer(ren)
+	game := app.New(renderW, renderH, sc, cfg, *scenePath, *playerPath, ren)
 
 	ebiten.SetWindowSize(renderW*scale, renderH*scale)
-	ebiten.SetWindowTitle("Realtime Raytracer (Go + Ebiten)")
+	ebiten.SetWindowTitle("Realtime Raytracer (Go + WebGPU)")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
 	if err := ebiten.RunGame(game); err != nil {

@@ -23,17 +23,29 @@ type Config struct {
 	Gravity         float64 // downward acceleration per dt
 	CollisionRadius float64 // player's horizontal collision radius
 	StepHeight      float64 // max ledge height the player steps over freely
+
+	// SprintMultiplier scales WalkSpeed while sprinting (Shift). CrouchEyeHeight
+	// is the camera height when fully crouched (lower than EyeHeight), and
+	// CrouchSpeedMultiplier scales WalkSpeed while crouched. Sprint and crouch
+	// blend in/out smoothly (see stanceEase), so the eye height and speed glide
+	// between stances rather than snapping.
+	SprintMultiplier      float64
+	CrouchEyeHeight       float64
+	CrouchSpeedMultiplier float64
 }
 
 // DefaultConfig returns the built-in movement tuning.
 func DefaultConfig() Config {
 	return Config{
-		WalkSpeed:       0.35,
-		EyeHeight:       1.6,
-		JumpVelocity:    0.42,
-		Gravity:         0.20,
-		CollisionRadius: 0.30,
-		StepHeight:      0.45,
+		WalkSpeed:             0.35,
+		EyeHeight:             1.6,
+		JumpVelocity:          0.42,
+		Gravity:               0.20,
+		CollisionRadius:       0.30,
+		StepHeight:            0.45,
+		SprintMultiplier:      2.0,
+		CrouchEyeHeight:       0.8,
+		CrouchSpeedMultiplier: 0.5,
 	}
 }
 
@@ -61,7 +73,20 @@ type Camera struct {
 	world    World
 	velY     float64
 	onGround bool
+
+	// crouchT and sprintT are the eased stance blends in [0,1] (0 = standing /
+	// not sprinting, 1 = fully crouched / sprinting). They follow the held keys
+	// over a few frames so the eye height and walk speed transition smoothly.
+	crouchT float64
+	sprintT float64
 }
+
+// stanceEase is the per-frame blend factor toward the target crouch/sprint
+// state. ~0.2 reaches the new stance in a handful of 60 Hz frames (~0.15 s):
+// smooth, but responsive enough to feel immediate.
+const stanceEase = 0.2
+
+func lerp(a, b, t float64) float64 { return a + (b-a)*t }
 
 // New returns a camera at the original starting position, facing into the scene.
 func New() *Camera {
@@ -75,8 +100,11 @@ func (c *Camera) SetConfig(cfg Config) { c.cfg = cfg }
 // opposed to airborne mid-jump/fall). Used to gate footstep sounds.
 func (c *Camera) OnGround() bool { return c.onGround }
 
-// EyeHeight returns the configured camera height above the surface underfoot.
-func (c *Camera) EyeHeight() float64 { return c.cfg.EyeHeight }
+// EyeHeight returns the current camera height above the surface underfoot,
+// interpolated toward the crouch height by the active crouch blend.
+func (c *Camera) EyeHeight() float64 {
+	return lerp(c.cfg.EyeHeight, c.cfg.CrouchEyeHeight, c.crouchT)
+}
 
 // SetWorld attaches the collision/terrain world (nil = flat plane at y=0).
 func (c *Camera) SetWorld(w World) { c.world = w }
@@ -96,13 +124,31 @@ func (c *Camera) SnapToGround() {
 // Move describes which movement inputs are active this frame.
 type Move struct {
 	Forward, Back, Left, Right, Jump bool
+	// Sprint (Shift) speeds movement up; Crouch (C) lowers the camera and slows
+	// movement. Both ease in/out rather than toggling instantly.
+	Sprint, Crouch bool
 }
 
 // Update applies horizontal movement (with wall sliding), ground following and
 // jump physics. dt is in 60 Hz frame units (matching the original time scaling).
 func (c *Camera) Update(m Move, dt float64) {
+	// Ease the stance blends toward the held keys. Crouch wins over sprint, so
+	// crouching while sprinting fades the sprint boost out smoothly.
+	crouchTarget, sprintTarget := 0.0, 0.0
+	if m.Crouch {
+		crouchTarget = 1
+	}
+	if m.Sprint && !m.Crouch {
+		sprintTarget = 1
+	}
+	c.crouchT += (crouchTarget - c.crouchT) * stanceEase
+	c.sprintT += (sprintTarget - c.sprintT) * stanceEase
+
+	eye := lerp(c.cfg.EyeHeight, c.cfg.CrouchEyeHeight, c.crouchT)
+	speedMul := lerp(1, c.cfg.SprintMultiplier, c.sprintT) * lerp(1, c.cfg.CrouchSpeedMultiplier, c.crouchT)
+
 	sy, cy := math.Sin(c.Yaw), math.Cos(c.Yaw)
-	spd := c.cfg.WalkSpeed * dt
+	spd := c.cfg.WalkSpeed * speedMul * dt
 	var dx, dz float64
 	if m.Forward {
 		dx -= sy * spd
@@ -123,7 +169,7 @@ func (c *Camera) Update(m Move, dt float64) {
 
 	// Horizontal move, resolved per-axis so the player slides along walls.
 	if c.world != nil && !c.NoClip {
-		feetY := c.Pos.Y - c.cfg.EyeHeight
+		feetY := c.Pos.Y - eye
 		headY := c.Pos.Y
 		r := c.cfg.CollisionRadius
 		step := c.cfg.StepHeight
@@ -138,10 +184,12 @@ func (c *Camera) Update(m Move, dt float64) {
 		c.Pos.Z += dz
 	}
 
-	// Ground following + jump physics.
-	standEye := c.cfg.EyeHeight
+	// Ground following + jump physics. The "stand" eye uses the eased crouch
+	// height, so dropping into / rising out of a crouch glides the camera down
+	// and back up instead of snapping.
+	standEye := eye
 	if c.world != nil {
-		standEye = c.world.GroundHeight(c.Pos.X, c.Pos.Z, c.Pos.Y) + c.cfg.EyeHeight
+		standEye = c.world.GroundHeight(c.Pos.X, c.Pos.Z, c.Pos.Y) + eye
 	}
 	if m.Jump && c.onGround {
 		c.velY = c.cfg.JumpVelocity

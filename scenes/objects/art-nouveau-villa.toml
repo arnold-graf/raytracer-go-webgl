@@ -36,7 +36,7 @@ albedo = [0.58, 0.54, 0.48]
 material = "diffuse"
 max = [7.6, 1.2, 7.8]
 min = [-7.6, 0.0, -5.6]
-texture = "stone"
+texture = "stone_wall"
 
 # ===================================================== GROUND FLOOR SLAB ====
 
@@ -228,12 +228,12 @@ max = [-6.7, 5.85, 6.1]
 min = [-7.15, 1.2, -5.15]
 texture = "cement"
 
-[[box]] # west wall, centre
-albedo = [0.94, 0.93, 0.90]
-material = "diffuse"
-max = [-3.05, 5.85, 4.1]
-min = [-7.15, 1.2, -5.15]
-texture = "cement"
+# [[box]] # west wall, centre
+# albedo = [0.94, 0.93, 0.90]
+# material = "diffuse"
+# max = [-3.05, 5.85, 4.1]
+# min = [-7.15, 1.2, -5.15]
+# texture = "cement"
 
 [[box]] # east (+X) wall, right wing
 albedo = [0.94, 0.93, 0.90]
@@ -242,12 +242,12 @@ max = [7.15, 5.85, 6.1]
 min = [6.7, 1.2, -5.15]
 texture = "cement"
 
-[[box]] # east wall, centre
-albedo = [0.94, 0.93, 0.90]
-material = "diffuse"
-max = [7.15, 5.85, 4.1]
-min = [3.05, 1.2, -5.15]
-texture = "cement"
+# [[box]] # east wall, centre
+# albedo = [0.94, 0.93, 0.90]
+# material = "diffuse"
+# max = [7.15, 5.85, 4.1]
+# min = [3.05, 1.2, -5.15]
+# texture = "cement"
 
 # ---- wing side returns (inner step of facade) ----
 
@@ -416,42 +416,42 @@ albedo = [0.55, 0.52, 0.48]
 material = "diffuse"
 max = [-5.8, 1.35, 3.5]
 min = [-6.8, 1.2, 1.2]
-texture = "stone"
+texture = "stone_wall"
 
 [[box]] # firebox back
 albedo = [0.45, 0.42, 0.40]
 material = "diffuse"
 max = [-6.75, 3.2, 3.4]
 min = [-7.05, 1.2, 1.3]
-texture = "stone"
+texture = "stone_wall"
 
 [[box]] # firebox left jamb
 albedo = [0.50, 0.47, 0.44]
 material = "diffuse"
 max = [-6.0, 3.0, 1.55]
 min = [-6.75, 1.2, 1.25]
-texture = "stone"
+texture = "stone_wall"
 
 [[box]] # firebox right jamb
 albedo = [0.50, 0.47, 0.44]
 material = "diffuse"
 max = [-6.0, 3.0, 3.45]
 min = [-6.75, 1.2, 3.15]
-texture = "stone"
+texture = "stone_wall"
 
 [[box]] # mantel shelf
 albedo = [0.55, 0.52, 0.48]
 material = "diffuse"
 max = [-5.6, 3.15, 3.6]
 min = [-7.0, 3.0, 1.1]
-texture = "stone"
+texture = "stone_wall"
 
 [[box]] # chimney breast (interior, rises through both floors)
 albedo = [0.55, 0.52, 0.48]
 material = "diffuse"
 max = [-5.5, 10.0, 3.6]
 min = [-6.9, 3.0, 1.0]
-texture = "stone"
+texture = "stone_wall"
 
 [[campfire]] # open fire in the hearth
 brightness = 0.35
@@ -470,9 +470,9 @@ radius = 0.25
 
 [[include]]
 file = "staircase.toml"
-at = [-3, 1, 2.0]
+at = [-3, 1.25, 2.0]
 rotate_y = 90
-params = { steps = 10, run = 0.5, rise = 0.45, width = 1.8 }
+params = { steps = 10, run = 0.5, rise = 0.45, width = 1.8, texture = "marble" }
 
 # ================================================================ ROOFS ====
 
@@ -542,17 +542,17 @@ texture = "cement"
 [[include]]
 file = "otto-wagner-sphere-lamp.toml"
 at = [0.0, 10, 1.0]
-params = { stem_len = 4.0, orb_radius = 0.4, brightness = 0.3 }
+params = { stem_len = 4.0, orb_radius = 0.4, brightness = 0.3, range = 10 }
 
 [[include]]
 file = "otto-wagner-sphere-lamp.toml"
 at = [-0.5, 10, 0]
-params = { stem_len = 3, orb_radius = 0.4, brightness = 0.2 }
+params = { stem_len = 3, orb_radius = 0.4, brightness = 0.2, range = 7 }
 
 [[include]]
 file = "otto-wagner-sphere-lamp.toml"
 at = [0.5, 10, -0.5]
-params = { stem_len = 2.7, orb_radius = 0.4, brightness = 0.3 }
+params = { stem_len = 2.7, orb_radius = 0.4, brightness = 0.3, range = 7 }
 
 # [[light]] # ground floor hall (warm, range-limited)
 # color = [4.0, 3.2, 2.2]

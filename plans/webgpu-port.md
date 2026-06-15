@@ -1,6 +1,25 @@
 # Plan: WebGPU Renderer Port
 
-## Status: IN PROGRESS
+## Status: COMPLETE — CPU renderer removed
+
+The WebGPU compute renderer is now the **only** renderer. The CPU ray tracer
+(`internal/trace`) and the CPU framebuffer renderer (the old `internal/render`
+implementation) have been deleted. What survived from the CPU side:
+
+- **`internal/probe`** — the ray-vs-scene distance query (acoustics) and the
+  baked ambient-occlusion volume, both fed to the GPU / audio rather than used
+  for rendering.
+- **`internal/texture`** — procedural texture *generators* (still authored on
+  the CPU and ported to `shaders/trace.wgsl`).
+- **`internal/bvh`** — the acceleration structure, used by `internal/probe`.
+
+The `-renderer` flag is gone (`main.go` always uses WebGPU and exits if no
+adapter is available). The renderer now takes a `render.View` (scene + clock +
+shadow/mirror/AO toggles + baked AO) instead of a `*trace.Tracer`. The GPU-vs-CPU
+parity tests were removed with the CPU oracle; layout/packing tests and an
+end-to-end GPU render/cache test remain.
+
+The historical plan below is kept for context.
 
 ## Goal
 

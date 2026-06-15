@@ -36,6 +36,33 @@ func TestDefaultTOMLMatchesDefaultScene(t *testing.T) {
 	}
 }
 
+func TestEnvironmentSunBodyDecodes(t *testing.T) {
+	data := []byte(`
+[environment]
+sky = "night_stars"
+sun_dir = [0.0, -1.0, 0.0]
+
+[environment.sun]
+color = [0.8, 0.9, 1.1]
+size = 4.0
+`)
+	got, err := Decode(data)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	sun := got.Env.Sun
+	if !sun.Visible() {
+		t.Fatalf("sun body should be visible: %+v", sun)
+	}
+	if sun.Color.X != 0.8 || sun.Color.Y != 0.9 || sun.Color.Z != 1.1 || sun.Size != 4.0 {
+		t.Fatalf("sun fields wrong: %+v", sun)
+	}
+	// Glow omitted -> default 1.0 so a configured body has a normal halo.
+	if sun.Glow != 1.0 {
+		t.Fatalf("default glow = %v, want 1.0", sun.Glow)
+	}
+}
+
 func TestOutdoorSkyPresetsExtendOutdoorScene(t *testing.T) {
 	base, err := Load(repoFile("scenes/outdoors.toml"))
 	if err != nil {

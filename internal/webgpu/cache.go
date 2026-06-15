@@ -1,8 +1,8 @@
 package webgpu
 
 import (
+	"raytracer/internal/render"
 	"raytracer/internal/scene"
-	"raytracer/internal/trace"
 )
 
 // sceneCache memoizes the scene-derived GPU buffers (everything that depends
@@ -37,29 +37,31 @@ type sceneCache struct {
 }
 
 // fresh reports whether the cache already holds the static buffers for this
-// tracer's scene at its current generation.
-func (c *sceneCache) fresh(tr *trace.Tracer) bool {
-	return c.valid && c.scene == tr.Scene && c.gen == tr.Scene.Generation()
+// view's scene at its current generation.
+func (c *sceneCache) fresh(v *render.View) bool {
+	return c.valid && c.scene == v.Scene && c.gen == v.Scene.Generation()
 }
 
 // rebuild re-packs every static buffer from the scene and records the cache key.
 // It is the only place the expensive PackPrimitives/PackBVH/PackTerrains work
-// runs; callers gate it behind fresh.
-func (c *sceneCache) rebuild(tr *trace.Tracer) {
-	c.prims = PackPrimitives(tr.Scene)
-	c.blockers = PackBlockers(tr.Scene)
+// runs; callers gate it behind fresh. The AO volume is baked by the caller (on
+// the CPU, via internal/probe) and arrives in the view; here it is only packed
+// for upload.
+func (c *sceneCache) rebuild(v *render.View) {
+	c.prims = PackPrimitives(v.Scene)
+	c.blockers = PackBlockers(v.Scene)
 	bvhNodes := PackBVH(c.prims)
 	blkNodes := PackBVH(c.blockers)
 	c.bvhNodes = append(append([]GPUBVHNode(nil), bvhNodes...), blkNodes...)
 	c.bvhNodeCount = uint32(len(bvhNodes))
 	c.blockerNodeCount = uint32(len(blkNodes))
-	c.lights = PackLights(tr.Scene)
-	c.terrains, c.samples = PackTerrains(tr.Scene)
-	c.waters = PackWaters(tr.Scene)
-	c.holes = PackHoles(tr.Scene)
-	c.ao, c.aoOK = PackAOVolume(tr)
+	c.lights = PackLights(v.Scene)
+	c.terrains, c.samples = PackTerrains(v.Scene)
+	c.waters = PackWaters(v.Scene)
+	c.holes = PackHoles(v.Scene)
+	c.ao, c.aoOK = PackAOVolume(v)
 
-	c.scene = tr.Scene
-	c.gen = tr.Scene.Generation()
+	c.scene = v.Scene
+	c.gen = v.Scene.Generation()
 	c.valid = true
 }

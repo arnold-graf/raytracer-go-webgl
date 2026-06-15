@@ -16,10 +16,10 @@ import (
 
 	"raytracer/internal/audio"
 	"raytracer/internal/camera"
+	"raytracer/internal/probe"
 	"raytracer/internal/render"
 	"raytracer/internal/scene"
 	"raytracer/internal/sceneio"
-	"raytracer/internal/trace"
 	"raytracer/internal/vec"
 )
 
@@ -29,7 +29,19 @@ type Game struct {
 
 	ren render.Renderer
 	cam *camera.Camera
-	tr  *trace.Tracer
+
+	// sc is the active scene; pb answers acoustic ray queries against it (room
+	// reverb and ambient-source occlusion). aoData/aoOK is the baked
+	// ambient-occlusion volume handed to the renderer each frame.
+	sc     *scene.Scene
+	pb     *probe.Probe
+	aoData probe.AOData
+	aoOK   bool
+
+	// Feature toggles the renderer honors per frame (keys 1/2/3).
+	shadow bool
+	mirror bool
+	ao     bool
 
 	buf   []byte
 	frame *ebiten.Image
@@ -76,26 +88,26 @@ type Game struct {
 }
 
 // New builds a game with the given internal render resolution rendering the
-// provided scene, using cfg for player-movement tuning. scenePath/playerPath are
-// the files those were loaded from (empty for the built-in defaults); when set,
-// they are watched for changes and hot-reloaded.
-func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath string) *Game {
+// provided scene through ren, using cfg for player-movement tuning.
+// scenePath/playerPath are the files those were loaded from (empty for the
+// built-in defaults); when set, they are watched for changes and hot-reloaded.
+func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath string, ren render.Renderer) *Game {
 	g := &Game{
 		rw:         rw,
 		rh:         rh,
-		ren:        render.New(rw, rh),
+		ren:        ren,
 		cam:        camera.New(),
-		tr:         trace.New(sc),
+		shadow:     true,
+		mirror:     true,
+		ao:         true,
 		buf:        make([]byte, rw*rh*4),
 		frame:      ebiten.NewImage(rw, rh),
 		pixSize:    1,
 		scenePath:  scenePath,
 		playerPath: playerPath,
 	}
-	g.tr.Opts = trace.Options{Mirror: true, Shadow: true, AO: true}
-	g.tr.Prepare() // bake the AO volume now so the first frame doesn't stall
 	g.cam.SetConfig(cfg)
-	g.cam.SetWorld(sc)
+	g.setScene(sc) // builds the probe, bakes AO, binds the camera's world
 	if sc.Start.Set {
 		g.cam.Pos, g.cam.Yaw, g.cam.Pitch = sc.Start.Pos, sc.Start.Yaw, sc.Start.Pitch
 	}
@@ -117,11 +129,28 @@ func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath s
 	return g
 }
 
-// SetRenderer swaps the draw backend. New defaults to the CPU renderer; main
-// uses this to install the experimental WebGPU backend when requested.
-func (g *Game) SetRenderer(ren render.Renderer) {
-	if ren != nil {
-		g.ren = ren
+// setScene binds sc as the active world: it builds the acoustic probe, bakes the
+// ambient-occlusion volume up front (so the first frame and AO toggles are
+// instant), and points the camera's collision world at the new geometry. The
+// camera pose is left untouched so a hot-reload keeps the player in place.
+func (g *Game) setScene(sc *scene.Scene) {
+	g.sc = sc
+	g.pb = probe.New(sc)
+	g.aoData, g.aoOK = g.pb.BakeAO()
+	g.cam.SetWorld(sc)
+}
+
+// view assembles the per-frame render state from the current scene, clock and
+// feature toggles.
+func (g *Game) view() *render.View {
+	return &render.View{
+		Scene:  g.sc,
+		Time:   g.elapsed,
+		Shadow: g.shadow,
+		Mirror: g.mirror,
+		AO:     g.ao,
+		AOData: g.aoData,
+		AOok:   g.aoOK,
 	}
 }
 
@@ -164,7 +193,7 @@ func (g *Game) updateFootsteps() {
 // pitchBias let callers tweak emphasis (e.g. a landing step is louder/lower).
 func (g *Game) playStep(pos vec.V, extraGain, pitchBias float64) {
 	headY := pos.Y
-	mat := surfaceToAudio(g.tr.Scene.StepMaterialAt(pos.X, pos.Z, headY))
+	mat := surfaceToAudio(g.sc.StepMaterialAt(pos.X, pos.Z, headY))
 	pitch := 1 + pitchBias + (rand.Float64()*2-1)*pitchJitter
 	gain := 0.9 + extraGain + (rand.Float64()*2-1)*0.1
 	g.snd.Footstep(mat, gain, pitch)
@@ -206,7 +235,7 @@ func (g *Game) updateReverb() {
 	const ceilingNear, ceilingFar = 4.0, 11.0
 	origin := g.cam.Pos
 
-	upDist := g.tr.ProbeDistance(origin, vec.V{Y: 1}, maxProbe)
+	upDist := g.pb.Distance(origin, vec.V{Y: 1}, maxProbe)
 	ceilFac := clampf((ceilingFar-upDist)/(ceilingFar-ceilingNear), 0, 1)
 
 	// Probe a horizontal fan and bucket each ray's wall hit into the left/right
@@ -222,7 +251,7 @@ func (g *Game) updateReverb() {
 	var sum, lAcc, lW, rAcc, rW float64
 	for _, d := range dirs {
 		hit := 0.0
-		if dist := g.tr.ProbeDistance(origin, d, maxProbe); dist < maxProbe {
+		if dist := g.pb.Distance(origin, d, maxProbe); dist < maxProbe {
 			hit = 1
 			hits++
 			sum += dist
@@ -272,7 +301,7 @@ func (g *Game) setupAmbience() {
 		return
 	}
 	var emitters []audio.AmbientEmitter
-	for _, a := range g.tr.Scene.Ambiences {
+	for _, a := range g.sc.Ambiences {
 		emitters = append(emitters, audio.AmbientEmitter{
 			Sound:  a.Sound,
 			Pos:    a.Pos,
@@ -305,7 +334,7 @@ func (g *Game) ambientOcclusion(listener, target vec.V) float64 {
 		return 1
 	}
 	dir := vec.V{X: dx / dist, Y: dy / dist, Z: dz / dist}
-	hit := g.tr.ProbeDistance(listener, dir, dist)
+	hit := g.pb.Distance(listener, dir, dist)
 	ratio := hit / dist
 	if ratio >= 0.95 {
 		return 1 // clear line of sight (or emitter is the nearest surface)
@@ -369,6 +398,8 @@ func (g *Game) Update() error {
 		Left:    ebiten.IsKeyPressed(ebiten.KeyA) || ebiten.IsKeyPressed(ebiten.KeyArrowLeft),
 		Right:   ebiten.IsKeyPressed(ebiten.KeyD) || ebiten.IsKeyPressed(ebiten.KeyArrowRight),
 		Jump:    ebiten.IsKeyPressed(ebiten.KeySpace),
+		Sprint:  ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight),
+		Crouch:  ebiten.IsKeyPressed(ebiten.KeyC),
 	}, dt)
 
 	// Footsteps, room reverb, and spatial ambients derive from the post-move state.
@@ -376,9 +407,9 @@ func (g *Game) Update() error {
 	g.updateAmbience()
 	g.updateFootsteps()
 
-	// Advance the animation clock (Update runs at a fixed 60 Hz).
+	// Advance the animation clock (Update runs at a fixed 60 Hz). view() reads
+	// it each frame, so there is nothing else to push.
 	g.elapsed += 1.0 / 60.0
-	g.tr.Time = g.elapsed
 
 	return nil
 }
@@ -420,22 +451,17 @@ func (g *Game) sceneDirty() bool {
 	return false
 }
 
-// reloadScene reloads the scene (and all its included files) and swaps in a
-// fresh tracer, preserving the current camera pose and feature toggles. Returns
-// false (keeping the old scene) if any file fails to parse; the dependency
-// timestamps are only refreshed on success, so a bad edit is retried next poll.
+// reloadScene reloads the scene (and all its included files) and rebinds it,
+// preserving the current camera pose and feature toggles. Returns false (keeping
+// the old scene) if any file fails to parse; the dependency timestamps are only
+// refreshed on success, so a bad edit is retried next poll.
 func (g *Game) reloadScene() bool {
 	sc, deps, err := sceneio.LoadDeps(g.scenePath)
 	if err != nil {
 		g.setReloadMsg("scene reload FAILED: " + err.Error())
 		return false
 	}
-	tr := trace.New(sc)
-	tr.Opts = g.tr.Opts // keep the user's mirror/shadow/AO toggles
-	tr.Time = g.elapsed
-	tr.Prepare() // bake the new AO volume before the next frame uses it
-	g.tr = tr
-	g.cam.SetWorld(sc) // collisions/ground use the new geometry; pose unchanged
+	g.setScene(sc) // rebuilds the probe, re-bakes AO; pose/toggles unchanged
 	g.sceneDeps = depTimes(deps)
 	g.setupAmbience()
 	g.setReloadMsg("scene reloaded")
@@ -486,13 +512,13 @@ func (g *Game) handleCapture() {
 
 func (g *Game) handleToggles() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit1) {
-		g.tr.Opts.Mirror = !g.tr.Opts.Mirror
+		g.mirror = !g.mirror
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit2) {
-		g.tr.Opts.Shadow = !g.tr.Opts.Shadow
+		g.shadow = !g.shadow
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit3) {
-		g.tr.Opts.AO = !g.tr.Opts.AO
+		g.ao = !g.ao
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit4) {
 		g.cam.NoClip = !g.cam.NoClip
@@ -512,9 +538,9 @@ func (g *Game) handleToggles() {
 	}
 }
 
-// Draw raytraces the scene into the framebuffer and blits it with the HUD.
+// Draw renders the scene into the framebuffer and blits it with the HUD.
 func (g *Game) Draw(screen *ebiten.Image) {
-	g.ren.Render(g.buf, g.cam, g.tr, g.pixSize)
+	g.ren.Render(g.buf, g.cam, g.view(), g.pixSize)
 	g.frame.WritePixels(g.buf)
 	screen.DrawImage(g.frame, nil)
 
@@ -548,19 +574,19 @@ func (g *Game) backendName() string {
 	if b, ok := g.ren.(render.BackendNamer); ok {
 		return b.BackendName()
 	}
-	return "cpu"
+	return "gpu"
 }
 
 func (g *Game) statusLine() string {
 	if g.locked {
 		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s px[-/+]:%d  HUD[0]  ESC release",
-			onOff(g.tr.Opts.Mirror), onOff(g.tr.Opts.Shadow), onOff(g.tr.Opts.AO), onOff(g.cam.NoClip), g.pixSize)
+			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), g.pixSize)
 	}
 	return "click to capture mouse"
 }
 
 func (g *Game) helpLine() string {
-	return "WASD/arrows move   mouse look   Space jump"
+	return "WASD/arrows move   mouse look   Space jump   Shift sprint   C crouch"
 }
 
 func onOff(b bool) string {

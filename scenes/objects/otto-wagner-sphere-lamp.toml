@@ -21,6 +21,7 @@
 {{$brightness := or .brightness 1}}
 {{$orb := or .orb_radius 0.4}}
 {{$orbY := neg (add $stem (mul $orb 0.875))}}
+{{$range := or .range 16}}
 [[cylinder]] # ceiling canopy (bronze)
 albedo = [0.66, 0.45, 0.24]
 cx = 0.0
@@ -61,4 +62,4 @@ brightness = {{$brightness}}
 color = [3.5, 3.5, 2.4]
 pos = [0.0, {{$orbY}}, 0.0]
 radius = 0.5
-range = 16.0
+range = {{$range}}

@@ -1,5 +1,6 @@
-// Package webgpu contains the experimental WebGPU renderer backend. It is kept
-// behind -renderer webgpu while the CPU tracer remains the correctness oracle.
+// Package webgpu contains the WebGPU renderer backend, the only renderer in the
+// app. It packs the scene into GPU buffers and runs the path tracer as a compute
+// shader (shaders/trace.wgsl).
 package webgpu
 
 import (
@@ -10,7 +11,7 @@ import (
 	"time"
 
 	"raytracer/internal/camera"
-	"raytracer/internal/trace"
+	"raytracer/internal/render"
 	"raytracer/internal/vec"
 
 	"github.com/rajveermalviya/go-webgpu/wgpu"
@@ -340,7 +341,7 @@ func (r *Renderer) init() error {
 // rays, analytic primitive intersection, flat-ambient diffuse shading, emissive
 // passthrough and the clear sky on a miss. pixSize is ignored (the GPU always
 // renders at full resolution).
-func (r *Renderer) Render(buf []byte, cam *camera.Camera, tr *trace.Tracer, _ int) {
+func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int) {
 	if len(buf) < r.w*r.h*4 {
 		return
 	}
@@ -351,34 +352,53 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, tr *trace.Tracer, _ in
 	timeSec := 0.0
 	shadows := false
 	mirror := false
+	aoEnabled := false
 	sky := 0
+	var (
+		bodyEnabled   bool
+		bodyDir       vec.V
+		bodyColor     vec.V
+		bodyCosRadius float32
+		bodyGlow      float32
+	)
 	// Static buffers (geometry, BVH, terrain, lights, holes, AO) are packed only
 	// when the scene changes; uploadStatic tells render() whether they need to be
 	// re-sent to the GPU this frame. Campfires (time-animated flicker) and params
 	// (camera + clock) stay per-frame.
 	uploadStatic := false
 	packStart := time.Now()
-	if tr != nil {
-		if !r.cache.fresh(tr) {
-			r.cache.rebuild(tr)
+	if v != nil && v.Scene != nil {
+		if !r.cache.fresh(v) {
+			r.cache.rebuild(v)
 			uploadStatic = true
 		}
-		campfires = PackCampfires(tr.Scene, tr.Time)
-		timeSec = tr.Time
-		shadows = tr.Opts.Shadow
-		mirror = tr.Opts.Mirror
-		sky = tr.Scene.Env.Sky
+		campfires = PackCampfires(v.Scene, v.Time)
+		timeSec = v.Time
+		shadows = v.Shadow
+		mirror = v.Mirror
+		aoEnabled = v.AO
+		sky = v.Scene.Env.Sky
+		if env := v.Scene.Env; env.Sun.Visible() && env.SunDir != (vec.V{}) {
+			bodyEnabled = true
+			bodyDir = env.SunDir.Scale(-1).Normalize() // body sits where the light comes from
+			bodyColor = env.Sun.Color
+			radius := env.Sun.Size * 0.5 * math.Pi / 180.0 // diameter (deg) -> radius (rad)
+			bodyCosRadius = float32(math.Cos(radius))
+			bodyGlow = float32(env.Sun.Glow)
+		}
 	}
 	c := &r.cache
 	rp := renderParams{
 		prims: c.prims, blockers: c.blockers, lights: c.lights,
 		bvhNodes: c.bvhNodes, bvhNodeCount: c.bvhNodeCount, blockerNodeCount: c.blockerNodeCount,
 		terrains: c.terrains, samples: c.samples, waters: c.waters,
-		campfires: campfires, holes: c.holes, ao: c.ao, aoOK: c.aoOK,
+		campfires: campfires, holes: c.holes, ao: c.ao, aoOK: c.aoOK && aoEnabled,
 		shadows: shadows, mirror: mirror, timeSec: timeSec, sky: sky,
+		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
+		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
 		uploadStatic: uploadStatic,
 	}
-	if tr == nil {
+	if v == nil || v.Scene == nil {
 		rp = renderParams{}
 	}
 	r.timing = FrameTiming{
@@ -417,6 +437,14 @@ type renderParams struct {
 	mirror           bool
 	timeSec          float64
 	sky              int
+	// Visible celestial body (sun/moon disc) drawn in the sky. bodyDir points
+	// from the camera toward the body (= -Env.SunDir); bodyCosRadius is the
+	// cosine of its angular radius.
+	bodyEnabled   bool
+	bodyDir       vec.V
+	bodyColor     vec.V
+	bodyCosRadius float32
+	bodyGlow      float32
 	// uploadStatic is set when the cached scene buffers changed this frame and
 	// must be re-sent to the GPU. When false, render() uploads only the per-frame
 	// params and campfires; the static SSBOs already hold the right data.
@@ -479,7 +507,10 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams) error 
 				return err
 			}
 		}
-		if p.aoOK && len(p.ao.Data) > 0 {
+		// Upload whenever the cache holds an AO volume, independent of the runtime
+		// AO toggle: the toggle only gates the shader's sampling (the aoOK uniform
+		// in paramsBytes), so flipping it on later needs no re-pack/re-upload.
+		if len(p.ao.Data) > 0 {
 			if err := r.queue.WriteBuffer(r.aoVolume, 0, floatBytes(p.ao.Data)); err != nil {
 				return err
 			}
@@ -588,6 +619,16 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams) [paramsSize]b
 		putVec4(out[160:176], p.ao.Min)
 	}
 	putU32(out[176:180], uint32(p.sky))
+	// Celestial body (sun/moon disc): enable flag + disc geometry, then the
+	// direction and color vec4s (16-byte aligned at 192/208). See the Params
+	// struct in trace.wgsl for the matching layout.
+	if p.bodyEnabled {
+		putU32(out[180:184], 1)
+	}
+	putF32(out[184:188], p.bodyCosRadius)
+	putF32(out[188:192], p.bodyGlow)
+	putVec4(out[192:208], p.bodyDir)
+	putVec4(out[208:224], p.bodyColor)
 	return out
 }
 

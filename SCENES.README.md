@@ -29,9 +29,8 @@ app runs.
 Run a scene:
 
 ```bash
-go run . -scene scenes/indoor-outdoor.toml                 # interactive (Ebiten window)
-go run . -scene scenes/indoor-outdoor.toml -renderer webgpu # GPU backend
-go run ./cmd/preview -scene scenes/indoor-outdoor.toml -o out.png -w 900 -h 600
+go run . -scene scenes/indoor-outdoor.toml                 # interactive (Ebiten window, WebGPU)
+go run ./cmd/preview -scene scenes/indoor-outdoor.toml -o out.png -w 900 -h 600 # headless PNG (WebGPU)
 ```
 
 A minimal scene:
@@ -340,11 +339,21 @@ pitch = 0.02   # radians
 sky = "night_stars"             # see Skies; default "clear"
 ambient_sky    = [0.035, 0.050, 0.090]  # hemispheric ambient (up)
 ambient_ground = [0.018, 0.018, 0.025]  # hemispheric ambient (down)
-sun_dir   = [-0.25, -0.82, 0.42]        # normalized at load
+sun_dir   = [-0.25, -0.82, 0.42]        # direction light travels; normalized at load
 sun_color = [0.10, 0.13, 0.20]
+
+# Optional visible sun/moon disc. It is drawn in the sky opposite sun_dir (the
+# body sits where the light comes from), so sun_dir must be set. It is purely
+# cosmetic — geometry occludes it and it appears in reflections.
+[environment.sun]
+color = [0.85, 0.90, 1.05]  # disc radiance (values > 1 read as bright/HDR)
+size  = 4.0                 # angular diameter in degrees
+glow  = 1.0                 # halo strength (omit or 0 -> 1.0; 0-ish for a bare disc)
 ```
-The GPU and CPU backends share the same sky/ambient model, so a scene looks the
-same on both.
+The sky/ambient model is evaluated in the WebGPU shader. The disc is composited
+on top of the selected sky variant; the variants also have their own built-in
+sun/moon glow, so for one coherent body align `sun_dir` with the variant's light
+or pick a `sky` whose glow you don't mind doubling.
 
 ---
 
@@ -464,6 +473,40 @@ material = "diffuse"
 ...
 {{end}}
 ```
+  that hangs below a variable-length stem, a light at the orb center) follow the
+  parameters automatically.
+
+Example — parameterized staircase (`objects/staircase.toml`):
+
+```toml
+{{$steps := or .steps 8}}
+{{$run := or .run 0.5}}
+{{$rise := or .rise 0.375}}
+{{range $i := seq $steps}}
+[[box]]
+min = [{{mul $i $run}}, 0.0, 0.0]
+max = [{{mul (add $i 1) $run}}, {{mul (add $i 1) $rise}}, {{$width}}]
+material = "diffuse"
+...
+{{end}}
+```
+  that hangs below a variable-length stem, a light at the orb center) follow the
+  parameters automatically.
+
+Example — parameterized staircase (`objects/staircase.toml`):
+
+```toml
+{{$steps := or .steps 8}}
+{{$run := or .run 0.5}}
+{{$rise := or .rise 0.375}}
+{{range $i := seq $steps}}
+[[box]]
+min = [{{mul $i $run}}, 0.0, 0.0]
+max = [{{mul (add $i 1) $run}}, {{mul (add $i 1) $rise}}, {{$width}}]
+material = "diffuse"
+...
+{{end}}
+```
 
 **Tradeoff:** a templated object file is no longer plain TOML, so:
 - A generic TOML validator / editor tooling may flag the `{{ }}`.
@@ -473,8 +516,7 @@ material = "diffuse"
   wrong geometry instead of a clean failure.
 
 See `scenes/objects/otto-wagner-sphere-lamp.toml` for a complete example.
-
----
+- On reload the WebGPU scene buffers rebuild on the swap.
 
 ## Hot reload
 
@@ -495,12 +537,17 @@ rebuilds the scene live when any of them changes:
 
 Press `0` in-app to hide/show the dev HUD (fps, backend, timings); the reload
 toast still appears so you get confirmation while iterating.
+`wood`, `brick`, `stone`, `stone_wall`, `cement`, `marble`, `grass`, `dirt`,
+`snow`, `wallpaper_navy`, `wallpaper_green`, `wallpaper_rose` (and `none`).
 
----
+`stone_wall` is a natural rubble-stone masonry (irregular rounded stones in
+greys/beiges with sandy mortar gaps). It uses triplanar projection, so it keeps
+the stone pattern on walls facing any axis and blends smoothly on slanted or
+curved surfaces.
 
 ## Enumerations
-
-### Materials
+tint by `albedo` and cost nothing to "store". The procedural definitions are
+generated on the CPU (`internal/texture`) and ported to the WebGPU shader.
 `diffuse`, `mirror`, `metal`, `glass`, `emit`, `checker`
 
 - `diffuse` — matte (add `reflect`/`texture` to embellish).

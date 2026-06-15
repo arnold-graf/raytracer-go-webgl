@@ -299,11 +299,20 @@ type cameraDTO struct {
 }
 
 type environmentDTO struct {
-	Sky           string `toml:"sky"`
-	AmbientSky    vec3   `toml:"ambient_sky"`
-	AmbientGround vec3   `toml:"ambient_ground"`
-	SunDir        vec3   `toml:"sun_dir"`
-	SunColor      vec3   `toml:"sun_color"`
+	Sky           string  `toml:"sky"`
+	AmbientSky    vec3    `toml:"ambient_sky"`
+	AmbientGround vec3    `toml:"ambient_ground"`
+	SunDir        vec3    `toml:"sun_dir"`
+	SunColor      vec3    `toml:"sun_color"`
+	Sun           *sunDTO `toml:"sun"`
+}
+
+// sunDTO configures the visible celestial body (sun/moon disc). Its position is
+// taken from the environment's sun_dir, so only its appearance lives here.
+type sunDTO struct {
+	Color vec3    `toml:"color"`
+	Size  float64 `toml:"size"` // angular diameter in degrees
+	Glow  float64 `toml:"glow"` // halo strength (omitted/0 -> default 1.0)
 }
 
 // includeDTO references another TOML file as a composite object. The included
@@ -829,6 +838,17 @@ func (e *environmentDTO) build() (scene.Environment, error) {
 	}
 	if sd := e.SunDir.toV(); sd != (vec.V{}) {
 		env.SunDir = sd.Normalize()
+	}
+	if e.Sun != nil {
+		glow := e.Sun.Glow
+		if glow == 0 {
+			glow = 1.0 // a configured body defaults to a normal halo
+		}
+		env.Sun = scene.CelestialBody{
+			Color: e.Sun.Color.toV(),
+			Size:  e.Sun.Size,
+			Glow:  glow,
+		}
 	}
 	if e.Sky != "" {
 		id, ok := scene.SkyID(e.Sky)

@@ -1,8 +1,11 @@
-// Phase 3 megakernel: camera rays, analytic primitive intersection, flat
+// Megakernel path tracer: camera rays, analytic primitive intersection, flat
 // ambient diffuse shading, point lights, hard shadows, emissive passthrough,
-// and the clear sky on a miss.
-// Tonemap, gamma and ordered dither replicate the CPU renderer exactly so the
-// parity harness can compare byte-for-byte (modulo f32 vs f64 rounding).
+// and the procedural sky on a miss.
+//
+// This shader is the only renderer. Comments that mention "the CPU" or the
+// original JS renderer are historical: the algorithms were first written in JS
+// (realtime_raytracer_dos_geo.html) and later in a Go CPU tracer that has since
+// been removed; this WGSL was kept byte-parity with that tracer during the port.
 
 struct Params {
     width: u32,
@@ -35,6 +38,14 @@ struct Params {
     ao_bias: f32,
     ao_min: vec4<f32>,
     sky: u32, // selects the procedural sky variant (see SKY_* / scene.Sky*)
+    // Visible celestial body (sun/moon disc). body_enabled gates it; body_dir
+    // points from the camera toward the body; body_cos_radius is cos(angular
+    // radius); body_glow scales the halo; body_color.xyz is the disc radiance.
+    body_enabled: u32,
+    body_cos_radius: f32,
+    body_glow: f32,
+    body_dir: vec4<f32>,
+    body_color: vec4<f32>,
 };
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).
@@ -179,6 +190,7 @@ const TEX_SNOW: u32 = 8u;
 const TEX_WALLPAPER_NAVY: u32 = 9u;
 const TEX_WALLPAPER_GREEN: u32 = 10u;
 const TEX_WALLPAPER_ROSE: u32 = 11u;
+const TEX_STONE_WALL: u32 = 12u;
 
 const RAY_EPSILON: f32 = 1e-4;
 const SURFACE_EPSILON: f32 = 5e-4;
@@ -510,7 +522,93 @@ fn tex_wallpaper(p: vec3<f32>, tint: vec3<f32>, tex: u32) -> vec3<f32> {
     return mix3(bgm, inkm, g) * tint;
 }
 
-fn texture_eval(tex: u32, p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
+fn stone_wall_palette(i: i32) -> vec3<f32> {
+    var pal = array<vec3<f32>, 6>(
+        vec3<f32>(0.80, 0.79, 0.76),
+        vec3<f32>(0.78, 0.73, 0.62),
+        vec3<f32>(0.64, 0.63, 0.60),
+        vec3<f32>(0.72, 0.66, 0.54),
+        vec3<f32>(0.74, 0.71, 0.66),
+        vec3<f32>(0.55, 0.54, 0.52),
+    );
+    var idx = i;
+    if (idx < 0) { idx = 0; }
+    if (idx > 5) { idx = 5; }
+    return pal[idx];
+}
+
+fn tex_stone_wall_2d(p: vec3<f32>, u_in: f32, v_in: f32) -> vec3<f32> {
+    let cell = 0.34;
+    let u = u_in / cell;
+    let v = v_in / cell;
+    let cu = floor(u);
+    let cv = floor(v);
+    let fu = u - cu;
+    let fv = v - cv;
+
+    var f1 = 1.0e9;
+    var f2 = 1.0e9;
+    var ox = 0.0;
+    var oy = 0.0;
+    for (var j = -1; j <= 1; j = j + 1) {
+        for (var i = -1; i <= 1; i = i + 1) {
+            let cx = cu + f32(i);
+            let cy = cv + f32(j);
+            let px = f32(i) + cell_rand(cx, cy, 11.0);
+            let py = f32(j) + cell_rand(cx, cy, 12.0);
+            let dx = px - fu;
+            let dy = py - fv;
+            let d = sqrt(dx * dx + dy * dy);
+            if (d < f1) {
+                f2 = f1;
+                f1 = d;
+                ox = cx;
+                oy = cy;
+            } else if (d < f2) {
+                f2 = d;
+            }
+        }
+    }
+    let edge = f2 - f1;
+
+    let pick = cell_rand(ox, oy, 1.0);
+    let bright = cell_rand(ox, oy, 2.0);
+    var base = stone_wall_palette(i32(pick * 6.0));
+    base = base * (0.62 + 0.55 * bright);
+    base.x = base.x * (0.94 + 0.12 * cell_rand(ox, oy, 5.0));
+    base.y = base.y * (0.94 + 0.12 * cell_rand(ox, oy, 6.0));
+    base.z = base.z * (0.92 + 0.14 * cell_rand(ox, oy, 7.0));
+
+    let mottle = 0.84 + 0.16 * fbm(p.x * 7.0 + ox * 3.0, p.y * 7.0 + oy * 3.0, p.z * 7.0, 4u);
+    let grain = 0.90 + 0.10 * fbm(p.x * 32.0, p.y * 32.0, p.z * 32.0, 3u);
+    let relief = 1.0 - 0.18 * smoothstepf(0.05, 0.5, f1);
+    var face = base * (mottle * grain * relief);
+
+    let mortar_col = vec3<f32>(0.40, 0.37, 0.31) * (0.78 + 0.30 * fbm(p.x * 6.0, p.y * 6.0, p.z * 6.0, 3u));
+
+    let mask = smoothstepf(0.02, 0.12, edge);
+    return mix3(mortar_col, face, mask);
+}
+
+fn tex_stone_wall(p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
+    var w = abs(n);
+    // Sharpen the weights so box-like surfaces stay crisp near edges while still
+    // blending smoothly on curved geometry.
+    w = w * w * w * w;
+    let sum = w.x + w.y + w.z;
+    if (sum <= 0.0) {
+        return tex_stone_wall_2d(p, p.x, p.y) * tint;
+    }
+
+    // Project by dominant normal: Z-facing walls use XY, X-facing walls use ZY,
+    // and horizontal surfaces use XZ.
+    let x_proj = tex_stone_wall_2d(p, p.z, p.y) * w.x;
+    let y_proj = tex_stone_wall_2d(p, p.x, p.z) * w.y;
+    let z_proj = tex_stone_wall_2d(p, p.x, p.y) * w.z;
+    return (x_proj + y_proj + z_proj) / sum * tint;
+}
+
+fn texture_eval(tex: u32, p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
     if (tex == TEX_NONE) { return tint; }
     if (tex == TEX_WOOD) { return tex_wood(p, tint); }
     if (tex == TEX_BRICK) { return tex_brick(p, tint); }
@@ -520,6 +618,7 @@ fn texture_eval(tex: u32, p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
     if (tex == TEX_GRASS) { return tex_grass(p, tint); }
     if (tex == TEX_DIRT) { return tex_dirt(p, tint); }
     if (tex == TEX_SNOW) { return tex_snow(p, tint); }
+    if (tex == TEX_STONE_WALL) { return tex_stone_wall(p, n, tint); }
     return tex_wallpaper(p, tint, tex);
 }
 
@@ -558,9 +657,21 @@ fn tonemap(c: vec3<f32>) -> vec3<f32> {
     );
 }
 
+// body_or returns the configured celestial-body direction when one is set,
+// otherwise the variant's own default direction (def, normalized). Each sky
+// variant routes its built-in sun/moon glow through this so the glow tracks the
+// configured sun/moon disc instead of a hardcoded spot. Without a configured
+// body, scenes render exactly as before.
+fn body_or(def: vec3<f32>) -> vec3<f32> {
+    if (params.body_enabled != 0u) {
+        return params.body_dir.xyz;
+    }
+    return normalize(def);
+}
+
 fn clear_sky(d: vec3<f32>) -> vec3<f32> {
     let t = clamp01(d.y * 0.5 + 0.5);
-    let sun = max(0.0, d.x * 0.4 + d.y * 0.8 + d.z * -0.45);
+    let sun = max(0.0, dot(d, body_or(vec3<f32>(0.4, 0.8, -0.45))));
     let s2 = sun * sun;
     let s4 = s2 * s2;
     let s8 = s4 * s4;
@@ -574,8 +685,7 @@ fn clear_sky(d: vec3<f32>) -> vec3<f32> {
     );
 }
 
-// cloudy_sky: overcast blue daytime with soft white/grey clouds. Port of
-// trace.go cloudySky.
+// cloudy_sky: overcast blue daytime with soft white/grey clouds.
 fn cloudy_sky(d: vec3<f32>, time: f32) -> vec3<f32> {
     let up = smoothstepf(-0.05, 0.7, d.y);
     let base = mix3(vec3<f32>(0.72, 0.80, 0.88), vec3<f32>(0.30, 0.50, 0.80), up);
@@ -588,7 +698,7 @@ fn cloudy_sky(d: vec3<f32>, time: f32) -> vec3<f32> {
 
     let col = mix3(base, cloud, cover);
 
-    let sun = max(0.0, d.x * 0.4 + d.y * 0.85 + d.z * -0.4);
+    let sun = max(0.0, dot(d, body_or(vec3<f32>(0.4, 0.85, -0.4))));
     let s2 = sun * sun;
     let s4 = s2 * s2;
     let s8 = s4 * s4;
@@ -596,9 +706,8 @@ fn cloudy_sky(d: vec3<f32>, time: f32) -> vec3<f32> {
     return col + vec3<f32>(0.5, 0.48, 0.42) * (glow * (1.0 - 0.7 * cover));
 }
 
-// hash3 / star_field port the sin-based starfield from trace.go. The frac(sin)
-// hash diverges slightly under f32, so star *placement* is not bit-identical to
-// the CPU, but the overall starfield reads the same.
+// hash3 / star_field are a sin-based starfield (a frac(sin) value hash placing
+// occasional bright points).
 fn hash3(x: f32, y: f32, z: f32) -> f32 {
     let s = sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
     return s - floor(s);
@@ -626,8 +735,7 @@ fn star_field(d: vec3<f32>, scale: f32) -> f32 {
     return bright * bright * max(0.0, 1.0 - d2 * 16.0);
 }
 
-// night_stars_sky: deep-blue gradient with a sparse starfield. Port of
-// trace.go nightStarsSky.
+// night_stars_sky: deep-blue gradient with a sparse starfield.
 fn night_stars_sky(d: vec3<f32>) -> vec3<f32> {
     let up = smoothstepf(0.0, 0.7, d.y);
     var base = mix3(vec3<f32>(0.020, 0.030, 0.060), vec3<f32>(0.004, 0.008, 0.022), up);
@@ -635,18 +743,17 @@ fn night_stars_sky(d: vec3<f32>) -> vec3<f32> {
         let s = star_field(d, 90.0);
         base = base + vec3<f32>(s, s, s * 1.08);
     }
-    let moon = max(0.0, d.x * -0.3 + d.y * 0.85 + d.z * -0.4);
+    let moon = max(0.0, dot(d, body_or(vec3<f32>(-0.3, 0.85, -0.4))));
     let m2 = moon * moon;
     let m4 = m2 * m2;
     let m8 = m4 * m4;
     return base + vec3<f32>(0.10, 0.12, 0.16) * (m8 * m8);
 }
 
-// night_storm_sky: dramatic moonlit storm clouds. Port of trace.go
-// nightStormSky.
+// night_storm_sky: dramatic moonlit storm clouds.
 fn night_storm_sky(d: vec3<f32>, time: f32) -> vec3<f32> {
     let moon_color = vec3<f32>(0.62, 0.70, 0.92);
-    let moon_dir = normalize(vec3<f32>(0.08, 0.42, -0.90));
+    let moon_dir = body_or(vec3<f32>(0.08, 0.42, -0.90));
     let g = clamp01(dot(d, moon_dir));
     let g2 = g * g;
     let g4 = g2 * g2;
@@ -666,8 +773,7 @@ fn night_storm_sky(d: vec3<f32>, time: f32) -> vec3<f32> {
     return mix3(sky_glow, cloud, cover);
 }
 
-// sunset_sky: warm horizon fading to deep blue, dark rim-lit clouds. Port of
-// trace.go sunsetSky.
+// sunset_sky: warm horizon fading to deep blue, dark rim-lit clouds.
 fn sunset_sky(d: vec3<f32>, time: f32) -> vec3<f32> {
     let warm = vec3<f32>(1.20, 0.45, 0.18);
     let mid = vec3<f32>(0.55, 0.28, 0.42);
@@ -675,7 +781,7 @@ fn sunset_sky(d: vec3<f32>, time: f32) -> vec3<f32> {
     var base = mix3(warm, mid, smoothstepf(-0.05, 0.28, d.y));
     base = mix3(base, zen, smoothstepf(0.18, 0.75, d.y));
 
-    let sun_dir = normalize(vec3<f32>(0.30, 0.05, -0.95));
+    let sun_dir = body_or(vec3<f32>(0.30, 0.05, -0.95));
     let sd = clamp01(dot(d, sun_dir));
     let sd2 = sd * sd;
     let sd4 = sd2 * sd2;
@@ -693,15 +799,49 @@ fn sunset_sky(d: vec3<f32>, time: f32) -> vec3<f32> {
     return mix3(base, cloud, cover);
 }
 
-// sky dispatches on the selected variant, mirroring Tracer.sky in trace.go.
-fn sky(d: vec3<f32>) -> vec3<f32> {
-    switch (params.sky) {
-        case 1u: { return cloudy_sky(d, params.time); }
-        case 2u: { return night_stars_sky(d); }
-        case 3u: { return night_storm_sky(d, params.time); }
-        case 4u: { return sunset_sky(d, params.time); }
-        default: { return clear_sky(d); }
+// celestial_body returns the additive radiance of the configured sun/moon disc
+// along view direction d: a soft-limbed disc plus a falloff halo. It is composed
+// on top of every sky variant, so it also shows up in reflections. The body is
+// purely cosmetic (it does not light the scene).
+//
+// A procedural moon texture (craters) would slot in here: build a tangent frame
+// around body_dir and map d's offset within the disc to a uv in [-1,1], then
+// modulate the disc color by a noise-based crater function (the fbm/value-noise
+// helpers above are already available).
+fn celestial_body(d: vec3<f32>) -> vec3<f32> {
+    if (params.body_enabled == 0u) {
+        return vec3<f32>(0.0, 0.0, 0.0);
     }
+    let cos_a = dot(d, params.body_dir.xyz); // d and body_dir are unit vectors
+    let cr = params.body_cos_radius;
+
+    // Disc with a soft limb: full intensity inside ~0.9R, fading to 0 at the
+    // edge R. Working in cosine space avoids a per-pixel acos.
+    let cr_inner = cos(acos(clamp(cr, -1.0, 1.0)) * 0.9);
+    let disc = smoothstepf(cr, cr_inner, cos_a);
+
+    // Halo: a soft glow reaching ~3 disc-radii out, scaled by body_glow. The
+    // steep power keeps it concentrated near the limb so the disc size still
+    // reads clearly.
+    let cr_halo = cos(acos(clamp(cr, -1.0, 1.0)) * 3.5);
+    var halo = clamp01((cos_a - cr_halo) / max(1.0e-4, 1.0 - cr_halo));
+    halo = halo * halo * halo * halo * params.body_glow * 0.6;
+
+    return params.body_color.xyz * (disc + halo);
+}
+
+// sky dispatches on the selected variant (params.sky), then adds the celestial
+// body on top.
+fn sky(d: vec3<f32>) -> vec3<f32> {
+    var base: vec3<f32>;
+    switch (params.sky) {
+        case 1u: { base = cloudy_sky(d, params.time); }
+        case 2u: { base = night_stars_sky(d); }
+        case 3u: { base = night_storm_sky(d, params.time); }
+        case 4u: { base = sunset_sky(d, params.time); }
+        default: { base = clear_sky(d); }
+    }
+    return base + celestial_body(d);
 }
 
 fn hit_sphere(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
@@ -1438,7 +1578,7 @@ fn shadowed(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
     return false;
 }
 
-// add_point_light_raw is the shared core of trace.addPointLight: distance cull,
+// add_point_light_raw is the shared core for one point light: distance cull,
 // inverse-square + optional windowed falloff, a brightness cull, and a shadow
 // ray. Static lights and flickering campfire sub-lights both feed through it.
 fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, pos: vec3<f32>, color: vec3<f32>, cull_r2: f32, inv_r2: f32) -> vec3<f32> {
@@ -1554,8 +1694,8 @@ fn ao_sample(p_in: vec3<f32>, n: vec3<f32>) -> f32 {
 
 // shade_diffuse computes the diffuse direct lighting at a hit: flat ambient,
 // static point lights and flickering campfires (with the shared core shadow
-// early-out), then scaled by the baked ambient-occlusion volume. Mirrors
-// trace.shade for scenes without env sun/hemispheric ambient.
+// early-out), then scaled by the baked ambient-occlusion volume. Used for
+// scenes without an env sun/hemispheric ambient.
 fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> vec3<f32> {
     var lit = alb * params.ambient;
     for (var i = 0u; i < params.light_count; i = i + 1u) {
@@ -1606,12 +1746,12 @@ fn terrain_albedo(i: u32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     let j = 0.08 * perlin(p.x * 0.7, 0.0, p.z * 0.7);
     let rock_w = smoothstepf(tr.blend.x, tr.blend.y, slope + j);
     let snow_w = smoothstepf(tr.blend.z, tr.blend.w, p.y + 2.0 * j);
-    var c = texture_eval(tr.material.x, p, tr.color0.xyz);
+    var c = texture_eval(tr.material.x, p, n, tr.color0.xyz);
     if (rock_w > 0.001) {
-        c = mix3(c, texture_eval(tr.material.y, p, tr.color1.xyz), rock_w);
+        c = mix3(c, texture_eval(tr.material.y, p, n, tr.color1.xyz), rock_w);
     }
     if (snow_w > 0.001) {
-        c = mix3(c, texture_eval(tr.material.z, p, tr.color2.xyz), snow_w);
+        c = mix3(c, texture_eval(tr.material.z, p, n, tr.color2.xyz), snow_w);
     }
     return c;
 }
@@ -1619,7 +1759,7 @@ fn terrain_albedo(i: u32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
 // RaySeg is one pending ray in the bounded work stack: a ray plus the
 // multiplicative weight (throughput) its radiance contributes to the pixel, and
 // its bounce depth. The stack lets glass blend its reflected and refracted
-// lobes (a real ray tree) instead of picking one, matching the CPU tracer.
+// lobes (a real ray tree) instead of picking one.
 struct RaySeg {
     ro: vec3<f32>,
     rd: vec3<f32>,
@@ -1627,16 +1767,15 @@ struct RaySeg {
     depth: u32,
 };
 
-// MAX_SEGS bounds the ray tree. The CPU caps recursion at depth 3 and only
-// glass branches (into two children), at depths 0 and 1 (depth 2 is no longer
+// MAX_SEGS bounds the ray tree. Recursion is capped at depth 3 and only glass
+// branches (into two children), at depths 0 and 1 (depth 2 is no longer
 // "reflective" so it terminates), giving at most 1 + 2 + 4 = 7 live segments.
 const MAX_SEGS: u32 = 16u;
 
 // ray_color evaluates the radiance along the camera ray by walking a small work
-// stack. It is an iterative transcription of trace.li: sky on a miss, emissive
-// passthrough, single-bounce mirror/metal, the two-lobe Fresnel glass blend,
-// diffuse direct lighting, and semi-reflective diffuse/checker. Reflections are
-// gated by params.mirror exactly like the CPU's tr.Opts.Mirror.
+// stack: sky on a miss, emissive passthrough, single-bounce mirror/metal, the
+// two-lobe Fresnel glass blend, diffuse direct lighting, and semi-reflective
+// diffuse/checker. Reflections are gated by params.mirror.
 fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
     var accum = vec3<f32>(0.0, 0.0, 0.0);
     var stack: array<RaySeg, 16>;
@@ -1673,14 +1812,17 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
             // For a transformed primitive evaluate the normal and procedural
             // texture in local space, then rotate the normal back to world.
             var tex_p = hp;
+            var tex_n = n;
             if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
                 let lhp = xf_to_local_point(p, hp);
-                n = normalize(xf_to_world_normal(p, normal_at(p, lhp)));
+                tex_n = normal_at(p, lhp);
+                n = normalize(xf_to_world_normal(p, tex_n));
                 tex_p = lhp;
             } else {
                 n = normal_at(p, hp);
+                tex_n = n;
             }
-            alb = texture_eval(p.info.z, tex_p, plane_albedo(p, hp));
+            alb = texture_eval(p.info.z, tex_p, tex_n, plane_albedo(p, hp));
         } else if (hit.kind == 1u) {
             mat = MAT_DIFFUSE;
             n = terrain_normal(hit.idx, hp);
@@ -1690,7 +1832,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
             mat = wp.info.x;
             surf = wp.surf;
             n = water_normal(hit.idx, hp);
-            alb = texture_eval(wp.info.y, hp, wp.albedo.xyz);
+            alb = texture_eval(wp.info.y, hp, n, wp.albedo.xyz);
         }
 
         if (dot(n, rd) > 0.0) {
@@ -1712,7 +1854,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
             transmit = 0.9;
         }
         let ep = hp + n * SURFACE_EPSILON;
-        // CPU: reflective = depth < maxBounces-1 && tr.Opts.Mirror.
+        // reflective = depth < maxBounces-1 && mirror enabled.
         let reflective = depth < 2u && params.mirror != 0u;
 
         if ((mat == MAT_MIRROR || mat == MAT_METAL) && reflective) {
@@ -1748,8 +1890,8 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
             }
 
             // Reflected lobe (the world in front of the pane). Its weight is the
-            // Fresnel reflectance, so even a head-on clear window keeps the ~4%
-            // floor the CPU shows. reflMin keeps deep, faint bounces bounded.
+            // Fresnel reflectance, so even a head-on clear window keeps a ~4%
+            // floor. reflMin keeps deep, faint bounces bounded.
             var refl_min = 0.02;
             if (depth > 0u) {
                 refl_min = 0.2;
@@ -1776,8 +1918,8 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
     return accum;
 }
 
-// pack_channel applies the same ordered-dither + clamp + truncation as the CPU
-// renderer's clampByte(col*255 + bdt).
+// pack_channel applies the ordered-dither offset, then clamps and truncates to
+// an 8-bit channel value: clamp(col*255 + bdt, 0, 255).
 fn pack_channel(c: f32, bdt: f32) -> u32 {
     let v = clamp(c * 255.0 + bdt, 0.0, 255.0);
     return u32(floor(v));

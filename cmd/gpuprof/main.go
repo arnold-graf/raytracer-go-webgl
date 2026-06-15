@@ -16,8 +16,9 @@ import (
 	"time"
 
 	"raytracer/internal/camera"
+	"raytracer/internal/probe"
+	"raytracer/internal/render"
 	"raytracer/internal/sceneio"
-	"raytracer/internal/trace"
 	"raytracer/internal/webgpu"
 )
 
@@ -48,16 +49,22 @@ func main() {
 	}
 	defer r.Release()
 
-	tr := trace.New(sc)
-	tr.Opts = trace.Options{Mirror: true, Shadow: true, AO: true}
-	tr.Prepare()
+	aoData, aoOK := probe.New(sc).BakeAO()
+	view := &render.View{
+		Scene:  sc,
+		Shadow: true,
+		Mirror: true,
+		AO:     true,
+		AOData: aoData,
+		AOok:   aoOK,
+	}
 
 	buf := make([]byte, renderW*renderH*4)
 
 	fmt.Printf("GPU profile: %s  (%dx%d)\n\n", *scenePath, renderW, renderH)
 
 	// Baseline at the scene's authored camera.
-	base := bench(r, buf, cam, tr, *warmup, *frames)
+	base := bench(r, buf, cam, view, *warmup, *frames)
 	printTiming("baseline (scene camera)", base)
 
 	if *ablate {
@@ -69,21 +76,18 @@ func main() {
 		fmt.Println(strings.Repeat("-", 72))
 
 		configs := []struct {
-			name string
-			opts trace.Options
+			name                   string
+			mirror, shadow, aoFlag bool
 		}{
-			{"all on", trace.Options{Mirror: true, Shadow: true, AO: true}},
-			{"mirror off", trace.Options{Mirror: false, Shadow: true, AO: true}},
-			{"shadow off", trace.Options{Mirror: true, Shadow: false, AO: true}},
-			{"AO off", trace.Options{Mirror: true, Shadow: true, AO: false}},
-			{"all off", trace.Options{}},
+			{"all on", true, true, true},
+			{"mirror off", false, true, true},
+			{"shadow off", true, false, true},
+			{"AO off", true, true, false},
+			{"all off", false, false, false},
 		}
 		for _, c := range configs {
-			tr.Opts = c.opts
-			if c.opts.AO {
-				tr.Prepare()
-			}
-			t := bench(r, buf, cam, tr, *warmup, *frames)
+			view.Mirror, view.Shadow, view.AO = c.mirror, c.shadow, c.aoFlag
+			t := bench(r, buf, cam, view, *warmup, *frames)
 			fmt.Printf("%-22s  %5.1fms %5.1fms %5.1fms %5.1fms %5.1fms %6.0f\n",
 				c.name,
 				ms(t.Pack), ms(t.Upload), ms(t.GPU), ms(t.Readback), ms(t.Total),
@@ -92,9 +96,8 @@ func main() {
 	}
 
 	// Restore defaults and print scene-size context from the last frame.
-	tr.Opts = trace.Options{Mirror: true, Shadow: true, AO: true}
-	tr.Prepare()
-	r.Render(buf, cam, tr, 1)
+	view.Mirror, view.Shadow, view.AO = true, true, true
+	r.Render(buf, cam, view, 1)
 	last := r.LastTiming()
 	fmt.Println()
 	fmt.Printf("Scene on GPU: %d prims, %d blockers, %d BVH nodes, %d holes\n",
@@ -103,13 +106,13 @@ func main() {
 	printNotes()
 }
 
-func bench(r *webgpu.Renderer, buf []byte, cam *camera.Camera, tr *trace.Tracer, warmup, n int) webgpu.FrameTiming {
+func bench(r *webgpu.Renderer, buf []byte, cam *camera.Camera, view *render.View, warmup, n int) webgpu.FrameTiming {
 	for i := 0; i < warmup; i++ {
-		r.Render(buf, cam, tr, 1)
+		r.Render(buf, cam, view, 1)
 	}
 	var acc webgpu.FrameTiming
 	for i := 0; i < n; i++ {
-		r.Render(buf, cam, tr, 1)
+		r.Render(buf, cam, view, 1)
 		t := r.LastTiming()
 		acc.Pack += t.Pack
 		acc.Upload += t.Upload
@@ -152,7 +155,7 @@ func printNotes() {
 	fmt.Fprintln(os.Stderr, "Notes:")
 	fmt.Fprintln(os.Stderr, "  • GPU time is wall-clock until the device is idle (Poll), so it includes")
 	fmt.Fprintln(os.Stderr, "    the compute pass but not overlapped presentation.")
-	fmt.Fprintln(os.Stderr, "  • Pack+Upload repeat every frame even for static scenes — a future cache")
-	fmt.Fprintln(os.Stderr, "    would reclaim that CPU time.")
-	fmt.Fprintln(os.Stderr, "  • In-game: run with -renderer webgpu; the HUD shows the same breakdown.")
+	fmt.Fprintln(os.Stderr, "  • Pack+Upload are near-zero for static scenes: the scene cache packs and")
+	fmt.Fprintln(os.Stderr, "    uploads geometry once and re-sends only when the scene changes.")
+	fmt.Fprintln(os.Stderr, "  • In-game: the HUD shows the same per-phase breakdown (toggle with 0).")
 }

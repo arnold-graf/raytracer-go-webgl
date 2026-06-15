@@ -90,7 +90,27 @@ type Environment struct {
 	// radiance with no distance falloff. Enabled when SunColor is non-zero.
 	SunDir   vec.V
 	SunColor vec.V
+	// Sun is the visible celestial body (sun/moon disc) drawn in the sky. It is
+	// positioned opposite SunDir (the body sits where the light comes from), so
+	// SunDir must be set for it to appear.
+	Sun CelestialBody
 }
+
+// CelestialBody is a sun or moon rendered as a disc in the sky. It is purely
+// cosmetic (it does not light the scene) and is drawn on a ray miss, so geometry
+// occludes it and it appears in reflections like the rest of the sky.
+type CelestialBody struct {
+	// Color is the disc's radiance (linear rgb; values > 1 read as bright/HDR).
+	Color vec.V
+	// Size is the body's angular diameter in degrees (the moon/sun is ~0.5°).
+	Size float64
+	// Glow scales the soft halo around the disc (1 = default, 0 = no halo).
+	Glow float64
+}
+
+// Visible reports whether a celestial body was configured (a color and a
+// non-zero size). The renderer also requires Environment.SunDir to place it.
+func (b CelestialBody) Visible() bool { return b.Color != (vec.V{}) && b.Size > 0 }
 
 // HasAmbient reports whether a hemispheric ambient was configured.
 func (e Environment) HasAmbient() bool { return e.AmbientSky != (vec.V{}) }

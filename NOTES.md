@@ -15,9 +15,12 @@ creates a neat contrast of simple shapes in a dynamic, lively environment.
 
 ## Future Plans
 
-1. Port the visual ray-tracer itself to WebGPU for a possible 10-100x speed-up.
-   Our geometry style with analytic shapes is ideally suited to that. There’s a
-   plan in the plans folder.
+1. ~~Port the visual ray-tracer to WebGPU for a possible 10-100x speed-up.~~
+   **Done.** The renderer is WebGPU-only; the old CPU ray tracer has been
+   removed. The CPU still bakes the ambient-occlusion volume and answers
+   acoustic ray queries for audio (see `internal/probe`), and the procedural
+   textures are still generated on the CPU, but all image rendering happens on
+   the GPU (`internal/webgpu`).
 2. Stress test the scale. I’d like to see a large expansive world, at least 2 km
    by 2km, with 500 m high peaks. It could contain many buildings with multiple
    stories and rooms (~100)? It would contain 100s of trees too. how would our

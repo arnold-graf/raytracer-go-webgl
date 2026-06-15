@@ -15,11 +15,16 @@ yaw = 0.0
 pitch = 0.04
 
 [environment]
-sky = "night_storm"
+sky = "night_stars"
 ambient_sky = [0.060, 0.075, 0.100]
 ambient_ground = [0.018, 0.020, 0.026]
-sun_dir = [0.08, -0.42, 0.90]
+sun_dir = [1, -1.2, 0.90]
 sun_color = [0.16, 0.19, 0.27]
+
+[environment.sun]
+color = [0.4, 0.45, 1.5]   # disc radiance (>1 reads as bright/HDR)
+size  = 5.0                  # angular diameter in degrees
+glow  = 0.1                  # halo strength (omit/0 -> 1.0)
 
 # --------------------------------------------------------------- terrain ----
 # A single height field. Peaks have positive height, valleys negative (or use
@@ -162,19 +167,19 @@ texture = "grass"
 [[sound]] # pine 1 crickets
 sound = "crickets"
 at = [-9.0, 2.7, 2.0]
-gain = 0.32
+gain = 0.5
 radius = 20.0
 
 [[sound]] # pine 2 crickets
 sound = "crickets"
 at = [8.0, 2.9, 2.5]
-gain = 0.32
+gain = 0.5
 radius = 20.0
 
 [[sound]] # round tree crickets
 sound = "crickets"
 at = [-14.0, 3.2, -2.0]
-gain = 0.32
+gain = 0.5
 radius = 20.0
 
 # ----------------------------------------------------------------- campfire ----
@@ -219,11 +224,5 @@ jitter = 0.16
 flicker = 0.45
 speed = 1.0
 
-# Strong warm campfire against the cold storm light.
-[[campfire]]
-center = [0.0, 0.5, 3.0]
-color = [6.5, 3.2, 1.1]
-range = 17.0
-flicker = 0.55
 
 

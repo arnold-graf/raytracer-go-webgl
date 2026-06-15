@@ -38,6 +38,62 @@ func TestWalkSpeedIs2_5xOriginal(t *testing.T) {
 	}
 }
 
+func TestSprintApproachesDoubleSpeed(t *testing.T) {
+	c := New()
+	c.SetWorld(mockWorld{})
+	// Hold sprint long enough for the blend to ramp to ~1.
+	for i := 0; i < 60; i++ {
+		c.Update(Move{Forward: true, Sprint: true}, 0.1)
+	}
+	z0 := c.Pos.Z
+	c.Update(Move{Forward: true, Sprint: true}, 0.1)
+	got := z0 - c.Pos.Z // forward at yaw 0 moves toward -Z
+	want := 0.035 * c.cfg.SprintMultiplier
+	if math.Abs(got-want) > 1e-6 {
+		t.Fatalf("sprint forward step = %v, want %v", got, want)
+	}
+}
+
+func TestCrouchLowersEyeAndSlows(t *testing.T) {
+	c := New()
+	c.SetWorld(mockWorld{}) // flat ground at y=0
+	for i := 0; i < 60; i++ {
+		c.Update(Move{Forward: true, Crouch: true}, 0.1)
+	}
+	// Eye settled (to within the easing's asymptote) at the crouch height.
+	if math.Abs(c.Pos.Y-c.cfg.CrouchEyeHeight) > 1e-3 {
+		t.Fatalf("crouched eye = %v, want %v", c.Pos.Y, c.cfg.CrouchEyeHeight)
+	}
+	z0 := c.Pos.Z
+	c.Update(Move{Forward: true, Crouch: true}, 0.1)
+	got := z0 - c.Pos.Z
+	want := 0.035 * c.cfg.CrouchSpeedMultiplier
+	if math.Abs(got-want) > 1e-6 {
+		t.Fatalf("crouch forward step = %v, want %v", got, want)
+	}
+}
+
+func TestCrouchTransitionIsSmooth(t *testing.T) {
+	c := New()
+	c.SetWorld(mockWorld{})
+	c.Update(Move{}, 0.1) // settle standing
+	prev := c.Pos.Y
+	sawIntermediate := false
+	for i := 0; i < 60; i++ {
+		c.Update(Move{Crouch: true}, 0.1)
+		if drop := prev - c.Pos.Y; drop > 0.3 {
+			t.Fatalf("camera dropped %v in one frame (not smooth)", drop)
+		}
+		if c.Pos.Y > c.cfg.CrouchEyeHeight+1e-6 && c.Pos.Y < c.cfg.EyeHeight-1e-6 {
+			sawIntermediate = true
+		}
+		prev = c.Pos.Y
+	}
+	if !sawIntermediate {
+		t.Fatalf("camera never passed through an intermediate crouch height")
+	}
+}
+
 func TestJumpIsBriskAndBounded(t *testing.T) {
 	c := New()
 	c.SetWorld(mockWorld{})

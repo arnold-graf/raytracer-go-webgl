@@ -10,12 +10,15 @@ import (
 
 // movementDTO mirrors the [movement] table of a player-config TOML file.
 type movementDTO struct {
-	WalkSpeed       float64 `toml:"walk_speed"`
-	EyeHeight       float64 `toml:"eye_height"`
-	JumpVelocity    float64 `toml:"jump_velocity"`
-	Gravity         float64 `toml:"gravity"`
-	CollisionRadius float64 `toml:"collision_radius"`
-	StepHeight      float64 `toml:"step_height"`
+	WalkSpeed             float64 `toml:"walk_speed"`
+	EyeHeight             float64 `toml:"eye_height"`
+	JumpVelocity          float64 `toml:"jump_velocity"`
+	Gravity               float64 `toml:"gravity"`
+	CollisionRadius       float64 `toml:"collision_radius"`
+	StepHeight            float64 `toml:"step_height"`
+	SprintMultiplier      float64 `toml:"sprint_multiplier"`
+	CrouchEyeHeight       float64 `toml:"crouch_eye_height"`
+	CrouchSpeedMultiplier float64 `toml:"crouch_speed_multiplier"`
 }
 
 type playerDTO struct {
@@ -62,6 +65,15 @@ func (d playerDTO) config() camera.Config {
 	}
 	if m.StepHeight != 0 {
 		c.StepHeight = m.StepHeight
+	}
+	if m.SprintMultiplier != 0 {
+		c.SprintMultiplier = m.SprintMultiplier
+	}
+	if m.CrouchEyeHeight != 0 {
+		c.CrouchEyeHeight = m.CrouchEyeHeight
+	}
+	if m.CrouchSpeedMultiplier != 0 {
+		c.CrouchSpeedMultiplier = m.CrouchSpeedMultiplier
 	}
 	return c
 }

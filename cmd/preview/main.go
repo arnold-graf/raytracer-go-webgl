@@ -1,5 +1,6 @@
 // Command preview renders a single frame of the scene to a PNG file without
-// opening a window. Useful for headless verification, screenshots, and CI.
+// opening a window, using the WebGPU renderer. Useful for headless verification,
+// screenshots, and CI (requires a working WebGPU adapter).
 package main
 
 import (
@@ -10,10 +11,11 @@ import (
 	"os"
 
 	"raytracer/internal/camera"
+	"raytracer/internal/probe"
 	"raytracer/internal/render"
 	"raytracer/internal/scene"
 	"raytracer/internal/sceneio"
-	"raytracer/internal/trace"
+	"raytracer/internal/webgpu"
 )
 
 func main() {
@@ -42,18 +44,30 @@ func main() {
 		sc.Env.Sky = id
 	}
 
-	ren := render.New(*w, *h)
 	cam := camera.New()
 	if sc.Start.Set {
 		cam.Pos, cam.Yaw, cam.Pitch = sc.Start.Pos, sc.Start.Yaw, sc.Start.Pitch
 	}
-	tr := trace.New(sc)
-	tr.Opts = trace.Options{Mirror: true, Shadow: true, AO: true}
-	tr.Time = *atTime
-	tr.Prepare() // bake the AO volume up front rather than during the render
+
+	ren, err := webgpu.New(*w, *h)
+	if err != nil {
+		log.Fatalf("webgpu renderer unavailable: %v", err)
+	}
+	defer ren.Release()
+
+	aoData, aoOK := probe.New(sc).BakeAO()
+	view := &render.View{
+		Scene:  sc,
+		Time:   *atTime,
+		Shadow: true,
+		Mirror: true,
+		AO:     true,
+		AOData: aoData,
+		AOok:   aoOK,
+	}
 
 	buf := make([]byte, (*w)*(*h)*4)
-	ren.Render(buf, cam, tr, *pix)
+	ren.Render(buf, cam, view, *pix)
 
 	img := &image.RGBA{Pix: buf, Stride: (*w) * 4, Rect: image.Rect(0, 0, *w, *h)}
 	f, err := os.Create(*out)
