@@ -24,7 +24,7 @@ import (
 const (
 	renderW = 512 // internal render resolution (matches the original)
 	renderH = renderW * 0.625
-	scale   = 3 // window is scale x the internal resolution
+	scale   = 2 // window is scale x the internal resolution
 )
 
 //go:embed scenes/default.toml

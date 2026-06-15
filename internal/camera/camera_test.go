@@ -54,6 +54,32 @@ func TestSprintApproachesDoubleSpeed(t *testing.T) {
 	}
 }
 
+func TestAnalogStickScalesSpeed(t *testing.T) {
+	// A half-deflected stick should move at half the full walk speed.
+	c := New()
+	c.SetWorld(mockWorld{})
+	c.Update(Move{}, 0.1) // settle onto the ground
+	z0 := c.Pos.Z
+	c.Update(Move{MoveZ: 0.5}, 0.1)
+	got := z0 - c.Pos.Z // forward at yaw 0 moves toward -Z
+	if math.Abs(got-0.0175) > 1e-9 {
+		t.Fatalf("half-stick forward step = %v, want 0.0175", got)
+	}
+}
+
+func TestAnalogStickClampsToFullSpeed(t *testing.T) {
+	// An over-range diagonal stick (or stick+keys) never exceeds full speed.
+	c := New()
+	c.SetWorld(mockWorld{})
+	c.Update(Move{}, 0.1)
+	p0 := c.Pos
+	c.Update(Move{MoveX: 1, MoveZ: 1}, 0.1)
+	dist := math.Hypot(c.Pos.X-p0.X, c.Pos.Z-p0.Z)
+	if math.Abs(dist-0.035) > 1e-9 {
+		t.Fatalf("clamped diagonal step = %v, want 0.035", dist)
+	}
+}
+
 func TestCrouchLowersEyeAndSlows(t *testing.T) {
 	c := New()
 	c.SetWorld(mockWorld{}) // flat ground at y=0
@@ -129,6 +155,7 @@ func TestWallCollisionStopsAndSlides(t *testing.T) {
 	c := New()
 	c.SetWorld(world)
 	c.Update(Move{}, 0.1)
+	z0 := c.Pos.Z
 
 	// Walk right into the wall while also moving forward: X is capped, Z slides.
 	for i := 0; i < 200; i++ {
@@ -137,8 +164,8 @@ func TestWallCollisionStopsAndSlides(t *testing.T) {
 	if c.Pos.X > 0.7+1e-9 {
 		t.Fatalf("player passed through wall: x = %v", c.Pos.X)
 	}
-	if c.Pos.Z >= 0 {
-		t.Fatalf("player failed to slide along wall: z = %v (expected negative)", c.Pos.Z)
+	if c.Pos.Z >= z0-1 {
+		t.Fatalf("player failed to slide along wall: z = %v (expected well below start %v)", c.Pos.Z, z0)
 	}
 }
 

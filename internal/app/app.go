@@ -52,6 +52,9 @@ type Game struct {
 	prevCY  int
 	elapsed float64 // animation clock in seconds
 
+	// padIDs is a reused scratch buffer for polling connected gamepads.
+	padIDs []ebiten.GamepadID
+
 	// hudHidden hides the dev overlay (fps/status/timings/help) when true; the
 	// transient hot-reload toast still shows so scene edits are confirmed even
 	// on a clean view. Toggled with the "0" key.
@@ -392,7 +395,7 @@ func (g *Game) Update() error {
 
 	// Fixed-step dt matching the original (clamped to 0.1 of a 60 Hz frame).
 	const dt = 0.1
-	g.cam.Update(camera.Move{
+	mv := camera.Move{
 		Forward: ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyArrowUp),
 		Back:    ebiten.IsKeyPressed(ebiten.KeyS) || ebiten.IsKeyPressed(ebiten.KeyArrowDown),
 		Left:    ebiten.IsKeyPressed(ebiten.KeyA) || ebiten.IsKeyPressed(ebiten.KeyArrowLeft),
@@ -400,7 +403,9 @@ func (g *Game) Update() error {
 		Jump:    ebiten.IsKeyPressed(ebiten.KeySpace),
 		Sprint:  ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight),
 		Crouch:  ebiten.IsKeyPressed(ebiten.KeyC),
-	}, dt)
+	}
+	g.applyGamepad(&mv)
+	g.cam.Update(mv, dt)
 
 	// Footsteps, room reverb, and spatial ambients derive from the post-move state.
 	g.updateReverb()
@@ -413,6 +418,88 @@ func (g *Game) Update() error {
 
 	return nil
 }
+
+// Gamepad tuning. Sticks need a deadzone to ignore resting drift; triggers rest
+// at 0 so they only need a small one. padLookSpeed is the look delta (in the
+// same "pixels" units the mouse uses) applied at full stick deflection.
+const (
+	padStickDeadzone   = 0.15
+	padTriggerDeadzone = 0.06
+	padLookSpeed       = 13.0
+)
+
+// activeGamepad returns the first connected gamepad exposing the SDL standard
+// layout (so the stick/trigger/button mapping below is consistent across pads).
+func (g *Game) activeGamepad() (ebiten.GamepadID, bool) {
+	g.padIDs = ebiten.AppendGamepadIDs(g.padIDs[:0])
+	for _, id := range g.padIDs {
+		if ebiten.IsStandardGamepadLayoutAvailable(id) {
+			return id, true
+		}
+	}
+	return 0, false
+}
+
+// applyGamepad layers analog controller input onto mv: left stick walks, right
+// stick looks (both analog), the left/right triggers crouch/run, and the bottom
+// face button (A/cross) jumps. It is a no-op when no standard gamepad is found.
+func (g *Game) applyGamepad(mv *camera.Move) {
+	id, ok := g.activeGamepad()
+	if !ok {
+		return
+	}
+
+	lx, ly := stickDeadzone(
+		ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickHorizontal),
+		ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickVertical),
+	)
+	rx, ry := stickDeadzone(
+		ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisRightStickHorizontal),
+		ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisRightStickVertical),
+	)
+
+	// Right stick looks. expo() gives finer control near center; pushing up looks
+	// up (matching the mouse, where moving down looks down).
+	g.cam.Look(expo(rx)*padLookSpeed, expo(ry)*padLookSpeed)
+
+	// Left stick walks: right strafes, up (negative axis) is forward.
+	mv.MoveX += lx
+	mv.MoveZ += -ly
+
+	mv.CrouchAxis = triggerValue(ebiten.StandardGamepadButtonValue(id, ebiten.StandardGamepadButtonFrontBottomLeft))
+	mv.SprintAxis = triggerValue(ebiten.StandardGamepadButtonValue(id, ebiten.StandardGamepadButtonFrontBottomRight))
+	if ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonRightBottom) {
+		mv.Jump = true
+	}
+}
+
+// stickDeadzone applies a radial deadzone and rescales the remaining range to
+// 0..1 so motion begins smoothly just past the deadzone rather than jumping.
+func stickDeadzone(x, y float64) (float64, float64) {
+	m := math.Hypot(x, y)
+	if m <= padStickDeadzone {
+		return 0, 0
+	}
+	s := (m - padStickDeadzone) / (1 - padStickDeadzone)
+	if s > 1 {
+		s = 1
+	}
+	s /= m
+	return x * s, y * s
+}
+
+// triggerValue clamps a trigger's small resting value to 0 and rescales the rest
+// to 0..1.
+func triggerValue(v float64) float64 {
+	if v <= padTriggerDeadzone {
+		return 0
+	}
+	return (v - padTriggerDeadzone) / (1 - padTriggerDeadzone)
+}
+
+// expo applies a square response curve (preserving sign) for finer aiming near
+// the stick's center while keeping full speed at full deflection.
+func expo(v float64) float64 { return v * math.Abs(v) }
 
 // checkReload polls the watched scene/player files (a few times a second) and
 // rebuilds on change. A failed parse (e.g. caught mid-save) keeps the current
@@ -586,7 +673,7 @@ func (g *Game) statusLine() string {
 }
 
 func (g *Game) helpLine() string {
-	return "WASD/arrows move   mouse look   Space jump   Shift sprint   C crouch"
+	return "WASD/arrows move   mouse look   Space jump   Shift sprint   C crouch   pad: sticks move/look, triggers crouch/run, A jump"
 }
 
 func onOff(b bool) string {

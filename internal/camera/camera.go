@@ -121,51 +121,76 @@ func (c *Camera) SnapToGround() {
 	c.onGround = true
 }
 
-// Move describes which movement inputs are active this frame.
+// Move describes which movement inputs are active this frame. It carries both
+// the digital (keyboard) flags and the analog (gamepad) axes; the caller fills
+// whichever it has and Update combines them.
 type Move struct {
 	Forward, Back, Left, Right, Jump bool
 	// Sprint (Shift) speeds movement up; Crouch (C) lowers the camera and slows
 	// movement. Both ease in/out rather than toggling instantly.
 	Sprint, Crouch bool
+
+	// MoveX/MoveZ are analog, body-relative stick input added on top of the
+	// digital flags: +X strafes right, +Z walks forward, and the magnitude
+	// (0..1) scales speed for fine analog control. SprintAxis/CrouchAxis are
+	// analog trigger pulls (0..1) layered onto the Sprint/Crouch flags.
+	MoveX, MoveZ           float64
+	SprintAxis, CrouchAxis float64
+}
+
+// boolMax returns the larger of a boolean (as 0/1) and an analog value, used to
+// merge a digital key with an analog axis for the same action.
+func boolMax(b bool, v float64) float64 {
+	if b && v < 1 {
+		return 1
+	}
+	return v
 }
 
 // Update applies horizontal movement (with wall sliding), ground following and
 // jump physics. dt is in 60 Hz frame units (matching the original time scaling).
 func (c *Camera) Update(m Move, dt float64) {
-	// Ease the stance blends toward the held keys. Crouch wins over sprint, so
-	// crouching while sprinting fades the sprint boost out smoothly.
-	crouchTarget, sprintTarget := 0.0, 0.0
-	if m.Crouch {
-		crouchTarget = 1
-	}
-	if m.Sprint && !m.Crouch {
-		sprintTarget = 1
-	}
+	// Resolve sprint/crouch from the digital flags and analog trigger pulls
+	// (0..1). Crouch wins over sprint, so crouching while sprinting fades the
+	// boost out smoothly. Both targets then ease in/out across frames.
+	crouchInput := boolMax(m.Crouch, m.CrouchAxis)
+	sprintInput := boolMax(m.Sprint, m.SprintAxis)
+	crouchTarget := crouchInput
+	sprintTarget := sprintInput * (1 - crouchInput)
 	c.crouchT += (crouchTarget - c.crouchT) * stanceEase
 	c.sprintT += (sprintTarget - c.sprintT) * stanceEase
 
 	eye := lerp(c.cfg.EyeHeight, c.cfg.CrouchEyeHeight, c.crouchT)
 	speedMul := lerp(1, c.cfg.SprintMultiplier, c.sprintT) * lerp(1, c.cfg.CrouchSpeedMultiplier, c.crouchT)
 
-	sy, cy := math.Sin(c.Yaw), math.Cos(c.Yaw)
-	spd := c.cfg.WalkSpeed * speedMul * dt
-	var dx, dz float64
+	// Desired horizontal motion, body-relative: fwd>0 ahead, strafe>0 right.
+	// Digital keys contribute ±1; analog stick adds its value. The magnitude is
+	// clamped to 1 so diagonal keys and over-range sticks never exceed full
+	// speed, but partial stick deflection still scales the speed down (analog).
+	fwd, strafe := 0.0, 0.0
 	if m.Forward {
-		dx -= sy * spd
-		dz -= cy * spd
+		fwd += 1
 	}
 	if m.Back {
-		dx += sy * spd
-		dz += cy * spd
-	}
-	if m.Left {
-		dx -= cy * spd
-		dz += sy * spd
+		fwd -= 1
 	}
 	if m.Right {
-		dx += cy * spd
-		dz -= sy * spd
+		strafe += 1
 	}
+	if m.Left {
+		strafe -= 1
+	}
+	fwd += m.MoveZ
+	strafe += m.MoveX
+	if mag := math.Hypot(fwd, strafe); mag > 1 {
+		fwd /= mag
+		strafe /= mag
+	}
+
+	sy, cy := math.Sin(c.Yaw), math.Cos(c.Yaw)
+	spd := c.cfg.WalkSpeed * speedMul * dt
+	dx := (strafe*cy - fwd*sy) * spd
+	dz := (-strafe*sy - fwd*cy) * spd
 
 	// Horizontal move, resolved per-axis so the player slides along walls.
 	if c.world != nil && !c.NoClip {
