@@ -2,6 +2,80 @@
 
 ## Status: PROPOSED
 
+## Comment from the Human
+
+For the terrain we have a number of options.
+
+1. Have a coarse version of the grid and the fine grid we currently have. As the
+   player moves, we stream the grid into memory.
+2. Make the whole thing analytical, i.e. we port heightAnalytic to WGSL. For a 20m radius around the player, we calculate the fBm for detail. Anywhere beyond that we drop the fbm.
+3. A combination: We use have a coarse, tiled version of the grid in the
+   distance, but full analytic precision 20m around the player.
+
+## Terrain strategy (recommended)
+
+The three options above are not mutually exclusive with the rest of this plan.
+They answer a narrower question: **how do we represent ground height in the near
+and mid field?** Step 3 (panorama) still owns everything beyond ~200–400 m.
+
+### Three rings
+
+Think of the world in concentric bands from the camera:
+
+| Band | Distance | Height representation |
+| ---- | -------- | --------------------- |
+| **Near** | 0 – ~40 m | Full detail: analytic `heightAnalytic` (features + pads + fBm) |
+| **Mid** | ~40 m – ~400 m | Coarse global heightfield (base + features + pads, **no fBm**) + mip pyramid for fast marching |
+| **Far** | ~400 m+ | Panorama lookup (Step 3) — no terrain march at all |
+
+The near band uses **camera/sample distance**, not player position. Ground 80 m
+ahead of you is outside a "20 m around the player" bubble but still needs
+appropriate detail when you look down a slope; measuring from the camera (or
+from the ray's `(x,z)` sample point) avoids muddy terrain stretching out in
+front of you.
+
+### Option comparison
+
+| | Option 1: streamed fine grid | Option 2: full analytic | Option 3: hybrid (**recommended**) |
+| --- | --- | --- | --- |
+| **Near field** | Baked 0.25 m tiles, streamed with player | WGSL `heightAnalytic`; fBm gated by distance | WGSL analytic (full detail) in near band |
+| **Mid field** | Coarse grid / mip pyramid | Same analytic, fBm off | Global coarse grid (2–4 m cells), mip pyramid |
+| **Memory** | Fine tiles resident near player | O(1) for near detail | One global coarse bake (~750k cells for 3 km @ 4 m) |
+| **Risk** | Tile streaming, upload, seams | Dual CPU/GPU impl; long marches still need coarse pyramid | LOD seam at near/mid boundary; three height paths in shader |
+| **Fits current code** | Best — extends `terrain.go` as-is | Requires WGSL port + parity tests | CPU already has `heightAnalytic`; GPU adds near path |
+
+### Recommendation: Option 3 (hybrid)
+
+1. **Near (~0–40 m from camera):** evaluate `heightAnalytic` in WGSL with full
+   fBm. Normals via finite differences (2–4 extra height evals) or precomputed
+   partials for the smooth parts. No fine-grid streaming — the bubble is small
+   enough that live eval is affordable.
+2. **Mid (~40 m – panorama cutoff):** one **global coarse heightfield** baked
+   at load (base + features + pads, no fBm). Upload once; fits comfortably under
+   the existing `maxTerrainVals` cap. Mip min/max pyramid accelerates ray
+   marching (extends today's `cmin/cmax` to multiple levels).
+3. **Far (panorama cutoff+):** Step 3 — single texture lookup, no terrain march.
+
+**fBm transition:** don't hard-switch at a radius. Fade fBm contribution to zero
+over ~20 m (e.g. multiply by `1 - smoothstep(40, 60, dist)`). Coarse grid
+deliberately omits fBm (~0.35 m amplitude in typical scenes), so near and mid
+ heights stay consistent at the boundary.
+
+**CPU parity:** walking/collision keeps using `heightAnalytic` on the CPU (already
+implemented). Only the GPU near band needs the WGSL port; gate with tests against
+`Terrain.Height` on a grid of sample points.
+
+**Fallback:** if the analytic WGSL port slips, Option 1 (streamed fine tiles) is
+the conservative path — boring, but proven against the current renderer.
+
+### What this changes in Steps 4 and 6
+
+- **Step 4** no longer assumes fine-grid **streaming** as the default. The mip
+  pyramid + far-clip remain; fine tiles become the fallback, not the plan.
+- **Step 6** streaming applies primarily to **buildings** and optional terrain
+  tiles if we ship Option 1 instead. Under Option 3, terrain streaming is
+  unnecessary — the coarse global bake is loaded once.
+
 ## Why this is tractable for *our* renderer
 
 We are a primary-ray analytic raytracer at low resolution (~400×250 → ~100k
@@ -120,32 +194,35 @@ single biggest answer to "long view distance over a huge map": it turns an
 
 ---
 
-## Step 4 — Terrain at scale (mip pyramid + tiling + far-clip)
+## Step 4 — Terrain at scale (hybrid height + mip pyramid + far-clip)
 
 ### Executive summary
 
 Terrain is drawn by "ray marching": stepping a ray forward until it dips below
-the ground height. Over kilometers that's a lot of steps. The fix is a **min/max
-height pyramid** (a "mipmap": the same heightfield stored at progressively
-coarser resolutions, each cell remembering the lowest and highest ground beneath
-it). Far from any hill, a ray consults a coarse level and leaps across huge empty
-regions in a few big steps, only refining to fine steps near an actual hit. We
-already do a one-level version of this with the coarse `cmin/cmax` grid; this
-generalizes it to many levels so kilometer views stay cheap.
+the ground height. Over kilometers that's a lot of steps. See **Terrain strategy**
+above for the recommended three-ring approach (analytic near, coarse grid mid,
+panorama far).
 
-Two supporting moves: **tile** the dense height/normal caches so we keep fine
-data only near the player (a full-resolution 2 km cache is hundreds of MB), and
-add a **hard far-clip with atmospheric fog** so rays stop at a fixed distance and
-fade to haze. The fog bounds ray length *and* hides the moment where LOD/impostor
-swaps happen — and a hazy distance reads as an epic vista anyway.
+Within the mid band, the fix is a **min/max height pyramid** (a "mipmap": the
+same heightfield stored at progressively coarser resolutions, each cell
+remembering the lowest and highest ground beneath it). Far from any hill, a ray
+consults a coarse level and leaps across huge empty regions in a few big steps,
+only refining to fine steps near an actual hit. We already do a one-level version
+of this with the coarse `cmin/cmax` grid; this generalizes it to many levels so
+kilometer views in the mid band stay cheap.
+
+Add a **hard far-clip** at the panorama hand-off (~400 m) so rays stop marching
+terrain entirely once Step 3 takes over. Optional **fog** softens the transition
+but is not required for performance (see terrain strategy / risks table).
 
 ### Notes
 
 - "Maximum-mipmap heightfield tracing" is the standard name for the pyramid trick.
-- Beyond the fine-tile ring, the Step 3 panorama covers the terrain, so tiling
-  and the far field reinforce each other.
-- Fog + far-clip is also the cheapest immediate win and can land before the
-  pyramid.
+- The global coarse bake (no fBm) covers the mid band; Step 3 panorama covers
+  everything beyond the far-clip — they meet at the horizon.
+- **Streamed fine tiles** (Option 1) remain the fallback if the WGSL analytic
+  near path is deferred.
+- Far-clip is the cheapest immediate win and can land before the pyramid.
 
 ---
 
@@ -209,8 +286,9 @@ once content genuinely exceeds what fits comfortably in memory.
 - **Per-template BLAS** (build once, instance many) + **proxy box + average
   color** for distance LOD (Steps 1–2).
 - **Per-template local AO volume** to replace the global one (Step 5).
-- **Terrain min/max mip pyramid + tiled height/normal caches** (extends the
-  existing `cmin/cmax`) (Step 4).
+- **Terrain:** global coarse height/normal bake + min/max mip pyramid; WGSL
+  `heightAnalytic` for the near band (Option 3). Streamed fine tiles only if
+  we fall back to Option 1 (Step 4).
 - **Top-level world tile grid** with per-tile bounds for streaming + frustum cull
   (Step 6).
 - **Initial far-field panorama** seed, then refreshed at runtime on a movement
@@ -225,7 +303,7 @@ once content genuinely exceeds what fits comfortably in memory.
    ray-transform path so a transformed payload can be a *sub-BVH*. This single
    decision buys instancing.
 2. **TLAS/BLAS + instancing** (Step 1) → **distance-LOD proxies** (Step 2).
-3. **Terrain far-clip + fog**, then **mip pyramid + tiling** (Step 4).
+3. **Terrain far-clip**, then **hybrid height (Option 3) + mip pyramid** (Step 4).
 4. **Far-field panorama** (Step 3).
 5. **Localize the AO volume** (Step 5).
 6. **Tile streaming + frustum cull** (Step 6) — last, once content exceeds memory.
@@ -240,6 +318,8 @@ far-field divergence.
 | Risk | Mitigation |
 | ---- | ---------- |
 | LOD/impostor pops as you move | hysteresis on switch distance; fog hides the seam |
+| Terrain near/mid seam (Option 3) | fade fBm over ~20 m; coarse bake omits fBm by design |
+| Analytic CPU/GPU mismatch | parity tests on height grid; CPU keeps `heightAnalytic` for physics |
 | Panorama parallax wrong while climbing | layered shells; re-bake on movement threshold |
 | AO cell-size cliff at 2 km | player-local window or per-template AO (Step 5) |
 | GPU storage-buffer / memory limits | tile streaming bounds resident set (Step 6) |
