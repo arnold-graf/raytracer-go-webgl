@@ -55,8 +55,8 @@ func TestGPUHoleLayout(t *testing.T) {
 }
 
 func TestGPUCampfireLayout(t *testing.T) {
-	if got := unsafe.Sizeof(GPUCampfire{}); got != campfireStride {
-		t.Fatalf("GPUCampfire size = %d, want %d", got, campfireStride)
+	if got := unsafe.Sizeof(CampfireParams{}); got != campfireStride {
+		t.Fatalf("CampfireParams size = %d, want %d", got, campfireStride)
 	}
 }
 

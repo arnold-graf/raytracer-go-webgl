@@ -31,6 +31,7 @@ type sceneCache struct {
 	terrains         []GPUTerrain
 	samples          []float32
 	waters           []GPUWater
+	campfireParams   []CampfireParams
 	holes            []GPUHole
 	ao               AOVolume
 	aoOK             bool
@@ -58,6 +59,7 @@ func (c *sceneCache) rebuild(v *render.View) {
 	c.lights = PackLights(v.Scene)
 	c.terrains, c.samples = PackTerrains(v.Scene)
 	c.waters = PackWaters(v.Scene)
+	c.campfireParams = PackCampfireParams(v.Scene)
 	c.holes = PackHoles(v.Scene)
 	c.ao, c.aoOK = PackAOVolume(v)
 

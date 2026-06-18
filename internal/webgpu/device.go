@@ -348,7 +348,6 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 	if cam == nil {
 		return
 	}
-	var campfires []GPUCampfire
 	timeSec := 0.0
 	shadows := false
 	mirror := false
@@ -361,10 +360,10 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 		bodyCosRadius float32
 		bodyGlow      float32
 	)
-	// Static buffers (geometry, BVH, terrain, lights, holes, AO) are packed only
-	// when the scene changes; uploadStatic tells render() whether they need to be
-	// re-sent to the GPU this frame. Campfires (time-animated flicker) and params
-	// (camera + clock) stay per-frame.
+	// Static buffers (geometry, BVH, terrain, lights, holes, campfire params, AO)
+	// are packed only when the scene changes; uploadStatic tells render() whether
+	// they need to be re-sent to the GPU this frame. Campfire parameters are
+	// static — the shader resolves per-frame flicker from these constant values.
 	uploadStatic := false
 	packStart := time.Now()
 	if v != nil && v.Scene != nil {
@@ -372,7 +371,6 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 			r.cache.rebuild(v)
 			uploadStatic = true
 		}
-		campfires = PackCampfires(v.Scene, v.Time)
 		timeSec = v.Time
 		shadows = v.Shadow
 		mirror = v.Mirror
@@ -392,7 +390,7 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 		prims: c.prims, blockers: c.blockers, lights: c.lights,
 		bvhNodes: c.bvhNodes, bvhNodeCount: c.bvhNodeCount, blockerNodeCount: c.blockerNodeCount,
 		terrains: c.terrains, samples: c.samples, waters: c.waters,
-		campfires: campfires, holes: c.holes, ao: c.ao, aoOK: c.aoOK && aoEnabled,
+		campfireParams: c.campfireParams, holes: c.holes, ao: c.ao, aoOK: c.aoOK && aoEnabled,
 		shadows: shadows, mirror: mirror, timeSec: timeSec, sky: sky,
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
 		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
@@ -429,7 +427,7 @@ type renderParams struct {
 	terrains         []GPUTerrain
 	samples          []float32
 	waters           []GPUWater
-	campfires        []GPUCampfire
+	campfireParams   []CampfireParams
 	holes            []GPUHole
 	ao               AOVolume
 	aoOK             bool
@@ -447,7 +445,7 @@ type renderParams struct {
 	bodyGlow      float32
 	// uploadStatic is set when the cached scene buffers changed this frame and
 	// must be re-sent to the GPU. When false, render() uploads only the per-frame
-	// params and campfires; the static SSBOs already hold the right data.
+	// params; the static SSBOs already hold the right data.
 	uploadStatic bool
 }
 
@@ -457,12 +455,6 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams) error 
 	params := r.paramsBytes(cam, p)
 	if err := r.queue.WriteBuffer(r.params, 0, params[:]); err != nil {
 		return err
-	}
-	// Campfires animate (flicker) every frame, so they always re-upload.
-	if len(p.campfires) > 0 {
-		if err := r.queue.WriteBuffer(r.campfires, 0, campfireBytes(p.campfires)); err != nil {
-			return err
-		}
 	}
 	// Static scene buffers are re-sent only when the cache was rebuilt this
 	// frame (scene swap or scene.Touch); otherwise the GPU already holds them.
@@ -499,6 +491,11 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams) error 
 		}
 		if len(p.waters) > 0 {
 			if err := r.queue.WriteBuffer(r.waters, 0, waterBytes(p.waters)); err != nil {
+				return err
+			}
+		}
+		if len(p.campfireParams) > 0 {
+			if err := r.queue.WriteBuffer(r.campfires, 0, campfireBytes(p.campfireParams)); err != nil {
 				return err
 			}
 		}
@@ -607,7 +604,7 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams) [paramsSize]b
 	putVec4(out[96:112], right)
 	putVec4(out[112:128], up)
 	// Campfire + ambient-occlusion volume params.
-	putU32(out[128:132], uint32(len(p.campfires)))
+	putU32(out[128:132], uint32(len(p.campfireParams)))
 	if p.aoOK {
 		putU32(out[132:136], 1)
 		putU32(out[136:140], uint32(p.ao.NX))

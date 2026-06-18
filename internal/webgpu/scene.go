@@ -335,7 +335,7 @@ func PackBlockers(s *scene.Scene) []GPUPrimitive {
 
 // PackLights computes the per-light cull distance and falloff for static point
 // lights (the same model the shader's add_point_light_raw uses). Campfire
-// sub-lights are animated and packed separately (PackCampfires).
+// parameters are resolved in the shader from constant data (PackCampfireParams).
 func PackLights(s *scene.Scene) []GPULight {
 	if s == nil {
 		return nil
@@ -408,22 +408,18 @@ func PackWaters(s *scene.Scene) []GPUWater {
 	return out
 }
 
-// GPUCampfire is a per-frame resolved campfire cluster: the fire core (for the
-// shared shadow early-out) plus its CampfireLights flickering sub-lights with
-// positions/colors evaluated on the CPU at the current animation time. Mirrors
-// struct Campfire in trace.wgsl (std430, 128-byte stride).
-type GPUCampfire struct {
-	Core  [4]float32 // cx, cy, cz, cullR2
-	Extra [4]float32 // invR2, _, _, _
-	S0Pos [4]float32
-	S0Col [4]float32
-	S1Pos [4]float32
-	S1Col [4]float32
-	S2Pos [4]float32
-	S2Col [4]float32
+// CampfireParams holds a campfire's constant parameters. The campfire shader
+// resolves sub-light positions and intensities from these each frame, so this
+// struct is uploaded once as part of the static scene cache. Mirrors struct
+// CampfireParams in trace.wgsl (std430, 64-byte stride).
+type CampfireParams struct {
+	Core  [4]float32 // cx, cy, cz, range
+	Color [4]float32 // r, g, b, 0
+	Param [4]float32 // brightness, jitter, flicker, speed
+	Phase [4]float32 // seed phase, 0, 0, 0
 }
 
-const campfireStride = 128
+const campfireStride = 64
 
 // PackPerm returns Perlin's 512-entry permutation table for the GPU noise.
 func PackPerm() []uint32 {
@@ -435,28 +431,31 @@ func PackPerm() []uint32 {
 	return out
 }
 
-// PackCampfires resolves each campfire's sub-lights at animation time t and
-// packs them with the cluster's cull radius (see fireCull): the cull distance
-// uses the fire's PeakChannel so flicker peaks are never clipped.
-func PackCampfires(s *scene.Scene, t float64) []GPUCampfire {
+// PackCampfireParams packs the scene's campfire parameters for the GPU. This
+// is called once as part of the static scene cache; per-frame flicker is
+// resolved in the shader from these parameters.
+func PackCampfireParams(s *scene.Scene) []CampfireParams {
 	if s == nil {
 		return nil
 	}
-	out := make([]GPUCampfire, 0, len(s.Campfires))
+	out := make([]CampfireParams, 0, len(s.Campfires))
 	for i := range s.Campfires {
 		fr := &s.Campfires[i]
-		cullR2, invR2 := fireCull(fr.PeakChannel(), fr.Range)
-		c := GPUCampfire{
-			Core:  [4]float32{f(fr.Center.X), f(fr.Center.Y), f(fr.Center.Z), f(cullR2)},
-			Extra: [4]float32{f(invR2), 0, 0, 0},
+		bright := fr.Brightness
+		if bright == 0 {
+			bright = 1
 		}
-		pos0, col0 := fr.LightAt(0, t)
-		pos1, col1 := fr.LightAt(1, t)
-		pos2, col2 := fr.LightAt(2, t)
-		c.S0Pos, c.S0Col = albedo(pos0), albedo(col0)
-		c.S1Pos, c.S1Col = albedo(pos1), albedo(col1)
-		c.S2Pos, c.S2Col = albedo(pos2), albedo(col2)
-		out = append(out, c)
+		speed := fr.Speed
+		if speed == 0 {
+			speed = 1
+		}
+		p := CampfireParams{
+			Core:  [4]float32{f(fr.Center.X), f(fr.Center.Y), f(fr.Center.Z), f(fr.Range)},
+			Color: albedo(fr.Color),
+			Param: [4]float32{f(bright), f(fr.Jitter), f(fr.Flicker), f(speed)},
+			Phase: [4]float32{f(fr.Seed), 0, 0, 0},
+		}
+		out = append(out, p)
 		if len(out) >= maxCampfires {
 			break
 		}
@@ -490,7 +489,7 @@ func PackAOVolume(v *render.View) (AOVolume, bool) {
 	}, true
 }
 
-func campfireBytes(fires []GPUCampfire) []byte {
+func campfireBytes(fires []CampfireParams) []byte {
 	if len(fires) == 0 {
 		return nil
 	}
@@ -502,23 +501,6 @@ func u32Bytes(v []uint32) []byte {
 		return nil
 	}
 	return unsafe.Slice((*byte)(unsafe.Pointer(&v[0])), len(v)*4)
-}
-
-// fireCull computes a campfire cluster's squared cull distance and windowed
-// inverse-square falloff from its peak channel and range.
-func fireCull(peak, rng float64) (cullR2, invR2 float64) {
-	autoR2 := 0.0
-	if peak > gpuscene.LightCullEps*gpuscene.LightAttenBase {
-		autoR2 = (peak/gpuscene.LightCullEps - gpuscene.LightAttenBase) / gpuscene.LightAttenQuadratic
-		if autoR2 < 0 {
-			autoR2 = 0
-		}
-	}
-	if rng > 0 {
-		r2 := rng * rng
-		return r2, 1 / r2
-	}
-	return autoR2, 0
 }
 
 func lightCull(color vec.V, rng float64) (cullR2, invR2 float64) {

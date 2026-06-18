@@ -70,17 +70,14 @@ struct Hole {
     mx: vec4<f32>,
 };
 
-// Campfire mirrors GPUCampfire in scene.go (std430, 128-byte stride): the fire
-// core (for the shared shadow early-out) and three resolved sub-lights.
-struct Campfire {
-    core: vec4<f32>,  // cx, cy, cz, cullR2
-    extra: vec4<f32>, // invR2, _, _, _
-    s0p: vec4<f32>,
-    s0c: vec4<f32>,
-    s1p: vec4<f32>,
-    s1c: vec4<f32>,
-    s2p: vec4<f32>,
-    s2c: vec4<f32>,
+// CampfireParams holds a campfire's constant parameters. The campfire loop
+// in shade_diffuse resolves sub-light positions and intensities from these
+// each frame. Mirrors struct CampfireParams in scene.go (std430, 64-byte stride).
+struct CampfireParams {
+    core: vec4<f32>,  // cx, cy, cz, range
+    color: vec4<f32>, // base color (r, g, b, 0) — tints applied per sub-light
+    param: vec4<f32>, // brightness, jitter, flicker, speed
+    phase: vec4<f32>,  // seed phase, 0, 0, 0
 };
 
 // Light mirrors GPULight in scene.go (std430, 48-byte stride).
@@ -151,7 +148,7 @@ var<storage, read> perm: array<u32>;
 var<storage, read> ao_volume: array<f32>;
 
 @group(0) @binding(11)
-var<storage, read> campfires: array<Campfire>;
+var<storage, read> campfires: array<CampfireParams>;
 
 @group(0) @binding(12)
 var<storage, read> holes: array<Hole>;
@@ -1692,6 +1689,50 @@ fn ao_sample(p_in: vec3<f32>, n: vec3<f32>) -> f32 {
     return c0 + (c1 - c0) * tz;
 }
 
+struct CampfireSample {
+    pos: vec3<f32>,
+    col: vec3<f32>,
+};
+
+fn campfire_cull(cf: CampfireParams) -> vec2<f32> {
+    let range = cf.core.w;
+    if (range > 0.0) {
+        let r2 = range * range;
+        return vec2<f32>(r2, 1.0 / r2);
+    }
+    let peak = max(cf.color.x, max(cf.color.y, cf.color.z)) * cf.param.x * (1.0 + cf.param.z);
+    if (peak > LIGHT_CULL_EPS * LIGHT_ATTEN_BASE) {
+        let r2 = (peak / LIGHT_CULL_EPS - LIGHT_ATTEN_BASE) / LIGHT_ATTEN_QUADRATIC;
+        return vec2<f32>(r2, 0.0);
+    }
+    return vec2<f32>(0.0, 0.0);
+}
+
+fn campfire_sublight(cf: CampfireParams, j: u32, ts: f32) -> CampfireSample {
+    var base: vec3<f32>;
+    var tint: vec3<f32>;
+    if (j == 0u) {
+        base = vec3<f32>(0.22, 0.06, 0.14);
+        tint = vec3<f32>(1.00, 0.60, 0.28);
+    } else if (j == 1u) {
+        base = vec3<f32>(-0.24, 0.26, -0.12);
+        tint = vec3<f32>(1.00, 0.80, 0.46);
+    } else {
+        base = vec3<f32>(0.03, 0.52, 0.16);
+        tint = vec3<f32>(1.00, 0.92, 0.66);
+    }
+    let ph = cf.phase.x + f32(j) * 1.7;
+    let fl = 0.6 * sin(ts * 7.0 + ph) + 0.3 * sin(ts * 13.0 + ph * 2.1) + 0.1 * sin(ts * 23.0 + ph * 3.7);
+    let intensity = cf.param.x * (1.0 + cf.param.z * fl);
+    let pos = cf.core.xyz + base + vec3<f32>(
+        cf.param.y * (0.7 * sin(ts * 9.0 + ph * 1.3) + 0.3 * sin(ts * 17.0 + ph * 2.7)),
+        cf.param.y * (0.4 + 0.4 * sin(ts * 15.0 + ph)),
+        cf.param.y * (0.7 * sin(ts * 11.0 + ph * 1.9) + 0.3 * sin(ts * 19.0 + ph * 0.7)),
+    );
+    let col = cf.color.xyz * max(intensity, 0.15 * cf.param.x) * tint;
+    return CampfireSample(pos, col);
+}
+
 // shade_diffuse computes the diffuse direct lighting at a hit: flat ambient,
 // static point lights and flickering campfires (with the shared core shadow
 // early-out), then scaled by the baked ambient-occlusion volume. Used for
@@ -1702,10 +1743,12 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> 
         lit = add_point_light(lit, hp, alb, n, ep, lights[i]);
     }
     for (var ci = 0u; ci < params.campfire_count; ci = ci + 1u) {
-        let f = campfires[ci];
-        let cl = f.core.xyz - hp;
+        let cf = campfires[ci];
+        let core = cf.core.xyz;
+        let cl = core - hp;
         let cd2 = dot(cl, cl);
-        if (cd2 > f.core.w) {
+        let cull = campfire_cull(cf);
+        if (cd2 > cull.x) {
             continue;
         }
         if (params.shadows != 0u) {
@@ -1717,11 +1760,11 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> 
                 continue;
             }
         }
-        let cr2 = f.core.w;
-        let inv = f.extra.x;
-        lit = add_point_light_raw(lit, hp, alb, n, ep, f.s0p.xyz, f.s0c.xyz, cr2, inv);
-        lit = add_point_light_raw(lit, hp, alb, n, ep, f.s1p.xyz, f.s1c.xyz, cr2, inv);
-        lit = add_point_light_raw(lit, hp, alb, n, ep, f.s2p.xyz, f.s2c.xyz, cr2, inv);
+        let ts = params.time * cf.param.w;
+        for (var j = 0u; j < 3u; j = j + 1u) {
+            let sl = campfire_sublight(cf, j, ts);
+            lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y);
+        }
     }
     if (params.ao_enabled != 0u) {
         lit = lit * ao_sample(ep, n);
