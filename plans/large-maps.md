@@ -324,3 +324,60 @@ far-field divergence.
 | AO cell-size cliff at 2 km | player-local window or per-template AO (Step 5) |
 | GPU storage-buffer / memory limits | tile streaming bounds resident set (Step 6) |
 | Two renderers diverge | CPU stays the reference; gate near field at ≤1 LSB |
+
+## Learnings from an MVP
+
+We built a quick WebGPU panorama prototype on `outdoors-night-villa.toml` to
+try Step 3 before investing in the rest of the large-map stack. The experiment
+is reverted in code, but the results are worth keeping.
+
+### What we built
+
+- A 1024×512 equirect HDR bake from the player’s eye, refreshed on horizontal
+  movement (~40 m).
+- A hard terrain/water trace cap at `panorama_dist` (100–200 m in tests); on
+  miss, sample the bake instead of marching further.
+- TOML knob: `environment.panorama_dist`.
+
+### What looked bad in practice
+
+- **Cutoff sphere is visible.** At 100 m the world reads as a low-res cylinder:
+  sharp 3D ground in front, then a dark horizontal band, then procedural sky.
+  The seam jumps when the bake recenters on movement.
+- **Wrong content in the bake.** Early versions stored sky and near-field
+  geometry in the pano; the villa at ~90 m became a few orange pixels smeared
+  across the horizon instead of the real building.
+- **Sky must stay live.** Baking sky into equirect and sampling it back replaced
+  crisp stars with blocky texels and bled horizon pixels into upward rays.
+- **Buildings cannot share the terrain cap.** Capping BVH/primitive traces made
+  mid-field architecture disappear into the pano; only terrain/water should
+  honor the far clip.
+- **This map is too small for the test.** Mountains sit ~30–40 m from the start
+  on a 200×200 m heightfield; at 100–200 m cutoff the pano often did nothing
+  useful or fought the full trace. The plan’s 200–400 m target assumes a much
+  larger play space.
+
+### What worked / validated the direction
+
+- **Bake-on-move is feasible.** One GPU dispatch (~512k pixels) on a movement
+  threshold is acceptable for a loading hitch; amortizing across frames is the
+  next polish.
+- **Alpha-masked far-only bake is the right model.** Store radiance only for
+  hits beyond the cutoff; keep procedural sky for open directions; trace
+  buildings to full distance.
+- **Panorama is a far-field tool, not a replacement renderer.** It only makes
+  sense once near/mid field (analytic terrain, instanced props, LOD) already
+  owns everything within ~200 m. On a villa-sized map it cannot substitute for
+  walking up to the house.
+
+### Revised takeaways for Step 3
+
+1. Implement panorama **after** terrain far-clip and hybrid near/mid terrain
+   (Steps 4 + Option 3), not before.
+2. Use **200–400 m** cutoff on large maps; do not use aggressive distances to
+   “see it work” on small scenes.
+3. **Never bake sky**; optional layered shells later for parallax on hills.
+4. **Re-bake on horizontal movement only**, with hysteresis and optional
+   cross-fade to hide pops.
+5. Gate acceptance on **large outdoor scenes** where the pano actually replaces
+   kilometers of terrain march, not on `outdoors-night-villa`.

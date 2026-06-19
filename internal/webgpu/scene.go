@@ -53,7 +53,7 @@ const (
 //	GeoA: sphere -> (center.xyz, radius); plane -> (n.xyz, d); box -> (min.xyz, _)
 //	      cylinder -> (cx, cz, radius, ymin); cone -> (cx, cz, rbase, ybase)
 //	      torus -> (center.xyz, majorR)
-//	GeoB: box -> (max.xyz, _); cylinder -> (ymax,..); cone -> (ytip,..);
+//	GeoB: box -> (max.xyz, _); cylinder -> (ymax, radius_top,..); cone -> (ytip,..);
 //	      torus -> (minorR,..); unused otherwise
 //	Albedo: linear rgb in xyz
 //	Albedo2: checker second color (planes with MatChecker)
@@ -211,9 +211,13 @@ func boxPrim(bx *scene.Box, holeStart uint32) GPUPrimitive {
 }
 
 func cylinderPrim(c *scene.Cylinder) GPUPrimitive {
+	rt := c.RadiusTop
+	if rt == 0 {
+		rt = c.Radius
+	}
 	p := GPUPrimitive{
 		GeoA:   [4]float32{f(c.CX), f(c.CZ), f(c.Radius), f(c.YMin)},
-		GeoB:   [4]float32{f(c.YMax), 0, 0, 0},
+		GeoB:   [4]float32{f(c.YMax), f(rt), 0, 0},
 		Albedo: albedo(c.Albedo),
 		Params: surfaceParams(c.Surface),
 		Meta:   [4]uint32{primCylinder, uint32(c.Mat), uint32(c.Tex), 0},

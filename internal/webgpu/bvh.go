@@ -226,8 +226,15 @@ func primBounds(idx uint32, p *GPUPrimitive) (gpuPrimRef, bool) {
 		min = vec.V{X: float64(p.GeoA[0]), Y: float64(p.GeoA[1]), Z: float64(p.GeoA[2])}
 		max = vec.V{X: float64(p.GeoB[0]), Y: float64(p.GeoB[1]), Z: float64(p.GeoB[2])}
 	case primCylinder:
-		cx, cz, r := float64(p.GeoA[0]), float64(p.GeoA[1]), float64(p.GeoA[2])
-		ymin, ymax := float64(p.GeoA[3]), float64(p.GeoB[0])
+		cx, cz, r0 := float64(p.GeoA[0]), float64(p.GeoA[1]), float64(p.GeoA[2])
+		ymin, ymax, r1 := float64(p.GeoA[3]), float64(p.GeoB[0]), float64(p.GeoB[1])
+		if r1 == 0 {
+			r1 = r0
+		}
+		r := r0
+		if r1 > r {
+			r = r1
+		}
 		min = vec.V{X: cx - r, Y: ymin, Z: cz - r}
 		max = vec.V{X: cx + r, Y: ymax, Z: cz + r}
 	case primCone:

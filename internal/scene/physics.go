@@ -67,7 +67,7 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 			continue
 		}
 		dx, dz := x-c.CX, z-c.CZ
-		rr := radius + c.Radius
+		rr := radius + c.MaxRadius()
 		if dx*dx+dz*dz < rr*rr {
 			return true
 		}

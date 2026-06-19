@@ -272,6 +272,8 @@ texture = "stone"
 
 # ============================================================ THE BUILDING ====
 # Composite object: see scenes/building.toml (slanted roof + glass window).
+# at.y = 0 places the building floor origin on the terrain; the pad below
+# flattens the site to y = 0 in the surrounding height field.
 
 [[include]]
 at = [16.0, 0.0, -2.0]

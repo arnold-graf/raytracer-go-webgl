@@ -1,0 +1,147 @@
+# Tall pine tree (~15 m), in local coordinates.
+#
+# Origin (0,0,0) is the trunk centre at ground level. A wide root flare cone
+# merges into the terrain; a tapered trunk rises through stacked foliage cones;
+# a few short broken branch stubs angle out from the bark.
+#
+# Place with [[include]], e.g.:
+#
+#   [[include]]
+#   file = "objects/pine-tree.toml"
+#   at = [-18.0, 0.0, -6.0]   # y = offset above terrain at (x, z)
+#   rotate_y = 37.0
+
+[[sound]] # pine 1 crickets
+at = [-26.0, 3.0, 12.0]
+gain = 0.26
+radius = 22.0
+sound = "crickets"
+
+# ---------------------------------------------------------------- root flare --
+# Wide, low cone sunk slightly below grade so the terrain hides the seam.
+
+[[cone]] # root flare
+cx = 0.0
+cz = 0.0
+ybase = -0.7
+ytip = 0.9
+rbase = 2
+material = "diffuse"
+albedo = [0.92, 0.88, 0.82]
+texture = "wood"
+
+# --------------------------------------------------------------------- trunk --
+# Tapered cylinder: thick at the base, narrowing toward the crown.
+
+[[cylinder]] # trunk
+cx = 0.0
+cz = 0.0
+radius = 0.65
+radius_top = 0.20
+ymin = 0.4
+ymax = 7.6
+material = "diffuse"
+albedo = [0.95, 0.90, 0.84]
+texture = "wood"
+
+# ------------------------------------------------------------------- foliage --
+# Four overlapping cones — classic layered pine silhouette.
+
+[[cone]] # lower crown
+cx = 0.0
+cz = 0.0
+ybase = 5.2
+ytip = 10.2
+rbase = 3.4
+material = "diffuse"
+albedo = [0.72, 0.95, 0.72]
+texture = "grass"
+
+[[cone]] # mid crown
+cx = 0.0
+cz = 0.0
+ybase = 7.8
+ytip = 12.6
+rbase = 2.7
+material = "diffuse"
+albedo = [0.68, 0.92, 0.68]
+texture = "grass"
+
+[[cone]] # upper crown
+cx = 0.0
+cz = 0.0
+ybase = 10.4
+ytip = 14.6
+rbase = 2.0
+material = "diffuse"
+albedo = [0.64, 0.88, 0.64]
+texture = "grass"
+
+[[cone]] # tip
+cx = 0.0
+cz = 0.0
+ybase = 12.6
+ytip = 15.1
+rbase = 1.15
+material = "diffuse"
+albedo = [0.60, 0.84, 0.60]
+texture = "grass"
+
+# ----------------------------------------------------------- broken branches --
+# Short tapered stubs, rotated about their attachment point on the trunk.
+
+[[cylinder]] # stub 1 (left, low)
+cx = 0.34
+cz = 0.06
+radius = 0.075
+radius_top = 0.048
+ymin = 4.2
+ymax = 5.5
+pivot = [0.34, 4.2, 0.06]
+rotate_z = -34.0
+rotate_y = 48.0
+material = "diffuse"
+albedo = [0.94, 0.88, 0.80]
+texture = "wood"
+
+[[cylinder]] # stub 2 (right, mid)
+cx = -0.30
+cz = -0.10
+radius = 0.065
+radius_top = 0.042
+ymin = 5.5
+ymax = 6.6
+pivot = [-0.30, 5.5, -0.10]
+rotate_z = 30.0
+rotate_y = -62.0
+material = "diffuse"
+albedo = [0.94, 0.88, 0.80]
+texture = "wood"
+
+[[cylinder]] # stub 3 (back, low)
+cx = 0.05
+cz = -0.36
+radius = 0.070
+radius_top = 0.045
+ymin = 3.5
+ymax = 4.7
+pivot = [0.05, 3.5, -0.36]
+rotate_x = 28.0
+rotate_y = 175.0
+material = "diffuse"
+albedo = [0.94, 0.88, 0.80]
+texture = "wood"
+
+[[cylinder]] # stub 4 (left, high)
+cx = 0.26
+cz = 0.20
+radius = 0.058
+radius_top = 0.036
+ymin = 6.0
+ymax = 6.95
+pivot = [0.26, 6.0, 0.20]
+rotate_z = -42.0
+rotate_y = 115.0
+material = "diffuse"
+albedo = [0.94, 0.88, 0.80]
+texture = "wood"

@@ -5,10 +5,10 @@
 ## Goal
 
 Let scene objects **move at runtime** (rotating, translating, animated props)
-while keeping the renderer fast and the CPU tracer as the correctness oracle.
-Today composite objects (e.g. `objects/staircase.toml`) are merged into the
-scene at **load time** as transformed boxes — perfect for authoring, but frozen.
-This plan adds a thin runtime layer on top of the pieces already in place.
+while keeping the renderer fast. Today composite objects (e.g.
+`objects/staircase.toml`) are merged into the scene at **load time** as
+transformed boxes — perfect for authoring, but frozen. This plan adds a thin
+runtime layer on top of the pieces already in place.
 
 Same non-negotiables as the WebGPU port: fidelity first, simplest code, safe
 rollout (a static scene must cost exactly what it does today).
@@ -107,10 +107,7 @@ optimizations behind measurements from `cmd/gpuprof`:
 
 ## Fidelity / safety gates
 
-- CPU tracer stays the oracle; a moving scene rendered on GPU must match the CPU
-  frame at the same `tr.Time` within the usual ≤ ~1 LSB mean error.
-- New parity test: a scene with one spinning box, compared CPU vs GPU at a few
-  fixed times.
+- New test: a scene with one spinning box
 - Extend `TestSceneCacheReusesStaticBuffers`: a mover that changes a transform
   must bump `Generation()` and re-pack; a no-op tick must not.
 - Collision uses `WorldBounds()`, which already follows the transform, so

@@ -94,9 +94,10 @@ func build(s *scene.Scene, blockersOnly bool) *BVH {
 		if blockersOnly && o.Mat == scene.MatGlass {
 			continue
 		}
+		r := o.MaxRadius()
 		b.addBounded(KindCylinder, i, o.Xform,
-			vec.V{X: o.CX - o.Radius, Y: o.YMin, Z: o.CZ - o.Radius},
-			vec.V{X: o.CX + o.Radius, Y: o.YMax, Z: o.CZ + o.Radius})
+			vec.V{X: o.CX - r, Y: o.YMin, Z: o.CZ - r},
+			vec.V{X: o.CX + r, Y: o.YMax, Z: o.CZ + r})
 	}
 	for i := range s.Cones {
 		o := &s.Cones[i]

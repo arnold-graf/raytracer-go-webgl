@@ -359,53 +359,87 @@ func (b *Box) Normal(p vec.V) vec.V {
 	return bestN
 }
 
-// Cylinder is a finite Y-axis-aligned cylinder with flat caps.
+// Cylinder is a finite Y-axis-aligned cylinder with flat caps. Radius is the
+// radius at YMin; RadiusTop is the radius at YMax (0 means same as Radius).
 type Cylinder struct {
-	CX, CZ     float64
-	Radius     float64
-	YMin, YMax float64
+	CX, CZ         float64
+	Radius         float64
+	RadiusTop      float64
+	YMin, YMax     float64
 	Surface
+}
+
+func (c *Cylinder) radiusTop() float64 {
+	if c.RadiusTop == 0 {
+		return c.Radius
+	}
+	return c.RadiusTop
+}
+
+func (c *Cylinder) radiusAt(y float64) float64 {
+	h := c.YMax - c.YMin
+	if h <= 0 {
+		return c.Radius
+	}
+	t := (y - c.YMin) / h
+	return c.Radius + (c.radiusTop()-c.Radius)*t
+}
+
+func (c *Cylinder) MaxRadius() float64 {
+	rt := c.radiusTop()
+	if rt > c.Radius {
+		return rt
+	}
+	return c.Radius
 }
 
 // Intersect returns the nearest positive hit distance, or Inf on a miss.
 func (c *Cylinder) Intersect(r vec.Ray) float64 {
-	ex, ez := r.Origin.X-c.CX, r.Origin.Z-c.CZ
-	a := r.Dir.X*r.Dir.X + r.Dir.Z*r.Dir.Z
-	if a < 1e-8 {
+	h := c.YMax - c.YMin
+	if h <= 0 {
 		return Inf
 	}
-	b := 2 * (ex*r.Dir.X + ez*r.Dir.Z)
-	cc := ex*ex + ez*ez - c.Radius*c.Radius
-	disc := b*b - 4*a*cc
-	if disc < 0 {
-		return Inf
-	}
-	sq := math.Sqrt(disc)
-	t := (-b - sq) / (2 * a)
-	if t < eps {
-		t = (-b + sq) / (2 * a)
-	}
-	if t < eps {
-		return Inf
-	}
-	hy := r.Origin.Y + r.Dir.Y*t
-	if hy < c.YMin || hy > c.YMax {
-		// Side missed within the vertical extent; try the end caps.
-		tc := Inf
-		if math.Abs(r.Dir.Y) > 1e-6 {
-			if tb := c.capHit(r, c.YMin); tb < tc {
-				tc = tb
-			}
-			if tt := c.capHit(r, c.YMax); tt < tc {
-				tc = tt
+	r0, r1 := c.Radius, c.radiusTop()
+	alpha := (r1 - r0) / h
+
+	px, pz := r.Origin.X-c.CX, r.Origin.Z-c.CZ
+	dx, dy, dz := r.Dir.X, r.Dir.Y, r.Dir.Z
+	A := r0 + alpha*(r.Origin.Y-c.YMin)
+	B := alpha * dy
+
+	a := dx*dx + dz*dz - B*B
+	b := 2 * (px*dx+pz*dz - A*B)
+	cc := px*px + pz*pz - A*A
+
+	best := Inf
+	if math.Abs(a) > 1e-12 {
+		disc := b*b - 4*a*cc
+		if disc >= 0 {
+			sq := math.Sqrt(disc)
+			for _, t := range []float64{(-b - sq) / (2 * a), (-b + sq) / (2 * a)} {
+				if t < eps {
+					continue
+				}
+				hy := r.Origin.Y + dy*t
+				if hy >= c.YMin && hy <= c.YMax && t < best {
+					best = t
+				}
 			}
 		}
-		return tc
 	}
-	return t
+
+	if math.Abs(dy) > 1e-6 {
+		if tb := c.capHit(r, c.YMin, r0); tb < best {
+			best = tb
+		}
+		if tt := c.capHit(r, c.YMax, r1); tt < best {
+			best = tt
+		}
+	}
+	return best
 }
 
-func (c *Cylinder) capHit(r vec.Ray, y float64) float64 {
+func (c *Cylinder) capHit(r vec.Ray, y, capR float64) float64 {
 	t := (y - r.Origin.Y) / r.Dir.Y
 	if t <= eps {
 		return Inf
@@ -413,7 +447,7 @@ func (c *Cylinder) capHit(r vec.Ray, y float64) float64 {
 	hx := r.Origin.X + r.Dir.X*t
 	hz := r.Origin.Z + r.Dir.Z*t
 	dd := (hx-c.CX)*(hx-c.CX) + (hz-c.CZ)*(hz-c.CZ)
-	if dd <= c.Radius*c.Radius {
+	if dd <= capR*capR {
 		return t
 	}
 	return Inf
@@ -428,12 +462,11 @@ func (c *Cylinder) Normal(p vec.V, r vec.Ray, t float64) vec.V {
 	if hy >= c.YMax-1e-3 {
 		return vec.V{Y: 1}
 	}
-	d := vec.V{X: p.X - c.CX, Z: p.Z - c.CZ}
-	l := d.Len()
-	if l == 0 {
-		l = 1
-	}
-	return vec.V{X: d.X / l, Z: d.Z / l}
+	h := c.YMax - c.YMin
+	alpha := (c.radiusTop() - c.Radius) / h
+	ry := c.radiusAt(hy)
+	dx, dz := p.X-c.CX, p.Z-c.CZ
+	return vec.V{X: dx, Y: -ry * alpha, Z: dz}.Normalize()
 }
 
 // Cone is a finite Y-axis-aligned cone with its tip at the top and a base cap.

@@ -286,9 +286,9 @@ func TestBuildingIncludeLoads(t *testing.T) {
 }
 
 func TestStormVillaSceneLoads(t *testing.T) {
-	s, err := Load(repoFile("scenes/outdoors-night-storm-villa.toml"))
+	s, err := Load(repoFile("scenes/outdoors-night-villa.toml"))
 	if err != nil {
-		t.Fatalf("load outdoors-night-storm-villa: %v", err)
+		t.Fatalf("load outdoors-night-villa: %v", err)
 	}
 	if len(s.Terrains) == 0 {
 		t.Fatal("expected scene terrain")
@@ -306,5 +306,166 @@ func TestStormVillaSceneLoads(t *testing.T) {
 	}
 	if len(s.Boxes) < 20 {
 		t.Fatalf("expected villa geometry from include, got %d boxes", len(s.Boxes))
+	}
+	// Villa origin (grade) should sit on its pad level (0), not on wild terrain.
+	for i := range s.Boxes {
+		mn, mx := s.Boxes[i].WorldBounds()
+		if mn.Y >= -0.05 && mn.Y <= 0.05 && mx.Y >= 1.0 {
+			return // stone plinth base at grade
+		}
+	}
+	t.Fatal("expected villa plinth base near y=0")
+}
+
+func TestIncludeWithPadUsesPadLevelNotTerrain(t *testing.T) {
+	dir := t.TempDir()
+	villa := filepath.Join(dir, "site.toml")
+	if err := os.WriteFile(villa, []byte(`
+[[terrain]]
+[[terrain.pad]]
+center = [0.0, 0.0]
+half = [5.0, 5.0]
+level = 0.0
+margin = 2.0
+
+[[box]]
+min = [0.0, 0.0, 0.0]
+max = [1.0, 1.0, 1.0]
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(dir, "scene.toml")
+	if err := os.WriteFile(parent, []byte(`
+[[terrain]]
+origin = [-20.0, 0.0, -20.0]
+size = [40.0, 40.0]
+base = 0.0
+detail = 0.0
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [0.0, -10.0]
+  height = 4.0
+  width = 6.0
+
+[[include]]
+file = "site.toml"
+at = [0.0, 0.0, -10.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(s.Boxes) != 1 {
+		t.Fatalf("got %d boxes, want 1", len(s.Boxes))
+	}
+	mn, _ := s.Boxes[0].WorldBounds()
+	if mn.Y < -0.05 || mn.Y > 0.05 {
+		t.Fatalf("pad object base y = %v, want ~0 (must not snap to wild terrain above pad)", mn.Y)
+	}
+}
+
+func TestIncludeAtYOffsetAboveTerrain(t *testing.T) {
+	dir := t.TempDir()
+	obj := filepath.Join(dir, "obj.toml")
+	if err := os.WriteFile(obj, []byte(`
+[[sphere]]
+center = [0.0, 1.0, 0.0]
+radius = 0.2
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(dir, "scene.toml")
+	if err := os.WriteFile(parent, []byte(`
+[[terrain]]
+origin = [-20.0, 0.0, -20.0]
+size = [40.0, 40.0]
+base = 0.0
+detail = 0.0
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [5.0, 0.0]
+  height = 6.0
+  width = 4.0
+
+[[include]]
+file = "obj.toml"
+at = [5.0, 1.0, 0.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(s.Spheres) != 1 {
+		t.Fatalf("got %d spheres, want 1", len(s.Spheres))
+	}
+	sp := s.Spheres[0]
+	ground, ok := s.TerrainHeightAt(5, 0)
+	if !ok {
+		t.Fatal("expected terrain height")
+	}
+	wantCenter := vec.New(5, ground+1+1.0, 0) // at.y=1 offset + local center y=1
+	if got := sp.Xform.ToWorld(sp.Center); !approxV(got, wantCenter) {
+		t.Fatalf("sphere center = %v, want %v (ground=%v)", got, wantCenter, ground)
+	}
+}
+
+func TestNestedIncludeStaysRelativeToParent(t *testing.T) {
+	dir := t.TempDir()
+	lamp := filepath.Join(dir, "lamp.toml")
+	if err := os.WriteFile(lamp, []byte(`
+[[sphere]]
+center = [0.0, 2.0, 0.0]
+radius = 0.1
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	building := filepath.Join(dir, "building.toml")
+	if err := os.WriteFile(building, []byte(`
+[[include]]
+file = "lamp.toml"
+at = [0.0, 3.0, 0.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(dir, "scene.toml")
+	if err := os.WriteFile(parent, []byte(`
+[[terrain]]
+origin = [-10.0, 0.0, -10.0]
+size = [20.0, 20.0]
+base = 0.0
+detail = 0.0
+
+[[include]]
+file = "building.toml"
+at = [0.0, 0.0, 0.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(s.Spheres) != 1 {
+		t.Fatalf("got %d spheres, want 1", len(s.Spheres))
+	}
+	sp := s.Spheres[0]
+	want := vec.New(0, 5, 0) // lamp local y=2 + building at y=3, terrain flat at 0
+	if got := sp.Xform.ToWorld(sp.Center); !approxV(got, want) {
+		t.Fatalf("nested sphere = %v, want %v", got, want)
 	}
 }

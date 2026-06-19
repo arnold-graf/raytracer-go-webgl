@@ -295,6 +295,13 @@ func (t *Terrain) heightAnalytic(x, z float64) float64 {
 	return h
 }
 
+// HasFootprint reports whether the terrain owns a height field over a non-zero
+// area. Object files may declare a stub [[terrain]] header (size zero) only to
+// carry [[terrain.pad]] entries; those must not drive include placement.
+func (t *Terrain) HasFootprint() bool {
+	return t.SizeX > 0 && t.SizeZ > 0
+}
+
 // Height returns the cached terrain height at world (x,z) via bilinear
 // interpolation (clamped to the footprint).
 func (t *Terrain) Height(x, z float64) float64 {
@@ -333,6 +340,45 @@ func (t *Terrain) Height(x, z float64) float64 {
 	a := h00 + (h10-h00)*tx
 	b := h01 + (h11-h01)*tx
 	return a + (b-a)*tz
+}
+
+// PadLevelAt returns the flattening level of a terrain pad covering the point
+// (localX, localZ) in the sub-scene's local coordinates. Object files declare
+// pads in this space so an include's origin can be placed on the pad grade
+// rather than on wild terrain underneath.
+func (s *Scene) PadLevelAt(localX, localZ float64) (float64, bool) {
+	for i := range s.Terrains {
+		for j := range s.Terrains[i].Pads {
+			p := &s.Terrains[i].Pads[j]
+			if math.Abs(localX-p.CenterX) <= p.HalfX && math.Abs(localZ-p.CenterZ) <= p.HalfZ {
+				return p.Level, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// TerrainHeightAt returns the terrain surface height at world (x,z). When the
+// scene defines several height fields, the maximum height at that point is used.
+// ok is false when no terrain has a footprint (e.g. object files that only
+// declare [[terrain.pad]] stubs).
+func (s *Scene) TerrainHeightAt(x, z float64) (float64, bool) {
+	h := math.Inf(-1)
+	ok := false
+	for i := range s.Terrains {
+		t := &s.Terrains[i]
+		if !t.HasFootprint() {
+			continue
+		}
+		ok = true
+		if ht := t.Height(x, z); ht > h {
+			h = ht
+		}
+	}
+	if !ok {
+		return 0, false
+	}
+	return h, true
 }
 
 // slab clips the ray to the terrain's axis-aligned bounding box. Returns the

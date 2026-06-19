@@ -53,7 +53,7 @@ struct Prim {
     geo_a: vec4<f32>,   // sphere: center.xyz, radius | plane: n.xyz, d | box: min.xyz, holeStart
                         // cylinder: cx, cz, radius, ymin | cone: cx, cz, rbase, ybase
                         // torus: center.xyz, majorR
-    geo_b: vec4<f32>,   // box: max.xyz, holeCount | cylinder: ymax | cone: ytip | torus: minorR
+    geo_b: vec4<f32>,   // box: max.xyz, holeCount | cylinder: ymax, radius_top | cone: ytip | torus: minorR
     albedo: vec4<f32>,  // linear rgb in xyz
     albedo2: vec4<f32>, // checker second color
     surf: vec4<f32>,    // rough, ior, reflect, transmit
@@ -977,41 +977,53 @@ fn cyl_cap(ro: vec3<f32>, rd: vec3<f32>, cx: f32, cz: f32, radius: f32, y: f32) 
 fn hit_cylinder(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
     let cx = p.geo_a.x;
     let cz = p.geo_a.y;
-    let radius = p.geo_a.z;
+    let r0 = p.geo_a.z;
     let ymin = p.geo_a.w;
     let ymax = p.geo_b.x;
-    let ex = ro.x - cx;
-    let ez = ro.z - cz;
-    let a = rd.x * rd.x + rd.z * rd.z;
-    if (a < 1e-8) {
+    var r1 = p.geo_b.y;
+    if (r1 == 0.0) {
+        r1 = r0;
+    }
+    let h = ymax - ymin;
+    if (h <= 0.0) {
         return T_MISS;
     }
-    let b = 2.0 * (ex * rd.x + ez * rd.z);
-    let cc = ex * ex + ez * ez - radius * radius;
-    let disc = b * b - 4.0 * a * cc;
-    if (disc < 0.0) {
-        return T_MISS;
-    }
-    let sq = sqrt(disc);
-    var t = (-b - sq) / (2.0 * a);
-    if (t < RAY_EPSILON) {
-        t = (-b + sq) / (2.0 * a);
-    }
-    if (t < RAY_EPSILON) {
-        return T_MISS;
-    }
-    let hy = ro.y + rd.y * t;
-    if (hy < ymin || hy > ymax) {
-        var tc = T_MISS;
-        if (abs(rd.y) > 1e-6) {
-            let tb = cyl_cap(ro, rd, cx, cz, radius, ymin);
-            if (tb < tc) { tc = tb; }
-            let tt = cyl_cap(ro, rd, cx, cz, radius, ymax);
-            if (tt < tc) { tc = tt; }
+    let alpha = (r1 - r0) / h;
+    let px = ro.x - cx;
+    let pz = ro.z - cz;
+    let A = r0 + alpha * (ro.y - ymin);
+    let B = alpha * rd.y;
+    let a = rd.x * rd.x + rd.z * rd.z - B * B;
+    let b = 2.0 * (px * rd.x + pz * rd.z - A * B);
+    let cc = px * px + pz * pz - A * A;
+    var best = T_MISS;
+    if (abs(a) > 1e-12) {
+        let disc = b * b - 4.0 * a * cc;
+        if (disc >= 0.0) {
+            let sq = sqrt(disc);
+            var t = (-b - sq) / (2.0 * a);
+            if (t >= RAY_EPSILON) {
+                let hy = ro.y + rd.y * t;
+                if (hy >= ymin && hy <= ymax && t < best) {
+                    best = t;
+                }
+            }
+            t = (-b + sq) / (2.0 * a);
+            if (t >= RAY_EPSILON) {
+                let hy = ro.y + rd.y * t;
+                if (hy >= ymin && hy <= ymax && t < best) {
+                    best = t;
+                }
+            }
         }
-        return tc;
     }
-    return t;
+    if (abs(rd.y) > 1e-6) {
+        let tb = cyl_cap(ro, rd, cx, cz, r0, ymin);
+        if (tb < best) { best = tb; }
+        let tt = cyl_cap(ro, rd, cx, cz, r1, ymax);
+        if (tt < best) { best = tt; }
+    }
+    return best;
 }
 
 fn hit_cone(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
@@ -1495,11 +1507,17 @@ fn cylinder_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     if (hp.y >= ymax - 1e-3) {
         return vec3<f32>(0.0, 1.0, 0.0);
     }
+    let r0 = p.geo_a.z;
+    var r1 = p.geo_b.y;
+    if (r1 == 0.0) {
+        r1 = r0;
+    }
+    let h = ymax - ymin;
+    let alpha = (r1 - r0) / h;
+    let ry = r0 + alpha * (hp.y - ymin);
     let dx = hp.x - p.geo_a.x;
     let dz = hp.z - p.geo_a.y;
-    var l = sqrt(dx * dx + dz * dz);
-    if (l == 0.0) { l = 1.0; }
-    return vec3<f32>(dx / l, 0.0, dz / l);
+    return normalize(vec3<f32>(dx, -ry * alpha, dz));
 }
 
 fn cone_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {

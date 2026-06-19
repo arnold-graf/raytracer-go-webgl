@@ -119,11 +119,12 @@ type boxDTO struct {
 }
 
 type cylinderDTO struct {
-	CX     float64 `toml:"cx"`
-	CZ     float64 `toml:"cz"`
-	Radius float64 `toml:"radius"`
-	YMin   float64 `toml:"ymin"`
-	YMax   float64 `toml:"ymax"`
+	CX        float64 `toml:"cx"`
+	CZ        float64 `toml:"cz"`
+	Radius    float64 `toml:"radius"`
+	RadiusTop float64 `toml:"radius_top"`
+	YMin      float64 `toml:"ymin"`
+	YMax      float64 `toml:"ymax"`
 	transformDTO
 	surfaceDTO
 }
@@ -319,6 +320,13 @@ type sunDTO struct {
 // file's primitives are merged into the parent scene after applying the instance
 // transform (rotate about the sub-scene origin, then translate by at).
 //
+// When the parent scene has a terrain height field, at.y is an offset above the
+// ground at (at.x, at.z) — 0 places the object's origin on the ground. If the
+// included object declares a [[terrain.pad]] covering its origin, the pad's
+// level is used instead of the wild terrain height (the pad is merged after
+// placement and defines the object's grade). Object files that only carry pad
+// stubs without a footprint do not count as height fields for nested includes.
+//
 // Params are passed to the included file as Go text/template data, so an object
 // can be parameterized (e.g. params = { stem_len = 2.0 }). The object reads them
 // as {{.stem_len}} and can derive geometry with the add/sub/mul/div/neg helpers;
@@ -444,7 +452,7 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 			if err != nil {
 				return nil, fmt.Errorf("include[%d] %q: %w", i, inc.File, err)
 			}
-			xf := scene.NewInstanceTransform(inc.RotateX, inc.RotateY, inc.RotateZ, inc.At.toV())
+			xf := instanceTransform(base, sub, inc)
 			mergeScene(base, sub, xf)
 		}
 		return base, nil
@@ -635,7 +643,10 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			return nil, fmt.Errorf("cylinder[%d]: %w", i, err)
 		}
 		surf.Xform = d.transformDTO.build()
-		s.Cylinders = append(s.Cylinders, scene.Cylinder{CX: d.CX, CZ: d.CZ, Radius: d.Radius, YMin: d.YMin, YMax: d.YMax, Surface: surf})
+		s.Cylinders = append(s.Cylinders, scene.Cylinder{
+			CX: d.CX, CZ: d.CZ, Radius: d.Radius, RadiusTop: d.RadiusTop,
+			YMin: d.YMin, YMax: d.YMax, Surface: surf,
+		})
 	}
 	for i, d := range dto.Cone {
 		surf, err := d.toSurface()
@@ -716,10 +727,24 @@ func (dto sceneDTO) buildWithIncludes(path string, seen map[string]bool, deps *[
 		if err != nil {
 			return nil, fmt.Errorf("include[%d] %q: %w", i, inc.File, err)
 		}
-		xf := scene.NewInstanceTransform(inc.RotateX, inc.RotateY, inc.RotateZ, inc.At.toV())
+		xf := instanceTransform(s, sub, inc)
 		mergeScene(s, sub, xf)
 	}
 	return s, nil
+}
+
+// instanceTransform builds the world placement for an include. When the sub-
+// scene declares a pad under its origin, at.y is an offset above that pad's
+// level; otherwise, when dst has a terrain height field, at.y is raised by the
+// surface height at (at.x, at.z).
+func instanceTransform(dst *scene.Scene, sub *scene.Scene, inc includeDTO) *scene.Transform {
+	at := inc.At.toV()
+	if level, ok := sub.PadLevelAt(0, 0); ok {
+		at.Y = level + at.Y
+	} else if h, ok := dst.TerrainHeightAt(at.X, at.Z); ok {
+		at.Y = h + at.Y
+	}
+	return scene.NewInstanceTransform(inc.RotateX, inc.RotateY, inc.RotateZ, at)
 }
 
 // mergeScene appends every primitive from sub into dst, composing each

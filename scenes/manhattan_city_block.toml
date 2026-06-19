@@ -1931,10 +1931,12 @@ range = 34.0
 
 # ================================= CENTER TOWER STAIRCASE (walkable) ====
 # A switchback built from one reusable flight (objects/staircase.toml) placed
-# 11 times. Even flights climb +X in the front lane (z -6.0..-4.4); odd flights
-# are turned 180 deg (rotate_y) into the back lane (z -4.2..-2.6). A landing
-# slab bridges the two lanes at the top of each flight so you can turn and keep
-# climbing to the roof (y = 33). Edit the flight once and every step updates.
+# 11 times. at.y is an offset above the terrain at (at.x, at.z) — on this flat
+# lot that equals the absolute height (0, 3, 6, …). Even flights climb +X in
+# the front lane (z -6.0..-4.4); odd flights are turned 180 deg (rotate_y) into
+# the back lane (z -4.2..-2.6). A landing slab bridges the two lanes at the
+# top of each flight so you can turn and keep climbing to the roof (y = 33).
+# Edit the flight once and every step updates.
 
 [[include]] # flight 0  (front lane, +X)
 file = "objects/staircase.toml"
@@ -2065,262 +2067,55 @@ texture = "cement"
 
 # ============================================== STREET PINE TREES ====
 
-[[cylinder]] # pine 1 trunk
-albedo = [0.45, 0.33, 0.22]
-cx = -26.0
-cz = 12.0
-material = "diffuse"
-radius = 0.22
-texture = "wood"
-ymax = 1.6
-ymin = 0.0
 
-[[cone]] # pine 1 foliage
-albedo = [0.34, 0.5, 0.3]
-cx = -26.0
-cz = 12.0
-material = "diffuse"
-rbase = 1.7
-texture = "grass"
-ybase = 1.0
-ytip = 6.2
+[[include]]
+file = "objects/pine-tree.toml"
+at = [-26.0, 0.0, 12.0]
+rotate_y = 14.0
 
-[[sound]] # pine 1 crickets
-at = [-26.0, 3.0, 12.0]
-gain = 0.26
-radius = 22.0
-sound = "crickets"
+[[include]]
+file = "objects/pine-tree.toml"
+at = [-8.5, 0.0, 12.0]
+rotate_y = 14.0
 
-[[cylinder]] # pine 2 trunk
-albedo = [0.45, 0.33, 0.22]
-cx = -8.5
-cz = 12.0
-material = "diffuse"
-radius = 0.22
-texture = "wood"
-ymax = 1.6
-ymin = 0.0
+[[include]]
+file = "objects/pine-tree.toml"
+at = [8.5, 0.0, 12.0]
+rotate_y = 14.0
 
-[[cone]] # pine 2 foliage
-albedo = [0.34, 0.5, 0.3]
-cx = -8.5
-cz = 12.0
-material = "diffuse"
-rbase = 1.7
-texture = "grass"
-ybase = 1.0
-ytip = 6.2
+[[include]]
+file = "objects/pine-tree.toml"
+at = [26.0, 0.0, 12.0]
+rotate_y = 14.0
 
-[[sound]] # pine 2 crickets
-at = [-8.5, 3.0, 12.0]
-gain = 0.26
-radius = 22.0
-sound = "crickets"
+[[include]]
+file = "objects/pine-tree.toml"
+at = [-13.0, 0.0, 9.0]
+rotate_y = 14.0
 
-[[cylinder]] # pine 3 trunk
-albedo = [0.45, 0.33, 0.22]
-cx = 8.5
-cz = 12.0
-material = "diffuse"
-radius = 0.22
-texture = "wood"
-ymax = 1.6
-ymin = 0.0
+[[include]]
+file = "objects/pine-tree.toml"
+at = [13.0, 0.0, 9.0]
+rotate_y = 14.0
 
-[[cone]] # pine 3 foliage
-albedo = [0.34, 0.5, 0.3]
-cx = 8.5
-cz = 12.0
-material = "diffuse"
-rbase = 1.7
-texture = "grass"
-ybase = 1.0
-ytip = 6.2
+[[include]]
+file = "objects/pine-tree.toml"
+at = [-30.0, 0.0, 0.0]
+rotate_y = 14.0
 
-[[sound]] # pine 3 crickets
-at = [8.5, 3.0, 12.0]
-gain = 0.26
-radius = 22.0
-sound = "crickets"
 
-[[cylinder]] # pine 4 trunk
-albedo = [0.45, 0.33, 0.22]
-cx = 26.0
-cz = 12.0
-material = "diffuse"
-radius = 0.22
-texture = "wood"
-ymax = 1.6
-ymin = 0.0
+[[include]]
+file = "objects/pine-tree.toml"
+at = [30.0, 0.0, 0.0]
+rotate_y = 14.0
 
-[[cone]] # pine 4 foliage
-albedo = [0.34, 0.5, 0.3]
-cx = 26.0
-cz = 12.0
-material = "diffuse"
-rbase = 1.7
-texture = "grass"
-ybase = 1.0
-ytip = 6.2
+[[include]]
+file = "objects/pine-tree.toml"
+at = [-22.0, 0.0, -8.0]
+rotate_y = 14.0
 
-[[sound]] # pine 4 crickets
-at = [26.0, 3.0, 12.0]
-gain = 0.26
-radius = 22.0
-sound = "crickets"
+[[include]]
+file = "objects/pine-tree.toml"
+at = [22.0, 0.0, -8.0]
+rotate_y = 14.0
 
-[[cylinder]] # pine 5 trunk
-albedo = [0.45, 0.33, 0.22]
-cx = -13.0
-cz = 9.0
-material = "diffuse"
-radius = 0.22
-texture = "wood"
-ymax = 1.6
-ymin = 0.0
-
-[[cone]] # pine 5 foliage
-albedo = [0.34, 0.5, 0.3]
-cx = -13.0
-cz = 9.0
-material = "diffuse"
-rbase = 1.7
-texture = "grass"
-ybase = 1.0
-ytip = 6.2
-
-[[sound]] # pine 5 crickets
-at = [-13.0, 3.0, 9.0]
-gain = 0.26
-radius = 22.0
-sound = "crickets"
-
-[[cylinder]] # pine 6 trunk
-albedo = [0.45, 0.33, 0.22]
-cx = 13.0
-cz = 9.0
-material = "diffuse"
-radius = 0.22
-texture = "wood"
-ymax = 1.6
-ymin = 0.0
-
-[[cone]] # pine 6 foliage
-albedo = [0.34, 0.5, 0.3]
-cx = 13.0
-cz = 9.0
-material = "diffuse"
-rbase = 1.7
-texture = "grass"
-ybase = 1.0
-ytip = 6.2
-
-[[sound]] # pine 6 crickets
-at = [13.0, 3.0, 9.0]
-gain = 0.26
-radius = 22.0
-sound = "crickets"
-
-[[cylinder]] # pine 7 trunk
-albedo = [0.45, 0.33, 0.22]
-cx = -30.0
-cz = 0.0
-material = "diffuse"
-radius = 0.22
-texture = "wood"
-ymax = 1.6
-ymin = 0.0
-
-[[cone]] # pine 7 foliage
-albedo = [0.34, 0.5, 0.3]
-cx = -30.0
-cz = 0.0
-material = "diffuse"
-rbase = 1.7
-texture = "grass"
-ybase = 1.0
-ytip = 6.2
-
-[[sound]] # pine 7 crickets
-at = [-30.0, 3.0, 0.0]
-gain = 0.26
-radius = 22.0
-sound = "crickets"
-
-[[cylinder]] # pine 8 trunk
-albedo = [0.45, 0.33, 0.22]
-cx = 30.0
-cz = 0.0
-material = "diffuse"
-radius = 0.22
-texture = "wood"
-ymax = 1.6
-ymin = 0.0
-
-[[cone]] # pine 8 foliage
-albedo = [0.34, 0.5, 0.3]
-cx = 30.0
-cz = 0.0
-material = "diffuse"
-rbase = 1.7
-texture = "grass"
-ybase = 1.0
-ytip = 6.2
-
-[[sound]] # pine 8 crickets
-at = [30.0, 3.0, 0.0]
-gain = 0.26
-radius = 22.0
-sound = "crickets"
-
-[[cylinder]] # pine 9 trunk
-albedo = [0.45, 0.33, 0.22]
-cx = -22.0
-cz = -8.0
-material = "diffuse"
-radius = 0.22
-texture = "wood"
-ymax = 1.6
-ymin = 0.0
-
-[[cone]] # pine 9 foliage
-albedo = [0.34, 0.5, 0.3]
-cx = -22.0
-cz = -8.0
-material = "diffuse"
-rbase = 1.7
-texture = "grass"
-ybase = 1.0
-ytip = 6.2
-
-[[sound]] # pine 9 crickets
-at = [-22.0, 3.0, -8.0]
-gain = 0.26
-radius = 22.0
-sound = "crickets"
-
-[[cylinder]] # pine 10 trunk
-albedo = [0.45, 0.33, 0.22]
-cx = 22.0
-cz = -8.0
-material = "diffuse"
-radius = 0.22
-texture = "wood"
-ymax = 1.6
-ymin = 0.0
-
-[[cone]] # pine 10 foliage
-albedo = [0.34, 0.5, 0.3]
-cx = 22.0
-cz = -8.0
-material = "diffuse"
-rbase = 1.7
-texture = "grass"
-ybase = 1.0
-ytip = 6.2
-
-[[sound]] # pine 10 crickets
-at = [22.0, 3.0, -8.0]
-gain = 0.26
-radius = 22.0
-sound = "crickets"
