@@ -25,8 +25,9 @@ type View struct {
 	// AOData is the baked ambient-occlusion volume; AOok is false when the scene
 	// has no finite geometry to occlude against. The backend uploads it only
 	// when both AOok and the AO toggle are set.
-	AOData probe.AOData
-	AOok   bool
+	AOData    probe.AOData
+	AOok      bool
+	AOVersion uint64 // bumps when AOData is replaced (e.g. after an async bake)
 }
 
 // Renderer is the drawing backend the app depends on. Render fills buf

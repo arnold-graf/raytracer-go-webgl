@@ -174,6 +174,32 @@ func TestBlockedHoleWithTransform(t *testing.T) {
 	}
 }
 
+// TestBlockedHonorsBoxRotation checks that a wall rotated 45° blocks at its
+// world-oriented face, not at the axis-aligned world AABB corners outside the
+// solid volume.
+func TestBlockedHonorsBoxRotation(t *testing.T) {
+	xf := NewInstanceTransform(0, -45, 0, vec.New(50, 0, -10))
+	wall := Box{
+		Min:     vec.New(-4, 0, -0.2),
+		Max:     vec.New(4, 6, 0.2),
+		Surface: Surface{Xform: xf},
+	}
+	s := &Scene{Boxes: []Box{wall}}
+	feetY, headY, r, step := 0.0, 2.0, 0.3, 0.45
+
+	// On the wall face in world space (local +Z outward).
+	face := xf.ToWorld(vec.New(0, 1, 0.5))
+	if !s.Blocked(face.X, face.Z, feetY, headY, r, step) {
+		t.Fatalf("rotated wall should block at its world face (%.2f, %.2f)", face.X, face.Z)
+	}
+
+	// Empty space outside the rotated OBB but inside its world AABB.
+	outside := xf.ToWorld(vec.New(-6, 1, -6))
+	if s.Blocked(outside.X, outside.Z, feetY, headY, r, step) {
+		t.Fatalf("point outside rotated wall (%.2f, %.2f) must not block", outside.X, outside.Z)
+	}
+}
+
 func TestBlockedAtWallButNotDoorOrFloor(t *testing.T) {
 	s := buildingScene()
 	feetY, headY, r, step := 0.4, 2.0, 0.3, 0.45
@@ -186,5 +212,35 @@ func TestBlockedAtWallButNotDoorOrFloor(t *testing.T) {
 	}
 	if s.Blocked(15, 0, feetY, headY, r, step) {
 		t.Fatalf("standing on the foundation should not be blocked")
+	}
+}
+
+func TestBlockedHonorsCylinderTransform(t *testing.T) {
+	xf := NewInstanceTransform(0, 0, 0, vec.New(12, 0, -5))
+	s := &Scene{Cylinders: []Cylinder{{
+		CX: 0, CZ: 0, Radius: 0.5, YMin: 0, YMax: 8,
+		Surface: Surface{Xform: xf},
+	}}}
+	feetY, headY, r, step := 0.0, 2.0, 0.3, 0.45
+	if !s.Blocked(12, -5, feetY, headY, r, step) {
+		t.Fatal("trunk should block at its world position")
+	}
+	if s.Blocked(0, 0, feetY, headY, r, step) {
+		t.Fatal("origin must be clear (no phantom trunk at local coords)")
+	}
+}
+
+func TestBlockedHonorsConeTransform(t *testing.T) {
+	xf := NewInstanceTransform(0, 0, 0, vec.New(-18, 0, -6))
+	s := &Scene{Cones: []Cone{{
+		CX: 0, CZ: 0, YBase: -0.7, YTip: 0.9, RBase: 1.45,
+		Surface: Surface{Xform: xf},
+	}}}
+	feetY, headY, r, step := 0.0, 2.0, 0.3, 0.45
+	if !s.Blocked(-18, -6, feetY, headY, r, step) {
+		t.Fatal("root flare should block at the tree base")
+	}
+	if s.Blocked(0, 0, feetY, headY, r, step) {
+		t.Fatal("origin must be clear")
 	}
 }

@@ -234,6 +234,59 @@ func TestStaircaseSeqTemplate(t *testing.T) {
 	}
 }
 
+func TestObjectTemplateVec3Param(t *testing.T) {
+	dir := t.TempDir()
+	obj := filepath.Join(dir, "obj.toml")
+	if err := os.WriteFile(obj, []byte(`
+{{$albedo := orVec3 .albedo 0.1 0.2 0.3}}
+[[box]]
+min = [0.0, 0.0, 0.0]
+max = [1.0, 1.0, 1.0]
+material = "diffuse"
+albedo = {{$albedo}}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("default", func(t *testing.T) {
+		parent := filepath.Join(dir, "default.toml")
+		if err := os.WriteFile(parent, []byte("[[include]]\nfile = \"obj.toml\"\nat = [0.0, 0.0, 0.0]\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s, err := Load(parent)
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		if len(s.Boxes) != 1 {
+			t.Fatalf("got %d boxes", len(s.Boxes))
+		}
+		want := vec.New(0.1, 0.2, 0.3)
+		if got := s.Boxes[0].Albedo; !approxV(got, want) {
+			t.Fatalf("albedo = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("param", func(t *testing.T) {
+		parent := filepath.Join(dir, "custom.toml")
+		if err := os.WriteFile(parent, []byte(`
+[[include]]
+file = "obj.toml"
+at = [0.0, 0.0, 0.0]
+params = { albedo = [0.8, 0.7, 0.6] }
+`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s, err := Load(parent)
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		want := vec.New(0.8, 0.7, 0.6)
+		if got := s.Boxes[0].Albedo; !approxV(got, want) {
+			t.Fatalf("albedo = %v, want %v", got, want)
+		}
+	})
+}
+
 func TestLoadDepsIncludesSubScenes(t *testing.T) {
 	_, deps, err := LoadDeps(repoFile("scenes/indoor-outdoor.toml"))
 	if err != nil {
@@ -285,6 +338,53 @@ func TestBuildingIncludeLoads(t *testing.T) {
 	}
 }
 
+func TestIncludeMergesTerrainFeatures(t *testing.T) {
+	dir := t.TempDir()
+	mountains := filepath.Join(dir, "mountains.toml")
+	if err := os.WriteFile(mountains, []byte(`
+[[terrain]]
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [0.0, 0.0]
+  height = 10.0
+  width = 8.0
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(dir, "scene.toml")
+	if err := os.WriteFile(parent, []byte(`
+[[terrain]]
+origin = [-50.0, 0.0, -50.0]
+size = [100.0, 100.0]
+base = 0.0
+detail = 0.0
+
+[[include]]
+file = "mountains.toml"
+at = [30.0, 0.0, 40.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(s.Terrains) != 1 {
+		t.Fatalf("got %d terrains", len(s.Terrains))
+	}
+	if len(s.Terrains[0].Features) != 1 {
+		t.Fatalf("got %d features, want 1 merged", len(s.Terrains[0].Features))
+	}
+	f := s.Terrains[0].Features[0]
+	if math.Abs(f.PosX-30) > 1e-9 || math.Abs(f.PosZ-40) > 1e-9 {
+		t.Fatalf("feature pos = (%v,%v), want (30,40)", f.PosX, f.PosZ)
+	}
+	center, ok := s.TerrainHeightAt(30, 40)
+	if !ok || center < 8 {
+		t.Fatalf("height at merged peak center = %v ok=%v, want ~10", center, ok)
+	}
+}
+
 func TestStormVillaSceneLoads(t *testing.T) {
 	s, err := Load(repoFile("scenes/outdoors-night-villa.toml"))
 	if err != nil {
@@ -315,6 +415,26 @@ func TestStormVillaSceneLoads(t *testing.T) {
 		}
 	}
 	t.Fatal("expected villa plinth base near y=0")
+}
+
+func TestRotatedIncludePadHonorsYaw(t *testing.T) {
+	s, err := Load(repoFile("scenes/outdoors-night-villa.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantYaw = -45 * math.Pi / 180
+	var found bool
+	for _, p := range s.Terrains[0].Pads {
+		if p.CenterX == 50 && p.CenterZ == -10 {
+			if math.Abs(p.Angle-wantYaw) > 0.01 {
+				t.Fatalf("second villa pad angle = %v, want %v", p.Angle, wantYaw)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected rotated second-villa pad at (50,-10), pads=%+v", s.Terrains[0].Pads)
+	}
 }
 
 func TestIncludeWithPadUsesPadLevelNotTerrain(t *testing.T) {

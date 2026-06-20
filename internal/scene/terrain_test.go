@@ -7,6 +7,21 @@ import (
 	"raytracer/internal/vec"
 )
 
+func TestTerrainLargeFootprintFitsGPUBudget(t *testing.T) {
+	ter := Terrain{
+		OriginX: -80, OriginZ: -80, SizeX: 400, SizeZ: 400,
+		Base: 0, Detail: 0.35, DetailScale: 0.12, Step: 0.28,
+	}
+	ter.Prepare()
+	if ter.gnx*ter.gnz > MaxTerrainGridCells {
+		t.Fatalf("grid %d×%d = %d samples, want ≤ %d", ter.gnx, ter.gnz, ter.gnx*ter.gnz, MaxTerrainGridCells)
+	}
+	// Default 0.25 m cells fit a 400×400 m map within the raised 4M cap.
+	if ter.gnx != 1601 || ter.gnz != 1601 {
+		t.Fatalf("grid = %d×%d, want 1601×1601 at 0.25 m cells", ter.gnx, ter.gnz)
+	}
+}
+
 func TestTerrainCoarseMarchMatchesFineMarch(t *testing.T) {
 	ter := Terrain{
 		OriginX: -40, OriginZ: -40,

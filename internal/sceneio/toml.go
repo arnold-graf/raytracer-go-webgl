@@ -330,7 +330,8 @@ type sunDTO struct {
 // Params are passed to the included file as Go text/template data, so an object
 // can be parameterized (e.g. params = { stem_len = 2.0 }). The object reads them
 // as {{.stem_len}} and can derive geometry with the add/sub/mul/div/neg helpers;
-// missing params fall back to the object's own `or .x <default>` defaults. Files
+// rgb arrays use orVec3/vec3 (templates cannot write […] literals). Missing
+// params fall back to the object's own `or .x <default>` defaults. Files
 // with no {{ }} are passed through verbatim, so this is opt-in per object.
 type includeDTO struct {
 	File    string         `toml:"file"`
@@ -455,6 +456,7 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 			xf := instanceTransform(base, sub, inc)
 			mergeScene(base, sub, xf)
 		}
+		base.PrepareTerrains()
 		return base, nil
 	}
 	return dto.buildWithIncludes(path, seen, deps)
@@ -534,6 +536,19 @@ var objectTemplateFuncs = template.FuncMap{
 		}
 		return out
 	},
+	// vec3 formats three components as a TOML rgb array, e.g. [0.5, 0.49, 0.47].
+	"vec3": func(r, g, b any) string {
+		return formatVec3(toFloat(r), toFloat(g), toFloat(b))
+	},
+	// orVec3 uses v when it is a three-element array (from params.albedo = […]);
+	// otherwise falls back to defR, defG, defB. Go templates cannot write […]
+	// literals, so defaults must be passed as separate scalars.
+	"orVec3": func(v, defR, defG, defB any) string {
+		if xs, ok := vec3Values(v); ok {
+			return formatVec3(xs[0], xs[1], xs[2])
+		}
+		return formatVec3(toFloat(defR), toFloat(defG), toFloat(defB))
+	},
 }
 
 // toFloat coerces a template value (TOML decodes numbers as int64/float64) to a
@@ -551,6 +566,29 @@ func toFloat(v any) float64 {
 		return f
 	default:
 		return 0
+	}
+}
+
+func formatVec3(r, g, b float64) string {
+	return fmt.Sprintf("[%g, %g, %g]", r, g, b)
+}
+
+func vec3Values(v any) ([3]float64, bool) {
+	switch xs := v.(type) {
+	case []any:
+		if len(xs) < 3 {
+			return [3]float64{}, false
+		}
+		return [3]float64{toFloat(xs[0]), toFloat(xs[1]), toFloat(xs[2])}, true
+	case []float64:
+		if len(xs) < 3 {
+			return [3]float64{}, false
+		}
+		return [3]float64{xs[0], xs[1], xs[2]}, true
+	case [3]float64:
+		return xs, true
+	default:
+		return [3]float64{}, false
 	}
 }
 
@@ -730,6 +768,7 @@ func (dto sceneDTO) buildWithIncludes(path string, seen map[string]bool, deps *[
 		xf := instanceTransform(s, sub, inc)
 		mergeScene(s, sub, xf)
 	}
+	s.PrepareTerrains()
 	return s, nil
 }
 
@@ -816,19 +855,32 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 	}
 	// An included object can flatten the ground under itself by declaring
 	// [[terrain.pad]] entries (with a stub [[terrain]] header so the TOML
-	// decodes). We don't merge the sub-scene's own height field — objects ride
-	// on the parent terrain — only its pads, placed by the instance transform.
+	// decodes). It can also contribute [[terrain.feature]] peaks/valleys/ridges;
+	// features are merged into the parent height field with the instance transform
+	// applied to each feature's position (and yaw added to its angle).
 	var pads []scene.TerrainPad
+	var features []scene.TerrainFeature
 	for i := range sub.Terrains {
+		yaw := xf.YawRad()
 		for _, p := range sub.Terrains[i].Pads {
 			if xf != nil {
 				c := xf.ToWorld(vec.New(p.CenterX, 0, p.CenterZ))
 				p.CenterX, p.CenterZ = c.X, c.Z
+				p.Angle += yaw
 			}
 			pads = append(pads, p)
 		}
+		for _, f := range sub.Terrains[i].Features {
+			if xf != nil {
+				w := xf.ToWorld(vec.New(f.PosX, 0, f.PosZ))
+				f.PosX, f.PosZ = w.X, w.Z
+				f.Angle += yaw
+			}
+			features = append(features, f)
+		}
 	}
 	addTerrainPads(dst, pads)
+	addTerrainFeatures(dst, features)
 }
 
 // addTerrainPads appends pads to every terrain in dst and re-Prepares the
@@ -840,7 +892,19 @@ func addTerrainPads(dst *scene.Scene, pads []scene.TerrainPad) {
 	}
 	for i := range dst.Terrains {
 		dst.Terrains[i].Pads = append(dst.Terrains[i].Pads, pads...)
-		dst.Terrains[i].Prepare()
+		dst.Terrains[i].Invalidate()
+	}
+}
+
+// addTerrainFeatures appends sculpted peaks/valleys/ridges to every terrain in
+// dst and rebuilds the height cache.
+func addTerrainFeatures(dst *scene.Scene, features []scene.TerrainFeature) {
+	if len(features) == 0 || len(dst.Terrains) == 0 {
+		return
+	}
+	for i := range dst.Terrains {
+		dst.Terrains[i].Features = append(dst.Terrains[i].Features, features...)
+		dst.Terrains[i].Invalidate()
 	}
 }
 
@@ -942,6 +1006,5 @@ func (d terrainDTO) build() (scene.Terrain, error) {
 			Level: p.Level, Margin: p.Margin,
 		})
 	}
-	ter.Prepare()
 	return ter, nil
 }

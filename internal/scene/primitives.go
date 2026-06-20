@@ -116,24 +116,21 @@ type Box struct {
 	Surface
 }
 
-// WorldBounds returns the box's axis-aligned bounds in world space. For an
-// untransformed box this is just (Min, Max); for a rotated/translated box it is
-// the AABB enclosing the eight transformed corners. Holes only shrink the solid,
-// so they never enlarge the bounds. Used by collision, which works in world
-// space.
-func (b *Box) WorldBounds() (vec.V, vec.V) {
-	if b.Xform == nil {
-		return b.Min, b.Max
+// expandXformBounds maps a local AABB through xf and returns its world-space
+// enclosing AABB. A nil transform is treated as identity.
+func expandXformBounds(xf *Transform, lmin, lmax vec.V) (vec.V, vec.V) {
+	if xf == nil {
+		return lmin, lmax
 	}
 	wmin := vec.V{X: math.Inf(1), Y: math.Inf(1), Z: math.Inf(1)}
 	wmax := vec.V{X: math.Inf(-1), Y: math.Inf(-1), Z: math.Inf(-1)}
 	for _, dx := range [2]float64{0, 1} {
 		for _, dy := range [2]float64{0, 1} {
 			for _, dz := range [2]float64{0, 1} {
-				c := b.Xform.ToWorld(vec.V{
-					X: b.Min.X + dx*(b.Max.X-b.Min.X),
-					Y: b.Min.Y + dy*(b.Max.Y-b.Min.Y),
-					Z: b.Min.Z + dz*(b.Max.Z-b.Min.Z),
+				c := xf.ToWorld(vec.V{
+					X: lmin.X + dx*(lmax.X-lmin.X),
+					Y: lmin.Y + dy*(lmax.Y-lmin.Y),
+					Z: lmin.Z + dz*(lmax.Z-lmin.Z),
 				})
 				wmin = vec.V{X: math.Min(wmin.X, c.X), Y: math.Min(wmin.Y, c.Y), Z: math.Min(wmin.Z, c.Z)}
 				wmax = vec.V{X: math.Max(wmax.X, c.X), Y: math.Max(wmax.Y, c.Y), Z: math.Max(wmax.Z, c.Z)}
@@ -141,6 +138,15 @@ func (b *Box) WorldBounds() (vec.V, vec.V) {
 		}
 	}
 	return wmin, wmax
+}
+
+// WorldBounds returns the box's axis-aligned bounds in world space. For an
+// untransformed box this is just (Min, Max); for a rotated/translated box it is
+// the AABB enclosing the eight transformed corners. Holes only shrink the solid,
+// so they never enlarge the bounds. Used by collision, which works in world
+// space.
+func (b *Box) WorldBounds() (vec.V, vec.V) {
+	return expandXformBounds(b.Xform, b.Min, b.Max)
 }
 
 // TopOpenAt reports whether a hole breaches the box's top face at world (x,z),
@@ -214,6 +220,32 @@ func (b *Box) PassableThroughHole(x, z, bandLo, headY, radius float64) bool {
 			if lo.X > h.Min.X+radius && lo.X < h.Max.X-radius {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// localPointInsideSolid reports whether a local-space point (with the given
+// horizontal clearance radius) lies inside the box's solid volume. Holes are
+// not subtracted here; PassableThroughHole handles doorway/window passage.
+func (b *Box) localPointInsideSolid(p vec.V, radius float64) bool {
+	const eps = 1e-4
+	return p.X >= b.Min.X-radius-eps && p.X <= b.Max.X+radius+eps &&
+		p.Y >= b.Min.Y-eps && p.Y <= b.Max.Y+eps &&
+		p.Z >= b.Min.Z-radius-eps && p.Z <= b.Max.Z+radius+eps
+}
+
+// blocksColumn reports whether a player footprint at world (wx,wz) with vertical
+// extent [bandLo,bandHi] and the given radius intersects the box's solid volume.
+// The query is evaluated in the box's local frame so rotation is honored.
+func (b *Box) blocksColumn(wx, wz, bandLo, bandHi, playerR float64) bool {
+	for _, wy := range []float64{bandLo, bandHi, (bandLo + bandHi) * 0.5} {
+		p := vec.V{X: wx, Y: wy, Z: wz}
+		if b.Xform != nil {
+			p = b.Xform.ToLocal(p)
+		}
+		if b.localPointInsideSolid(p, playerR) {
+			return true
 		}
 	}
 	return false
@@ -393,6 +425,34 @@ func (c *Cylinder) MaxRadius() float64 {
 	return c.Radius
 }
 
+// WorldBounds returns the cylinder's axis-aligned bounds in world space.
+func (c *Cylinder) WorldBounds() (vec.V, vec.V) {
+	r := c.MaxRadius()
+	return expandXformBounds(c.Xform,
+		vec.V{X: c.CX - r, Y: c.YMin, Z: c.CZ - r},
+		vec.V{X: c.CX + r, Y: c.YMax, Z: c.CZ + r})
+}
+
+// blocksColumn reports whether a player footprint at world (wx,wz) with vertical
+// extent [bandLo,bandHi] and the given radius intersects the cylinder.
+func (c *Cylinder) blocksColumn(wx, wz, bandLo, bandHi, playerR float64) bool {
+	for _, wy := range []float64{bandLo, bandHi, (bandLo + bandHi) * 0.5} {
+		p := vec.V{X: wx, Y: wy, Z: wz}
+		if c.Xform != nil {
+			p = c.Xform.ToLocal(p)
+		}
+		if p.Y < c.YMin || p.Y > c.YMax {
+			continue
+		}
+		rr := c.radiusAt(p.Y) + playerR
+		dx, dz := p.X-c.CX, p.Z-c.CZ
+		if dx*dx+dz*dz < rr*rr {
+			return true
+		}
+	}
+	return false
+}
+
 // Intersect returns the nearest positive hit distance, or Inf on a miss.
 func (c *Cylinder) Intersect(r vec.Ray) float64 {
 	h := c.YMax - c.YMin
@@ -475,6 +535,41 @@ type Cone struct {
 	YBase, YTip float64
 	RBase       float64
 	Surface
+}
+
+func (c *Cone) radiusAt(y float64) float64 {
+	h := c.YTip - c.YBase
+	if h <= 0 {
+		return 0
+	}
+	return c.RBase * (c.YTip - y) / h
+}
+
+// WorldBounds returns the cone's axis-aligned bounds in world space.
+func (c *Cone) WorldBounds() (vec.V, vec.V) {
+	return expandXformBounds(c.Xform,
+		vec.V{X: c.CX - c.RBase, Y: c.YBase, Z: c.CZ - c.RBase},
+		vec.V{X: c.CX + c.RBase, Y: c.YTip, Z: c.CZ + c.RBase})
+}
+
+// blocksColumn reports whether a player footprint at world (wx,wz) intersects
+// the cone's volume within [bandLo,bandHi].
+func (c *Cone) blocksColumn(wx, wz, bandLo, bandHi, playerR float64) bool {
+	for _, wy := range []float64{bandLo, bandHi, (bandLo + bandHi) * 0.5} {
+		p := vec.V{X: wx, Y: wy, Z: wz}
+		if c.Xform != nil {
+			p = c.Xform.ToLocal(p)
+		}
+		if p.Y < c.YBase || p.Y > c.YTip {
+			continue
+		}
+		rr := c.radiusAt(p.Y) + playerR
+		dx, dz := p.X-c.CX, p.Z-c.CZ
+		if dx*dx+dz*dz < rr*rr {
+			return true
+		}
+	}
+	return false
 }
 
 // Intersect returns the nearest positive hit distance, or Inf on a miss.

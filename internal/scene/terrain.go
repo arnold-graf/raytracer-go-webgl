@@ -2,6 +2,8 @@ package scene
 
 import (
 	"math"
+	"runtime"
+	"sync"
 
 	"raytracer/internal/texture"
 	"raytracer/internal/vec"
@@ -25,13 +27,37 @@ type TerrainFeature struct {
 // the inner rectangle (CenterX/Z ± HalfX/Z) the terrain is forced to Level, and
 // over a Margin-wide ring outside it the natural terrain is smoothly blended
 // down to that level. It lets a building/road/plaza sit on flat, seam-free
-// ground without the surrounding relief poking through its floor. The effect is
-// baked into the height cache, so it costs nothing at render time.
+// ground without the surrounding relief poking through its floor. Angle rotates
+// the rectangle in the X/Z plane (radians). The effect is baked into the height
+// cache, so it costs nothing at render time.
 type TerrainPad struct {
 	CenterX, CenterZ float64
 	HalfX, HalfZ     float64
 	Level            float64
 	Margin           float64
+	Angle            float64
+}
+
+// MaxTerrainGridCells caps the baked height/normal grid uploaded to the GPU
+// (see webgpu.maxTerrainVals). When a footprint would exceed this at the authored
+// grid_cell, Prepare coarsens the cell size automatically.
+const MaxTerrainGridCells = 1 << 22 // ~4M samples; 400×400 m at 0.25 m cells
+
+// fitTerrainGridCell returns a cell size that keeps the bake grid within
+// MaxTerrainGridCells. authored is the TOML grid_cell (0 → default 0.25 m).
+func fitTerrainGridCell(sizeX, sizeZ, authored float64) float64 {
+	cell := authored
+	if cell <= 0 {
+		cell = 0.25
+	}
+	for {
+		gnx := int(math.Ceil(sizeX/cell)) + 1
+		gnz := int(math.Ceil(sizeZ/cell)) + 1
+		if gnx*gnz <= MaxTerrainGridCells {
+			return cell
+		}
+		cell *= 1.25
+	}
 }
 
 // Terrain is a single-valued height field y = Height(x,z) over a rectangular
@@ -68,6 +94,8 @@ type Terrain struct {
 	cwx, cwz       float64 // coarse cell world size
 	cInvDx, cInvDz float64
 	cmin, cmax     []float64
+
+	stale bool // height/normal cache is out of date (pads/features changed)
 }
 
 // TerrainCacheSnapshot is a read-only copy of the prepared terrain grids for
@@ -83,14 +111,30 @@ type TerrainCacheSnapshot struct {
 // Prepare lazily when needed so scene loaders that have not explicitly prepared
 // a terrain still get a complete snapshot.
 func (t *Terrain) CacheSnapshot() TerrainCacheSnapshot {
-	if t.hgrid == nil || t.ngrid == nil {
-		t.Prepare()
-	}
+	t.ensurePrepared()
 	h := append([]float64(nil), t.hgrid...)
 	n := append([]vec.V(nil), t.ngrid...)
 	return TerrainCacheSnapshot{
 		GNX: t.gnx, GNZ: t.gnz, InvDx: t.invDx, InvDz: t.invDz,
 		Height: h, Normal: n,
+	}
+}
+
+// GridDimensions returns the baked height grid size after Prepare.
+func (t *Terrain) GridDimensions() (gnx, gnz int) {
+	t.ensurePrepared()
+	return t.gnx, t.gnz
+}
+
+// Invalidate marks the baked height/normal cache stale. Call after changing
+// features or pads; the next Height/Normal query rebuilds the grid.
+func (t *Terrain) Invalidate() {
+	t.stale = true
+}
+
+func (t *Terrain) ensurePrepared() {
+	if t.stale || t.hgrid == nil {
+		t.Prepare()
 	}
 }
 
@@ -121,16 +165,14 @@ func (t *Terrain) Prepare() {
 		t.Step = 0.3
 	}
 	t.buildCache()
+	t.stale = false
 }
 
 // buildCache samples the analytic field onto a regular grid and precomputes
 // per-vertex normals from finite differences, so rendering only does cheap
 // bilinear lookups.
 func (t *Terrain) buildCache() {
-	cell := t.GridCell
-	if cell <= 0 {
-		cell = 0.25
-	}
+	cell := fitTerrainGridCell(t.SizeX, t.SizeZ, t.GridCell)
 	t.gnx = int(math.Ceil(t.SizeX/cell)) + 1
 	t.gnz = int(math.Ceil(t.SizeZ/cell)) + 1
 	if t.gnx < 2 {
@@ -145,41 +187,45 @@ func (t *Terrain) buildCache() {
 	t.invDz = 1 / dz
 
 	t.hgrid = make([]float64, t.gnx*t.gnz)
-	for j := 0; j < t.gnz; j++ {
-		z := t.OriginZ + float64(j)*dz
-		row := j * t.gnx
-		for i := 0; i < t.gnx; i++ {
-			t.hgrid[row+i] = t.heightAnalytic(t.OriginX+float64(i)*dx, z)
+	parallelRows(t.gnz, func(j0, j1 int) {
+		for j := j0; j < j1; j++ {
+			z := t.OriginZ + float64(j)*dz
+			row := j * t.gnx
+			for i := 0; i < t.gnx; i++ {
+				t.hgrid[row+i] = t.heightAnalytic(t.OriginX+float64(i)*dx, z)
+			}
 		}
-	}
+	})
 
 	t.ngrid = make([]vec.V, t.gnx*t.gnz)
-	for j := 0; j < t.gnz; j++ {
-		row := j * t.gnx
-		jm := j - 1
-		if jm < 0 {
-			jm = 0
-		}
-		jp := j + 1
-		if jp >= t.gnz {
-			jp = t.gnz - 1
-		}
-		for i := 0; i < t.gnx; i++ {
-			im := i - 1
-			if im < 0 {
-				im = 0
+	parallelRows(t.gnz, func(j0, j1 int) {
+		for j := j0; j < j1; j++ {
+			row := j * t.gnx
+			jm := j - 1
+			if jm < 0 {
+				jm = 0
 			}
-			ip := i + 1
-			if ip >= t.gnx {
-				ip = t.gnx - 1
+			jp := j + 1
+			if jp >= t.gnz {
+				jp = t.gnz - 1
 			}
-			hl := t.hgrid[row+im]
-			hr := t.hgrid[row+ip]
-			hd := t.hgrid[jm*t.gnx+i]
-			hu := t.hgrid[jp*t.gnx+i]
-			t.ngrid[row+i] = vec.New((hl-hr)/(2*dx), 1, (hd-hu)/(2*dz)).Normalize()
+			for i := 0; i < t.gnx; i++ {
+				im := i - 1
+				if im < 0 {
+					im = 0
+				}
+				ip := i + 1
+				if ip >= t.gnx {
+					ip = t.gnx - 1
+				}
+				hl := t.hgrid[row+im]
+				hr := t.hgrid[row+ip]
+				hd := t.hgrid[jm*t.gnx+i]
+				hu := t.hgrid[jp*t.gnx+i]
+				t.ngrid[row+i] = vec.New((hl-hr)/(2*dx), 1, (hd-hu)/(2*dz)).Normalize()
+			}
 		}
-	}
+	})
 
 	t.buildCoarse()
 }
@@ -274,21 +320,26 @@ func (t *Terrain) heightAnalytic(x, z float64) float64 {
 	// detail, and applied in order so overlapping pads layer predictably.
 	for i := range t.Pads {
 		p := &t.Pads[i]
-		dx := math.Abs(x-p.CenterX) - p.HalfX
-		dz := math.Abs(z-p.CenterZ) - p.HalfZ
-		if dx < 0 {
-			dx = 0
+		dx, dz := x-p.CenterX, z-p.CenterZ
+		if p.Angle != 0 {
+			c, s := math.Cos(p.Angle), math.Sin(p.Angle)
+			dx, dz = dx*c+dz*s, -dx*s+dz*c
 		}
-		if dz < 0 {
-			dz = 0
+		lx := math.Abs(dx) - p.HalfX
+		lz := math.Abs(dz) - p.HalfZ
+		if lx < 0 {
+			lx = 0
+		}
+		if lz < 0 {
+			lz = 0
 		}
 		var w float64
 		if p.Margin <= 0 {
-			if dx == 0 && dz == 0 {
+			if lx == 0 && lz == 0 {
 				w = 1
 			}
 		} else {
-			w = 1 - smoothstep(0, p.Margin, math.Hypot(dx, dz))
+			w = 1 - smoothstep(0, p.Margin, math.Hypot(lx, lz))
 		}
 		h += (p.Level - h) * w
 	}
@@ -305,9 +356,7 @@ func (t *Terrain) HasFootprint() bool {
 // Height returns the cached terrain height at world (x,z) via bilinear
 // interpolation (clamped to the footprint).
 func (t *Terrain) Height(x, z float64) float64 {
-	if t.hgrid == nil {
-		return t.heightAnalytic(x, z)
-	}
+	t.ensurePrepared()
 	fx := (x - t.OriginX) * t.invDx
 	fz := (z - t.OriginZ) * t.invDz
 	maxX := float64(t.gnx - 1)
@@ -601,6 +650,7 @@ func (t *Terrain) marchFine(r vec.Ray, tEnter, tExit float64, refine bool) float
 // Normal returns the surface normal from the cached normal grid (bilinearly
 // interpolated for smooth shading).
 func (t *Terrain) Normal(p vec.V) vec.V {
+	t.ensurePrepared()
 	if t.ngrid == nil {
 		const e = 0.05
 		hl := t.Height(p.X-e, p.Z)
@@ -732,3 +782,34 @@ func smoothstep(e0, e1, x float64) float64 {
 }
 
 func mixV(a, b vec.V, t float64) vec.V { return a.Add(b.Sub(a).Scale(t)) }
+
+// parallelRows splits [0,rows) across NumCPU goroutines and calls fn with each
+// contiguous row sub-range. Used while baking large terrain height/normal grids.
+func parallelRows(rows int, fn func(j0, j1 int)) {
+	workers := runtime.NumCPU()
+	if workers > rows {
+		workers = rows
+	}
+	if workers <= 1 {
+		fn(0, rows)
+		return
+	}
+	chunk := (rows + workers - 1) / workers
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		j0 := w * chunk
+		j1 := j0 + chunk
+		if j1 > rows {
+			j1 = rows
+		}
+		if j0 >= j1 {
+			break
+		}
+		wg.Add(1)
+		go func(j0, j1 int) {
+			defer wg.Done()
+			fn(j0, j1)
+		}(j0, j1)
+	}
+	wg.Wait()
+}

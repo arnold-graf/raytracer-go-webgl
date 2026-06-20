@@ -26,7 +26,7 @@
 [[terrain.pad]] # flat site under the villa (footprint ~15 × 13 m + margin)
 center = [0.0, 0.0]
 half = [8.5, 8.0]
-level = 0.0
+level = 3.0
 margin = 5.0
 
 # ============================================================ STONE PLINTH ====
@@ -554,15 +554,7 @@ file = "otto-wagner-sphere-lamp.toml"
 at = [0.5, 10, -0.5]
 params = { stem_len = 2.7, orb_radius = 0.4, brightness = 0.3, range = 7 }
 
-# [[light]] # ground floor hall (warm, range-limited)
-# color = [4.0, 3.2, 2.2]
-# pos = [0.0, 4.5, 1.0]
-# radius = 0.4
-# range = 14.0
-
-# [[light]] # second floor (dimmer)
-# brightness = 0.6
-# color = [3.0, 2.6, 2.0]
-# pos = [0.0, 8.5, 0.0]
-# radius = 0.35
-# range = 12.0
+[[include]]
+file = "simple-table.toml"
+at = [0.0, 1.25, 0.0]
+params = { width = 1.6, texture = "wood", albedo = [0.15, 0.12, 0.18] }

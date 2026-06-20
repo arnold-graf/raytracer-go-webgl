@@ -370,6 +370,10 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 		if !r.cache.fresh(v) {
 			r.cache.rebuild(v)
 			uploadStatic = true
+		} else if v.AOok && v.AOVersion != r.cache.aoVersion {
+			r.cache.ao, r.cache.aoOK = PackAOVolume(v)
+			r.cache.aoVersion = v.AOVersion
+			uploadStatic = true
 		}
 		timeSec = v.Time
 		shadows = v.Shadow

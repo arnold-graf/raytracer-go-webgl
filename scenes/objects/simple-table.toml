@@ -1,0 +1,55 @@
+# Simple rectangular table in local coordinates.
+#
+# Origin (0,0,0) is the centre of the footprint on the floor. The top surface
+# sits at y = height; four tapered legs sit inset from each corner.
+#
+# Parameterized via [[include]] params (all optional):
+#   width      table size in X and Z              (default 1.6)
+#   height     top-surface height above the floor (default 0.75)
+#   top        tabletop thickness                 (default 0.06)
+#   leg_radius leg thickness at the floor         (default 0.05)
+#   leg_radius_top  leg thickness under the top   (default 0.035)
+#   inset      leg inset from the outer edge      (default 0.1)
+#   texture, albedo, reflect, rough — surface overrides
+#
+#   [[include]]
+#   file = "objects/simple-table.toml"
+#   at = [0.0, 0.0, 0.0]
+#   params = { width = 1.6, height = 0.75, texture = "wood" }
+
+{{$width := or .width 1.6}}
+{{$height := or .height 0.9}}
+{{$top := or .top 0.06}}
+{{$legR := or .leg_radius 0.05}}
+{{$inset := or .inset 0.1}}
+{{$half := div $width 2}}
+{{$off := sub $half $inset}}
+{{$legH := sub $height $top}}
+{{$texture := or .texture "wood"}}
+{{$albedo := orVec3 .albedo 0.55 0.42 0.28}}
+{{$reflect := or .reflect 0.01}}
+{{$rough := or .rough 0.02}}
+
+[[box]] # tabletop
+min = [{{neg $half}}, {{$legH}}, {{neg $half}}]
+max = [{{$half}}, {{$height}}, {{$half}}]
+material = "diffuse"
+albedo = {{$albedo}}
+texture = "{{$texture}}"
+reflect = {{$reflect}}
+rough = {{$rough}}
+
+{{range $i := seq 4}}
+[[cylinder]] # leg {{$i}}
+cx = {{if lt $i 2}}{{$off}}{{else}}{{neg $off}}{{end}}
+cz = {{if or (eq $i 0) (eq $i 2)}}{{$off}}{{else}}{{neg $off}}{{end}}
+radius = {{$legR}}
+ymin = 0.0
+ymax = {{$legH}}
+material = "diffuse"
+albedo = {{$albedo}}
+texture = "{{$texture}}"
+reflect = {{$reflect}}
+rough = {{$rough}}
+
+{{end}}

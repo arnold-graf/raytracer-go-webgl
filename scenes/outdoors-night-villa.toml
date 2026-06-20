@@ -22,7 +22,7 @@ sun_dir = [1, -1.2, 0.90]
 sun_color = [0.16, 0.19, 0.27]
 
 [environment.sun]
-color = [0.4, 0.45, 1.5]   # disc radiance (>1 reads as bright/HDR)
+color = [0.4, 0.45, 1.5]     # disc radiance (>1 reads as bright/HDR)
 size  = 5.0                  # angular diameter in degrees
 glow  = 0.1                  # halo strength (omit/0 -> 1.0)
 
@@ -33,7 +33,7 @@ glow  = 0.1                  # halo strength (omit/0 -> 1.0)
 
 [[terrain]]
 origin = [-40.0, 0.0, -40.0]
-size = [200, 200]
+size = [400, 400]
 base = 0.0
 detail = 0.35           # fine fBm relief
 detail_scale = 0.12
@@ -89,12 +89,22 @@ snow_hi = 10.5
   width = 6.0
   steepness = 3.0
 
+# ================================================================ MOUNTAINS AT THE OTHER END OF THE VALLEY ====
+
+[[include]]
+file = "objects/mountains.toml"
+at = [0.0, 0.0, 200.0]
 
 # ================================================================ THE VILLA ====
 
 [[include]]
 file = "objects/art-nouveau-villa.toml"
-at = [0.0, 0.0, -10.0]
+at = [0.0, 0, -10.0]
+
+[[include]]
+file = "objects/art-nouveau-villa.toml"
+at = [50.0, 0.0, -10.0]
+rotate_y = -45.0
 
 
 # ----------------------------------------------------------------- water ----
@@ -102,8 +112,8 @@ at = [0.0, 0.0, -10.0]
 
 [[water]]
 pos = [0.0, 8.0]
-radius = 5.5
-level = -1.2
+radius = 7
+level = 1
 ripple = 0.05
 ripple_animation_speed = 0.6     # drift the waves over time (wind)
 ripple_direction = [1.0, 0.4]    # wind drift direction in x,z (optional)
@@ -235,10 +245,10 @@ albedo = [3.8, 2.6, 0.95]
 #   speed      - flicker speed multiplier
 #   seed       - phase offset (use different values for multiple fires)
 [[campfire]]
-center = [-6.0, 2, 5.0]
+center = [-6.0, 3, 5.0]
 color = [3.6, 1.7, 0.55]
 brightness = 1.0
-range = 16.0
+range = 25.0
 jitter = 0.4
 flicker = 0.45
 speed = 1.0

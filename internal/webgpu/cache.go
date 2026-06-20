@@ -35,6 +35,7 @@ type sceneCache struct {
 	holes            []GPUHole
 	ao               AOVolume
 	aoOK             bool
+	aoVersion        uint64
 }
 
 // fresh reports whether the cache already holds the static buffers for this
@@ -62,6 +63,7 @@ func (c *sceneCache) rebuild(v *render.View) {
 	c.campfireParams = PackCampfireParams(v.Scene)
 	c.holes = PackHoles(v.Scene)
 	c.ao, c.aoOK = PackAOVolume(v)
+	c.aoVersion = v.AOVersion
 
 	c.scene = v.Scene
 	c.gen = v.Scene.Generation()

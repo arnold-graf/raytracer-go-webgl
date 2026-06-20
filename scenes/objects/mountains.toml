@@ -1,0 +1,50 @@
+# Terrain sculpt features for reuse via [[include]].
+#
+# Stub [[terrain]] header is required so [[terrain.feature]] tables decode.
+# Features merge into the parent scene's height field (not a separate terrain
+# patch), placed by the include's at / rotate_y — same as terrain pads.
+#
+#   [[include]]
+#   file = "objects/mountains.toml"
+#   at = [120.0, 0.0, 80.0]
+#
+# Omit the valley feature below if you only want distant peaks (the valley
+# duplicates the pond basin when placed with a simple offset).
+
+[[terrain]]
+
+  [[terrain.feature]]   # snowy mountain (back-left)
+  kind = "peak"
+  pos = [-16.0, -24.0]
+  height = 50.0
+  width = 50.0
+  steepness = 1.0
+
+  [[terrain.feature]]   # mountain (back-right)
+  kind = "peak"
+  pos = [15.0, -26.0]
+  height = 40.0
+  width = 21.0
+  steepness = 2.0
+
+  [[terrain.feature]]   # long ridge across the back
+  kind = "peak"
+  pos = [0.0, -33.0]
+  height = 39.0
+  width = 34.0
+  steepness = 2.0
+  extend = [3.0, 1.0]
+
+  [[terrain.feature]]   # gentle foreground hill (left)
+  kind = "peak"
+  pos = [-24.0, -8.0]
+  height = 33.5
+  width = 33.0
+  steepness = 2.0
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [-18.0, -2.0]
+  height = 34
+  width = 20
+  steepness = 2.0

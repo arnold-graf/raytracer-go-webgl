@@ -131,6 +131,14 @@ func (x *Transform) Translation() vec.V {
 	return x.t
 }
 
+// YawRad returns the instance's rotation about +Y in radians (0 for nil/identity).
+func (x *Transform) YawRad() float64 {
+	if x == nil {
+		return 0
+	}
+	return math.Atan2(x.fwd[2], x.fwd[0])
+}
+
 // GPUData returns the rows of the world→local rotation (inv) together with the
 // world-space translation t, for uploading the transform to the GPU. A nil
 // transform reports the identity. The shader maps a world point to local space

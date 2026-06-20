@@ -50,6 +50,15 @@ func (s *Scene) Generation() uint64 { return s.gen }
 // only the dirty primitives instead of the whole scene.
 func (s *Scene) Touch() { s.gen++ }
 
+// PrepareTerrains bakes every height field's grid cache. Scene loaders call this
+// once after merging includes so pads/features do not trigger a full rebuild
+// per include.
+func (s *Scene) PrepareTerrains() {
+	for i := range s.Terrains {
+		s.Terrains[i].ensurePrepared()
+	}
+}
+
 // Sky variants. The zero value (SkyClear) reproduces the original clear-day
 // gradient + sun used by every existing scene.
 const (

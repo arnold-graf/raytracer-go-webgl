@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -37,6 +38,9 @@ type Game struct {
 	pb     *probe.Probe
 	aoData probe.AOData
 	aoOK   bool
+	aoMu   sync.Mutex
+	aoVer  uint64
+	aoBake uint64
 
 	// Feature toggles the renderer honors per frame (keys 1/2/3).
 	shadow bool
@@ -132,28 +136,51 @@ func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath s
 	return g
 }
 
-// setScene binds sc as the active world: it builds the acoustic probe, bakes the
-// ambient-occlusion volume up front (so the first frame and AO toggles are
-// instant), and points the camera's collision world at the new geometry. The
-// camera pose is left untouched so a hot-reload keeps the player in place.
+// setScene binds sc as the active world: it builds the acoustic probe, starts
+// an ambient-occlusion bake in the background (so the window can appear sooner),
+// and points the camera's collision world at the new geometry. The camera pose
+// is left untouched so a hot-reload keeps the player in place.
 func (g *Game) setScene(sc *scene.Scene) {
 	g.sc = sc
 	g.pb = probe.New(sc)
-	g.aoData, g.aoOK = g.pb.BakeAO()
 	g.cam.SetWorld(sc)
+	g.aoMu.Lock()
+	g.aoOK = false
+	g.aoData = probe.AOData{}
+	g.aoVer++
+	bakeGen := g.aoVer
+	g.aoBake = bakeGen
+	g.aoMu.Unlock()
+	go g.bakeAO(bakeGen)
+}
+
+func (g *Game) bakeAO(gen uint64) {
+	data, ok := g.pb.BakeAO()
+	g.aoMu.Lock()
+	defer g.aoMu.Unlock()
+	if gen != g.aoBake {
+		return
+	}
+	g.aoData = data
+	g.aoOK = ok
+	g.aoVer++
 }
 
 // view assembles the per-frame render state from the current scene, clock and
 // feature toggles.
 func (g *Game) view() *render.View {
+	g.aoMu.Lock()
+	aoData, aoOK, aoVer := g.aoData, g.aoOK, g.aoVer
+	g.aoMu.Unlock()
 	return &render.View{
 		Scene:  g.sc,
 		Time:   g.elapsed,
 		Shadow: g.shadow,
 		Mirror: g.mirror,
 		AO:     g.ao,
-		AOData: g.aoData,
-		AOok:   g.aoOK,
+		AOData: aoData,
+		AOok:   aoOK,
+		AOVersion: aoVer,
 	}
 }
 

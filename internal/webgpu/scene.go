@@ -31,7 +31,7 @@ const maxLights = 256
 
 const (
 	maxTerrains    = 8
-	maxTerrainVals = 1 << 20
+	maxTerrainVals = scene.MaxTerrainGridCells
 	maxWaters      = 64
 )
 

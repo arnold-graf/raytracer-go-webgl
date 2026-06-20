@@ -1,6 +1,10 @@
 package scene
 
-import "math"
+import (
+	"math"
+
+	"raytracer/internal/vec"
+)
 
 // GroundHeight returns the height of the highest walkable surface at (x,z) whose
 // top is at or below headY (so ceilings and overhangs are ignored). It accounts
@@ -20,14 +24,24 @@ func (s *Scene) GroundHeight(x, z, headY float64) float64 {
 
 	for i := range s.Boxes {
 		b := &s.Boxes[i]
-		mn, mx := b.WorldBounds()
-		if mx.Y <= headY && x >= mn.X && x <= mx.X && z >= mn.Z && z <= mx.Z {
-			// A hole that breaches the top face (a stairwell/trap opening) means
-			// there's no standing surface here, so the player falls through to
-			// whatever lies below.
-			if mx.Y > g && !b.TopOpenAt(x, z) {
-				g = mx.Y
-			}
+		_, mx := b.WorldBounds()
+		if mx.Y > headY {
+			continue
+		}
+		// For rotated floors the world AABB is loose; require the point to lie
+		// over the top face in the box's local frame.
+		p := vec.V{X: x, Y: b.Max.Y, Z: z}
+		if b.Xform != nil {
+			p = b.Xform.ToLocal(p)
+		}
+		if p.X < b.Min.X || p.X > b.Max.X || p.Z < b.Min.Z || p.Z > b.Max.Z {
+			continue
+		}
+		// A hole that breaches the top face (a stairwell/trap opening) means
+		// there's no standing surface here, so the player falls through to
+		// whatever lies below.
+		if mx.Y > g && !b.TopOpenAt(x, z) {
+			g = mx.Y
 		}
 	}
 
@@ -52,6 +66,9 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 			continue
 		}
 		if x > mn.X-radius && x < mx.X+radius && z > mn.Z-radius && z < mx.Z+radius {
+			if !b.blocksColumn(x, z, walkTop, headY, radius) {
+				continue
+			}
 			// A doorway/window cut into the wall (Box.Holes) lets the player
 			// pass when their body lines up with the opening.
 			if b.PassableThroughHole(x, z, walkTop, headY, radius) {
@@ -63,13 +80,27 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 
 	for i := range s.Cylinders {
 		c := &s.Cylinders[i]
-		if c.YMax <= walkTop || c.YMin >= headY {
+		mn, mx := c.WorldBounds()
+		if mx.Y <= walkTop || mn.Y >= headY {
 			continue
 		}
-		dx, dz := x-c.CX, z-c.CZ
-		rr := radius + c.MaxRadius()
-		if dx*dx+dz*dz < rr*rr {
-			return true
+		if x > mn.X-radius && x < mx.X+radius && z > mn.Z-radius && z < mx.Z+radius {
+			if c.blocksColumn(x, z, walkTop, headY, radius) {
+				return true
+			}
+		}
+	}
+
+	for i := range s.Cones {
+		co := &s.Cones[i]
+		mn, mx := co.WorldBounds()
+		if mx.Y <= walkTop || mn.Y >= headY {
+			continue
+		}
+		if x > mn.X-radius && x < mx.X+radius && z > mn.Z-radius && z < mx.Z+radius {
+			if co.blocksColumn(x, z, walkTop, headY, radius) {
+				return true
+			}
 		}
 	}
 
@@ -80,12 +111,16 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 		if sp.Mat == MatEmit {
 			continue
 		}
-		bottom := sp.Center.Y - sp.Radius
-		top := sp.Center.Y + sp.Radius
+		center := sp.Center
+		if sp.Xform != nil {
+			center = sp.Xform.ToWorld(center)
+		}
+		bottom := center.Y - sp.Radius
+		top := center.Y + sp.Radius
 		if top <= walkTop || bottom >= headY || bottom > walkTop {
 			continue
 		}
-		dx, dz := x-sp.Center.X, z-sp.Center.Z
+		dx, dz := x-center.X, z-center.Z
 		rr := radius + sp.Radius
 		if dx*dx+dz*dz < rr*rr {
 			return true
