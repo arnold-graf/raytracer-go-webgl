@@ -117,7 +117,8 @@ level = 1
 ripple = 0.05
 ripple_animation_speed = 0.6     # drift the waves over time (wind)
 ripple_direction = [1.0, 0.4]    # wind drift direction in x,z (optional)
-material = "mirror"
+material = "glass"
+ior = 5
 albedo = [0.55, 0.70, 0.85]
 
 # ------------------------------------------------------------------ trees ----

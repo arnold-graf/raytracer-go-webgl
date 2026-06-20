@@ -94,9 +94,10 @@ width = 6.0
 [[water]]
 albedo = [0.55, 0.70, 0.85]
 level = -1.2
-material = "mirror"
+material = "glass"
+ior = 3
 pos = [0.0, 8.0]
-radius = 5.5
+radius = 8
 ripple = 0.05
 ripple_animation_speed = 0.6
 ripple_direction = [1.0, 0.4]
