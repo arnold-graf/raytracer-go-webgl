@@ -46,6 +46,11 @@ struct Params {
     body_glow: f32,
     body_dir: vec4<f32>,
     body_color: vec4<f32>,
+    // color_quant: 0 = 8-bit dither only, 1 = 15-bit (5-5-5), 2 = 256-color (3-3-2).
+    color_quant: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 };
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).
@@ -1979,11 +1984,20 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
     return accum;
 }
 
-// pack_channel applies the ordered-dither offset, then clamps and truncates to
-// an 8-bit channel value: clamp(col*255 + bdt, 0, 255).
-fn pack_channel(c: f32, bdt: f32) -> u32 {
-    let v = clamp(c * 255.0 + bdt, 0.0, 255.0);
-    return u32(floor(v));
+// quantize_rgb reduces dithered 0..255 RGB to a retro color depth. mode 1 is
+// classic 15-bit (5-5-5, 32768 colors); mode 2 is the PC 256-color cube (3-3-2).
+fn quantize_rgb(rgb: vec3<f32>, mode: u32) -> vec3<f32> {
+    if mode == 0u {
+        return rgb;
+    }
+    if mode == 1u {
+        let q = floor(rgb * 31.0 / 255.0 + 0.5);
+        return q * (255.0 / 31.0);
+    }
+    let rq = floor(rgb.x * 7.0 / 255.0 + 0.5);
+    let gq = floor(rgb.y * 7.0 / 255.0 + 0.5);
+    let bq = floor(rgb.z * 3.0 / 255.0 + 0.5);
+    return vec3(rq * (255.0 / 7.0), gq * (255.0 / 7.0), bq * (255.0 / 3.0));
 }
 
 @compute @workgroup_size(8, 8, 1)
@@ -2012,9 +2026,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     );
     let bayer_idx = (gid.y & 3u) * 4u + (gid.x & 3u);
     let bdt = (f32(bayer[bayer_idx]) / 16.0 - 0.5) * 6.0;
-    let r = pack_channel(col.x, bdt);
-    let g = pack_channel(col.y, bdt);
-    let b = pack_channel(col.z, bdt);
+    var rgb = clamp(col * 255.0 + vec3(bdt), vec3(0.0), vec3(255.0));
+    rgb = quantize_rgb(rgb, params.color_quant);
+    let r = u32(floor(rgb.x));
+    let g = u32(floor(rgb.y));
+    let b = u32(floor(rgb.z));
     let a = 255u;
 
     // Host reads little-endian bytes as RGBA.

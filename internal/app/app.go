@@ -42,10 +42,12 @@ type Game struct {
 	aoVer  uint64
 	aoBake uint64
 
-	// Feature toggles the renderer honors per frame (keys 1/2/3).
+	// Feature toggles the renderer honors per frame (keys 1/2/3/5).
 	shadow bool
 	mirror bool
 	ao     bool
+	// colorQuant: 0 = 8-bit (default), 1 = 15-bit, 2 = 256-color 3-3-2. Key 5 cycles.
+	colorQuant uint32
 
 	buf   []byte
 	frame *ebiten.Image
@@ -107,6 +109,7 @@ func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath s
 		shadow:     true,
 		mirror:     true,
 		ao:         true,
+		colorQuant: 0,
 		buf:        make([]byte, rw*rh*4),
 		frame:      ebiten.NewImage(rw, rh),
 		pixSize:    1,
@@ -173,14 +176,15 @@ func (g *Game) view() *render.View {
 	aoData, aoOK, aoVer := g.aoData, g.aoOK, g.aoVer
 	g.aoMu.Unlock()
 	return &render.View{
-		Scene:  g.sc,
-		Time:   g.elapsed,
-		Shadow: g.shadow,
-		Mirror: g.mirror,
-		AO:     g.ao,
-		AOData: aoData,
-		AOok:   aoOK,
-		AOVersion: aoVer,
+		Scene:       g.sc,
+		Time:        g.elapsed,
+		Shadow:      g.shadow,
+		Mirror:      g.mirror,
+		AO:          g.ao,
+		AOData:      aoData,
+		AOok:        aoOK,
+		AOVersion:   aoVer,
+		ColorQuant:  g.colorQuant,
 	}
 }
 
@@ -637,6 +641,9 @@ func (g *Game) handleToggles() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit4) {
 		g.cam.NoClip = !g.cam.NoClip
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyDigit5) {
+		g.colorQuant = (g.colorQuant + 1) % 3
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit0) {
 		g.hudHidden = !g.hudHidden
 	}
@@ -693,8 +700,8 @@ func (g *Game) backendName() string {
 
 func (g *Game) statusLine() string {
 	if g.locked {
-		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s px[-/+]:%d  HUD[0]  ESC release",
-			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), g.pixSize)
+		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s px[-/+]:%d  HUD[0]  ESC release",
+			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), g.pixSize)
 	}
 	return "click to capture mouse"
 }
@@ -708,6 +715,19 @@ func onOff(b bool) string {
 		return "on"
 	}
 	return "off"
+}
+
+func quantLabel(q uint32) string {
+	switch q {
+	case 0:
+		return "8bit"
+	case 1:
+		return "15bit"
+	case 2:
+		return "256"
+	default:
+		return "?"
+	}
 }
 
 // Layout fixes the logical screen to the internal render resolution; Ebiten

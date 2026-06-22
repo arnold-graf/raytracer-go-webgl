@@ -28,6 +28,9 @@ type View struct {
 	AOData    probe.AOData
 	AOok      bool
 	AOVersion uint64 // bumps when AOData is replaced (e.g. after an async bake)
+
+	// ColorQuant selects the post-dither color depth: 0 = 8-bit, 1 = 15-bit, 2 = 256 (3-3-2).
+	ColorQuant uint32
 }
 
 // Renderer is the drawing backend the app depends on. Render fills buf

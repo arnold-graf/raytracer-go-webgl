@@ -396,6 +396,7 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 		terrains: c.terrains, samples: c.samples, waters: c.waters,
 		campfireParams: c.campfireParams, holes: c.holes, ao: c.ao, aoOK: c.aoOK && aoEnabled,
 		shadows: shadows, mirror: mirror, timeSec: timeSec, sky: sky,
+		colorQuant: v.ColorQuant,
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
 		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
 		uploadStatic: uploadStatic,
@@ -447,6 +448,7 @@ type renderParams struct {
 	bodyColor     vec.V
 	bodyCosRadius float32
 	bodyGlow      float32
+	colorQuant    uint32
 	// uploadStatic is set when the cached scene buffers changed this frame and
 	// must be re-sent to the GPU. When false, render() uploads only the per-frame
 	// params; the static SSBOs already hold the right data.
@@ -630,6 +632,7 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams) [paramsSize]b
 	putF32(out[188:192], p.bodyGlow)
 	putVec4(out[192:208], p.bodyDir)
 	putVec4(out[208:224], p.bodyColor)
+	putU32(out[224:228], p.colorQuant)
 	return out
 }
 
