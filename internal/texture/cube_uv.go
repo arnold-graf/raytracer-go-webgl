@@ -30,7 +30,13 @@ func CubeRoomUV(p, n vec.V) (u, v float64) {
 		}
 	default:
 		u = (p.X - CubeX0) / (CubeX1 - CubeX0)
-		v = (p.Z - CubeZ0) / (CubeZ1 - CubeZ0)
+		vz := (p.Z - CubeZ0) / (CubeZ1 - CubeZ0)
+		u = clampCapture01(u)
+		if n.Y > 0 {
+			// Floor (+Y): v increases with +Z to match right wall and capture_down.
+			return u, clampCapture01(vz)
+		}
+		v = vz
 	}
 	u = clampCapture01(u)
 	v = clampCapture01(1 - v)

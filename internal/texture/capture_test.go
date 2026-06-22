@@ -67,6 +67,16 @@ func TestCubeRoomUVSharedEdges(t *testing.T) {
 	}
 }
 
+func TestCubeRoomUVFloorRightWallEdge(t *testing.T) {
+	// Front (−Z) on the floor should match the right wall (−X) at the shared edge.
+	pt := vec.New(texture.CubeX1, 0.25, texture.CubeZ0)
+	_, vFloor := texture.CubeRoomUV(pt, vec.New(0, 1, 0))
+	uRight, _ := texture.CubeRoomUV(pt, vec.New(-1, 0, 0))
+	if math.Abs(vFloor-uRight) > 1e-9 {
+		t.Fatalf("floor v=%v right u=%v at shared corner", vFloor, uRight)
+	}
+}
+
 func TestCubeRoomUVLeftWallForwardCorner(t *testing.T) {
 	// Forward (−Z) on the left wall is u=1 (viewer right when facing the wall).
 	pt := vec.New(texture.CubeX0, 1.5, texture.CubeZ0)

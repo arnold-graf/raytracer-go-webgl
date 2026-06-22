@@ -663,7 +663,11 @@ fn capture_room_uv(p: vec3<f32>, n: vec3<f32>) -> vec2<f32> {
         // Floor (+Y) / ceiling (−Y): u = X, v = Z
         u = (p.x - CUBE_X0) / (CUBE_X1 - CUBE_X0);
         v = (p.z - CUBE_Z0) / (CUBE_Z1 - CUBE_Z0);
-        // Both faces: +X is to the viewer's right (same as floor when looking down).
+        if (n.y > 0.0) {
+            // Floor: v increases with +Z (matches right wall and capture_down).
+            return vec2(clamp(u, 0.0, 1.0), clamp(v, 0.0, 1.0));
+        }
+        // Ceiling: v=0 at +Z (same convention as wall v from Y).
     }
     return vec2(clamp(u, 0.0, 1.0), clamp(1.0 - v, 0.0, 1.0));
 }
