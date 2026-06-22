@@ -94,6 +94,14 @@ type Game struct {
 	reverbWetR float64
 	reverbFb   float64
 	reverbDamp float64
+
+	// Interaction hint shown when near an interactable object.
+	activeHint string
+	// Screen fade during portal transitions (0 = clear, 1 = black).
+	fadeAlpha        float64
+	fadeTarget       float64
+	transitionActive bool
+	portalPhase      portalPhase
 }
 
 // New builds a game with the given internal render resolution rendering the
@@ -424,24 +432,30 @@ func (g *Game) Update() error {
 		g.prevCX, g.prevCY = cx, cy
 	}
 
-	// Fixed-step dt matching the original (clamped to 0.1 of a 60 Hz frame).
-	const dt = 0.1
-	mv := camera.Move{
-		Forward: ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyArrowUp),
-		Back:    ebiten.IsKeyPressed(ebiten.KeyS) || ebiten.IsKeyPressed(ebiten.KeyArrowDown),
-		Left:    ebiten.IsKeyPressed(ebiten.KeyA) || ebiten.IsKeyPressed(ebiten.KeyArrowLeft),
-		Right:   ebiten.IsKeyPressed(ebiten.KeyD) || ebiten.IsKeyPressed(ebiten.KeyArrowRight),
-		Jump:    ebiten.IsKeyPressed(ebiten.KeySpace),
-		Sprint:  ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight),
-		Crouch:  ebiten.IsKeyPressed(ebiten.KeyC),
-	}
-	g.applyGamepad(&mv)
-	g.cam.Update(mv, dt)
+	if !g.transitionActive {
+		// Fixed-step dt matching the original (clamped to 0.1 of a 60 Hz frame).
+		const dt = 0.1
+		mv := camera.Move{
+			Forward: ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyArrowUp),
+			Back:    ebiten.IsKeyPressed(ebiten.KeyS) || ebiten.IsKeyPressed(ebiten.KeyArrowDown),
+			Left:    ebiten.IsKeyPressed(ebiten.KeyA) || ebiten.IsKeyPressed(ebiten.KeyArrowLeft),
+			Right:   ebiten.IsKeyPressed(ebiten.KeyD) || ebiten.IsKeyPressed(ebiten.KeyArrowRight),
+			Jump:    ebiten.IsKeyPressed(ebiten.KeySpace),
+			Sprint:  ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight),
+			Crouch:  ebiten.IsKeyPressed(ebiten.KeyC),
+		}
+		g.applyGamepad(&mv)
+		g.cam.Update(mv, dt)
 
-	// Footsteps, room reverb, and spatial ambients derive from the post-move state.
-	g.updateReverb()
-	g.updateAmbience()
-	g.updateFootsteps()
+		// Footsteps, room reverb, and spatial ambients derive from the post-move state.
+		g.updateReverb()
+		g.updateAmbience()
+		g.updateFootsteps()
+
+		g.handleInteract()
+	}
+	g.updateFade()
+	g.updatePortalTransition()
 
 	// Advance the animation clock (Update runs at a fixed 60 Hz). view() reads
 	// it each frame, so there is nothing else to push.
@@ -683,6 +697,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 		ebitenutil.DebugPrintAt(screen, g.helpLine(), 4, g.rh-14)
 	}
+
+	g.drawInteractHint(screen)
+	g.drawFade(screen)
 
 	// Briefly surface the result of a hot-reload (kept even when the HUD is off).
 	if g.reloadMsg != "" && time.Since(g.reloadMsgAt) < 3*time.Second {

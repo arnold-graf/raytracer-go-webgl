@@ -48,9 +48,9 @@ struct Params {
     body_color: vec4<f32>,
     // color_quant: 0 = 8-bit dither only, 1 = 15-bit (5-5-5), 2 = 256-color (3-3-2).
     color_quant: u32,
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
+    capture_loaded: u32,
+    capture_w: u32,
+    capture_h: u32,
 };
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).
@@ -158,6 +158,9 @@ var<storage, read> campfires: array<CampfireParams>;
 @group(0) @binding(12)
 var<storage, read> holes: array<Hole>;
 
+@group(0) @binding(13)
+var<storage, read> capture_pixels: array<u32>;
+
 const PRIM_FLAG_TRANSFORMED: u32 = 1u;
 
 const PRIM_SPHERE: u32 = 0u;
@@ -193,6 +196,8 @@ const TEX_WALLPAPER_NAVY: u32 = 9u;
 const TEX_WALLPAPER_GREEN: u32 = 10u;
 const TEX_WALLPAPER_ROSE: u32 = 11u;
 const TEX_STONE_WALL: u32 = 12u;
+const TEX_CAPTURE_BASE: u32 = 50u;
+const TEX_CAPTURE_COUNT: u32 = 5u;
 
 const RAY_EPSILON: f32 = 1e-4;
 const SURFACE_EPSILON: f32 = 5e-4;
@@ -622,6 +627,70 @@ fn texture_eval(tex: u32, p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f
     if (tex == TEX_SNOW) { return tex_snow(p, tint); }
     if (tex == TEX_STONE_WALL) { return tex_stone_wall(p, n, tint); }
     return tex_wallpaper(p, tint, tex);
+}
+
+fn is_capture(tex: u32) -> bool {
+    return tex >= TEX_CAPTURE_BASE && tex < TEX_CAPTURE_BASE + TEX_CAPTURE_COUNT;
+}
+
+// Cube interior bounds — keep in sync with texture.Cube* in cube_uv.go.
+const CUBE_X0: f32 = -1.0;
+const CUBE_X1: f32 = 4.0;
+const CUBE_Y0: f32 = -1.0;
+const CUBE_Y1: f32 = 4.0;
+const CUBE_Z0: f32 = -1.0;
+const CUBE_Z1: f32 = 4.0;
+
+fn capture_room_uv(p: vec3<f32>, n: vec3<f32>) -> vec2<f32> {
+    let an = abs(n);
+    var u = 0.0;
+    var v = 0.0;
+    if (an.z >= an.x && an.z >= an.y) {
+        // Front (+Z) / back (−Z) walls: u = X, v = Y
+        u = (p.x - CUBE_X0) / (CUBE_X1 - CUBE_X0);
+        v = (p.y - CUBE_Y0) / (CUBE_Y1 - CUBE_Y0);
+        // +Z interior faces the viewer (−Z); image u follows +X to the right.
+    } else if (an.x >= an.y) {
+        // Left (+X) / right (−X) walls: u = Z, v = Y
+        u = (p.z - CUBE_Z0) / (CUBE_Z1 - CUBE_Z0);
+        v = (p.y - CUBE_Y0) / (CUBE_Y1 - CUBE_Y0);
+        if (n.x > 0.0) {
+            // Left wall: −Z (forward) is to the viewer's right → flip u.
+            u = 1.0 - u;
+        }
+        // Right wall (−X): +Z is to the viewer's right, u increases with z.
+    } else {
+        // Floor (+Y) / ceiling (−Y): u = X, v = Z
+        u = (p.x - CUBE_X0) / (CUBE_X1 - CUBE_X0);
+        v = (p.z - CUBE_Z0) / (CUBE_Z1 - CUBE_Z0);
+        // Both faces: +X is to the viewer's right (same as floor when looking down).
+    }
+    return vec2(clamp(u, 0.0, 1.0), clamp(1.0 - v, 0.0, 1.0));
+}
+
+fn sample_capture(tex: u32, u: f32, v: f32, tint: vec3<f32>) -> vec3<f32> {
+    if (params.capture_loaded == 0u) {
+        return tint;
+    }
+    let w = params.capture_w;
+    let h = params.capture_h;
+    if (w == 0u || h == 0u) {
+        return tint;
+    }
+    let slot = tex - TEX_CAPTURE_BASE;
+    let xi = min(u32(u * f32(w)), w - 1u);
+    let yi = min(u32(v * f32(h)), h - 1u);
+    let idx = slot * w * h + yi * w + xi;
+    let px = capture_pixels[idx];
+    let r = f32(px & 255u) / 255.0;
+    let g = f32((px >> 8u) & 255u) / 255.0;
+    let b = f32((px >> 16u) & 255u) / 255.0;
+    return vec3(r * tint.x, g * tint.y, b * tint.z);
+}
+
+fn texture_eval_capture(tex: u32, lp: vec3<f32>, ln: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
+    let uv = capture_room_uv(lp, ln);
+    return sample_capture(tex, uv.x, uv.y, tint);
 }
 
 // plane_albedo applies the analytic checker pattern (matching Plane.AlbedoAt)
@@ -1888,7 +1957,11 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
                 n = normal_at(p, hp);
                 tex_n = n;
             }
-            alb = texture_eval(p.info.z, tex_p, tex_n, plane_albedo(p, hp));
+            if (is_capture(p.info.z) && p.info.x == PRIM_BOX) {
+                alb = texture_eval_capture(p.info.z, tex_p, tex_n, p.albedo.xyz);
+            } else {
+                alb = texture_eval(p.info.z, tex_p, tex_n, plane_albedo(p, hp));
+            }
         } else if (hit.kind == 1u) {
             mat = MAT_DIFFUSE;
             n = terrain_normal(hit.idx, hp);
@@ -1987,6 +2060,9 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
 // quantize_rgb reduces dithered 0..255 RGB to a retro color depth. mode 1 is
 // classic 15-bit (5-5-5, 32768 colors); mode 2 is the PC 256-color cube (3-3-2).
 fn quantize_rgb(rgb: vec3<f32>, mode: u32) -> vec3<f32> {
+    if mode == 3u {
+        return rgb;
+    }
     if mode == 0u {
         return rgb;
     }
@@ -2025,8 +2101,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         15u, 7u, 13u, 5u,
     );
     let bayer_idx = (gid.y & 3u) * 4u + (gid.x & 3u);
-    let bdt = (f32(bayer[bayer_idx]) / 16.0 - 0.5) * 6.0;
-    var rgb = clamp(col * 255.0 + vec3(bdt), vec3(0.0), vec3(255.0));
+    var rgb: vec3<f32>;
+    if (params.color_quant == 3u) {
+        rgb = clamp(col * 255.0, vec3(0.0), vec3(255.0));
+    } else {
+        let bdt = (f32(bayer[bayer_idx]) / 16.0 - 0.5) * 6.0;
+        rgb = clamp(col * 255.0 + vec3(bdt), vec3(0.0), vec3(255.0));
+    }
     rgb = quantize_rgb(rgb, params.color_quant);
     let r = u32(floor(rgb.x));
     let g = u32(floor(rgb.y));

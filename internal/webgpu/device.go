@@ -12,6 +12,7 @@ import (
 
 	"raytracer/internal/camera"
 	"raytracer/internal/render"
+	"raytracer/internal/texture"
 	"raytracer/internal/vec"
 
 	"github.com/rajveermalviya/go-webgpu/wgpu"
@@ -24,11 +25,23 @@ const (
 	fovScale    = 0.5773502691896257 // tan(60deg / 2)
 	paramsSize  = 256
 	workgroupXY = 8
+	// Five square portal captures at the renderer's max dimension (512×512 each).
+	maxCaptureDim = 512
 
 	// ambientFlat is the CPU shade()'s flat-ambient term used when a scene has
 	// no hemispheric sky/ground ambient: lit = albedo * 0.04.
 	ambientFlat = 0.04
 )
+
+func maxCapturePixels(maxDim int) int {
+	if maxDim <= 0 {
+		maxDim = maxCaptureDim
+	}
+	if maxDim > maxCaptureDim {
+		maxDim = maxCaptureDim
+	}
+	return maxDim * maxDim * 5
+}
 
 // Renderer is the early WebGPU backend: it dispatches a compute shader into a
 // storage buffer, reads that buffer back, and lets the existing Ebiten app blit
@@ -36,6 +49,9 @@ const (
 // will present directly to a surface once parity is useful.
 type Renderer struct {
 	w, h int
+	// maxDim is max(w,h); output/read buffers are sized for maxDim² so square
+	// portal captures can render at 1:1 aspect without a separate allocation.
+	maxDim int
 
 	instance *wgpu.Instance
 	adapter  *wgpu.Adapter
@@ -54,6 +70,7 @@ type Renderer struct {
 	aoVolume  *wgpu.Buffer
 	campfires *wgpu.Buffer
 	holes     *wgpu.Buffer
+	captures  *wgpu.Buffer
 	output    *wgpu.Buffer
 	read      *wgpu.Buffer
 	pipeline  *wgpu.ComputePipeline
@@ -61,6 +78,12 @@ type Renderer struct {
 
 	cache  sceneCache  // memoized static scene buffers (see cache.go)
 	timing FrameTiming // phase breakdown of the most recent Render (see profile.go)
+
+	captureVer    uint64
+	captureW      int
+	captureH      int
+	captureLoaded bool
+	captureBytes  uint64 // GPU buffer size for five square captures
 }
 
 // New initializes WebGPU and compiles the skeleton sky compute pipeline.
@@ -68,7 +91,11 @@ func New(w, h int) (*Renderer, error) {
 	if w <= 0 || h <= 0 {
 		return nil, fmt.Errorf("invalid render size %dx%d", w, h)
 	}
-	r := &Renderer{w: w, h: h}
+	r := &Renderer{w: w, h: h, maxDim: w}
+	if h > r.maxDim {
+		r.maxDim = h
+	}
+	r.captureBytes = uint64(maxCapturePixels(r.maxDim) * 4)
 	if err := r.init(); err != nil {
 		r.Release()
 		return nil, err
@@ -99,7 +126,7 @@ func (r *Renderer) init() error {
 	}
 	r.queue = r.device.GetQueue()
 
-	size := uint64(r.w * r.h * 4)
+	size := uint64(r.maxDim * r.maxDim * 4)
 	r.params, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "trace params",
 		Usage: wgpu.BufferUsage_Uniform | wgpu.BufferUsage_CopyDst,
@@ -196,6 +223,14 @@ func (r *Renderer) init() error {
 	if err != nil {
 		return fmt.Errorf("create holes buffer: %w", err)
 	}
+	r.captures, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "capture pixels",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  r.captureBytes,
+	})
+	if err != nil {
+		return fmt.Errorf("create captures buffer: %w", err)
+	}
 	// The permutation table is constant, so upload it once up front.
 	if err := r.queue.WriteBuffer(r.perm, 0, u32Bytes(PackPerm())); err != nil {
 		return fmt.Errorf("upload perm table: %w", err)
@@ -284,6 +319,7 @@ func (r *Renderer) init() error {
 			{Binding: 10, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 			{Binding: 11, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: campfireStride}},
 			{Binding: 12, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: holeStride}},
+			{Binding: 13, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 		},
 	})
 	if err != nil {
@@ -329,6 +365,7 @@ func (r *Renderer) init() error {
 			{Binding: 10, Buffer: r.aoVolume, Size: maxAOFloats * 4},
 			{Binding: 11, Buffer: r.campfires, Size: maxCampfires * campfireStride},
 			{Binding: 12, Buffer: r.holes, Size: maxHoles * holeStride},
+			{Binding: 13, Buffer: r.captures, Size: r.captureBytes},
 		},
 	})
 	if err != nil {
@@ -348,6 +385,43 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 	if cam == nil {
 		return
 	}
+	packStart := time.Now()
+	rp := r.buildRenderParams(v)
+	r.timing = FrameTiming{
+		Pack:     time.Since(packStart),
+		Prims:    len(rp.prims),
+		Blockers: len(rp.blockers),
+		BVHNodes: len(rp.bvhNodes),
+		Holes:    len(rp.holes),
+	}
+	if err := r.render(buf[:r.w*r.h*4], cam, rp, r.w, r.h); err != nil {
+		for i := 0; i < r.w*r.h; i++ {
+			o := i * 4
+			buf[o], buf[o+1], buf[o+2], buf[o+3] = 255, 0, 255, 255
+		}
+	}
+}
+
+// RenderSquare fills buf (len ≥ size²×4) with a square 1:1-aspect frame. Used
+// for portal capture textures mapped onto the cube's square walls.
+func (r *Renderer) RenderSquare(buf []byte, size int, cam *camera.Camera, v *render.View) {
+	if size <= 0 || size > r.maxDim || len(buf) < size*size*4 {
+		return
+	}
+	if cam == nil {
+		return
+	}
+	rp := r.buildRenderParams(v)
+	if err := r.render(buf[:size*size*4], cam, rp, size, size); err != nil {
+		for i := 0; i < size*size; i++ {
+			o := i * 4
+			buf[o], buf[o+1], buf[o+2], buf[o+3] = 0x20, 0x20, 0x30, 0xff
+		}
+	}
+}
+
+func (r *Renderer) buildRenderParams(v *render.View) renderParams {
+	uploadStatic := false
 	timeSec := 0.0
 	shadows := false
 	mirror := false
@@ -360,12 +434,6 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 		bodyCosRadius float32
 		bodyGlow      float32
 	)
-	// Static buffers (geometry, BVH, terrain, lights, holes, campfire params, AO)
-	// are packed only when the scene changes; uploadStatic tells render() whether
-	// they need to be re-sent to the GPU this frame. Campfire parameters are
-	// static — the shader resolves per-frame flicker from these constant values.
-	uploadStatic := false
-	packStart := time.Now()
 	if v != nil && v.Scene != nil {
 		if !r.cache.fresh(v) {
 			r.cache.rebuild(v)
@@ -382,9 +450,9 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 		sky = v.Scene.Env.Sky
 		if env := v.Scene.Env; env.Sun.Visible() && env.SunDir != (vec.V{}) {
 			bodyEnabled = true
-			bodyDir = env.SunDir.Scale(-1).Normalize() // body sits where the light comes from
+			bodyDir = env.SunDir.Scale(-1).Normalize()
 			bodyColor = env.Sun.Color
-			radius := env.Sun.Size * 0.5 * math.Pi / 180.0 // diameter (deg) -> radius (rad)
+			radius := env.Sun.Size * 0.5 * math.Pi / 180.0
 			bodyCosRadius = float32(math.Cos(radius))
 			bodyGlow = float32(env.Sun.Glow)
 		}
@@ -396,29 +464,29 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 		terrains: c.terrains, samples: c.samples, waters: c.waters,
 		campfireParams: c.campfireParams, holes: c.holes, ao: c.ao, aoOK: c.aoOK && aoEnabled,
 		shadows: shadows, mirror: mirror, timeSec: timeSec, sky: sky,
-		colorQuant: v.ColorQuant,
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
 		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
 		uploadStatic: uploadStatic,
 	}
+	if v != nil {
+		rp.colorQuant = v.ColorQuant
+	}
 	if v == nil || v.Scene == nil {
 		rp = renderParams{}
 	}
-	r.timing = FrameTiming{
-		Pack:     time.Since(packStart),
-		Prims:    len(rp.prims),
-		Blockers: len(rp.blockers),
-		BVHNodes: len(rp.bvhNodes),
-		Holes:    len(rp.holes),
-	}
-	if err := r.render(buf[:r.w*r.h*4], cam, rp); err != nil {
-		// Keep the app alive if WebGPU has a transient validation/device issue.
-		// Fill magenta so a broken backend is unmistakable.
-		for i := 0; i < r.w*r.h; i++ {
-			o := i * 4
-			buf[o], buf[o+1], buf[o+2], buf[o+3] = 255, 0, 255, 255
+	if ver := texture.CaptureGPUVersion(); ver != r.captureVer {
+		r.captureLoaded = false
+		if w, h, px, ok := texture.PackCapturesGPU(); ok && len(px)*4 <= int(r.captureBytes) {
+			r.captureW, r.captureH = w, h
+			if err := r.queue.WriteBuffer(r.captures, 0, u32Bytes(px)); err == nil {
+				r.captureLoaded = true
+			}
+		} else {
+			r.captureW, r.captureH = 0, 0
 		}
+		r.captureVer = ver
 	}
+	return rp
 }
 
 // renderParams bundles one frame's packed scene buffers, keeping render's
@@ -455,10 +523,10 @@ type renderParams struct {
 	uploadStatic bool
 }
 
-func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams) error {
+func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh int) error {
 	frameStart := time.Now()
 	uploadStart := time.Now()
-	params := r.paramsBytes(cam, p)
+	params := r.paramsBytes(cam, p, fw, fh)
 	if err := r.queue.WriteBuffer(r.params, 0, params[:]); err != nil {
 		return err
 	}
@@ -531,14 +599,14 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams) error 
 	pass := encoder.BeginComputePass(&wgpu.ComputePassDescriptor{Label: "trace pass"})
 	pass.SetPipeline(r.pipeline)
 	pass.SetBindGroup(0, r.bind, nil)
-	pass.DispatchWorkgroups(uint32((r.w+workgroupXY-1)/workgroupXY), uint32((r.h+workgroupXY-1)/workgroupXY), 1)
+	pass.DispatchWorkgroups(uint32((fw+workgroupXY-1)/workgroupXY), uint32((fh+workgroupXY-1)/workgroupXY), 1)
 	if err := pass.End(); err != nil {
 		pass.Release()
 		return err
 	}
 	pass.Release()
 
-	size := uint64(r.w * r.h * 4)
+	size := uint64(fw * fh * 4)
 	if err := encoder.CopyBufferToBuffer(r.output, 0, r.read, 0, size); err != nil {
 		return err
 	}
@@ -582,11 +650,11 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams) error 
 	return nil
 }
 
-func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams) [paramsSize]byte {
+func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [paramsSize]byte {
 	fwd, right, up := cam.Basis()
 	var out [paramsSize]byte
-	putU32(out[0:4], uint32(r.w))
-	putU32(out[4:8], uint32(r.h))
+	putU32(out[0:4], uint32(fw))
+	putU32(out[4:8], uint32(fh))
 	putU32(out[8:12], uint32(len(p.prims)))
 	putU32(out[12:16], uint32(len(p.lights)))
 	putU32(out[16:20], uint32(len(p.blockers)))
@@ -599,7 +667,7 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams) [paramsSize]b
 	putU32(out[36:40], uint32(len(p.waters)))
 	putF32(out[40:44], float32(p.timeSec))
 	// out[44:48] padding
-	putF32(out[48:52], float32(float64(r.w)/float64(r.h)))
+	putF32(out[48:52], float32(float64(fw)/float64(fh)))
 	putF32(out[52:56], float32(fovScale))
 	putF32(out[56:60], float32(ambientFlat))
 	if p.mirror {
@@ -633,6 +701,11 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams) [paramsSize]b
 	putVec4(out[192:208], p.bodyDir)
 	putVec4(out[208:224], p.bodyColor)
 	putU32(out[224:228], p.colorQuant)
+	if r.captureLoaded {
+		putU32(out[228:232], 1)
+		putU32(out[232:236], uint32(r.captureW))
+		putU32(out[236:240], uint32(r.captureH))
+	}
 	return out
 }
 
@@ -667,6 +740,9 @@ func (r *Renderer) Release() {
 	}
 	if r.holes != nil {
 		r.holes.Release()
+	}
+	if r.captures != nil {
+		r.captures.Release()
 	}
 	if r.campfires != nil {
 		r.campfires.Release()

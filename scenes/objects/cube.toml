@@ -1,11 +1,11 @@
-# The Cube is a 5x5x0.5 cube. The center of the cube is at the origin. In the
-# game, it acts as a Virtual Reality space. Textures are projected onto the
-# walls.
+# The Cube is a 5x5x0.5 room. Origin is the footprint center. Interior walls
+# display the five captured views (forward, left, right, up, down).
 
-
-# Front wall
+# Front wall (interior face +Z at z = -0.5)
 [[box]]
 material = "diffuse"
+reflect = 0.05
+rough = 0.05
 pos_x = -1
 pos_y = -1
 pos_z = -1
@@ -13,10 +13,21 @@ width = 5
 height = 5
 depth = 0.5
 albedo = [1, 1, 1]
+texture = "capture_forward"
 
-# Left wall
+# Light
+[[light]]
+pos = [2.5, 2.5, 2.5]
+color = [0.2, 0.2, 0.1]
+radius = 10
+brightness = 1.5
+range = 10
+
+# Left wall (interior face +X at x = -0.5)
 [[box]]
 material = "diffuse"
+reflect = 0.05
+rough = 0.05
 pos_x = -1
 pos_y = -1
 pos_z = -1
@@ -24,10 +35,13 @@ width = 0.5
 height = 5
 depth = 5
 albedo = [1, 1, 1]
+texture = "capture_left"
 
-# Right wall
+# Right wall (interior face -X at x = 3.5)
 [[box]]
 material = "diffuse"
+reflect = 0.05
+rough = 0.05
 pos_x = 4
 pos_y = -1
 pos_z = -1
@@ -35,10 +49,13 @@ width = 0.5
 height = 5
 depth = 5
 albedo = [1, 1, 1]
+texture = "capture_right"
 
-# Roof
+# Roof (interior face -Y at y = 3.5)
 [[box]]
 material = "diffuse"
+reflect = 0.05
+rough = 0.05
 pos_x = -1
 pos_y = 4
 pos_z = -1
@@ -46,11 +63,13 @@ width = 5.5
 height = 0.5
 depth = 5
 albedo = [1, 1, 1]
+texture = "capture_up"
 
-
-# Floor
+# Floor (interior face +Y at y = 0.25)
 [[box]]
 material = "diffuse"
+reflect = 0.05
+rough = 0.05
 pos_x = -1
 pos_y = 0
 pos_z = -1
@@ -58,3 +77,4 @@ width = 5
 height = 0.25
 depth = 5
 albedo = [1, 1, 1]
+texture = "capture_down"

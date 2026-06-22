@@ -9,6 +9,12 @@ depth = 0.3
 albedo = [1, 1, 1]
 texture = "cement"
 
+[interact]
+hint = "press {{use_button}} to exit"
+use_range = 2.5
+on_use = "exit_portal"
+center = [1.0, 1.25, 0.15]
+
 [[sphere]]
 material = "mirror"
 center = [1, 1.25, 0.25]

@@ -9,7 +9,7 @@ width = 0.1
 height = 0.7
 depth = 0.3
 albedo = [0.2, 0.2, 0.2]
-material = "diffuse"
+material = "mirror"
 
 [[box]]
 pos_x = 0.3
@@ -19,7 +19,7 @@ width = 0.2
 height = 0.1
 depth = 0.3
 albedo = [0.2, 0.2, 0.2]
-material = "diffuse"
+material = "mirror"
 
 [[box]]
 pos_x = 0.3
@@ -29,7 +29,7 @@ width = 0.1
 height = 0.1
 depth = 0.3
 albedo = [0.2, 0.2, 0.2]
-material = "diffuse"
+material = "mirror"
 
 [[box]]
 pos_x = 0.3
@@ -39,7 +39,7 @@ width = 0.2
 height = 0.1
 depth = 0.3
 albedo = [0.2, 0.2, 0.2]
-material = "diffuse"
+material = "mirror"
 
 # The letter "X"
 [[box]]
@@ -51,7 +51,7 @@ height = 0.72
 depth = 0.3
 rotate_z = 15
 albedo = [0.2, 0.2, 0.2]
-material = "diffuse"
+material = "mirror"
 
 [[box]]
 pos_x = 0.65
@@ -62,7 +62,7 @@ height = 0.72
 depth = 0.3
 rotate_z = -15
 albedo = [0.2, 0.2, 0.2]
-material = "diffuse"
+material = "mirror"
 
 # The letter "I"
 [[box]]
@@ -73,7 +73,7 @@ width = 0.1
 height = 0.7
 depth = 0.3
 albedo = [0.2, 0.2, 0.2]
-material = "diffuse"
+material = "mirror"
 
 # The letter "T"
 [[box]]
@@ -84,7 +84,7 @@ width = 0.1
 height = 0.7
 depth = 0.3
 albedo = [0.2, 0.2, 0.2]
-material = "diffuse"
+material = "mirror"
 
 [[box]]
 pos_x = 1.05
@@ -94,4 +94,4 @@ width = 0.3
 height = 0.1
 depth = 0.3
 albedo = [0.2, 0.2, 0.2]
-material = "diffuse"
+material = "mirror"

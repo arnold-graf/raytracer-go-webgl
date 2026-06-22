@@ -40,6 +40,12 @@ type Renderer interface {
 	Render(buf []byte, cam *camera.Camera, v *View, pixSize int)
 }
 
+// SquareCapturer is optionally implemented by a renderer that can render a
+// square (1:1 aspect) frame for portal capture textures.
+type SquareCapturer interface {
+	RenderSquare(buf []byte, size int, cam *camera.Camera, v *View)
+}
+
 // PhaseTimings breaks one WebGPU frame into pack/upload/shade/readback phases
 // (milliseconds). Only the WebGPU backend implements PhaseTimingsProvider.
 type PhaseTimings struct {

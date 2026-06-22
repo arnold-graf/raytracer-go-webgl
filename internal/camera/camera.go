@@ -93,6 +93,23 @@ func New() *Camera {
 	return &Camera{Pos: vec.New(0, 1.6, 5), Yaw: 0, cfg: DefaultConfig()}
 }
 
+// Pose is a saved camera position and orientation.
+type Pose struct {
+	Pos   vec.V
+	Yaw   float64
+	Pitch float64
+}
+
+// Pose returns a copy of the current camera pose.
+func (c *Camera) Pose() Pose {
+	return Pose{Pos: c.Pos, Yaw: c.Yaw, Pitch: c.Pitch}
+}
+
+// SetPose restores position and orientation (does not reset velocity).
+func (c *Camera) SetPose(p Pose) {
+	c.Pos, c.Yaw, c.Pitch = p.Pos, p.Yaw, p.Pitch
+}
+
 // SetConfig replaces the movement tuning.
 func (c *Camera) SetConfig(cfg Config) { c.cfg = cfg }
 
@@ -117,6 +134,15 @@ func (c *Camera) SnapToGround() {
 	}
 	g := c.world.GroundHeight(c.Pos.X, c.Pos.Z, c.Pos.Y+1e3)
 	c.Pos.Y = g + c.cfg.EyeHeight
+	c.velY = 0
+	c.onGround = true
+}
+
+// PlaceOnFloor sets the eye height above an explicit floor Y and clears vertical
+// velocity. Use when the spawn surface is known (e.g. portal into the Cube) so
+// a broad SnapToGround query does not land on geometry overhead.
+func (c *Camera) PlaceOnFloor(floorY float64) {
+	c.Pos.Y = floorY + c.EyeHeight()
 	c.velY = 0
 	c.onGround = true
 }

@@ -403,10 +403,27 @@ type includeDTO struct {
 	Params  map[string]any `toml:"params"`
 }
 
+type interactDTO struct {
+	Hint    string  `toml:"hint"`
+	OnUse   string  `toml:"on_use"`
+	Range   float64 `toml:"use_range"`
+	Center  vec3    `toml:"center"`
+}
+
+func (d interactDTO) build() scene.Interactable {
+	return scene.Interactable{
+		Hint:    d.Hint,
+		Handler: d.OnUse,
+		Range:   d.Range,
+		Center:  d.Center.toV(),
+	}
+}
+
 type sceneDTO struct {
 	Extends     string          `toml:"extends"`
 	Camera      *cameraDTO      `toml:"camera"`
 	Environment *environmentDTO `toml:"environment"`
+	Interact    *interactDTO    `toml:"interact"`
 	Include     []includeDTO    `toml:"include"`
 	Sphere      []sphereDTO     `toml:"sphere"`
 	Plane       []planeDTO      `toml:"plane"`
@@ -610,6 +627,7 @@ var objectTemplateFuncs = template.FuncMap{
 		}
 		return formatVec3(toFloat(defR), toFloat(defG), toFloat(defB))
 	},
+	"use_button": func() string { return "E" },
 }
 
 // toFloat coerces a template value (TOML decodes numbers as int64/float64) to a
@@ -819,6 +837,9 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		}
 		s.Env = env
 	}
+	if dto.Interact != nil {
+		s.Interactables = append(s.Interactables, dto.Interact.build())
+	}
 
 	return s, nil
 }
@@ -954,6 +975,12 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 	}
 	addTerrainPads(dst, pads)
 	addTerrainFeatures(dst, features)
+	for _, ia := range sub.Interactables {
+		if xf != nil {
+			ia.Center = xf.ToWorld(ia.Center)
+		}
+		dst.Interactables = append(dst.Interactables, ia)
+	}
 }
 
 // addTerrainPads appends pads to every terrain in dst and re-Prepares the
