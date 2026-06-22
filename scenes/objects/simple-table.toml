@@ -31,8 +31,12 @@
 {{$rough := or .rough 0.02}}
 
 [[box]] # tabletop
-min = [{{neg $half}}, {{$legH}}, {{neg $half}}]
-max = [{{$half}}, {{$height}}, {{$half}}]
+pos_x = {{neg $half}}
+pos_y = {{$legH}}
+pos_z = {{neg $half}}
+width = {{$width}}
+height = {{$top}}
+depth = {{$width}}
 material = "diffuse"
 albedo = {{$albedo}}
 texture = "{{$texture}}"
@@ -40,16 +44,15 @@ reflect = {{$reflect}}
 rough = {{$rough}}
 
 {{range $i := seq 4}}
-[[cylinder]] # leg {{$i}}
-cx = {{if lt $i 2}}{{$off}}{{else}}{{neg $off}}{{end}}
-cz = {{if or (eq $i 0) (eq $i 2)}}{{$off}}{{else}}{{neg $off}}{{end}}
-radius = {{$legR}}
-ymin = 0.0
-ymax = {{$legH}}
-material = "diffuse"
-albedo = {{$albedo}}
-texture = "{{$texture}}"
-reflect = {{$reflect}}
-rough = {{$rough}}
-
+  [[cylinder]] # leg {{$i}}
+  cx = {{if lt $i 2}}{{$off}}{{else}}{{neg $off}}{{end}}
+  cz = {{if or (eq $i 0) (eq $i 2)}}{{$off}}{{else}}{{neg $off}}{{end}}
+  radius = {{$legR}}
+  ymin = 0.0
+  ymax = {{$legH}}
+  material = "diffuse"
+  albedo = {{$albedo}}
+  texture = "{{$texture}}"
+  reflect = {{$reflect}}
+  rough = {{$rough}}
 {{end}}

@@ -4,8 +4,12 @@
 
 [[box]] # foundation / stone floor slab
 material = "diffuse"
-max = [4.9, 0.4, 5.9]
-min = [-4.9, -0.3, -5.9]
+pos_x = -4.9
+pos_y = -0.3
+pos_z = -5.9
+width = 9.8
+height = 0.7
+depth = 11.8
 # albedo = [1.0, 1.0, 1.0]
 # texture = "marble"
 # reflect = 0.05
@@ -19,57 +23,88 @@ texture = "wood"
 [[box]] # slanted roof (cement); pitched toward the door (+z)
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [4.7, 6.1, 5.7]
-min = [-4.7, 5.8, -5.7]
-pivot = [0.0, 5.9, 0.0]
+pos_x = -4.7
+pos_y = 5.8
+pos_z = -5.7
+width = 9.4
+height = 0.3
+depth = 11.4
 rotate_x = -12.0
 texture = "cement"
 
 [[box]] # north (back) wall: brick
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [4.9, 6.3, -5.5]
-min = [-4.9, 0.0, -5.9]
+pos_x = -4.9
+pos_y = 0
+pos_z = -5.9
+width = 9.8
+height = 6.3
+depth = 0.4
 texture = "brick"
 
 [[box]] # west (left) wall: brick, with a window opening cut through it
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [-4.5, 6.3, 5.9]
-min = [-4.9, 0.0, -5.9]
+pos_x = -4.9
+pos_y = 0
+pos_z = -5.9
+width = 0.4
+height = 6.3
+depth = 11.8
 texture = "brick"
 # Real see-through opening (CSG hole). X overshoots the wall thickness so it
 # pierces both faces cleanly; the glass pane below fills it.
 [[box.hole]]
-max = [-4.4, 3.5, 1.0]
-min = [-5.0, 1.5, -1.0]
+pos_x = -5
+pos_y = 1.5
+pos_z = -1
+width = 0.6
+height = 2
+depth = 2
 
 [[box]] # east (right) wall: brick
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [4.9, 6.3, 5.9]
-min = [4.5, 0.0, -5.9]
+pos_x = 4.5
+pos_y = 0
+pos_z = -5.9
+width = 0.4
+height = 6.3
+depth = 11.8
 texture = "brick"
 
 [[box]] # south wall, left of door: brick
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [-1.5, 6.3, 5.9]
-min = [-4.9, 0.0, 5.5]
+pos_x = -4.9
+pos_y = 0
+pos_z = 5.5
+width = 3.4
+height = 6.3
+depth = 0.4
 texture = "brick"
 
 [[box]] # south wall, right of door: brick
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [4.9, 6.3, 5.9]
-min = [1.5, 0.0, 5.5]
+pos_x = 1.5
+pos_y = 0
+pos_z = 5.5
+width = 3.4
+height = 6.3
+depth = 0.4
 texture = "brick"
 
 [[box]] # door lintel (brick) above the opening
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [1.5, 6.3, 5.9]
-min = [-1.5, 3.0, 5.5]
+pos_x = -1.5
+pos_y = 3
+pos_z = 5.5
+width = 3
+height = 3.3
+depth = 0.4
 texture = "brick"
 
 # Tinted, rough glass pane filling the window opening (spans the wall thickness
@@ -78,8 +113,12 @@ texture = "brick"
 albedo = [0.82, 0.90, 0.98]
 ior = 1.45
 material = "glass"
-max = [-4.5, 3.5, 1.0]
-min = [-4.9, 1.5, -1.0]
+pos_x = -4.9
+pos_y = 1.5
+pos_z = -1
+width = 0.4
+height = 2
+depth = 2
 rough = 0.02
 transmit = 0.85
 
@@ -88,64 +127,100 @@ transmit = 0.85
 [[box]] # north wall lining
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [4.5, 5.9, -5.42]
-min = [-4.5, 0.4, -5.50]
+pos_x = -4.5
+pos_y = 0.4
+pos_z = -5.5
+width = 9
+height = 5.5
+depth = 0.08
 texture = "wallpaper_navy"
 
 [[box]] # west wall lining (split around the window)
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [-4.42, 5.9, -1.05]
-min = [-4.50, 0.4, -5.42]
+pos_x = -4.5
+pos_y = 0.4
+pos_z = -5.42
+width = 0.08
+height = 5.5
+depth = 4.37
 texture = "wallpaper_navy"
 
 [[box]] # west wall lining below window
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [-4.42, 1.45, 1.05]
-min = [-4.50, 0.4, -0.95]
+pos_x = -4.5
+pos_y = 0.4
+pos_z = -0.95
+width = 0.08
+height = 1.05
+depth = 2
 texture = "wallpaper_navy"
 
 [[box]] # west wall lining above window
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [-4.42, 5.9, 1.05]
-min = [-4.50, 3.55, -0.95]
+pos_x = -4.5
+pos_y = 3.55
+pos_z = -0.95
+width = 0.08
+height = 2.35
+depth = 2
 texture = "wallpaper_navy"
 
 [[box]] # west wall lining, south of window
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [-4.42, 5.9, 5.42]
-min = [-4.50, 0.4, 1.05]
+pos_x = -4.5
+pos_y = 0.4
+pos_z = 1.05
+width = 0.08
+height = 5.5
+depth = 4.37
 texture = "wallpaper_navy"
 
 [[box]] # east wall lining
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [4.50, 5.9, 5.42]
-min = [4.42, 0.4, -5.42]
+pos_x = 4.42
+pos_y = 0.4
+pos_z = -5.42
+width = 0.08
+height = 5.5
+depth = 10.84
 texture = "wallpaper_navy"
 
 [[box]] # south wall lining, left of door
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [-1.5, 5.9, 5.50]
-min = [-4.5, 0.4, 5.42]
+pos_x = -4.5
+pos_y = 0.4
+pos_z = 5.42
+width = 3
+height = 5.5
+depth = 0.08
 texture = "wallpaper_navy"
 
 [[box]] # south wall lining, right of door
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [4.5, 5.9, 5.50]
-min = [1.5, 0.4, 5.42]
+pos_x = 1.5
+pos_y = 0.4
+pos_z = 5.42
+width = 3
+height = 5.5
+depth = 0.08
 texture = "wallpaper_navy"
 
 [[box]] # door lintel lining (above the opening)
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [1.5, 5.9, 5.50]
-min = [-1.5, 3.0, 5.42]
+pos_x = -1.5
+pos_y = 3
+pos_z = 5.42
+width = 3
+height = 2.9
+depth = 0.08
 texture = "wallpaper_navy"
 
 # ====================================================== INTERIOR SHOWCASE ====
@@ -201,57 +276,89 @@ rough = 0.01
 [[box]] # tall pillar left: stone
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [-3.4, 3.9, -0.7]
-min = [-4.2, 0.4, -1.5]
+pos_x = -4.2
+pos_y = 0.4
+pos_z = -1.5
+width = 0.8
+height = 3.5
+depth = 0.8
 texture = "stone"
 
 [[box]] # tall pillar right: stone
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [4.2, 3.9, -0.7]
-min = [3.4, 0.4, -1.5]
+pos_x = 3.4
+pos_y = 0.4
+pos_z = -1.5
+width = 0.8
+height = 3.5
+depth = 0.8
 texture = "stone"
 
 [[box]] # low plinth under mirror ball (metal)
 albedo = [0.8, 0.8, 0.85]
 material = "metal"
-max = [0.5, 0.58, 0.5]
-min = [-0.5, 0.4, -0.5]
+pos_x = -0.5
+pos_y = 0.4
+pos_z = -0.5
+width = 1
+height = 0.18
+depth = 1
 rough = 0.1
 
 [[box]] # stepped platform (base): cement
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [-1.5, 0.8, -3.5]
-min = [-4.0, 0.4, -5.0]
+pos_x = -4
+pos_y = 0.4
+pos_z = -5
+width = 2.5
+height = 0.4
+depth = 1.5
 texture = "cement"
 
 [[box]] # stepped platform (mid): cement
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [-2.0, 1.2, -3.7]
-min = [-3.5, 0.8, -4.8]
+pos_x = -3.5
+pos_y = 0.8
+pos_z = -4.8
+width = 1.5
+height = 0.4
+depth = 1.1
 texture = "cement"
 
 [[box]] # stepped platform (top): wood
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [-2.5, 1.6, -3.9]
-min = [-3.0, 1.2, -4.6]
+pos_x = -3
+pos_y = 1.2
+pos_z = -4.6
+width = 0.5
+height = 0.4
+depth = 0.7
 texture = "wood"
 
 [[box]] # long low bench right: wood
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [4.3, 0.85, 2.0]
-min = [2.8, 0.4, 0.2]
+pos_x = 2.8
+pos_y = 0.4
+pos_z = 0.2
+width = 1.5
+height = 0.45
+depth = 1.8
 texture = "wood"
 
 [[box]] # mirror slab standing (moved aside so it doesn't block the door)
 albedo = [0.92, 0.92, 0.96]
 material = "mirror"
-max = [-3.0, 2.6, 3.6]
-min = [-4.0, 0.4, 3.2]
+pos_x = -4
+pos_y = 0.4
+pos_z = 3.2
+width = 1
+height = 2.2
+depth = 0.4
 
 # -------------------------------------------------------------- columns ----
 

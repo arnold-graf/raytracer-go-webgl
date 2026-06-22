@@ -71,20 +71,27 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 	}, nil
 }
 
-// transformDTO holds optional per-primitive rotation (degrees) about a pivot.
-// Omitted fields default to zero (no rotation).
+// transformDTO holds optional per-primitive rotation (degrees) about the
+// primitive's geometric center. Omitted angles default to zero (no rotation).
 type transformDTO struct {
 	RotateX float64 `toml:"rotate_x"`
 	RotateY float64 `toml:"rotate_y"`
 	RotateZ float64 `toml:"rotate_z"`
-	Pivot   vec3    `toml:"pivot"`
 }
 
-func (t transformDTO) build() *scene.Transform {
+func (t transformDTO) buildAbout(center vec.V) *scene.Transform {
 	if t.RotateX == 0 && t.RotateY == 0 && t.RotateZ == 0 {
 		return nil
 	}
-	return scene.NewTransform(t.RotateX, t.RotateY, t.RotateZ, t.Pivot.toV())
+	return scene.NewTransform(t.RotateX, t.RotateY, t.RotateZ, center)
+}
+
+func boxCenter(min, max vec.V) vec.V {
+	return vec.V{
+		X: (min.X + max.X) / 2,
+		Y: (min.Y + max.Y) / 2,
+		Z: (min.Z + max.Z) / 2,
+	}
 }
 
 type sphereDTO struct {
@@ -104,18 +111,72 @@ type planeDTO struct {
 
 // holeDTO is a rectangular opening subtracted from a box (see scene.AABB). It
 // is authored as a [[box.hole]] sub-table and should pierce fully through the
-// faces it cuts.
+// faces it cuts. Define with pos_x/pos_y/pos_z and width/height/depth (legacy
+// min/max still accepted).
 type holeDTO struct {
-	Min vec3 `toml:"min"`
-	Max vec3 `toml:"max"`
+	boxExtentDTO
 }
 
 type boxDTO struct {
-	Min  vec3      `toml:"min"`
-	Max  vec3      `toml:"max"`
+	boxExtentDTO
 	Hole []holeDTO `toml:"hole"`
 	transformDTO
 	surfaceDTO
+}
+
+// boxExtentDTO accepts either a min corner + size (pos_x, pos_y, pos_z,
+// width, height, depth) or legacy opposite corners (min, max).
+type boxExtentDTO struct {
+	PosX   float64 `toml:"pos_x"`
+	PosY   float64 `toml:"pos_y"`
+	PosZ   float64 `toml:"pos_z"`
+	Width  float64 `toml:"width"`
+	Height float64 `toml:"height"`
+	Depth  float64 `toml:"depth"`
+	Min    vec3    `toml:"min"`
+	Max    vec3    `toml:"max"`
+}
+
+func (d boxExtentDTO) bounds() (min, max vec.V, err error) {
+	if d.Width != 0 || d.Height != 0 || d.Depth != 0 {
+		w := math.Abs(d.Width)
+		h := math.Abs(d.Height)
+		dep := math.Abs(d.Depth)
+		if w <= 0 || h <= 0 || dep <= 0 {
+			return vec.V{}, vec.V{}, fmt.Errorf("width, height, and depth must be positive")
+		}
+		return normalizeBounds(
+			vec.New(d.PosX, d.PosY, d.PosZ),
+			vec.New(d.PosX+w, d.PosY+h, d.PosZ+dep),
+		)
+	}
+	return normalizeBounds(d.Min.toV(), d.Max.toV())
+}
+
+func normalizeBounds(a, b vec.V) (vec.V, vec.V, error) {
+	min := vec.V{
+		X: math.Min(a.X, b.X),
+		Y: math.Min(a.Y, b.Y),
+		Z: math.Min(a.Z, b.Z),
+	}
+	max := vec.V{
+		X: math.Max(a.X, b.X),
+		Y: math.Max(a.Y, b.Y),
+		Z: math.Max(a.Z, b.Z),
+	}
+	min, max = snapBounds(min, max)
+	if min.X >= max.X || min.Y >= max.Y || min.Z >= max.Z {
+		return vec.V{}, vec.V{}, fmt.Errorf("invalid box bounds (min must be strictly less than max on each axis)")
+	}
+	return min, max, nil
+}
+
+func snapBounds(min, max vec.V) (vec.V, vec.V) {
+	snap := func(x float64) float64 {
+		return math.Round(x*1e6) / 1e6
+	}
+	return vec.V{X: snap(min.X), Y: snap(min.Y), Z: snap(min.Z)},
+		vec.V{X: snap(max.X), Y: snap(max.Y), Z: snap(max.Z)}
 }
 
 type cylinderDTO struct {
@@ -652,15 +713,16 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("sphere[%d]: %w", i, err)
 		}
-		surf.Xform = d.transformDTO.build()
-		s.Spheres = append(s.Spheres, scene.Sphere{Center: d.Center.toV(), Radius: d.Radius, Surface: surf})
+		center := d.Center.toV()
+		surf.Xform = d.transformDTO.buildAbout(center)
+		s.Spheres = append(s.Spheres, scene.Sphere{Center: center, Radius: d.Radius, Surface: surf})
 	}
 	for i, d := range dto.Plane {
 		surf, err := d.toSurface()
 		if err != nil {
 			return nil, fmt.Errorf("plane[%d]: %w", i, err)
 		}
-		surf.Xform = d.transformDTO.build()
+		surf.Xform = d.transformDTO.buildAbout(vec.V{})
 		s.Planes = append(s.Planes, scene.Plane{N: d.Normal.toV(), D: d.D, Surface: surf, Albedo2: d.Albedo2.toV()})
 	}
 	for i, d := range dto.Box {
@@ -668,19 +730,28 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("box[%d]: %w", i, err)
 		}
-		surf.Xform = d.transformDTO.build()
-		var holes []scene.AABB
-		for _, h := range d.Hole {
-			holes = append(holes, scene.AABB{Min: h.Min.toV(), Max: h.Max.toV()})
+		min, max, err := d.bounds()
+		if err != nil {
+			return nil, fmt.Errorf("box[%d]: %w", i, err)
 		}
-		s.Boxes = append(s.Boxes, scene.Box{Min: d.Min.toV(), Max: d.Max.toV(), Holes: holes, Surface: surf})
+		surf.Xform = d.transformDTO.buildAbout(boxCenter(min, max))
+		var holes []scene.AABB
+		for j, h := range d.Hole {
+			hmin, hmax, err := h.bounds()
+			if err != nil {
+				return nil, fmt.Errorf("box[%d].hole[%d]: %w", i, j, err)
+			}
+			holes = append(holes, scene.AABB{Min: hmin, Max: hmax})
+		}
+		s.Boxes = append(s.Boxes, scene.Box{Min: min, Max: max, Holes: holes, Surface: surf})
 	}
 	for i, d := range dto.Cylinder {
 		surf, err := d.toSurface()
 		if err != nil {
 			return nil, fmt.Errorf("cylinder[%d]: %w", i, err)
 		}
-		surf.Xform = d.transformDTO.build()
+		center := vec.New(d.CX, (d.YMin+d.YMax)/2, d.CZ)
+		surf.Xform = d.transformDTO.buildAbout(center)
 		s.Cylinders = append(s.Cylinders, scene.Cylinder{
 			CX: d.CX, CZ: d.CZ, Radius: d.Radius, RadiusTop: d.RadiusTop,
 			YMin: d.YMin, YMax: d.YMax, Surface: surf,
@@ -691,7 +762,8 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cone[%d]: %w", i, err)
 		}
-		surf.Xform = d.transformDTO.build()
+		center := vec.New(d.CX, (d.YBase+d.YTip)/2, d.CZ)
+		surf.Xform = d.transformDTO.buildAbout(center)
 		s.Cones = append(s.Cones, scene.Cone{CX: d.CX, CZ: d.CZ, YBase: d.YBase, YTip: d.YTip, RBase: d.RBase, Surface: surf})
 	}
 	for i, d := range dto.Torus {
@@ -699,8 +771,9 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("torus[%d]: %w", i, err)
 		}
-		surf.Xform = d.transformDTO.build()
-		s.Tori = append(s.Tori, scene.Torus{Center: d.Center.toV(), R: d.Major, Rm: d.Minor, Surface: surf})
+		center := d.Center.toV()
+		surf.Xform = d.transformDTO.buildAbout(center)
+		s.Tori = append(s.Tori, scene.Torus{Center: center, R: d.Major, Rm: d.Minor, Surface: surf})
 	}
 	for i, d := range dto.Terrain {
 		ter, err := d.build()

@@ -1,6 +1,7 @@
 package sceneio
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"raytracer/internal/scene"
+	"raytracer/internal/vec"
 )
 
 // repoFile resolves a path relative to the repository root from this test file.
@@ -33,6 +35,58 @@ func TestDefaultTOMLMatchesDefaultScene(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("decoded scene does not match scene.Default()\n got: %+v\nwant: %+v", got, want)
+	}
+}
+
+func TestBoxPosSizeDecodes(t *testing.T) {
+	data := []byte(`
+[[box]]
+pos_x = -1.0
+pos_y = -1.0
+pos_z = -1.0
+width = 4.0
+height = 6.0
+depth = 8.0
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+`)
+	got, err := Decode(data)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Boxes) != 1 {
+		t.Fatalf("got %d boxes", len(got.Boxes))
+	}
+	b := got.Boxes[0]
+	wantMin := vec.New(-1, -1, -1)
+	wantMax := vec.New(3, 5, 7)
+	if b.Min != wantMin || b.Max != wantMax {
+		t.Fatalf("bounds = (%v, %v), want (%v, %v)", b.Min, b.Max, wantMin, wantMax)
+	}
+}
+
+func TestBoxRotatesAboutCenter(t *testing.T) {
+	data := []byte(`
+[[box]]
+pos_x = 1.0
+pos_y = 0.0
+pos_z = 0.0
+width = 2.0
+height = 1.0
+depth = 1.0
+rotate_z = 90.0
+material = "diffuse"
+albedo = [1.0, 1.0, 1.0]
+`)
+	got, err := Decode(data)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	b := got.Boxes[0]
+	center := boxCenter(b.Min, b.Max)
+	world := b.Xform.ToWorld(center)
+	if math.Abs(world.X-center.X) > 1e-9 || math.Abs(world.Y-center.Y) > 1e-9 || math.Abs(world.Z-center.Z) > 1e-9 {
+		t.Fatalf("center moved under rotation: local %v -> world %v", center, world)
 	}
 }
 

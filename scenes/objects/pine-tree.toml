@@ -88,7 +88,7 @@ albedo = [0.60, 0.84, 0.60]
 texture = "grass"
 
 # ----------------------------------------------------------- broken branches --
-# Short tapered stubs, rotated about their attachment point on the trunk.
+# Short tapered stubs, rotated about their own center.
 
 [[cylinder]] # stub 1 (left, low)
 cx = 0.34
@@ -97,7 +97,6 @@ radius = 0.075
 radius_top = 0.048
 ymin = 4.2
 ymax = 5.5
-pivot = [0.34, 4.2, 0.06]
 rotate_z = -34.0
 rotate_y = 48.0
 material = "diffuse"
@@ -111,7 +110,6 @@ radius = 0.065
 radius_top = 0.042
 ymin = 5.5
 ymax = 6.6
-pivot = [-0.30, 5.5, -0.10]
 rotate_z = 30.0
 rotate_y = -62.0
 material = "diffuse"
@@ -125,7 +123,6 @@ radius = 0.070
 radius_top = 0.045
 ymin = 3.5
 ymax = 4.7
-pivot = [0.05, 3.5, -0.36]
 rotate_x = 28.0
 rotate_y = 175.0
 material = "diffuse"
@@ -139,7 +136,6 @@ radius = 0.058
 radius_top = 0.036
 ymin = 6.0
 ymax = 6.95
-pivot = [0.26, 6.0, 0.20]
 rotate_z = -42.0
 rotate_y = 115.0
 material = "diffuse"

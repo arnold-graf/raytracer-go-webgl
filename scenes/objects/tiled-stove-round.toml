@@ -55,8 +55,12 @@ ymin = 0.10
 albedo = [0.35, 0.18, 0.08]
 ior = 1.45
 material = "glass"
-max = [0.22, 0.62, 0.56]
-min = [-0.22, 0.28, 0.52]
+pos_x = -0.22
+pos_y = 0.28
+pos_z = 0.52
+width = 0.44
+height = 0.34
+depth = 0.04
 rough = 0.04
 transmit = 0.75
 

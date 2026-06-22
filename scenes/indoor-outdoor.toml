@@ -107,8 +107,12 @@ ripple_direction = [1.0, 0.4]
 [[box]] # cabin walls (wood)
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [-2.0, 2.0, 1.5]
-min = [-5.0, -1.0, -1.5]
+pos_x = -5
+pos_y = -1
+pos_z = -1.5
+width = 3
+height = 3
+depth = 3
 texture = "wood"
 
 [[cone]] # cabin roof
@@ -123,8 +127,12 @@ ytip = 3.7
 [[box]] # stone house walls
 albedo = [1.0, 1.0, 1.0]
 material = "diffuse"
-max = [5.5, 2.2, 1.0]
-min = [2.5, -1.0, -2.0]
+pos_x = 2.5
+pos_y = -1
+pos_z = -2
+width = 3
+height = 3.2
+depth = 3
 texture = "stone"
 
 [[cone]] # stone house roof
@@ -218,29 +226,45 @@ sound = "crickets"
 [[box]] # back wall (dark interior)
 albedo = [0.32, 0.32, 0.34]
 material = "diffuse"
-max = [-7.0, 4.6, -6.0]
-min = [-12.0, -1.0, -7.0]
+pos_x = -12
+pos_y = -1
+pos_z = -7
+width = 5
+height = 5.6
+depth = 1
 texture = "stone"
 
 [[box]] # left wall
 albedo = [0.34, 0.34, 0.36]
 material = "diffuse"
-max = [-11.0, 4.6, -3.2]
-min = [-12.0, -1.0, -7.0]
+pos_x = -12
+pos_y = -1
+pos_z = -7
+width = 1
+height = 5.6
+depth = 3.8
 texture = "stone"
 
 [[box]] # right wall
 albedo = [0.34, 0.34, 0.36]
 material = "diffuse"
-max = [-7.0, 4.6, -3.2]
-min = [-8.0, -1.0, -7.0]
+pos_x = -8
+pos_y = -1
+pos_z = -7
+width = 1
+height = 5.6
+depth = 3.8
 texture = "stone"
 
 [[box]] # roof slab
 albedo = [0.40, 0.40, 0.42]
 material = "diffuse"
-max = [-6.5, 5.0, -3.5]
-min = [-12.5, 4.2, -7.5]
+pos_x = -12.5
+pos_y = 4.2
+pos_z = -7.5
+width = 6
+height = 0.8
+depth = 4
 texture = "stone"
 
 [[sphere]] # boulder over the roof

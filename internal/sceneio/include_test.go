@@ -240,8 +240,12 @@ func TestObjectTemplateVec3Param(t *testing.T) {
 	if err := os.WriteFile(obj, []byte(`
 {{$albedo := orVec3 .albedo 0.1 0.2 0.3}}
 [[box]]
-min = [0.0, 0.0, 0.0]
-max = [1.0, 1.0, 1.0]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 1
+height = 1
+depth = 1
 material = "diffuse"
 albedo = {{$albedo}}
 `), 0o644); err != nil {
@@ -449,8 +453,12 @@ level = 0.0
 margin = 2.0
 
 [[box]]
-min = [0.0, 0.0, 0.0]
-max = [1.0, 1.0, 1.0]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 1
+height = 1
+depth = 1
 material = "diffuse"
 albedo = [1.0, 1.0, 1.0]
 `), 0o644); err != nil {

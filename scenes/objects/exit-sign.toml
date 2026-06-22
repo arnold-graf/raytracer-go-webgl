@@ -1,0 +1,97 @@
+# The text "EXIT"
+
+# The letter "E"
+[[box]]
+pos_x = 0.2
+pos_y = 0
+pos_z = 0.2
+width = 0.1
+height = 0.7
+depth = 0.3
+albedo = [0.2, 0.2, 0.2]
+material = "diffuse"
+
+[[box]]
+pos_x = 0.3
+pos_y = 0.6
+pos_z = 0.2
+width = 0.2
+height = 0.1
+depth = 0.3
+albedo = [0.2, 0.2, 0.2]
+material = "diffuse"
+
+[[box]]
+pos_x = 0.3
+pos_y = 0.3
+pos_z = 0.2
+width = 0.1
+height = 0.1
+depth = 0.3
+albedo = [0.2, 0.2, 0.2]
+material = "diffuse"
+
+[[box]]
+pos_x = 0.3
+pos_y = 0
+pos_z = 0.2
+width = 0.2
+height = 0.1
+depth = 0.3
+albedo = [0.2, 0.2, 0.2]
+material = "diffuse"
+
+# The letter "X"
+[[box]]
+pos_x = 0.65
+pos_y = -0.02
+pos_z = 0.2
+width = 0.1
+height = 0.72
+depth = 0.3
+rotate_z = 15
+albedo = [0.2, 0.2, 0.2]
+material = "diffuse"
+
+[[box]]
+pos_x = 0.65
+pos_y = -0.02
+pos_z = 0.2
+width = 0.1
+height = 0.72
+depth = 0.3
+rotate_z = -15
+albedo = [0.2, 0.2, 0.2]
+material = "diffuse"
+
+# The letter "I"
+[[box]]
+pos_x = 0.9
+pos_y = 0
+pos_z = 0.2
+width = 0.1
+height = 0.7
+depth = 0.3
+albedo = [0.2, 0.2, 0.2]
+material = "diffuse"
+
+# The letter "T"
+[[box]]
+pos_x = 1.15
+pos_y = 0
+pos_z = 0.2
+width = 0.1
+height = 0.7
+depth = 0.3
+albedo = [0.2, 0.2, 0.2]
+material = "diffuse"
+
+[[box]]
+pos_x = 1.05
+pos_y = 0.6
+pos_z = 0.2
+width = 0.3
+height = 0.1
+depth = 0.3
+albedo = [0.2, 0.2, 0.2]
+material = "diffuse"

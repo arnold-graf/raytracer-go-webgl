@@ -1,0 +1,27 @@
+[[box]]
+material = "diffuse"
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 2
+height = 3.5
+depth = 0.3
+albedo = [1, 1, 1]
+texture = "cement"
+
+[[sphere]]
+material = "mirror"
+center = [1, 1.25, 0.25]
+radius = 0.3
+albedo = [1, 0, 0]
+
+[[light]]
+pos = [1.0, 1, 1.0]
+color = [8.0, 0.5, 0.5]
+radius = 2
+brightness = 0.5
+
+[[include]]
+file = "exit-sign.toml"
+at = [0.25, 2, 0]
+rotate_y = 0.0

@@ -255,4 +255,7 @@ flicker = 0.45
 speed = 1.0
 
 
-
+[[include]]
+file = "objects/exit-button.toml"
+at = [70.0, 0.0, 50.0]
+rotate_y = -90
