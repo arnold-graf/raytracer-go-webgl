@@ -138,6 +138,13 @@ both collapse, and traversal stays shallow.
   transform the hit normal back.
 - Gate: parity on a scene with a handful of instanced templates vs. the same
   scene authored as explicit primitives.
+- **Villa perf (2025-06-17):** ~750 of ~932 primitives are duplicated pine-tree
+  geometry (75 clusters × ~10 prims). BVH traversal dominates the mountain-facing
+  view; glass/terrain micro-opts did not help. **Instancing is the highest-value
+  next step for this scene** — one BLAS per `pine-tree-cluster.toml` (and other
+  includes), TLAS placements for each `[[include]]`, shallow tree + smaller GPU
+  primitive buffer. `Xform` is already landed on GPU; extend it to carry a
+  template BVH id.
 
 ---
 
@@ -220,6 +227,10 @@ but is not required for performance (see terrain strategy / risks table).
 - "Maximum-mipmap heightfield tracing" is the standard name for the pyramid trick.
 - The global coarse bake (no fBm) covers the mid band; Step 3 panorama covers
   everything beyond the far-clip — they meet at the horizon.
+- **GPU coarse-DDA (single-level `cmin/cmax` upload) was tried and reverted
+  (2025-06-17):** no measurable win on `outdoors-night-villa`; extra shader
+  branches and a 16th storage buffer likely hurt more than the skip saved.
+  Prefer a **multi-level mip pyramid** before revisiting coarse skip on GPU.
 - **Streamed fine tiles** (Option 1) remain the fallback if the WGSL analytic
   near path is deferred.
 - Far-clip is the cheapest immediate win and can land before the pyramid.

@@ -301,6 +301,12 @@ parity snapshot. Merge when the phase passes its gate.
 - [x] **Gate:** focused flat terrain + water parity
   (`TestTerrainWaterParityMatchesCPU`): mean err 0.04 LSB, no outliers
 - [ ] Coarse-DDA terrain skipping is a perf-only follow-up (parity already met).
+  **Attempted on GPU (2025-06-17):** uploaded CPU `cmin/cmax` bands + WGSL
+  `hit_terrain_coarse` DDA (binding 14, terrain stride 128→160). No reliable
+  win in `gpuprof` or in-game; possibly slower (extra indirection on every
+  terrain march, coarse grid too shallow for this scene's ray lengths). **Reverted.**
+  CPU already skips empty coarse cells; a multi-level mip pyramid (see
+  `plans/large-maps.md` Step 4) is the better next terrain lever if needed.
 
 ### Phase 8 — AO volume + campfires
 

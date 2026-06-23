@@ -2,6 +2,20 @@
 
 ## Status: PROPOSED
 
+## Attempted and reverted (2025-06-17)
+
+Throughput early-out (`RAY_THROUGHPUT_EPS` on the work stack) plus a per-ray
+glass interface cap (`MAX_GLASS_INTERFACES = 4`) were implemented in
+`trace.wgsl`. In-game and `cmd/gpuprof` runs showed **no reliable win** — the
+villa mountain view and in-window paths felt **slower**, not faster.
+
+Likely causes: extra branches and stack bookkeeping on every segment; the cap
+changes glass stacking behaviour slightly but still pays full BVH cost on
+remaining lobes; Manhattan mirror-off improved only within run-to-run noise.
+
+**Reverted.** Keep the options below on the table; re-try only with a tighter
+A/B (same camera pose, resolution, and frame count) and a parity gate.
+
 ## Goal
 
 Cut the GPU shading cost of glass-heavy views **without changing the look**. The
