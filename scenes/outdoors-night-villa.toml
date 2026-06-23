@@ -127,6 +127,7 @@ albedo = [0.55, 0.70, 0.85]
 file = "objects/pine-tree-cluster.toml"
 at = [0.0, 0.0, 0.0]
 follow_terrain = true
+instance = true
 
 
 # ----------------------------------------------------------------- campfire ----

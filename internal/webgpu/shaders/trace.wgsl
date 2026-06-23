@@ -51,6 +51,14 @@ struct Params {
     capture_loaded: u32,
     capture_w: u32,
     capture_h: u32,
+    inst_template_count: u32,
+    inst_count: u32,
+    inst_node_base: u32,
+    inst_node_count: u32,
+    blocker_section_start: u32,
+    blocker_inst_base: u32,
+	blocker_inst_count: u32,
+    profile_enabled: u32,
 };
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).
@@ -98,6 +106,23 @@ struct BVHNode {
     min_b: vec4<f32>,
     max_b: vec4<f32>,
     info: vec4<u32>,
+};
+
+struct TemplateRecord {
+    prim_base: u32,
+    blocker_base: u32,
+    blas_root: u32,
+    blocker_blas_root: u32,
+};
+
+struct InstanceRecord {
+    xf0: vec4<f32>,
+    xf1: vec4<f32>,
+    xf2: vec4<f32>,
+    template_id: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 };
 
 struct Terrain {
@@ -161,6 +186,43 @@ var<storage, read> holes: array<Hole>;
 @group(0) @binding(13)
 var<storage, read> capture_pixels: array<u32>;
 
+@group(0) @binding(14)
+var<storage, read> inst_templates: array<TemplateRecord>;
+
+@group(0) @binding(15)
+var<storage, read> inst_records: array<InstanceRecord>;
+
+@group(0) @binding(16)
+var<storage, read_write> profile_counters: array<atomic<u32>>;
+
+const PROF_PIXELS: u32 = 0u;
+const PROF_PATH_SEGS: u32 = 1u;
+const PROF_HIT_PRIM: u32 = 2u;
+const PROF_HIT_INST: u32 = 3u;
+const PROF_HIT_TERRAIN: u32 = 4u;
+const PROF_HIT_WATER: u32 = 5u;
+const PROF_SKY: u32 = 6u;
+const PROF_SHADOW_RAYS: u32 = 7u;
+const PROF_SHADOW_BLOCK: u32 = 8u;
+const PROF_TERRAIN_STEPS: u32 = 9u;
+const PROF_MIRROR_BOUNCES: u32 = 10u;
+const PROF_GLASS_BOUNCES: u32 = 11u;
+const PROF_DIFFUSE_REFL: u32 = 12u;
+const PROF_PRI_HIT_PRIM: u32 = 13u;
+const PROF_PRI_HIT_INST: u32 = 14u;
+const PROF_PRI_HIT_TERRAIN: u32 = 15u;
+const PROF_PRI_HIT_WATER: u32 = 16u;
+const PROF_PRI_SKY: u32 = 17u;
+const PROF_COUNTER_COUNT: u32 = 18u;
+
+fn prof_inc(idx: u32, delta: u32) {
+    if (params.profile_enabled != 0u && idx < PROF_COUNTER_COUNT) {
+        atomicAdd(&profile_counters[idx], delta);
+    }
+}
+
+const BVH_TAG_TLAS: u32 = 1u;
+
 const PRIM_FLAG_TRANSFORMED: u32 = 1u;
 
 const PRIM_SPHERE: u32 = 0u;
@@ -210,7 +272,10 @@ struct Hit {
     t: f32,
     idx: u32,
     kind: u32,
+    inst_idx: u32, // 0xffffffff when the hit is on static (non-instanced) geometry
 };
+
+const HIT_NO_INSTANCE: u32 = 0xffffffffu;
 
 fn clamp01(x: f32) -> f32 {
     return clamp(x, 0.0, 1.0);
@@ -1357,6 +1422,7 @@ fn hit_terrain(i: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32, refine: bool) -
     var p = ro + rd * tc;
     var fc = p.y - terrain_height(i, p.x, p.z);
     for (var iter = 0u; iter < 256u; iter = iter + 1u) {
+        prof_inc(PROF_TERRAIN_STEPS, 1u);
         if (tc >= t_exit) {
             break;
         }
@@ -1424,11 +1490,205 @@ fn water_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
     ));
 }
 
+fn inst_local_origin(i: u32, ro: vec3<f32>) -> vec3<f32> {
+    let r = inst_records[i];
+    let v = ro - vec3<f32>(r.xf0.w, r.xf1.w, r.xf2.w);
+    return vec3<f32>(dot(r.xf0.xyz, v), dot(r.xf1.xyz, v), dot(r.xf2.xyz, v));
+}
+
+fn inst_local_dir(i: u32, rd: vec3<f32>) -> vec3<f32> {
+    let r = inst_records[i];
+    return vec3<f32>(dot(r.xf0.xyz, rd), dot(r.xf1.xyz, rd), dot(r.xf2.xyz, rd));
+}
+
+// inst_local_point maps a world hit point into the template's local space.
+fn inst_local_point(i: u32, wp: vec3<f32>) -> vec3<f32> {
+    return inst_local_origin(i, wp);
+}
+
+// inst_world_normal rotates a template-space normal to world space.
+fn inst_world_normal(i: u32, ln: vec3<f32>) -> vec3<f32> {
+    let r = inst_records[i];
+    return normalize(vec3<f32>(
+        r.xf0.x * ln.x + r.xf1.x * ln.y + r.xf2.x * ln.z,
+        r.xf0.y * ln.x + r.xf1.y * ln.y + r.xf2.y * ln.z,
+        r.xf0.z * ln.x + r.xf1.z * ln.y + r.xf2.z * ln.z,
+    ));
+}
+
+fn bvh_nearest_subtree(root: u32, ro: vec3<f32>, rd: vec3<f32>, best_t: f32, blockers: bool) -> f32 {
+    let inv = vec3<f32>(1.0) / rd;
+    var t = best_t;
+    var stack: array<u32, 64>;
+    var sp = 0u;
+    stack[sp] = root;
+    sp = sp + 1u;
+
+    loop {
+        if (sp == 0u) {
+            break;
+        }
+        sp = sp - 1u;
+        let n = bvh_nodes[stack[sp]];
+        if (!slab_hit(n.min_b.xyz, n.max_b.xyz, ro, inv, t)) {
+            continue;
+        }
+        let count = n.info.w;
+        if (count > 0u) {
+            for (var k = 0u; k < count; k = k + 1u) {
+                let prim_idx = select(n.info.x, n.info.y, k == 1u);
+                let hit_t = select(intersect(prim_idx, ro, rd), intersect_blocker(prim_idx, ro, rd), blockers);
+                if (hit_t < t) {
+                    t = hit_t;
+                }
+            }
+        } else if (n.info.z != BVH_TAG_TLAS) {
+            if (sp + 2u <= 64u) {
+                stack[sp] = n.info.x;
+                sp = sp + 1u;
+                stack[sp] = n.info.y;
+                sp = sp + 1u;
+            }
+        }
+    }
+    return t;
+}
+
+fn bvh_nearest_subtree_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, h: Hit, inst_idx: u32) -> Hit {
+    let inv = vec3<f32>(1.0) / rd;
+    var best = h;
+    var stack: array<u32, 64>;
+    var sp = 0u;
+    stack[sp] = root;
+    sp = sp + 1u;
+
+    loop {
+        if (sp == 0u) {
+            break;
+        }
+        sp = sp - 1u;
+        let n = bvh_nodes[stack[sp]];
+        if (!slab_hit(n.min_b.xyz, n.max_b.xyz, ro, inv, best.t)) {
+            continue;
+        }
+        let count = n.info.w;
+        if (count > 0u) {
+            for (var k = 0u; k < count; k = k + 1u) {
+                let prim_idx = select(n.info.x, n.info.y, k == 1u);
+                let t = intersect(prim_idx, ro, rd);
+                if (t < best.t) {
+                    best.t = t;
+                    best.idx = prim_idx;
+                    best.kind = 0u;
+                    best.inst_idx = inst_idx;
+                }
+            }
+        } else if (n.info.z != BVH_TAG_TLAS) {
+            if (sp + 2u <= 64u) {
+                stack[sp] = n.info.x;
+                sp = sp + 1u;
+                stack[sp] = n.info.y;
+                sp = sp + 1u;
+            }
+        }
+    }
+    return best;
+}
+
+fn inst_bvh_any_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool {
+    let inv = vec3<f32>(1.0) / rd;
+    let limit = max_t - 0.05;
+    var stack: array<u32, 64>;
+    var sp = 0u;
+    stack[sp] = root;
+    sp = sp + 1u;
+
+    loop {
+        if (sp == 0u) {
+            break;
+        }
+        sp = sp - 1u;
+        let n = bvh_nodes[stack[sp]];
+        if (!slab_hit(n.min_b.xyz, n.max_b.xyz, ro, inv, max_t)) {
+            continue;
+        }
+        if (n.info.z == BVH_TAG_TLAS && n.info.w > 0u) {
+            let inst_idx = n.info.x;
+            let tmpl = inst_templates[inst_records[inst_idx].template_id];
+            let lro = inst_local_origin(inst_idx, ro);
+            let lrd = inst_local_dir(inst_idx, rd);
+            if (bvh_nearest_subtree(tmpl.blocker_blas_root, lro, lrd, limit, true) < limit) {
+                return true;
+            }
+            continue;
+        }
+        let count = n.info.w;
+        if (count > 0u) {
+            for (var k = 0u; k < count; k = k + 1u) {
+                let prim_idx = select(n.info.x, n.info.y, k == 1u);
+                let t = intersect_blocker(prim_idx, ro, rd);
+                if (t > RAY_EPSILON && t < limit) {
+                    return true;
+                }
+            }
+        } else if (n.info.z != BVH_TAG_TLAS) {
+            if (sp + 2u <= 64u) {
+                stack[sp] = n.info.x;
+                sp = sp + 1u;
+                stack[sp] = n.info.y;
+                sp = sp + 1u;
+            }
+        }
+    }
+    return false;
+}
+
+fn inst_nearest_hit(ro: vec3<f32>, rd: vec3<f32>, h: Hit) -> Hit {
+    if (params.inst_count == 0u) {
+        return h;
+    }
+    let inv = vec3<f32>(1.0) / rd;
+    var best = h;
+    var stack: array<u32, 64>;
+    var sp = 0u;
+    stack[sp] = params.inst_node_base;
+    sp = sp + 1u;
+
+    loop {
+        if (sp == 0u) {
+            break;
+        }
+        sp = sp - 1u;
+        let n = bvh_nodes[stack[sp]];
+        if (!slab_hit(n.min_b.xyz, n.max_b.xyz, ro, inv, best.t)) {
+            continue;
+        }
+        if (n.info.z == BVH_TAG_TLAS && n.info.w > 0u) {
+            let inst_idx = n.info.x;
+            let tmpl = inst_templates[inst_records[inst_idx].template_id];
+            let lro = inst_local_origin(inst_idx, ro);
+            let lrd = inst_local_dir(inst_idx, rd);
+            best = bvh_nearest_subtree_hit(tmpl.blas_root, lro, lrd, best, inst_idx);
+            continue;
+        }
+        if (n.info.z == BVH_TAG_TLAS && n.info.w == 0u) {
+            if (sp + 2u <= 64u) {
+                stack[sp] = n.info.x;
+                sp = sp + 1u;
+                stack[sp] = n.info.y;
+                sp = sp + 1u;
+            }
+        }
+    }
+    return best;
+}
+
 fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
     var h: Hit;
     h.t = T_MISS;
     h.idx = 0xffffffffu;
     h.kind = 0u;
+    h.inst_idx = HIT_NO_INSTANCE;
 
     if (params.bvh_node_count > 0u) {
         let inv = vec3<f32>(1.0) / rd;
@@ -1455,6 +1715,7 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
                         h.t = t;
                         h.idx = prim_idx;
                         h.kind = 0u;
+                        h.inst_idx = HIT_NO_INSTANCE;
                     }
                 }
             } else {
@@ -1467,6 +1728,8 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
             }
         }
     }
+
+    h = inst_nearest_hit(ro, rd, h);
 
     // Infinite planes are not part of the finite BVH.
     for (var i = 0u; i < params.prim_count; i = i + 1u) {
@@ -1502,41 +1765,51 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
 }
 
 fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool {
-    if (params.blocker_bvh_node_count == 0u) {
+    if (params.blocker_bvh_node_count == 0u && params.blocker_inst_count == 0u) {
         return false;
     }
     let inv = vec3<f32>(1.0) / rd;
     let limit = max_t - 0.05;
-    var stack: array<u32, 64>;
-    var sp = 0u;
-    stack[sp] = 0u;
-    sp = sp + 1u;
+    let blocker_off = select(params.bvh_node_count, params.blocker_section_start, params.inst_count > 0u);
 
-    loop {
-        if (sp == 0u) {
-            break;
-        }
-        sp = sp - 1u;
-        let n = bvh_nodes[params.bvh_node_count + stack[sp]];
-        if (!slab_hit(n.min_b.xyz, n.max_b.xyz, ro, inv, max_t)) {
-            continue;
-        }
-        let count = n.info.w;
-        if (count > 0u) {
-            for (var k = 0u; k < count; k = k + 1u) {
-                let prim_idx = select(n.info.x, n.info.y, k == 1u);
-                let t = intersect_blocker(prim_idx, ro, rd);
-                if (t > RAY_EPSILON && t < limit) {
-                    return true;
+    if (params.blocker_bvh_node_count > 0u) {
+        var stack: array<u32, 64>;
+        var sp = 0u;
+        stack[sp] = 0u;
+        sp = sp + 1u;
+
+        loop {
+            if (sp == 0u) {
+                break;
+            }
+            sp = sp - 1u;
+            let n = bvh_nodes[blocker_off + stack[sp]];
+            if (!slab_hit(n.min_b.xyz, n.max_b.xyz, ro, inv, max_t)) {
+                continue;
+            }
+            let count = n.info.w;
+            if (count > 0u) {
+                for (var k = 0u; k < count; k = k + 1u) {
+                    let prim_idx = select(n.info.x, n.info.y, k == 1u);
+                    let t = intersect_blocker(prim_idx, ro, rd);
+                    if (t > RAY_EPSILON && t < limit) {
+                        return true;
+                    }
+                }
+            } else if (n.info.z != BVH_TAG_TLAS) {
+                if (sp + 2u <= 64u) {
+                    stack[sp] = n.info.x;
+                    sp = sp + 1u;
+                    stack[sp] = n.info.y;
+                    sp = sp + 1u;
                 }
             }
-        } else {
-            if (sp + 2u <= 64u) {
-                stack[sp] = n.info.x;
-                sp = sp + 1u;
-                stack[sp] = n.info.y;
-                sp = sp + 1u;
-            }
+        }
+    }
+
+    if (params.inst_count > 0u && params.blocker_inst_count > 0u) {
+        if (inst_bvh_any_hit(params.blocker_inst_base, ro, rd, max_t)) {
+            return true;
         }
     }
     return false;
@@ -1649,7 +1922,9 @@ fn normal_at(p: Prim, hp: vec3<f32>) -> vec3<f32> {
 }
 
 fn shadowed(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
+    prof_inc(PROF_SHADOW_RAYS, 1u);
     if (blocker_bvh_any_hit(origin, dir, max_t)) {
+        prof_inc(PROF_SHADOW_BLOCK, 1u);
         return true;
     }
     let limit = max_t - 0.05;
@@ -1659,12 +1934,14 @@ fn shadowed(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
         }
         let t = intersect_blocker(i, origin, dir);
         if (t > RAY_EPSILON && t < limit) {
+            prof_inc(PROF_SHADOW_BLOCK, 1u);
             return true;
         }
     }
     for (var i = 0u; i < params.terrain_count; i = i + 1u) {
         let t = hit_terrain(i, origin, dir, max_t, false);
         if (t > RAY_EPSILON && t < limit) {
+            prof_inc(PROF_SHADOW_BLOCK, 1u);
             return true;
         }
     }
@@ -1931,11 +2208,39 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
         let rd = seg.rd;
         let tw = seg.w;
         let depth = seg.depth;
+        prof_inc(PROF_PATH_SEGS, 1u);
 
         let hit = nearest_hit(ro, rd);
         if (hit.idx == 0xffffffffu) {
+            prof_inc(PROF_SKY, 1u);
+            if (depth == 0u) {
+                prof_inc(PROF_PRI_SKY, 1u);
+            }
             accum = accum + tw * sky(rd);
             continue;
+        }
+
+        if (hit.kind == 0u) {
+            prof_inc(PROF_HIT_PRIM, 1u);
+            if (hit.inst_idx != HIT_NO_INSTANCE) {
+                prof_inc(PROF_HIT_INST, 1u);
+            }
+            if (depth == 0u) {
+                prof_inc(PROF_PRI_HIT_PRIM, 1u);
+                if (hit.inst_idx != HIT_NO_INSTANCE) {
+                    prof_inc(PROF_PRI_HIT_INST, 1u);
+                }
+            }
+        } else if (hit.kind == 1u) {
+            prof_inc(PROF_HIT_TERRAIN, 1u);
+            if (depth == 0u) {
+                prof_inc(PROF_PRI_HIT_TERRAIN, 1u);
+            }
+        } else {
+            prof_inc(PROF_HIT_WATER, 1u);
+            if (depth == 0u) {
+                prof_inc(PROF_PRI_HIT_WATER, 1u);
+            }
         }
 
         let hp = ro + rd * hit.t;
@@ -1949,17 +2254,28 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
             mat = p.info.y;
             surf = p.surf;
             // For a transformed primitive evaluate the normal and procedural
-            // texture in local space, then rotate the normal back to world.
-            var tex_p = hp;
+            // texture in template/local space, then rotate back to world.
+            var tpl_hp = hp;
+            if (hit.inst_idx != HIT_NO_INSTANCE) {
+                tpl_hp = inst_local_point(hit.inst_idx, hp);
+            }
+            var tex_p = tpl_hp;
             var tex_n = n;
             if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
-                let lhp = xf_to_local_point(p, hp);
+                let lhp = xf_to_local_point(p, tpl_hp);
                 tex_n = normal_at(p, lhp);
-                n = normalize(xf_to_world_normal(p, tex_n));
+                var ln = xf_to_world_normal(p, tex_n);
+                if (hit.inst_idx != HIT_NO_INSTANCE) {
+                    ln = inst_world_normal(hit.inst_idx, ln);
+                }
+                n = normalize(ln);
                 tex_p = lhp;
             } else {
-                n = normal_at(p, hp);
-                tex_n = n;
+                tex_n = normal_at(p, tpl_hp);
+                n = tex_n;
+                if (hit.inst_idx != HIT_NO_INSTANCE) {
+                    n = inst_world_normal(hit.inst_idx, n);
+                }
             }
             if (is_capture(p.info.z) && p.info.x == PRIM_BOX) {
                 alb = texture_eval_capture(p.info.z, tex_p, tex_n, p.albedo.xyz);
@@ -2001,6 +2317,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
         let reflective = depth < 2u && params.mirror != 0u;
 
         if ((mat == MAT_MIRROR || mat == MAT_METAL) && reflective) {
+            prof_inc(PROF_MIRROR_BOUNCES, 1u);
             if (sp < MAX_SEGS) {
                 stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * alb * 0.96, depth + 1u);
                 sp = sp + 1u;
@@ -2009,6 +2326,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
         }
 
         if (mat == MAT_GLASS && reflective) {
+            prof_inc(PROF_GLASS_BOUNCES, 1u);
             let cosi = max(0.0, -dot(rd, n));
             var r0 = (1.0 - ior) / (1.0 + ior);
             r0 = r0 * r0;
@@ -2051,6 +2369,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
         let lit = shade_diffuse(hp, alb, n, ep);
         let refl = surf.z;
         if (refl > 0.0 && reflective && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) && sp < MAX_SEGS) {
+            prof_inc(PROF_DIFFUSE_REFL, 1u);
             accum = accum + tw * lit * (1.0 - refl);
             stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * refl, depth + 1u);
             sp = sp + 1u;
@@ -2095,6 +2414,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     );
     let ro = params.cam_pos.xyz;
 
+    prof_inc(PROF_PIXELS, 1u);
     var col = ray_color(ro, dir);
     col = tonemap(col);
 

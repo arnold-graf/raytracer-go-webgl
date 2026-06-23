@@ -407,6 +407,7 @@ type includeDTO struct {
 	RotateY        float64        `toml:"rotate_y"`
 	RotateZ        float64        `toml:"rotate_z"`
 	FollowTerrain  bool           `toml:"follow_terrain"`
+	Instance       bool           `toml:"instance"`
 	Params         map[string]any `toml:"params"`
 }
 
@@ -511,6 +512,8 @@ func LoadDeps(path string) (*scene.Scene, []string, error) {
 	}
 	s.PrepareTerrains()
 	s.ApplyTerrainFollow(followPlacements)
+	s.ApplyInstanceTerrainFollow()
+	s.FinalizeInstancing()
 	return s, deps, nil
 }
 
@@ -570,6 +573,8 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		}
 		base.PrepareTerrains()
 		base.ApplyTerrainFollow(extendPlacements)
+		base.ApplyInstanceTerrainFollow()
+		base.FinalizeInstancing()
 		return base, nil
 	}
 	return dto.buildWithIncludes(path, seen, deps, inheritFollowTerrain, followPlacements)
@@ -911,6 +916,15 @@ func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int,
 		incPath = filepath.Join(parentDir, incPath)
 	}
 	follow := inc.FollowTerrain || inheritFollowTerrain
+
+	if inc.Instance {
+		parentXf := instanceTransformForInclude(dst, inc, follow, nil)
+		if err := registerLeafInstance(dst, inc, parentDir, parentXf, follow, seen, deps); err != nil {
+			return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
+		}
+		return nil
+	}
+
 	var subPlacements []scene.TerrainFollowPlacement
 	sub, err := load(incPath, inc.Params, seen, deps, follow, &subPlacements)
 	if err != nil {
@@ -919,6 +933,7 @@ func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int,
 	xf := instanceTransform(dst, sub, inc, follow)
 	before := scene.CountPrimitives(dst)
 	mergeScene(dst, sub, xf)
+	mergeInstancingCatalog(dst, sub, xf)
 	if followPlacements != nil {
 		if len(subPlacements) > 0 {
 			scene.OffsetPlacements(subPlacements, before)
@@ -929,6 +944,24 @@ func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int,
 		}
 	}
 	return nil
+}
+
+func instanceTransformForInclude(dst *scene.Scene, inc includeDTO, follow bool, sub *scene.Scene) *scene.Transform {
+	at := inc.At.toV()
+	if sub != nil {
+		if level, ok := sub.PadLevelAt(0, 0); ok {
+			at.Y = level + at.Y
+		} else if !follow {
+			if h, ok := dst.TerrainHeightAt(at.X, at.Z); ok {
+				at.Y = h + at.Y
+			}
+		}
+	} else if !follow {
+		if h, ok := dst.TerrainHeightAt(at.X, at.Z); ok {
+			at.Y = h + at.Y
+		}
+	}
+	return scene.NewInstanceTransform(inc.RotateX, inc.RotateY, inc.RotateZ, at)
 }
 
 // instanceTransform builds the world placement for an include. When follow is

@@ -1,9 +1,11 @@
 // Command gpuprof benchmarks the WebGPU renderer headlessly: per-frame phase
-// breakdown (pack / upload / GPU / readback) and a feature ablation matrix.
+// breakdown (pack / upload / GPU / readback), optional GPU shader counters,
+// and a feature ablation matrix.
 //
 // Usage:
 //
-//	go run ./cmd/gpuprof -scene scenes/manhattan_city_block.toml
+//	go run ./cmd/gpuprof -scene scenes/outdoors-night-villa.toml
+//	go run ./cmd/gpuprof -scene scenes/outdoors-night-villa.toml -profile
 //	go run ./cmd/gpuprof -scene scenes/indoor-outdoor.toml -warmup 5 -frames 30
 package main
 
@@ -19,6 +21,7 @@ import (
 	"raytracer/internal/camera"
 	"raytracer/internal/probe"
 	"raytracer/internal/render"
+	"raytracer/internal/scene"
 	"raytracer/internal/sceneio"
 	"raytracer/internal/webgpu"
 )
@@ -37,6 +40,8 @@ func main() {
 	warmup := flag.Int("warmup", 3, "frames to discard before measuring")
 	frames := flag.Int("frames", 20, "measured frames per configuration")
 	ablate := flag.Bool("ablate", true, "run the feature ablation matrix after the baseline")
+	profile := flag.Bool("profile", false, "collect GPU shader workload counters (one profiled frame)")
+	mountains := flag.Bool("mountains", false, "use mountain-view camera preset (yaw=0°, villa valley view)")
 	flag.Parse()
 
 	renderW, renderH := *width, *height
@@ -53,6 +58,11 @@ func main() {
 	if sc.Start.Set {
 		cam.Pos, cam.Yaw, cam.Pitch = sc.Start.Pos, sc.Start.Yaw, sc.Start.Pitch
 		camLabel = fmt.Sprintf("scene camera (yaw=%.0f° pitch=%.1f°)", sc.Start.Yaw*180/math.Pi, sc.Start.Pitch*180/math.Pi)
+	}
+	if *mountains {
+		cam.Yaw = 0
+		cam.Pitch = 0.04
+		camLabel = "mountain view preset (yaw=0° pitch=2.3°)"
 	}
 	if flagPassed("yaw-deg") {
 		cam.Yaw = *yawDeg * math.Pi / 180
@@ -83,10 +93,25 @@ func main() {
 	buf := make([]byte, renderW*renderH*4)
 
 	fmt.Printf("GPU profile: %s  (%dx%d)  %s\n\n", *scenePath, renderW, renderH, camLabel)
+	printSceneContext(sc)
 
 	// Baseline at the configured camera.
-	base := bench(r, buf, cam, view, *warmup, *frames)
+	base := bench(r, buf, cam, view, *warmup, *frames, false)
 	printTiming("baseline", base)
+
+	if *profile {
+		fmt.Println()
+		fmt.Println("Shader counters (single profiled frame, counters add ~5-15%% GPU overhead):")
+		fmt.Println()
+		r.SetProfiling(true)
+		for i := 0; i < *warmup; i++ {
+			r.Render(buf, cam, view, 1)
+		}
+		r.Render(buf, cam, view, 1)
+		r.SetProfiling(false)
+		t := r.LastTiming()
+		fmt.Print(webgpu.FormatGPUProfile(r.LastGPUProfile(), float64(t.GPU)/float64(time.Millisecond)))
+	}
 
 	if *ablate {
 		fmt.Println()
@@ -108,7 +133,7 @@ func main() {
 		}
 		for _, c := range configs {
 			view.Mirror, view.Shadow, view.AO = c.mirror, c.shadow, c.aoFlag
-			t := bench(r, buf, cam, view, *warmup, *frames)
+			t := bench(r, buf, cam, view, *warmup, *frames, false)
 			fmt.Printf("%-22s  %5.1fms %5.1fms %5.1fms %5.1fms %5.1fms %6.0f\n",
 				c.name,
 				ms(t.Pack), ms(t.Upload), ms(t.GPU), ms(t.Readback), ms(t.Total),
@@ -127,7 +152,25 @@ func main() {
 	printNotes()
 }
 
-func bench(r *webgpu.Renderer, buf []byte, cam *camera.Camera, view *render.View, warmup, n int) webgpu.FrameTiming {
+func printSceneContext(s *scene.Scene) {
+	if s == nil {
+		return
+	}
+	if cat := s.Instancing(); cat != nil && len(cat.Placements) > 0 {
+		fmt.Printf("Instancing: %d placements, %d templates", len(cat.Placements), len(cat.Templates))
+		if s.HasInstancing() {
+			fmt.Print(" (GPU TLAS/BLAS)")
+		}
+		fmt.Println()
+	}
+	if n := len(s.Terrains); n > 0 {
+		fmt.Printf("Terrain: %d volume(s)\n", n)
+	}
+	fmt.Println()
+}
+
+func bench(r *webgpu.Renderer, buf []byte, cam *camera.Camera, view *render.View, warmup, n int, profile bool) webgpu.FrameTiming {
+	r.SetProfiling(profile)
 	for i := 0; i < warmup; i++ {
 		r.Render(buf, cam, view, 1)
 	}
@@ -145,6 +188,7 @@ func bench(r *webgpu.Renderer, buf []byte, cam *camera.Camera, view *render.View
 		acc.BVHNodes = t.BVHNodes
 		acc.Holes = t.Holes
 	}
+	r.SetProfiling(false)
 	d := float64(n)
 	return webgpu.FrameTiming{
 		Pack:     time.Duration(float64(acc.Pack) / d),
@@ -188,5 +232,6 @@ func printNotes() {
 	fmt.Fprintln(os.Stderr, "    the compute pass but not overlapped presentation.")
 	fmt.Fprintln(os.Stderr, "  • Pack+Upload are near-zero for static scenes: the scene cache packs and")
 	fmt.Fprintln(os.Stderr, "    uploads geometry once and re-sends only when the scene changes.")
+	fmt.Fprintln(os.Stderr, "  • Use -profile for shader workload counters; -mountains for the slow villa view.")
 	fmt.Fprintln(os.Stderr, "  • In-game: the HUD shows the same per-phase breakdown (toggle with 0).")
 }

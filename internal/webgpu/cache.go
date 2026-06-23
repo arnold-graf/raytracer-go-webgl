@@ -36,6 +36,15 @@ type sceneCache struct {
 	ao               AOVolume
 	aoOK             bool
 	aoVersion        uint64
+
+	// TLAS/BLAS instancing (optional).
+	instTemplates    []GPUTemplateRecord
+	instPlacements   []GPUInstanceRecord
+	instNodeBase     uint32
+	instNodeCount    uint32
+	blockerSecStart  uint32
+	blockerInstBase  uint32
+	blockerInstCount uint32
 }
 
 // fresh reports whether the cache already holds the static buffers for this
@@ -50,13 +59,28 @@ func (c *sceneCache) fresh(v *render.View) bool {
 // the CPU, via internal/probe) and arrives in the view; here it is only packed
 // for upload.
 func (c *sceneCache) rebuild(v *render.View) {
-	c.prims = PackPrimitives(v.Scene)
-	c.blockers = PackBlockers(v.Scene)
-	bvhNodes := PackBVH(c.prims)
-	blkNodes := PackBVH(c.blockers)
-	c.bvhNodes = append(append([]GPUBVHNode(nil), bvhNodes...), blkNodes...)
-	c.bvhNodeCount = uint32(len(bvhNodes))
-	c.blockerNodeCount = uint32(len(blkNodes))
+	c.clearInstancing()
+	if v.Scene != nil && v.Scene.HasInstancing() {
+		if prims, blockers, nodes, bvhN, blkN, isp, ok := packInstancedScene(v.Scene); ok {
+			c.prims = prims
+			c.blockers = blockers
+			c.bvhNodes = nodes
+			c.bvhNodeCount = bvhN
+			c.blockerNodeCount = blkN
+			c.instTemplates = isp.templates
+			c.instPlacements = isp.instances
+			c.instNodeBase = isp.instNodeBase
+			c.instNodeCount = isp.instNodeCount
+			c.blockerSecStart = isp.blockerSectionStart
+			c.blockerInstBase = isp.blockerInstBase
+			c.blockerInstCount = isp.blockerInstCount
+		} else {
+			c.rebuildFlat(v.Scene)
+		}
+	} else {
+		c.rebuildFlat(v.Scene)
+	}
+
 	c.lights = PackLights(v.Scene)
 	c.terrains, c.samples = PackTerrains(v.Scene)
 	c.waters = PackWaters(v.Scene)
@@ -68,4 +92,29 @@ func (c *sceneCache) rebuild(v *render.View) {
 	c.scene = v.Scene
 	c.gen = v.Scene.Generation()
 	c.valid = true
+}
+
+func (c *sceneCache) rebuildFlat(s *scene.Scene) {
+	c.prims = PackPrimitives(s)
+	c.blockers = PackBlockers(s)
+	bvhNodes := PackBVH(c.prims)
+	blkNodes := PackBVH(c.blockers)
+	c.bvhNodes = append(append([]GPUBVHNode(nil), bvhNodes...), blkNodes...)
+	c.bvhNodeCount = uint32(len(bvhNodes))
+	c.blockerNodeCount = uint32(len(blkNodes))
+	c.blockerSecStart = c.bvhNodeCount
+}
+
+func (c *sceneCache) clearInstancing() {
+	c.instTemplates = nil
+	c.instPlacements = nil
+	c.instNodeBase = 0
+	c.instNodeCount = 0
+	c.blockerSecStart = 0
+	c.blockerInstBase = 0
+	c.blockerInstCount = 0
+}
+
+func (c *sceneCache) hasInstancing() bool {
+	return len(c.instPlacements) > 0
 }

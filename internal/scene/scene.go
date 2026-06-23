@@ -35,6 +35,15 @@ type Scene struct {
 	// (e.g. the WebGPU backend's packed/uploaded GPU buffers). A static scene
 	// keeps gen constant, so that backend can skip per-frame packing entirely.
 	gen uint64
+
+	// instancing holds TLAS/BLAS template + placement data when [[include]]
+	// instance = true was used. Flat slices still hold materialized copies for
+	// CPU paths after FinalizeInstancing.
+	instancing *InstancingCatalog
+
+	// staticCounts records flat-slice lengths before instance materialization.
+	staticCounts      PrimitiveCounts
+	staticCountsValid bool
 }
 
 // Generation returns a counter that changes whenever the scene's geometry or

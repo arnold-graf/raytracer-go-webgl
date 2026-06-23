@@ -23,7 +23,7 @@ var traceWGSL string
 
 const (
 	fovScale    = 0.5773502691896257 // tan(60deg / 2)
-	paramsSize  = 256
+	paramsSize  = 288
 	workgroupXY = 8
 	// Five square portal captures at the renderer's max dimension (512×512 each).
 	maxCaptureDim = 512
@@ -71,6 +71,8 @@ type Renderer struct {
 	campfires *wgpu.Buffer
 	holes     *wgpu.Buffer
 	captures  *wgpu.Buffer
+	instTmpl  *wgpu.Buffer
+	instRecs  *wgpu.Buffer
 	output    *wgpu.Buffer
 	read      *wgpu.Buffer
 	pipeline  *wgpu.ComputePipeline
@@ -78,6 +80,11 @@ type Renderer struct {
 
 	cache  sceneCache  // memoized static scene buffers (see cache.go)
 	timing FrameTiming // phase breakdown of the most recent Render (see profile.go)
+
+	profiling         bool
+	profileCounters   GPUProfileCounters
+	profile           *wgpu.Buffer
+	profileRead       *wgpu.Buffer
 
 	captureVer    uint64
 	captureW      int
@@ -162,7 +169,7 @@ func (r *Renderer) init() error {
 	r.bvhNodes, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "bvh nodes",
 		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
-		Size:  maxBVHNodes * 2 * nodeStride,
+		Size:  maxBVHNodes * 4 * nodeStride,
 	})
 	if err != nil {
 		return fmt.Errorf("create bvh nodes buffer: %w", err)
@@ -222,6 +229,38 @@ func (r *Renderer) init() error {
 	})
 	if err != nil {
 		return fmt.Errorf("create holes buffer: %w", err)
+	}
+	r.instTmpl, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "instance templates",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  maxInstTemplates * instTemplateStride,
+	})
+	if err != nil {
+		return fmt.Errorf("create instance templates buffer: %w", err)
+	}
+	r.instRecs, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "instance records",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  maxInstances * instanceStride,
+	})
+	if err != nil {
+		return fmt.Errorf("create instance records buffer: %w", err)
+	}
+	r.profile, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "profile counters",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopySrc | wgpu.BufferUsage_CopyDst,
+		Size:  profileCounterBytes,
+	})
+	if err != nil {
+		return fmt.Errorf("create profile buffer: %w", err)
+	}
+	r.profileRead, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "profile readback",
+		Usage: wgpu.BufferUsage_MapRead | wgpu.BufferUsage_CopyDst,
+		Size:  profileCounterBytes,
+	})
+	if err != nil {
+		return fmt.Errorf("create profile readback buffer: %w", err)
 	}
 	r.captures, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "capture pixels",
@@ -320,6 +359,9 @@ func (r *Renderer) init() error {
 			{Binding: 11, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: campfireStride}},
 			{Binding: 12, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: holeStride}},
 			{Binding: 13, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
+			{Binding: 14, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: instTemplateStride}},
+			{Binding: 15, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: instanceStride}},
+			{Binding: 16, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: profileCounterBytes}},
 		},
 	})
 	if err != nil {
@@ -357,7 +399,7 @@ func (r *Renderer) init() error {
 			{Binding: 2, Buffer: r.prims, Size: maxPrims * primStride},
 			{Binding: 3, Buffer: r.lights, Size: maxLights * lightStride},
 			{Binding: 4, Buffer: r.blockers, Size: maxPrims * primStride},
-			{Binding: 5, Buffer: r.bvhNodes, Size: maxBVHNodes * 2 * nodeStride},
+			{Binding: 5, Buffer: r.bvhNodes, Size: maxBVHNodes * 4 * nodeStride},
 			{Binding: 6, Buffer: r.terrains, Size: maxTerrains * terrainStride},
 			{Binding: 7, Buffer: r.samples, Size: maxTerrainVals * 16},
 			{Binding: 8, Buffer: r.waters, Size: maxWaters * waterStride},
@@ -366,6 +408,9 @@ func (r *Renderer) init() error {
 			{Binding: 11, Buffer: r.campfires, Size: maxCampfires * campfireStride},
 			{Binding: 12, Buffer: r.holes, Size: maxHoles * holeStride},
 			{Binding: 13, Buffer: r.captures, Size: r.captureBytes},
+			{Binding: 14, Buffer: r.instTmpl, Size: maxInstTemplates * instTemplateStride},
+			{Binding: 15, Buffer: r.instRecs, Size: maxInstances * instanceStride},
+			{Binding: 16, Buffer: r.profile, Size: profileCounterBytes},
 		},
 	})
 	if err != nil {
@@ -461,6 +506,10 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 	rp := renderParams{
 		prims: c.prims, blockers: c.blockers, lights: c.lights,
 		bvhNodes: c.bvhNodes, bvhNodeCount: c.bvhNodeCount, blockerNodeCount: c.blockerNodeCount,
+		instTemplates: c.instTemplates, instPlacements: c.instPlacements,
+		instNodeBase: c.instNodeBase, instNodeCount: c.instNodeCount,
+		blockerSecStart: c.blockerSecStart, blockerInstBase: c.blockerInstBase,
+		blockerInstCount: c.blockerInstCount,
 		terrains: c.terrains, samples: c.samples, waters: c.waters,
 		campfireParams: c.campfireParams, holes: c.holes, ao: c.ao, aoOK: c.aoOK && aoEnabled,
 		shadows: shadows, mirror: mirror, timeSec: timeSec, sky: sky,
@@ -486,6 +535,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		}
 		r.captureVer = ver
 	}
+	rp.profileEnabled = r.profiling
 	return rp
 }
 
@@ -497,6 +547,13 @@ type renderParams struct {
 	bvhNodes         []GPUBVHNode
 	bvhNodeCount     uint32
 	blockerNodeCount uint32
+	instTemplates    []GPUTemplateRecord
+	instPlacements   []GPUInstanceRecord
+	instNodeBase     uint32
+	instNodeCount    uint32
+	blockerSecStart  uint32
+	blockerInstBase  uint32
+	blockerInstCount uint32
 	terrains         []GPUTerrain
 	samples          []float32
 	waters           []GPUWater
@@ -517,6 +574,7 @@ type renderParams struct {
 	bodyCosRadius float32
 	bodyGlow      float32
 	colorQuant    uint32
+	profileEnabled bool
 	// uploadStatic is set when the cached scene buffers changed this frame and
 	// must be re-sent to the GPU. When false, render() uploads only the per-frame
 	// params; the static SSBOs already hold the right data.
@@ -526,6 +584,12 @@ type renderParams struct {
 func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh int) error {
 	frameStart := time.Now()
 	uploadStart := time.Now()
+	if p.profileEnabled {
+		zeros := make([]byte, profileCounterBytes)
+		if err := r.queue.WriteBuffer(r.profile, 0, zeros); err != nil {
+			return err
+		}
+	}
 	params := r.paramsBytes(cam, p, fw, fh)
 	if err := r.queue.WriteBuffer(r.params, 0, params[:]); err != nil {
 		return err
@@ -578,6 +642,16 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 				return err
 			}
 		}
+		if len(p.instTemplates) > 0 {
+			if err := r.queue.WriteBuffer(r.instTmpl, 0, instTemplateBytes(p.instTemplates)); err != nil {
+				return err
+			}
+		}
+		if len(p.instPlacements) > 0 {
+			if err := r.queue.WriteBuffer(r.instRecs, 0, instanceBytes(p.instPlacements)); err != nil {
+				return err
+			}
+		}
 		// Upload whenever the cache holds an AO volume, independent of the runtime
 		// AO toggle: the toggle only gates the shader's sampling (the aoOK uniform
 		// in paramsBytes), so flipping it on later needs no re-pack/re-upload.
@@ -607,6 +681,11 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 	pass.Release()
 
 	size := uint64(fw * fh * 4)
+	if p.profileEnabled {
+		if err := encoder.CopyBufferToBuffer(r.profile, 0, r.profileRead, 0, profileCounterBytes); err != nil {
+			return err
+		}
+	}
 	if err := encoder.CopyBufferToBuffer(r.output, 0, r.read, 0, size); err != nil {
 		return err
 	}
@@ -644,6 +723,11 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 	copy(buf, r.read.GetMappedRange(0, uint(size)))
 	if err := r.read.Unmap(); err != nil {
 		return err
+	}
+	if p.profileEnabled {
+		if err := r.readProfileCounters(); err != nil {
+			return err
+		}
 	}
 	r.timing.Readback = time.Since(readStart)
 	r.timing.Total = time.Since(frameStart)
@@ -706,7 +790,45 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 		putU32(out[232:236], uint32(r.captureW))
 		putU32(out[236:240], uint32(r.captureH))
 	}
+	putU32(out[240:244], uint32(len(p.instTemplates)))
+	putU32(out[244:248], uint32(len(p.instPlacements)))
+	putU32(out[248:252], p.instNodeBase)
+	putU32(out[252:256], p.instNodeCount)
+	putU32(out[256:260], p.blockerSecStart)
+	putU32(out[260:264], p.blockerInstBase)
+	putU32(out[264:268], p.blockerInstCount)
+	if p.profileEnabled {
+		putU32(out[268:272], 1)
+	}
 	return out
+}
+
+func (r *Renderer) readProfileCounters() error {
+	done := make(chan error, 1)
+	if err := r.profileRead.MapAsync(wgpu.MapMode_Read, 0, profileCounterBytes, func(status wgpu.BufferMapAsyncStatus) {
+		if status != wgpu.BufferMapAsyncStatus_Success {
+			done <- fmt.Errorf("map profile readback: %s", status)
+			return
+		}
+		done <- nil
+	}); err != nil {
+		return err
+	}
+	r.device.Poll(true, nil)
+	select {
+	case err := <-done:
+		if err != nil {
+			return err
+		}
+	case <-time.After(2 * time.Second):
+		return fmt.Errorf("map profile readback timeout")
+	}
+	raw := r.profileRead.GetMappedRange(0, profileCounterBytes)
+	r.profileCounters = decodeProfileCounters(raw)
+	if err := r.profileRead.Unmap(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func putU32(dst []byte, v uint32) { binary.LittleEndian.PutUint32(dst, v) }
@@ -732,6 +854,12 @@ func (r *Renderer) Release() {
 	if r.pipeline != nil {
 		r.pipeline.Release()
 	}
+	if r.profileRead != nil {
+		r.profileRead.Release()
+	}
+	if r.profile != nil {
+		r.profile.Release()
+	}
 	if r.read != nil {
 		r.read.Release()
 	}
@@ -740,6 +868,12 @@ func (r *Renderer) Release() {
 	}
 	if r.holes != nil {
 		r.holes.Release()
+	}
+	if r.instTmpl != nil {
+		r.instTmpl.Release()
+	}
+	if r.instRecs != nil {
+		r.instRecs.Release()
 	}
 	if r.captures != nil {
 		r.captures.Release()
