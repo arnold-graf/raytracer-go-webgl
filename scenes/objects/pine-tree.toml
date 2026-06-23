@@ -10,6 +10,9 @@
 #   file = "objects/pine-tree.toml"
 #   at = [-18.0, 0.0, -6.0]   # y = offset above terrain at (x, z)
 #   rotate_y = 37.0
+#
+# For a row of trees, use pine-tree-cluster.toml with follow_terrain = true on
+# the parent [[include]] so each tree snaps to the slope at its own position.
 
 [[sound]] # pine 1 crickets
 at = [-26.0, 3.0, 12.0]

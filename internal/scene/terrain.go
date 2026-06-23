@@ -141,6 +141,7 @@ func (t *Terrain) ensurePrepared() {
 // Prepare computes the conservative vertical bounds, fills defaults, and builds
 // the height/normal cache. Call once after construction.
 func (t *Terrain) Prepare() {
+	t.ensureFeatureFootprint()
 	maxY := t.Base + math.Abs(t.Detail)
 	minY := t.Base - math.Abs(t.Detail)
 	for i := range t.Features {
@@ -351,6 +352,44 @@ func (t *Terrain) heightAnalytic(x, z float64) float64 {
 // carry [[terrain.pad]] entries; those must not drive include placement.
 func (t *Terrain) HasFootprint() bool {
 	return t.SizeX > 0 && t.SizeZ > 0
+}
+
+// ensureFeatureFootprint gives feature-only stub terrains (common in object files
+// like mountains.toml) a local height-field footprint so height queries and
+// follow_terrain snapping work before the features merge into a parent scene.
+func (t *Terrain) ensureFeatureFootprint() {
+	if t.HasFootprint() || len(t.Features) == 0 {
+		return
+	}
+	minX, maxX := math.Inf(1), math.Inf(-1)
+	minZ, maxZ := math.Inf(1), math.Inf(-1)
+	for _, f := range t.Features {
+		rx := f.Width
+		if f.ExtendX > 1 {
+			rx = math.Max(rx, f.Width*f.ExtendX)
+		}
+		rz := f.Width
+		if f.ExtendZ > 1 {
+			rz = math.Max(rz, f.Width*f.ExtendZ)
+		}
+		if f.PosX-rx < minX {
+			minX = f.PosX - rx
+		}
+		if f.PosX+rx > maxX {
+			maxX = f.PosX + rx
+		}
+		if f.PosZ-rz < minZ {
+			minZ = f.PosZ - rz
+		}
+		if f.PosZ+rz > maxZ {
+			maxZ = f.PosZ + rz
+		}
+	}
+	const margin = 12.0
+	t.OriginX = minX - margin
+	t.OriginZ = minZ - margin
+	t.SizeX = maxX - minX + 2*margin
+	t.SizeZ = maxZ - minZ + 2*margin
 }
 
 // Height returns the cached terrain height at world (x,z) via bilinear

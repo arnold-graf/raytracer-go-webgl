@@ -388,6 +388,12 @@ type sunDTO struct {
 // placement and defines the object's grade). Object files that only carry pad
 // stubs without a footprint do not count as height fields for nested includes.
 //
+// follow_terrain defers Y placement to a post-pass after all terrain (including
+// features from other includes) is merged and baked. Each include with
+// follow_terrain = true snaps its local origin onto the terrain at its world
+// (x,z); at.y is an offset above that surface. The flag inherits to nested
+// [[include]] entries so a cluster can snap each child at its own position.
+//
 // Params are passed to the included file as Go text/template data, so an object
 // can be parameterized (e.g. params = { stem_len = 2.0 }). The object reads them
 // as {{.stem_len}} and can derive geometry with the add/sub/mul/div/neg helpers;
@@ -395,12 +401,13 @@ type sunDTO struct {
 // params fall back to the object's own `or .x <default>` defaults. Files
 // with no {{ }} are passed through verbatim, so this is opt-in per object.
 type includeDTO struct {
-	File    string         `toml:"file"`
-	At      vec3           `toml:"at"`
-	RotateX float64        `toml:"rotate_x"`
-	RotateY float64        `toml:"rotate_y"`
-	RotateZ float64        `toml:"rotate_z"`
-	Params  map[string]any `toml:"params"`
+	File           string         `toml:"file"`
+	At             vec3           `toml:"at"`
+	RotateX        float64        `toml:"rotate_x"`
+	RotateY        float64        `toml:"rotate_y"`
+	RotateZ        float64        `toml:"rotate_z"`
+	FollowTerrain  bool           `toml:"follow_terrain"`
+	Params         map[string]any `toml:"params"`
 }
 
 type interactDTO struct {
@@ -417,6 +424,31 @@ func (d interactDTO) build() scene.Interactable {
 		Range:   d.Range,
 		Center:  d.Center.toV(),
 	}
+}
+
+type playerSpawnpointDTO struct {
+	ID      string   `toml:"id"`
+	Pos     vec3     `toml:"pos"`
+	FloorY  *float64 `toml:"floor_y"`
+	Yaw     float64  `toml:"yaw"`
+	Pitch   float64  `toml:"pitch"`
+}
+
+func (d playerSpawnpointDTO) build() (scene.PlayerSpawnpoint, error) {
+	if d.ID == "" {
+		return scene.PlayerSpawnpoint{}, fmt.Errorf("missing id")
+	}
+	sp := scene.PlayerSpawnpoint{
+		ID:    d.ID,
+		Pos:   d.Pos.toV(),
+		Yaw:   d.Yaw,
+		Pitch: d.Pitch,
+	}
+	if d.FloorY != nil {
+		sp.FloorY = *d.FloorY
+		sp.UseFloor = true
+	}
+	return sp, nil
 }
 
 type sceneDTO struct {
@@ -436,6 +468,7 @@ type sceneDTO struct {
 	Light       []lightDTO      `toml:"light"`
 	Campfire    []campfireDTO   `toml:"campfire"`
 	Sound       []soundDTO      `toml:"sound"`
+	PlayerSpawnpoint []playerSpawnpointDTO `toml:"player_spawnpoint"`
 }
 
 // tintOrWhite returns v as a color, defaulting an omitted (all-zero) vector to
@@ -471,8 +504,14 @@ func Load(path string) (*scene.Scene, error) {
 // sub-scenes, not just the top-level file. Paths are absolute and deduplicated.
 func LoadDeps(path string) (*scene.Scene, []string, error) {
 	var deps []string
-	s, err := load(path, nil, map[string]bool{}, &deps)
-	return s, deps, err
+	var followPlacements []scene.TerrainFollowPlacement
+	s, err := load(path, nil, map[string]bool{}, &deps, false, &followPlacements)
+	if err != nil {
+		return nil, deps, err
+	}
+	s.PrepareTerrains()
+	s.ApplyTerrainFollow(followPlacements)
+	return s, deps, nil
 }
 
 // recordDep appends path's absolute form to *deps if not already present.
@@ -494,8 +533,9 @@ func recordDep(deps *[]string, path string) {
 
 // load reads, templates and decodes the scene at path. params is the template
 // data supplied by a parent [[include]] (nil for the top-level file and for
-// "extends" bases, which take no parameters).
-func load(path string, params map[string]any, seen map[string]bool, deps *[]string) (*scene.Scene, error) {
+// "extends" bases, which take no parameters). inheritFollowTerrain propagates
+// follow_terrain from an ancestor include to nested placements.
+func load(path string, params map[string]any, seen map[string]bool, deps *[]string, inheritFollowTerrain bool, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
 	recordDep(deps, path)
 	abs, err := filepath.Abs(path)
 	if err == nil {
@@ -515,29 +555,24 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		if !filepath.IsAbs(basePath) {
 			basePath = filepath.Join(filepath.Dir(path), basePath)
 		}
-		base, err := load(basePath, nil, seen, deps)
+		base, err := load(basePath, nil, seen, deps, false, nil)
 		if err != nil {
 			return nil, err
 		}
 		if err := dto.applyOverrides(base); err != nil {
 			return nil, fmt.Errorf("apply scene overrides %q: %w", path, err)
 		}
+		var extendPlacements []scene.TerrainFollowPlacement
 		for i, inc := range dto.Include {
-			incPath := inc.File
-			if !filepath.IsAbs(incPath) {
-				incPath = filepath.Join(filepath.Dir(path), incPath)
+			if err := mergeInclude(base, inc, filepath.Dir(path), i, seen, deps, false, &extendPlacements); err != nil {
+				return nil, err
 			}
-			sub, err := load(incPath, inc.Params, seen, deps)
-			if err != nil {
-				return nil, fmt.Errorf("include[%d] %q: %w", i, inc.File, err)
-			}
-			xf := instanceTransform(base, sub, inc)
-			mergeScene(base, sub, xf)
 		}
 		base.PrepareTerrains()
+		base.ApplyTerrainFollow(extendPlacements)
 		return base, nil
 	}
-	return dto.buildWithIncludes(path, seen, deps)
+	return dto.buildWithIncludes(path, seen, deps, inheritFollowTerrain, followPlacements)
 }
 
 // decodeSceneFile reads the file at path, runs it through the object template
@@ -840,42 +875,74 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 	if dto.Interact != nil {
 		s.Interactables = append(s.Interactables, dto.Interact.build())
 	}
+	seenSpawn := map[string]bool{}
+	for i, d := range dto.PlayerSpawnpoint {
+		sp, err := d.build()
+		if err != nil {
+			return nil, fmt.Errorf("player_spawnpoint[%d]: %w", i, err)
+		}
+		if seenSpawn[sp.ID] {
+			return nil, fmt.Errorf("player_spawnpoint[%d]: duplicate id %q", i, sp.ID)
+		}
+		seenSpawn[sp.ID] = true
+		s.Spawnpoints = append(s.Spawnpoints, sp)
+	}
 
 	return s, nil
 }
 
 // buildWithIncludes builds the scene and merges any [[include]] composite files.
-func (dto sceneDTO) buildWithIncludes(path string, seen map[string]bool, deps *[]string) (*scene.Scene, error) {
+func (dto sceneDTO) buildWithIncludes(path string, seen map[string]bool, deps *[]string, inheritFollowTerrain bool, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
 	s, err := dto.build()
 	if err != nil {
 		return nil, err
 	}
 	for i, inc := range dto.Include {
-		incPath := inc.File
-		if !filepath.IsAbs(incPath) {
-			incPath = filepath.Join(filepath.Dir(path), incPath)
+		if err := mergeInclude(s, inc, filepath.Dir(path), i, seen, deps, inheritFollowTerrain, followPlacements); err != nil {
+			return nil, err
 		}
-		sub, err := load(incPath, inc.Params, seen, deps)
-		if err != nil {
-			return nil, fmt.Errorf("include[%d] %q: %w", i, inc.File, err)
-		}
-		xf := instanceTransform(s, sub, inc)
-		mergeScene(s, sub, xf)
 	}
-	s.PrepareTerrains()
 	return s, nil
 }
 
-// instanceTransform builds the world placement for an include. When the sub-
-// scene declares a pad under its origin, at.y is an offset above that pad's
-// level; otherwise, when dst has a terrain height field, at.y is raised by the
-// surface height at (at.x, at.z).
-func instanceTransform(dst *scene.Scene, sub *scene.Scene, inc includeDTO) *scene.Transform {
+func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int, seen map[string]bool, deps *[]string, inheritFollowTerrain bool, followPlacements *[]scene.TerrainFollowPlacement) error {
+	incPath := inc.File
+	if !filepath.IsAbs(incPath) {
+		incPath = filepath.Join(parentDir, incPath)
+	}
+	follow := inc.FollowTerrain || inheritFollowTerrain
+	var subPlacements []scene.TerrainFollowPlacement
+	sub, err := load(incPath, inc.Params, seen, deps, follow, &subPlacements)
+	if err != nil {
+		return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
+	}
+	xf := instanceTransform(dst, sub, inc, follow)
+	before := scene.CountPrimitives(dst)
+	mergeScene(dst, sub, xf)
+	if followPlacements != nil {
+		if len(subPlacements) > 0 {
+			scene.OffsetPlacements(subPlacements, before)
+			*followPlacements = append(*followPlacements, subPlacements...)
+		} else if follow {
+			after := scene.CountPrimitives(dst)
+			*followPlacements = append(*followPlacements, scene.PlacementFromRange(before, after, inc.At.toV().Y))
+		}
+	}
+	return nil
+}
+
+// instanceTransform builds the world placement for an include. When follow is
+// false, at.y is raised by the pad or terrain height at (at.x, at.z) when
+// available. When follow is true, Y is deferred to ApplyTerrainFollow and at.y
+// is kept as an offset above the sampled ground.
+func instanceTransform(dst *scene.Scene, sub *scene.Scene, inc includeDTO, follow bool) *scene.Transform {
 	at := inc.At.toV()
 	if level, ok := sub.PadLevelAt(0, 0); ok {
 		at.Y = level + at.Y
-	} else if h, ok := dst.TerrainHeightAt(at.X, at.Z); ok {
-		at.Y = h + at.Y
+	} else if !follow {
+		if h, ok := dst.TerrainHeightAt(at.X, at.Z); ok {
+			at.Y = h + at.Y
+		}
 	}
 	return scene.NewInstanceTransform(inc.RotateX, inc.RotateY, inc.RotateZ, at)
 }
@@ -980,6 +1047,9 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 			ia.Center = xf.ToWorld(ia.Center)
 		}
 		dst.Interactables = append(dst.Interactables, ia)
+	}
+	for _, sp := range sub.Spawnpoints {
+		dst.Spawnpoints = append(dst.Spawnpoints, sp.Placed(xf))
 	}
 }
 

@@ -155,6 +155,14 @@ func (x *Transform) GPUData() (r0, r1, r2, t vec.V) {
 		x.t
 }
 
+// RotateDir maps a direction vector from local to world space (no translation).
+func (x *Transform) RotateDir(d vec.V) vec.V {
+	if x == nil {
+		return d
+	}
+	return x.fwd.mul(d)
+}
+
 // Compose returns the transform equivalent to applying inner first, then the
 // receiver: result(p) = receiver(inner(p)). It is used when an already-rotated
 // primitive inside an included sub-scene is placed by an outer instance

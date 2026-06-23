@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -23,24 +24,44 @@ import (
 )
 
 const (
-	renderW = 400
-	renderH = 250
+	defaultRenderW = 400
+	defaultRenderH = 250
 )
 
 func main() {
 	scenePath := flag.String("scene", "scenes/manhattan_city_block.toml", "TOML scene to profile")
+	width := flag.Int("w", defaultRenderW, "render width")
+	height := flag.Int("h", defaultRenderH, "render height")
+	yawDeg := flag.Float64("yaw-deg", 0, "override camera yaw in degrees")
+	pitchDeg := flag.Float64("pitch-deg", 0, "override camera pitch in degrees")
 	warmup := flag.Int("warmup", 3, "frames to discard before measuring")
 	frames := flag.Int("frames", 20, "measured frames per configuration")
 	ablate := flag.Bool("ablate", true, "run the feature ablation matrix after the baseline")
 	flag.Parse()
+
+	renderW, renderH := *width, *height
+	if renderW <= 0 || renderH <= 0 {
+		log.Fatalf("invalid render size %dx%d", renderW, renderH)
+	}
 
 	sc, err := sceneio.Load(*scenePath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	cam := camera.New()
+	camLabel := "default camera"
 	if sc.Start.Set {
 		cam.Pos, cam.Yaw, cam.Pitch = sc.Start.Pos, sc.Start.Yaw, sc.Start.Pitch
+		camLabel = fmt.Sprintf("scene camera (yaw=%.0f° pitch=%.1f°)", sc.Start.Yaw*180/math.Pi, sc.Start.Pitch*180/math.Pi)
+	}
+	if flagPassed("yaw-deg") {
+		cam.Yaw = *yawDeg * math.Pi / 180
+	}
+	if flagPassed("pitch-deg") {
+		cam.Pitch = *pitchDeg * math.Pi / 180
+	}
+	if flagPassed("yaw-deg") || flagPassed("pitch-deg") {
+		camLabel = fmt.Sprintf("yaw=%.0f° pitch=%.1f°", cam.Yaw*180/math.Pi, cam.Pitch*180/math.Pi)
 	}
 
 	r, err := webgpu.New(renderW, renderH)
@@ -61,11 +82,11 @@ func main() {
 
 	buf := make([]byte, renderW*renderH*4)
 
-	fmt.Printf("GPU profile: %s  (%dx%d)\n\n", *scenePath, renderW, renderH)
+	fmt.Printf("GPU profile: %s  (%dx%d)  %s\n\n", *scenePath, renderW, renderH, camLabel)
 
-	// Baseline at the scene's authored camera.
+	// Baseline at the configured camera.
 	base := bench(r, buf, cam, view, *warmup, *frames)
-	printTiming("baseline (scene camera)", base)
+	printTiming("baseline", base)
 
 	if *ablate {
 		fmt.Println()
@@ -150,6 +171,16 @@ func printTiming(label string, t webgpu.FrameTiming) {
 }
 
 func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
+
+func flagPassed(name string) bool {
+	found := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
+}
 
 func printNotes() {
 	fmt.Fprintln(os.Stderr, "Notes:")

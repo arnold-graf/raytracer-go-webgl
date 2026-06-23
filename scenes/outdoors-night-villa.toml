@@ -117,100 +117,17 @@ level = 1
 ripple = 0.05
 ripple_animation_speed = 0.6     # drift the waves over time (wind)
 ripple_direction = [1.0, 0.4]    # wind drift direction in x,z (optional)
-material = "glass"
-ior = 10
+material = "mirror"
 albedo = [0.55, 0.70, 0.85]
 
 # ------------------------------------------------------------------ trees ----
-# Tall pines from objects/pine-tree.toml (~15 m). at.y = 0 snaps each tree onto
-# the terrain at (at.x, at.z); rotate_y varies so they don't look copy-pasted.
+# Tall pines on the slope; follow_terrain snaps each tree to ground at its (x, z).
 
 [[include]]
-file = "objects/pine-tree.toml"
-at = [-18.0, 0.0, -6.0]
-rotate_y = 14.0
+file = "objects/pine-tree-cluster.toml"
+at = [0.0, 0.0, 0.0]
+follow_terrain = true
 
-[[include]]
-file = "objects/pine-tree.toml"
-at = [-16.5, 0.0, -11.0]
-rotate_y = 52.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [-14.0, 0.0, -15.5]
-rotate_y = 88.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [-20.5, 0.0, -2.5]
-rotate_y = 127.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [17.0, 0.0, -7.5]
-rotate_y = 203.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [19.0, 0.0, -13.0]
-rotate_y = 241.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [15.5, 0.0, -17.5]
-rotate_y = 19.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [13.0, 0.0, -22.0]
-rotate_y = 66.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [-5.0, 0.0, -23.5]
-rotate_y = 155.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [3.5, 0.0, -25.0]
-rotate_y = 298.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [7.5, 0.0, -21.0]
-rotate_y = 334.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [-22.0, 0.0, 2.0]
-rotate_y = 72.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [11.0, 0.0, 1.5]
-rotate_y = 186.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [-12.0, 0.0, 5.5]
-rotate_y = 260.0
-
-[[include]]
-file = "objects/pine-tree.toml"
-at = [10.5, 0.0, 6.5]
-rotate_y = 112.0
-
-[[sound]] # woodland crickets (left cluster)
-sound = "crickets"
-at = [-17.0, 2.0, -8.0]
-gain = 0.45
-radius = 22.0
-
-[[sound]] # woodland crickets (right cluster)
-sound = "crickets"
-at = [16.0, 2.0, -14.0]
-gain = 0.45
-radius = 22.0
 
 # ----------------------------------------------------------------- campfire ----
 # A campfire on the lake shore (replaces the old lantern orb). The visible part

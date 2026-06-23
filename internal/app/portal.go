@@ -10,22 +10,13 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
-	"raytracer/internal/camera"
 	"raytracer/internal/scene"
 	"raytracer/internal/sceneio"
 	"raytracer/internal/texture"
-	"raytracer/internal/vec"
 )
 
 const exitPortalScene = "manhattan_city_block.toml"
-
-// Cube interior spawn (see scenes/objects/cube.toml). Do not SnapToGround on
-// arrival — Manhattan's center tower roof sits above this point.
-const (
-	cubeFloorY  = 0.3
-	cubeCenterX = 1.5
-	cubeCenterZ = 1.5
-)
+const exitPortalSpawnID = "cube_lab_1"
 
 type portalPhase int
 
@@ -82,12 +73,9 @@ func (g *Game) completePortalTransition() error {
 	}
 	g.loadPortalScene(sc, depTimes(depsList), scenePath)
 	ApplyCapturesToScene(sc)
-	g.cam.SetPose(camera.Pose{
-		Pos:   vec.New(cubeCenterX, 0, cubeCenterZ),
-		Yaw:   0,
-		Pitch: 0,
-	})
-	g.cam.PlaceOnFloor(cubeFloorY)
+	if err := spawnPlayerAt(g.cam, sc, exitPortalSpawnID); err != nil {
+		return err
+	}
 
 	g.portalPhase = portalFadeOut
 	g.fadeTarget = 0

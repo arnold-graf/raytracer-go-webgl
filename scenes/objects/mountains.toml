@@ -16,9 +16,16 @@
   [[terrain.feature]]   # snowy mountain (back-left)
   kind = "peak"
   pos = [-16.0, -24.0]
-  height = 50.0
+  height = 70.0
   width = 50.0
   steepness = 1.0
+
+  [[terrain.feature]]   # snowy mountain (back-left)
+  kind = "peak"
+  pos = [86.0, -24.0]
+  height = 50.0
+  width = 50.0
+  steepness = 0
 
   [[terrain.feature]]   # mountain (back-right)
   kind = "peak"
@@ -48,3 +55,42 @@
   height = 34
   width = 20
   steepness = 2.0
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [50.0, -70.0]
+  height = 34
+  width = 20
+  steepness = 2.0
+
+[[include]]
+file = "campfire-light.toml"
+at = [50.0, 1, -55.0]
+follow_terrain = true
+params = { brightness = 2, range = 50.0, flicker = 0.75, speed = 1.0 }
+
+[[include]]
+file ="pine-tree-cluster.toml"
+at = [50.0, 0.0, -80.0]
+rotate_y = 180.0
+follow_terrain = true
+
+[[include]]
+file ="pine-tree-cluster.toml"
+at = [0.0, 0.0, -80.0]
+rotate_y = 250.0
+follow_terrain = true
+
+[[include]]
+file ="pine-tree-cluster.toml"
+at = [-20.0, 0.0, -70.0]
+rotate_y = 0
+follow_terrain = true
+
+[[include]]
+file ="pine-tree-cluster.toml"
+at = [90.0, 0.0, -70.0]
+rotate_y = 0
+follow_terrain = true
+
+

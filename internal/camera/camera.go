@@ -147,6 +147,12 @@ func (c *Camera) PlaceOnFloor(floorY float64) {
 	c.onGround = true
 }
 
+// Land clears vertical motion and marks the camera grounded at the current height.
+func (c *Camera) Land() {
+	c.velY = 0
+	c.onGround = true
+}
+
 // Move describes which movement inputs are active this frame. It carries both
 // the digital (keyboard) flags and the analog (gamepad) axes; the caller fills
 // whichever it has and Update combines them.

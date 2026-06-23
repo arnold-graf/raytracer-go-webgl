@@ -597,3 +597,231 @@ at = [0.0, 0.0, 0.0]
 		t.Fatalf("nested sphere = %v, want %v", got, want)
 	}
 }
+
+func TestFollowTerrainOnSlope(t *testing.T) {
+	dir := t.TempDir()
+	tree := filepath.Join(dir, "tree.toml")
+	if err := os.WriteFile(tree, []byte(`
+[[cone]]
+cx = 0.0
+cz = 0.0
+ybase = 0.0
+ytip = 5.0
+rbase = 1.0
+material = "diffuse"
+albedo = [0.5, 0.8, 0.5]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(dir, "scene.toml")
+	if err := os.WriteFile(parent, []byte(`
+[[terrain]]
+origin = [-20.0, 0.0, -20.0]
+size = [40.0, 40.0]
+base = 0.0
+detail = 0.0
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [0.0, 0.0]
+  height = 8.0
+  width = 6.0
+
+[[include]]
+file = "tree.toml"
+at = [0.0, 0.0, 0.0]
+follow_terrain = true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Cones) != 1 {
+		t.Fatalf("got %d cones, want 1", len(s.Cones))
+	}
+	foot := s.Cones[0].Xform.ToWorld(vec.V{})
+	h, ok := s.TerrainHeightAt(foot.X, foot.Z)
+	if !ok {
+		t.Fatal("expected terrain")
+	}
+	if math.Abs(foot.Y-h) > 0.15 {
+		t.Fatalf("foot y=%v, terrain h=%v", foot.Y, h)
+	}
+}
+
+func TestFollowTerrainInheritsToNestedIncludes(t *testing.T) {
+	dir := t.TempDir()
+	pine := filepath.Join(dir, "pine.toml")
+	if err := os.WriteFile(pine, []byte(`
+[[cone]]
+cx = 0.0
+cz = 0.0
+ybase = 0.0
+ytip = 4.0
+rbase = 0.8
+material = "diffuse"
+albedo = [0.5, 0.8, 0.5]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cluster := filepath.Join(dir, "cluster.toml")
+	if err := os.WriteFile(cluster, []byte(`
+[[include]]
+file = "pine.toml"
+at = [-3.0, 0.0, 0.0]
+
+[[include]]
+file = "pine.toml"
+at = [3.0, 0.0, 0.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(dir, "scene.toml")
+	if err := os.WriteFile(parent, []byte(`
+[[terrain]]
+origin = [-20.0, 0.0, -20.0]
+size = [40.0, 40.0]
+base = 0.0
+detail = 0.0
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [0.0, 0.0]
+  height = 6.0
+  width = 8.0
+
+[[include]]
+file = "cluster.toml"
+at = [0.0, 0.0, 0.0]
+follow_terrain = true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Cones) != 2 {
+		t.Fatalf("got %d cones, want 2", len(s.Cones))
+	}
+	for i, c := range s.Cones {
+		foot := c.Xform.ToWorld(vec.V{})
+		h, ok := s.TerrainHeightAt(foot.X, foot.Z)
+		if !ok {
+			t.Fatalf("cone %d: no terrain", i)
+		}
+		if math.Abs(foot.Y-h) > 0.15 {
+			t.Fatalf("cone %d foot y=%v, terrain h=%v at (%v,%v)", i, foot.Y, h, foot.X, foot.Z)
+		}
+	}
+}
+
+func TestFollowTerrainWithFeatureStub(t *testing.T) {
+	dir := t.TempDir()
+	tree := filepath.Join(dir, "tree.toml")
+	if err := os.WriteFile(tree, []byte(`
+[[cone]]
+cx = 0.0
+cz = 0.0
+ybase = 0.0
+ytip = 4.0
+rbase = 0.8
+material = "diffuse"
+albedo = [0.5, 0.8, 0.5]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hills := filepath.Join(dir, "hills.toml")
+	if err := os.WriteFile(hills, []byte(`
+[[terrain]]
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [0.0, 0.0]
+  height = 6.0
+  width = 8.0
+
+[[include]]
+file = "tree.toml"
+at = [2.0, 0.0, 0.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(dir, "scene.toml")
+	if err := os.WriteFile(parent, []byte(`
+[[terrain]]
+origin = [-20.0, 0.0, -20.0]
+size = [40.0, 40.0]
+base = 0.0
+detail = 0.0
+
+[[include]]
+file = "hills.toml"
+at = [0.0, 0.0, 0.0]
+follow_terrain = true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Cones) != 1 {
+		t.Fatalf("got %d cones, want 1", len(s.Cones))
+	}
+	foot := s.Cones[0].Xform.ToWorld(vec.V{})
+	h, ok := s.TerrainHeightAt(foot.X, foot.Z)
+	if !ok {
+		t.Fatal("expected terrain")
+	}
+	if math.Abs(foot.Y-h) > 0.2 {
+		t.Fatalf("foot y=%v, terrain h=%v", foot.Y, h)
+	}
+}
+
+func TestOutdoorsNightVillaTreesFollowTerrain(t *testing.T) {
+	s, err := Load(repoFile("scenes/outdoors-night-villa.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Cones) < 15 {
+		t.Fatalf("expected many tree cones, got %d", len(s.Cones))
+	}
+	// Root-flare cones (ybase ≈ -0.7, wide rbase) mark each pine's ground anchor.
+	const eps = 0.35
+	checked, spreadMin, spreadMax := 0, 0.0, 0.0
+	firstSpread := true
+	for _, c := range s.Cones {
+		if math.Abs(c.YBase-(-0.7)) > 0.05 || math.Abs(c.RBase-2.0) > 0.05 {
+			continue
+		}
+		foot := c.Xform.ToWorld(vec.V{})
+		h, ok := s.TerrainHeightAt(foot.X, foot.Z)
+		if !ok {
+			t.Fatalf("no terrain at pine (%.1f,%.1f)", foot.X, foot.Z)
+		}
+		if math.Abs(foot.Y-h) > eps {
+			t.Fatalf("pine at (%.1f,%.1f) y=%.2f, terrain=%.2f", foot.X, foot.Z, foot.Y, h)
+		}
+		checked++
+		if firstSpread {
+			spreadMin, spreadMax = foot.Y, foot.Y
+			firstSpread = false
+		} else {
+			if foot.Y < spreadMin {
+				spreadMin = foot.Y
+			}
+			if foot.Y > spreadMax {
+				spreadMax = foot.Y
+			}
+		}
+	}
+	if checked < 20 {
+		t.Fatalf("checked only %d pine root flares; expected many (cluster + mountains)", checked)
+	}
+	if spreadMax-spreadMin < 1.0 {
+		t.Fatalf("pines share nearly flat Y (spread %.2f); follow_terrain not applied?", spreadMax-spreadMin)
+	}
+}

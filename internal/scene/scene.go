@@ -26,6 +26,7 @@ type Scene struct {
 	Campfires []Campfire
 	Ambiences []Ambience
 	Interactables []Interactable
+	Spawnpoints   []PlayerSpawnpoint
 	Start     CameraStart
 	Env       Environment
 
