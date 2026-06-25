@@ -234,6 +234,21 @@ but is not required for performance (see terrain strategy / risks table).
 - **Streamed fine tiles** (Option 1) remain the fallback if the WGSL analytic
   near path is deferred.
 - Far-clip is the cheapest immediate win and can land before the pyramid.
+- **Indoor shadow terrain march (2025-06-17, HUD profiling):** `~time terr` stays
+  ~25–28% even when staring at the villa floor — not screen coverage, but shadow
+  rays. `shadowed()` in `trace.wgsl` always calls `hit_terrain` for every shadow
+  ray that survives the blocker BVH, so floor pixels pay heightfield marching
+  toward exterior lights/campfire (through openings) and for rays traversing the
+  terrain AABB from inside the scene box. Toggling shadows `[2]` only drops the
+  terrain time mix modestly (observed ~28% → ~21% indoors); the rest is primary/
+  bounce terrain hits and shading attribution in the cost model.
+  **Potential optimization:** cheap reject before `hit_terrain` in the shadow
+  path — e.g. skip when origin is above local/coarse max height and the light ray
+  points away from the ground; skip when the ray misses a tightened ground slab;
+  optional max distance / mip-pyramid leap for shadow-only marches (same pyramid
+  as mid-band primary). Goal: zero terrain steps for clearly indoor upward rays;
+  keep parity on outdoor shadow silhouettes. Revisit alongside Step 4 mip pyramid
+  (shadow rays benefit from the same coarse skip as primary rays).
 
 ---
 

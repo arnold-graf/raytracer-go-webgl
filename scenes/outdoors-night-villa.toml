@@ -121,12 +121,11 @@ material = "mirror"
 albedo = [0.55, 0.70, 0.85]
 
 # ------------------------------------------------------------------ trees ----
-# Tall pines on the slope; follow_terrain snaps each tree to ground at its (x, z).
+# Tall pines on the slope; each tree include in the cluster snaps to ground.
 
 [[include]]
 file = "objects/pine-tree-cluster.toml"
 at = [0.0, 0.0, 0.0]
-follow_terrain = true
 instance = true
 
 
@@ -171,9 +170,3 @@ range = 25.0
 jitter = 0.4
 flicker = 0.45
 speed = 1.0
-
-
-[[include]]
-file = "objects/exit-button.toml"
-at = [70.0, 0.0, 50.0]
-rotate_y = -90

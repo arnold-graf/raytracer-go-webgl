@@ -16,7 +16,7 @@ const maxInstances = 2048
 // expandInstancedInclude registers BLAS templates and TLAS placements for an
 // [[include]] with instance = true. Layout files (only nested includes) expand
 // recursively; leaf files become shared templates.
-func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, parentXf *scene.Transform, inheritFollow bool, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) error {
+func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, parentXf *scene.Transform, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) error {
 	incPath := inc.File
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
@@ -31,24 +31,24 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 		return err
 	}
 
-	follow := inc.FollowTerrain || inheritFollow
 	for i, child := range dto.Include {
 		childPath := child.File
 		if !filepath.IsAbs(childPath) {
 			childPath = filepath.Join(filepath.Dir(incPath), childPath)
 		}
-		childXf := parentXf.Compose(instanceTransformFromDTO(dst, child, follow || child.FollowTerrain))
+		childFollow := child.FollowTerrain
+		childXf := parentXf.Compose(instanceTransformFromDTO(dst, child, childFollow))
 		childDTO, err := decodeSceneFile(childPath, child.Params)
 		if err != nil {
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 		}
 		if isLayoutDTO(childDTO) {
-			if err := expandInstancedInclude(dst, child, filepath.Dir(incPath), childXf, follow||child.FollowTerrain, seen, deps, followPlacements); err != nil {
+			if err := expandInstancedInclude(dst, child, filepath.Dir(incPath), childXf, seen, deps, followPlacements); err != nil {
 				return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 			}
 			continue
 		}
-		if err := registerInstancePlacement(dst, childPath, child.Params, childXf, follow||child.FollowTerrain, child.At.toV().Y, seen, deps); err != nil {
+		if err := registerInstancePlacement(dst, childPath, child.Params, childXf, childFollow, child.At.toV().Y, seen, deps); err != nil {
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 		}
 	}
@@ -56,7 +56,7 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 }
 
 // registerLeafInstance registers a single template file as one TLAS placement.
-func registerLeafInstance(dst *scene.Scene, inc includeDTO, parentDir string, parentXf *scene.Transform, inheritFollow bool, seen map[string]bool, deps *[]string) error {
+func registerLeafInstance(dst *scene.Scene, inc includeDTO, parentDir string, seen map[string]bool, deps *[]string) error {
 	incPath := inc.File
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
@@ -65,14 +65,20 @@ func registerLeafInstance(dst *scene.Scene, inc includeDTO, parentDir string, pa
 	if err != nil {
 		return err
 	}
+	follow := inc.FollowTerrain
 	if isLayoutDTO(dto) {
-		return expandInstancedInclude(dst, inc, parentDir, parentXf, inheritFollow, seen, deps, nil)
+		parentXf := instanceTransformForInclude(dst, inc, follow, nil)
+		return expandInstancedInclude(dst, inc, parentDir, parentXf, seen, deps, nil)
 	}
-	follow := inc.FollowTerrain || inheritFollow
-	if err := mergeTerrainFromDTO(dst, dto, parentXf); err != nil {
+	sub, err := dto.build()
+	if err != nil {
 		return err
 	}
-	return registerInstancePlacement(dst, incPath, inc.Params, parentXf, follow, inc.At.toV().Y, seen, deps)
+	xf := instanceTransformForInclude(dst, inc, follow, sub)
+	if err := mergeTerrainFromDTO(dst, dto, xf); err != nil {
+		return err
+	}
+	return registerInstancePlacement(dst, incPath, inc.Params, xf, follow, inc.At.toV().Y, seen, deps)
 }
 
 func registerInstancePlacement(dst *scene.Scene, absPath string, params map[string]any, xf *scene.Transform, follow bool, yOffset float64, seen map[string]bool, deps *[]string) error {
@@ -118,7 +124,7 @@ func ensureTemplate(cat *scene.InstancingCatalog, key, absPath string, params ma
 func loadTemplateScene(path string, params map[string]any, seen map[string]bool, deps *[]string) (*scene.Scene, error) {
 	// Templates are leaf assets: load without propagating follow_terrain and
 	// without merging nested includes into the parent (pine-tree has none).
-	s, err := load(path, params, seen, deps, false, nil)
+	s, err := load(path, params, seen, deps, nil)
 	if err != nil {
 		return nil, err
 	}

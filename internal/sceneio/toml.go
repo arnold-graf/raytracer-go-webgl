@@ -389,10 +389,10 @@ type sunDTO struct {
 // stubs without a footprint do not count as height fields for nested includes.
 //
 // follow_terrain defers Y placement to a post-pass after all terrain (including
-// features from other includes) is merged and baked. Each include with
-// follow_terrain = true snaps its local origin onto the terrain at its world
-// (x,z); at.y is an offset above that surface. The flag inherits to nested
-// [[include]] entries so a cluster can snap each child at its own position.
+// features from other includes) is merged and baked. Only the [[include]] line
+// that sets follow_terrain = true is snapped; nested includes without the flag
+// move rigidly with the parent assembly. For scattered props (e.g. a tree row),
+// set follow_terrain on each child include, not on the layout file.
 //
 // Params are passed to the included file as Go text/template data, so an object
 // can be parameterized (e.g. params = { stem_len = 2.0 }). The object reads them
@@ -506,7 +506,7 @@ func Load(path string) (*scene.Scene, error) {
 func LoadDeps(path string) (*scene.Scene, []string, error) {
 	var deps []string
 	var followPlacements []scene.TerrainFollowPlacement
-	s, err := load(path, nil, map[string]bool{}, &deps, false, &followPlacements)
+	s, err := load(path, nil, map[string]bool{}, &deps, &followPlacements)
 	if err != nil {
 		return nil, deps, err
 	}
@@ -536,9 +536,8 @@ func recordDep(deps *[]string, path string) {
 
 // load reads, templates and decodes the scene at path. params is the template
 // data supplied by a parent [[include]] (nil for the top-level file and for
-// "extends" bases, which take no parameters). inheritFollowTerrain propagates
-// follow_terrain from an ancestor include to nested placements.
-func load(path string, params map[string]any, seen map[string]bool, deps *[]string, inheritFollowTerrain bool, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
+// "extends" bases, which take no parameters).
+func load(path string, params map[string]any, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
 	recordDep(deps, path)
 	abs, err := filepath.Abs(path)
 	if err == nil {
@@ -558,7 +557,7 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		if !filepath.IsAbs(basePath) {
 			basePath = filepath.Join(filepath.Dir(path), basePath)
 		}
-		base, err := load(basePath, nil, seen, deps, false, nil)
+		base, err := load(basePath, nil, seen, deps, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -567,7 +566,7 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		}
 		var extendPlacements []scene.TerrainFollowPlacement
 		for i, inc := range dto.Include {
-			if err := mergeInclude(base, inc, filepath.Dir(path), i, seen, deps, false, &extendPlacements); err != nil {
+			if err := mergeInclude(base, inc, filepath.Dir(path), i, seen, deps, &extendPlacements); err != nil {
 				return nil, err
 			}
 		}
@@ -577,7 +576,7 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		base.FinalizeInstancing()
 		return base, nil
 	}
-	return dto.buildWithIncludes(path, seen, deps, inheritFollowTerrain, followPlacements)
+	return dto.buildWithIncludes(path, seen, deps, followPlacements)
 }
 
 // decodeSceneFile reads the file at path, runs it through the object template
@@ -897,36 +896,39 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 }
 
 // buildWithIncludes builds the scene and merges any [[include]] composite files.
-func (dto sceneDTO) buildWithIncludes(path string, seen map[string]bool, deps *[]string, inheritFollowTerrain bool, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
+func (dto sceneDTO) buildWithIncludes(path string, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
 	s, err := dto.build()
 	if err != nil {
 		return nil, err
 	}
 	for i, inc := range dto.Include {
-		if err := mergeInclude(s, inc, filepath.Dir(path), i, seen, deps, inheritFollowTerrain, followPlacements); err != nil {
+		if err := mergeInclude(s, inc, filepath.Dir(path), i, seen, deps, followPlacements); err != nil {
 			return nil, err
 		}
 	}
 	return s, nil
 }
 
-func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int, seen map[string]bool, deps *[]string, inheritFollowTerrain bool, followPlacements *[]scene.TerrainFollowPlacement) error {
+func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) error {
 	incPath := inc.File
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
 	}
-	follow := inc.FollowTerrain || inheritFollowTerrain
+	follow := inc.FollowTerrain
 
 	if inc.Instance {
-		parentXf := instanceTransformForInclude(dst, inc, follow, nil)
-		if err := registerLeafInstance(dst, inc, parentDir, parentXf, follow, seen, deps); err != nil {
+		if err := registerLeafInstance(dst, inc, parentDir, seen, deps); err != nil {
 			return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
 		}
 		return nil
 	}
 
-	var subPlacements []scene.TerrainFollowPlacement
-	sub, err := load(incPath, inc.Params, seen, deps, follow, &subPlacements)
+	var subFollow []scene.TerrainFollowPlacement
+	fp := &subFollow
+	if follow {
+		fp = nil
+	}
+	sub, err := load(incPath, inc.Params, seen, deps, fp)
 	if err != nil {
 		return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
 	}
@@ -934,14 +936,22 @@ func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int,
 	before := scene.CountPrimitives(dst)
 	mergeScene(dst, sub, xf)
 	mergeInstancingCatalog(dst, sub, xf)
-	if followPlacements != nil {
-		if len(subPlacements) > 0 {
-			scene.OffsetPlacements(subPlacements, before)
-			*followPlacements = append(*followPlacements, subPlacements...)
-		} else if follow {
-			after := scene.CountPrimitives(dst)
-			*followPlacements = append(*followPlacements, scene.PlacementFromRange(before, after, inc.At.toV().Y))
+	if followPlacements == nil {
+		return nil
+	}
+	if follow {
+		after := scene.CountPrimitives(dst)
+		p := scene.PlacementFromRange(before, after, inc.At.toV().Y)
+		p.Anchor = xf.ToWorld(vec.V{})
+		*followPlacements = append(*followPlacements, p)
+		return nil
+	}
+	if len(subFollow) > 0 {
+		for i := range subFollow {
+			subFollow[i].Anchor = xf.ToWorld(subFollow[i].Anchor)
 		}
+		scene.OffsetPlacements(subFollow, before)
+		*followPlacements = append(*followPlacements, subFollow...)
 	}
 	return nil
 }

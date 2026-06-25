@@ -1,11 +1,12 @@
 package app
 
 import (
+	"math"
 	"testing"
 
-	"math"
-
+	"raytracer/internal/camera"
 	"raytracer/internal/texture"
+	"raytracer/internal/vec"
 )
 
 func TestResolveScenePath(t *testing.T) {
@@ -50,5 +51,32 @@ func TestClampCapturePitch(t *testing.T) {
 	}
 	if clampCapturePitch(0.5) != 0.5 {
 		t.Fatal("expected unchanged in range")
+	}
+}
+
+func TestPortalCaptureOriginUsesSavedForward(t *testing.T) {
+	saved := camera.Pose{Pos: vec.New(0, 1.6, 0), Yaw: 0, Pitch: 0}
+	origin := portalCaptureOrigin(saved, 1.25)
+	if math.Abs(origin.Pos.Z-1.25) > 1e-9 || origin.Pos.X != 0 || origin.Pos.Y != 1.6 {
+		t.Fatalf("origin pos = %v, want (0, 1.6, 1.25)", origin.Pos)
+	}
+	// Left/right shots must share the same origin; only yaw changes.
+	left := origin
+	left.Yaw += 60 * math.Pi / 180
+	right := origin
+	right.Yaw -= 60 * math.Pi / 180
+	if left.Pos != origin.Pos || right.Pos != origin.Pos {
+		t.Fatalf("side shots moved origin: left=%v right=%v", left.Pos, right.Pos)
+	}
+}
+
+func TestPullBackPortalCapture(t *testing.T) {
+	cam := camera.New()
+	cam.Pos = vec.New(0, 1.6, 0)
+	cam.Yaw = 0
+	cam.Pitch = 0
+	pullBackPortalCapture(cam, 1.25)
+	if math.Abs(cam.Pos.Z-1.25) > 1e-9 || cam.Pos.X != 0 || cam.Pos.Y != 1.6 {
+		t.Fatalf("pullback pos = %v, want (0, 1.6, 1.25)", cam.Pos)
 	}
 }

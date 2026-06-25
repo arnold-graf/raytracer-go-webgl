@@ -233,5 +233,5 @@ func printNotes() {
 	fmt.Fprintln(os.Stderr, "  • Pack+Upload are near-zero for static scenes: the scene cache packs and")
 	fmt.Fprintln(os.Stderr, "    uploads geometry once and re-sends only when the scene changes.")
 	fmt.Fprintln(os.Stderr, "  • Use -profile for shader workload counters; -mountains for the slow villa view.")
-	fmt.Fprintln(os.Stderr, "  • In-game: the HUD shows the same per-phase breakdown (toggle with 0).")
+	fmt.Fprintln(os.Stderr, "  • In-game HUD [0]: gpu ms budget + live workload counters (paths/shadows/terrain/bounces).")
 }

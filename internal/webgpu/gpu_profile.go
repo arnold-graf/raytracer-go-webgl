@@ -99,7 +99,11 @@ func FormatGPUProfile(c GPUProfileCounters, gpuMS float64) string {
 	}
 	fmt.Fprintf(&b, "GPU shader workload (one frame, %d pixels, %.1f ms GPU):\n", c.Pixels, gpuMS)
 	fmt.Fprintf(&b, "  path segments:     %8d  (%.1f per pixel)\n", c.PathSegs, float64(c.PathSegs)/pix)
-	fmt.Fprintf(&b, "  primary visibility:\n")
+	fmt.Fprintf(&b, "  estimated GPU time mix (sky omitted):\n")
+	terr, inst, water, prim := timeMixFromCounters(c)
+	fmt.Fprintf(&b, "    terrain %.0f%%  inst %.0f%%  water %.0f%%  prim %.0f%%\n",
+		terr, inst, water, prim)
+	fmt.Fprintf(&b, "  primary screen coverage:\n")
 	fmt.Fprintf(&b, "    sky               %8d  (%5.1f%% of pixels)\n", c.PriSky, 100*float64(c.PriSky)/pix)
 	fmt.Fprintf(&b, "    terrain           %8d  (%5.1f%%)\n", c.PriHitTerrain, 100*float64(c.PriHitTerrain)/pix)
 	fmt.Fprintf(&b, "    instanced prim    %8d  (%5.1f%%)\n", c.PriHitInst, 100*float64(c.PriHitInst)/pix)

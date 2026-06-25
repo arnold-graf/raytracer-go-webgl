@@ -102,6 +102,8 @@ type Game struct {
 	fadeTarget       float64
 	transitionActive bool
 	portalPhase      portalPhase
+
+	hudSmooth hudSmoother
 }
 
 // New builds a game with the given internal render resolution rendering the
@@ -184,15 +186,15 @@ func (g *Game) view() *render.View {
 	aoData, aoOK, aoVer := g.aoData, g.aoOK, g.aoVer
 	g.aoMu.Unlock()
 	return &render.View{
-		Scene:       g.sc,
-		Time:        g.elapsed,
-		Shadow:      g.shadow,
-		Mirror:      g.mirror,
-		AO:          g.ao,
-		AOData:      aoData,
-		AOok:        aoOK,
-		AOVersion:   aoVer,
-		ColorQuant:  g.colorQuant,
+		Scene:      g.sc,
+		Time:       g.elapsed,
+		Shadow:     g.shadow,
+		Mirror:     g.mirror,
+		AO:         g.ao,
+		AOData:     aoData,
+		AOok:       aoOK,
+		AOVersion:  aoVer,
+		ColorQuant: g.colorQuant,
 	}
 }
 
@@ -660,6 +662,9 @@ func (g *Game) handleToggles() {
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit0) {
 		g.hudHidden = !g.hudHidden
+		if g.hudHidden {
+			g.hudSmooth.reset()
+		}
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyMinus) || inpututil.IsKeyJustPressed(ebiten.KeyLeftBracket) {
 		if g.pixSize < 8 {
@@ -675,6 +680,9 @@ func (g *Game) handleToggles() {
 
 // Draw renders the scene into the framebuffer and blits it with the HUD.
 func (g *Game) Draw(screen *ebiten.Image) {
+	if wl, ok := g.ren.(render.LiveWorkloadController); ok {
+		wl.SetLiveWorkload(!g.hudHidden)
+	}
 	g.ren.Render(g.buf, g.cam, g.view(), g.pixSize)
 	g.frame.WritePixels(g.buf)
 	screen.DrawImage(g.frame, nil)
@@ -683,17 +691,24 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// shows so hot-reloads are confirmed while iterating on a scene.
 	y := 4
 	if !g.hudHidden {
-		hud := fmt.Sprintf("%.0f fps  |  %s  |  %s", ebiten.ActualFPS(), g.backendName(), g.statusLine())
+		var gpuMS float64
+		if prof, ok := g.ren.(render.PhaseTimingsProvider); ok {
+			gpuMS = prof.LastPhaseTimings().GPU
+		}
+		smoothGPU := g.hudSmooth.sample(gpuMS, ebiten.ActualFPS())
+		hud := fmt.Sprintf("%s | %s",
+			g.frameBudgetLine(smoothGPU), g.statusLine())
 		ebitenutil.DebugPrintAt(screen, hud, 4, y)
 		y += 14
 
-		if prof, ok := g.ren.(render.PhaseTimingsProvider); ok {
-			t := prof.LastPhaseTimings()
-			ebitenutil.DebugPrintAt(screen, fmt.Sprintf(
-				"gpu pack %.1f  upload %.1f  shade %.1f  read %.1f ms  (%d prims %d holes)",
-				t.Pack, t.Upload, t.GPU, t.Readback, t.Prims, t.Holes,
-			), 4, y)
-			y += 14
+		if wl, ok := g.ren.(render.GPUWorkloadProvider); ok {
+			if w := wl.LastGPUWorkload(); w.Ready {
+				line1, line2 := g.workloadHUD(w)
+				ebitenutil.DebugPrintAt(screen, line1, 4, y)
+				y += 14
+				ebitenutil.DebugPrintAt(screen, line2, 4, y)
+				y += 14
+			}
 		}
 		ebitenutil.DebugPrintAt(screen, g.helpLine(), 4, g.rh-14)
 	}
@@ -705,6 +720,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.reloadMsg != "" && time.Since(g.reloadMsgAt) < 3*time.Second {
 		ebitenutil.DebugPrintAt(screen, g.reloadMsg, 4, y)
 	}
+}
+
+func (g *Game) frameBudgetLine(gpuMS float64) string {
+	return render.FormatFrameBudget(gpuMS)
+}
+
+func (g *Game) workloadHUD(w render.GPUWorkload) (string, string) {
+	return render.FormatWorkloadHUD(w)
 }
 
 // backendName reports the active renderer's backend label for the HUD.

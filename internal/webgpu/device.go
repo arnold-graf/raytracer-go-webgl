@@ -86,6 +86,10 @@ type Renderer struct {
 	profile           *wgpu.Buffer
 	profileRead       *wgpu.Buffer
 
+	liveWorkload  bool
+	workloadFrame int
+	workload      render.GPUWorkload
+
 	captureVer    uint64
 	captureW      int
 	captureH      int
@@ -535,7 +539,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		}
 		r.captureVer = ver
 	}
-	rp.profileEnabled = r.profiling
+	r.maybeProfileWorkload(&rp)
 	return rp
 }
 
@@ -827,6 +831,9 @@ func (r *Renderer) readProfileCounters() error {
 	r.profileCounters = decodeProfileCounters(raw)
 	if err := r.profileRead.Unmap(); err != nil {
 		return err
+	}
+	if !r.profiling {
+		r.absorbWorkloadSample(r.profileCounters)
 	}
 	return nil
 }

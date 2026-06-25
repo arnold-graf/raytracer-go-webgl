@@ -3,6 +3,7 @@ package app
 import (
 	"math"
 
+	"raytracer/internal/camera"
 	"raytracer/internal/render"
 	"raytracer/internal/texture"
 )
@@ -22,6 +23,11 @@ var portalShots = []portalShot{
 	{0, 60},
 	{0, -60},
 }
+
+// portalCapturePullback shifts the shared capture origin backward along the
+// player's view at exit time. All five shots rotate in place from that point so
+// the cube-wall projections stay aligned.
+const portalCapturePullback = 1.25
 
 func (g *Game) capturePortalViews() texture.PortalCapture {
 	saved := g.cam.Pose()
@@ -45,9 +51,10 @@ func (g *Game) capturePortalViews() texture.PortalCapture {
 	square, ok := g.ren.(render.SquareCapturer)
 	view := g.view()
 	deg := math.Pi / 180
+	origin := portalCaptureOrigin(saved, portalCapturePullback)
 
 	for i, shot := range portalShots {
-		g.cam.SetPose(saved)
+		g.cam.SetPose(origin)
 		g.cam.Yaw += shot.yawDeg * deg
 		g.cam.Pitch = clampCapturePitch(saved.Pitch + shot.pitchDeg*deg)
 		if ok {
@@ -61,6 +68,28 @@ func (g *Game) capturePortalViews() texture.PortalCapture {
 		cap.Images[i] = img
 	}
 	return cap
+}
+
+// portalCaptureOrigin returns the shared capture position (player pose stepped
+// back along their view) while keeping the player's orientation for the loop to
+// offset per wall.
+func portalCaptureOrigin(saved camera.Pose, pullback float64) camera.Pose {
+	if pullback <= 0 {
+		return saved
+	}
+	cam := camera.New()
+	cam.SetPose(saved)
+	pullBackPortalCapture(cam, pullback)
+	return cam.Pose()
+}
+
+// pullBackPortalCapture moves the camera opposite its current view direction.
+func pullBackPortalCapture(cam *camera.Camera, pullback float64) {
+	if pullback <= 0 || cam == nil {
+		return
+	}
+	fwd, _, _ := cam.Basis()
+	cam.Pos = cam.Pos.Sub(fwd.Scale(pullback))
 }
 
 // cropSquareFromBuffer copies the largest centered square from a rectangular RGBA frame.

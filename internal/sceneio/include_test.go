@@ -411,14 +411,15 @@ func TestStormVillaSceneLoads(t *testing.T) {
 	if len(s.Boxes) < 20 {
 		t.Fatalf("expected villa geometry from include, got %d boxes", len(s.Boxes))
 	}
-	// Villa origin (grade) should sit on its pad level (0), not on wild terrain.
+	// Villa origin (grade) sits on its pad level (3.0); at.y offset is 0.
+	const padLevel = 3.0
 	for i := range s.Boxes {
 		mn, mx := s.Boxes[i].WorldBounds()
-		if mn.Y >= -0.05 && mn.Y <= 0.05 && mx.Y >= 1.0 {
-			return // stone plinth base at grade
+		if mn.Y >= padLevel-0.05 && mn.Y <= padLevel+0.05 && mx.Y >= padLevel+1.0 {
+			return // stone plinth base at pad grade
 		}
 	}
-	t.Fatal("expected villa plinth base near y=0")
+	t.Fatalf("expected villa plinth base near pad level y=%v", padLevel)
 }
 
 func TestRotatedIncludePadHonorsYaw(t *testing.T) {
@@ -671,10 +672,12 @@ albedo = [0.5, 0.8, 0.5]
 [[include]]
 file = "pine.toml"
 at = [-3.0, 0.0, 0.0]
+follow_terrain = true
 
 [[include]]
 file = "pine.toml"
 at = [3.0, 0.0, 0.0]
+follow_terrain = true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -695,7 +698,6 @@ detail = 0.0
 [[include]]
 file = "cluster.toml"
 at = [0.0, 0.0, 0.0]
-follow_terrain = true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -715,6 +717,167 @@ follow_terrain = true
 		if math.Abs(foot.Y-h) > 0.15 {
 			t.Fatalf("cone %d foot y=%v, terrain h=%v at (%v,%v)", i, foot.Y, h, foot.X, foot.Z)
 		}
+	}
+}
+
+// Composite files with both local primitives and nested [[include]] must follow
+// terrain for the locals too, not only the child includes (exit-button pattern).
+func TestFollowTerrainCompositeOwnPrimitivesAndChild(t *testing.T) {
+	dir := t.TempDir()
+	sign := filepath.Join(dir, "sign.toml")
+	if err := os.WriteFile(sign, []byte(`
+[[box]]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 0.5
+height = 0.5
+depth = 0.1
+material = "diffuse"
+albedo = [1, 0, 0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	button := filepath.Join(dir, "button.toml")
+	if err := os.WriteFile(button, []byte(`
+[[box]]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 2.0
+height = 3.0
+depth = 0.3
+material = "diffuse"
+albedo = [0.8, 0.8, 0.8]
+
+[[include]]
+file = "sign.toml"
+at = [0.0, 2.0, 0.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(dir, "scene.toml")
+	if err := os.WriteFile(parent, []byte(`
+[[terrain]]
+origin = [-20.0, 0.0, -20.0]
+size = [40.0, 40.0]
+base = 0.0
+detail = 0.0
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [5.0, 5.0]
+  height = 8.0
+  width = 10.0
+
+[[include]]
+file = "button.toml"
+at = [5.0, 0.0, 5.0]
+follow_terrain = true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Boxes) != 2 {
+		t.Fatalf("got %d boxes, want 2 (pedestal + sign)", len(s.Boxes))
+	}
+	for i, b := range s.Boxes {
+		foot := b.Xform.ToWorld(vec.V{})
+		h, ok := s.TerrainHeightAt(foot.X, foot.Z)
+		if !ok {
+			t.Fatalf("box %d: no terrain", i)
+		}
+		wantY := h
+		if i == 1 {
+			wantY = h + 2.0 // sign include at y=2 above local ground
+		}
+		if math.Abs(foot.Y-wantY) > 0.2 {
+			t.Fatalf("box %d foot y=%v, want ~%v at (%v,%v)", i, foot.Y, wantY, foot.X, foot.Z)
+		}
+	}
+}
+
+func TestFollowTerrainNestedAssemblyRigid(t *testing.T) {
+	dir := t.TempDir()
+	sign := filepath.Join(dir, "sign.toml")
+	if err := os.WriteFile(sign, []byte(`
+[[box]]
+pos_x = 0.65
+pos_y = 0.0
+pos_z = 0.2
+width = 0.1
+height = 0.72
+depth = 0.3
+rotate_z = 15
+material = "diffuse"
+albedo = [0.2, 0.2, 0.2]
+
+[[box]]
+pos_x = 0.65
+pos_y = 0.0
+pos_z = 0.2
+width = 0.1
+height = 0.72
+depth = 0.3
+rotate_z = -15
+material = "diffuse"
+albedo = [0.2, 0.2, 0.2]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	button := filepath.Join(dir, "button.toml")
+	if err := os.WriteFile(button, []byte(`
+[[box]]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 2.0
+height = 3.0
+depth = 0.3
+material = "diffuse"
+albedo = [0.5, 0.5, 0.5]
+
+[[include]]
+file = "sign.toml"
+at = [0.0, 2.0, 0.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(dir, "scene.toml")
+	if err := os.WriteFile(parent, []byte(`
+[[terrain]]
+origin = [-20.0, 0.0, -20.0]
+size = [40.0, 40.0]
+base = 0.0
+detail = 0.0
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [5.0, 5.0]
+  height = 10.0
+  width = 12.0
+
+[[include]]
+file = "button.toml"
+at = [5.0, 0.0, 5.0]
+follow_terrain = true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Boxes) != 3 {
+		t.Fatalf("got %d boxes, want 3", len(s.Boxes))
+	}
+	y0 := s.Boxes[1].Xform.ToWorld(vec.New(0.65, 0, 0.2)).Y
+	y1 := s.Boxes[2].Xform.ToWorld(vec.New(0.65, 0, 0.2)).Y
+	if math.Abs(y0-y1) > 0.05 {
+		t.Fatalf("X bars misaligned after terrain follow: y=%v vs %v", y0, y1)
 	}
 }
 
@@ -746,6 +909,7 @@ albedo = [0.5, 0.8, 0.5]
 [[include]]
 file = "tree.toml"
 at = [2.0, 0.0, 0.0]
+follow_terrain = true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -760,7 +924,6 @@ detail = 0.0
 [[include]]
 file = "hills.toml"
 at = [0.0, 0.0, 0.0]
-follow_terrain = true
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}

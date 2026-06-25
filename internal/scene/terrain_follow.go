@@ -23,9 +23,12 @@ func CountPrimitives(s *Scene) PrimitiveCounts {
 
 // TerrainFollowPlacement records one [[include]] merge that should sit on the
 // terrain surface after the full scene height field is prepared. YOffset is
-// added above the sampled ground (the include's at.y).
+// added above the sampled ground (the include's at.y). Anchor is the include
+// origin in world space before snapping; every primitive in the range moves by
+// the same vertical delta so nested parts stay aligned (rigid assembly).
 type TerrainFollowPlacement struct {
 	YOffset float64
+	Anchor  vec.V
 	SphereStart, SphereEnd       int
 	BoxStart, BoxEnd             int
 	CylinderStart, CylinderEnd   int
@@ -80,8 +83,9 @@ func OffsetPlacements(placements []TerrainFollowPlacement, off PrimitiveCounts) 
 	}
 }
 
-// ApplyTerrainFollow adjusts every recorded include so each object's local
-// origin (0,0,0) rests on the terrain at its own world (x,z), plus YOffset.
+// ApplyTerrainFollow adjusts every recorded include so its anchor rests on the
+// terrain at (anchor.x, anchor.z), plus YOffset. All primitives in the merge
+// range shift by the same amount.
 func (s *Scene) ApplyTerrainFollow(placements []TerrainFollowPlacement) {
 	if s == nil || len(placements) == 0 {
 		return
@@ -92,82 +96,40 @@ func (s *Scene) ApplyTerrainFollow(placements []TerrainFollowPlacement) {
 }
 
 func (p TerrainFollowPlacement) snapEach(s *Scene) {
-	for i := p.ConeStart; i < p.ConeEnd; i++ {
-		snapByOrigin(s, p.YOffset, func(dy float64) {
-			shift := vec.New(0, dy, 0)
-			xf := NewInstanceTransform(0, 0, 0, shift)
-			s.Cones[i].Xform = xf.Compose(s.Cones[i].Xform)
-		}, s.Cones[i].Xform)
-	}
-	for i := p.CylinderStart; i < p.CylinderEnd; i++ {
-		snapByOrigin(s, p.YOffset, func(dy float64) {
-			shift := vec.New(0, dy, 0)
-			xf := NewInstanceTransform(0, 0, 0, shift)
-			s.Cylinders[i].Xform = xf.Compose(s.Cylinders[i].Xform)
-		}, s.Cylinders[i].Xform)
-	}
-	for i := p.SphereStart; i < p.SphereEnd; i++ {
-		snapByOrigin(s, p.YOffset, func(dy float64) {
-			shift := vec.New(0, dy, 0)
-			xf := NewInstanceTransform(0, 0, 0, shift)
-			s.Spheres[i].Xform = xf.Compose(s.Spheres[i].Xform)
-		}, s.Spheres[i].Xform)
-	}
-	for i := p.BoxStart; i < p.BoxEnd; i++ {
-		snapByOrigin(s, p.YOffset, func(dy float64) {
-			shift := vec.New(0, dy, 0)
-			xf := NewInstanceTransform(0, 0, 0, shift)
-			s.Boxes[i].Xform = xf.Compose(s.Boxes[i].Xform)
-		}, s.Boxes[i].Xform)
-	}
-	for i := p.TorusStart; i < p.TorusEnd; i++ {
-		snapByOrigin(s, p.YOffset, func(dy float64) {
-			shift := vec.New(0, dy, 0)
-			xf := NewInstanceTransform(0, 0, 0, shift)
-			s.Tori[i].Xform = xf.Compose(s.Tori[i].Xform)
-		}, s.Tori[i].Xform)
-	}
-	for i := p.LightStart; i < p.LightEnd; i++ {
-		snapPoint(s, p.YOffset, func(dy float64) {
-			s.Lights[i].Pos.Y += dy
-		}, s.Lights[i].Pos)
-	}
-	for i := p.CampfireStart; i < p.CampfireEnd; i++ {
-		snapPoint(s, p.YOffset, func(dy float64) {
-			s.Campfires[i].Center.Y += dy
-		}, s.Campfires[i].Center)
-	}
-	for i := p.AmbienceStart; i < p.AmbienceEnd; i++ {
-		snapPoint(s, p.YOffset, func(dy float64) {
-			s.Ambiences[i].Pos.Y += dy
-		}, s.Ambiences[i].Pos)
-	}
-	for i := p.InteractStart; i < p.InteractEnd; i++ {
-		snapPoint(s, p.YOffset, func(dy float64) {
-			s.Interactables[i].Center.Y += dy
-		}, s.Interactables[i].Center)
-	}
-}
-
-func snapByOrigin(s *Scene, yOffset float64, apply func(dy float64), xf *Transform) {
-	snapPoint(s, yOffset, apply, originWorld(xf))
-}
-
-func snapPoint(s *Scene, yOffset float64, apply func(dy float64), anchor vec.V) {
-	h, ok := s.TerrainHeightAt(anchor.X, anchor.Z)
+	h, ok := s.TerrainHeightAt(p.Anchor.X, p.Anchor.Z)
 	if !ok {
 		return
 	}
-	dy := h + yOffset - anchor.Y
+	dy := h + p.YOffset - p.Anchor.Y
 	if dy == 0 {
 		return
 	}
-	apply(dy)
-}
-
-func originWorld(xf *Transform) vec.V {
-	if xf == nil {
-		return vec.V{}
+	shift := NewInstanceTransform(0, 0, 0, vec.New(0, dy, 0))
+	for i := p.ConeStart; i < p.ConeEnd; i++ {
+		s.Cones[i].Xform = shift.Compose(s.Cones[i].Xform)
 	}
-	return xf.ToWorld(vec.V{})
+	for i := p.CylinderStart; i < p.CylinderEnd; i++ {
+		s.Cylinders[i].Xform = shift.Compose(s.Cylinders[i].Xform)
+	}
+	for i := p.SphereStart; i < p.SphereEnd; i++ {
+		s.Spheres[i].Xform = shift.Compose(s.Spheres[i].Xform)
+	}
+	for i := p.BoxStart; i < p.BoxEnd; i++ {
+		s.Boxes[i].Xform = shift.Compose(s.Boxes[i].Xform)
+	}
+	for i := p.TorusStart; i < p.TorusEnd; i++ {
+		s.Tori[i].Xform = shift.Compose(s.Tori[i].Xform)
+	}
+	for i := p.LightStart; i < p.LightEnd; i++ {
+		s.Lights[i].Pos.Y += dy
+	}
+	for i := p.CampfireStart; i < p.CampfireEnd; i++ {
+		s.Campfires[i].Center.Y += dy
+	}
+	for i := p.AmbienceStart; i < p.AmbienceEnd; i++ {
+		s.Ambiences[i].Pos.Y += dy
+	}
+	for i := p.InteractStart; i < p.InteractEnd; i++ {
+		s.Interactables[i].Center.Y += dy
+	}
 }
