@@ -15,7 +15,7 @@ import (
 	"raytracer/internal/texture"
 )
 
-const exitPortalScene = "manhattan_city_block.toml"
+const exitPortalScene = "office-sunset/index.toml"
 const exitPortalSpawnID = "cube_lab_1"
 
 type portalPhase int

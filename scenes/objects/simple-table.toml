@@ -45,11 +45,11 @@ rough = {{$rough}}
 
 {{range $i := seq 4}}
   [[cylinder]] # leg {{$i}}
-  cx = {{if lt $i 2}}{{$off}}{{else}}{{neg $off}}{{end}}
-  cz = {{if or (eq $i 0) (eq $i 2)}}{{$off}}{{else}}{{neg $off}}{{end}}
-  radius = {{$legR}}
-  ymin = 0.0
-  ymax = {{$legH}}
+  pos_x = {{if lt $i 2}}{{sub $off $legR}}{{else}}{{sub (neg $off) $legR}}{{end}}
+  pos_y = 0.0
+  pos_z = {{if or (eq $i 0) (eq $i 2)}}{{sub $off $legR}}{{else}}{{sub (neg $off) $legR}}{{end}}
+  width = {{mul $legR 2}}
+  height = {{$legH}}
   material = "diffuse"
   albedo = {{$albedo}}
   texture = "{{$texture}}"

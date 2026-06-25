@@ -149,11 +149,11 @@ albedo = [0.35, 0.16, 0.11]
 # Foliage uses the grass texture for natural green mottling.
 
 [[cylinder]] # pine 1 trunk
-cx = -9.0
-cz = 2.0
-radius = 0.2
-ymin = -1.0
-ymax = 1.4
+pos_x = -9.2
+pos_y = -1
+pos_z = 1.8
+width = 0.4
+height = 2.4
 material = "diffuse"
 albedo = [1.0, 1.0, 1.0]
 texture = "wood"
@@ -169,11 +169,11 @@ albedo = [0.8, 1.0, 0.8]
 texture = "grass"
 
 [[cylinder]] # pine 2 trunk
-cx = 8.0
-cz = 2.5
-radius = 0.22
-ymin = -1.0
-ymax = 1.5
+pos_x = 7.78
+pos_y = -1
+pos_z = 2.28
+width = 0.44
+height = 2.5
 material = "diffuse"
 albedo = [1.0, 1.0, 1.0]
 texture = "wood"
@@ -189,11 +189,11 @@ albedo = [0.8, 1.0, 0.8]
 texture = "grass"
 
 [[cylinder]] # round tree trunk
-cx = -14.0
-cz = -2.0
-radius = 0.28
-ymin = -1.0
-ymax = 2.2
+pos_x = -14.28
+pos_y = -1
+pos_z = -2.2800000000000002
+width = 0.56
+height = 3.2
 material = "diffuse"
 albedo = [1.0, 1.0, 1.0]
 texture = "wood"

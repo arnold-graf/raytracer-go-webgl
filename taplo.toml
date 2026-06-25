@@ -1,0 +1,16 @@
+# Taplo / Even Better TOML configuration (auto-discovered in workspace root).
+# See schemas/README.md for schema maintenance.
+
+[[rule]]
+include = ["scenes/**/*.toml"]
+
+[rule.schema]
+path = "schemas/scene.schema.json"
+enabled = true
+
+[[rule]]
+include = ["player.toml"]
+
+[rule.schema]
+path = "schemas/player.schema.json"
+enabled = true

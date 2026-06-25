@@ -147,14 +147,14 @@ ytip = 4.0
 # ------------------------------------------------------------------ trees ----
 
 [[cylinder]] # pine 1 trunk
+pos_x = -9.2
+pos_y = -1
+pos_z = 1.8
+width = 0.4
+height = 2.4
 albedo = [1.0, 1.0, 1.0]
-cx = -9.0
-cz = 2.0
 material = "diffuse"
-radius = 0.2
 texture = "wood"
-ymax = 1.4
-ymin = -1.0
 
 [[cone]] # pine 1 foliage
 albedo = [0.8, 1.0, 0.8]
@@ -167,14 +167,14 @@ ybase = 0.8
 ytip = 4.6
 
 [[cylinder]] # pine 2 trunk
+pos_x = 7.78
+pos_y = -1
+pos_z = 2.28
+width = 0.44
+height = 2.5
 albedo = [1.0, 1.0, 1.0]
-cx = 8.0
-cz = 2.5
 material = "diffuse"
-radius = 0.22
 texture = "wood"
-ymax = 1.5
-ymin = -1.0
 
 [[cone]] # pine 2 foliage
 albedo = [0.8, 1.0, 0.8]
@@ -187,14 +187,14 @@ ybase = 0.9
 ytip = 4.9
 
 [[cylinder]] # round tree trunk
+pos_x = -14.28
+pos_y = -1
+pos_z = -2.2800000000000002
+width = 0.56
+height = 3.2
 albedo = [1.0, 1.0, 1.0]
-cx = -14.0
-cz = -2.0
 material = "diffuse"
-radius = 0.28
 texture = "wood"
-ymax = 2.2
-ymin = -1.0
 
 [[sphere]] # round tree foliage
 albedo = [0.85, 1.0, 0.85]

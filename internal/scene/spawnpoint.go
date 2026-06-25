@@ -41,6 +41,9 @@ func (sp PlayerSpawnpoint) Placed(xf *Transform) PlayerSpawnpoint {
 	}
 	out := sp
 	out.Pos = xf.ToWorld(sp.Pos)
+	if sp.UseFloor {
+		out.FloorY = xf.ToWorld(vec.New(sp.Pos.X, sp.FloorY, sp.Pos.Z)).Y
+	}
 	localFwd := vec.V{X: math.Sin(sp.Yaw), Y: 0, Z: -math.Cos(sp.Yaw)}
 	worldFwd := xf.RotateDir(localFwd)
 	out.Yaw = math.Atan2(worldFwd.X, -worldFwd.Z)

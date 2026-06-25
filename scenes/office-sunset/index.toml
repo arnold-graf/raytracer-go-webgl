@@ -1,0 +1,16 @@
+[environment]
+sky = "sunset"
+ambient_sky = [0.48, 0.30, 0.36]
+ambient_ground = [0.16, 0.11, 0.10]
+sun_dir = [-0.35, -0.22, 0.90]
+sun_color = [1.40, 0.55, 0.22]
+
+# [camera]
+# pos = [5.0, 201, 0.0]
+# yaw = 0.0
+# pitch = 0.0
+
+[[include]]
+file = "server-room-1.toml"
+at = [0.0, 200, 0.0]
+

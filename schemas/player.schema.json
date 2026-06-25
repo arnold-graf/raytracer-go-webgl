@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "$id": "https://github.com/arnoldgraf/ray-tracer/schemas/player.schema.json",
+  "title": "Ray Tracer Player Movement Config",
+  "description": "TOML player movement tuning loaded by internal/sceneio.LoadPlayer.",
+  "$comment": "Source of truth: internal/sceneio/player.go and camera.DefaultConfig in internal/camera/camera.go. Update when movement fields change.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "movement": {
+      "type": "object",
+      "description": "TOML table [movement]. All fields optional; omitted or zero values keep the built-in defaults from camera.DefaultConfig.",
+      "properties": {
+        "walk_speed": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Horizontal movement speed in world units per frame tick. Default: 0.35."
+        },
+        "eye_height": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Standing camera height above the feet. Default: 1.6."
+        },
+        "jump_velocity": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Initial upward velocity when jumping. Default: 0.42."
+        },
+        "gravity": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Downward acceleration per tick while airborne. Default: 0.20."
+        },
+        "collision_radius": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Player capsule radius for wall collision. Default: 0.30."
+        },
+        "step_height": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum vertical step the player can walk up without jumping. Default: 0.45."
+        },
+        "sprint_multiplier": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Walk speed scale while holding sprint (Shift). Default: 2.0."
+        },
+        "crouch_eye_height": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Eye height while fully crouched. Default: 0.8."
+        },
+        "crouch_speed_multiplier": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Walk speed scale while crouching. Default: 0.5."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -28,11 +28,11 @@ material = "diffuse"
 albedo = [1.0, 1.0, 1.0]
 
 [[cylinder]]
-cx = 0.0
-cz = 0.0
-radius = 0.1
-ymin = 0.0
-ymax = 1.0
+pos_x = -0.1
+pos_y = 0.0
+pos_z = -0.1
+width = 0.2
+height = 1.0
 material = "diffuse"
 albedo = [1.0, 1.0, 1.0]
 `), 0o644); err != nil {
@@ -85,11 +85,11 @@ func TestIncludeParamsTemplate(t *testing.T) {
 {{- $stem := or .stem_len 1.5 -}}
 {{- $orb := or .orb_radius 0.4 -}}
 [[cylinder]]
-cx = 0.0
-cz = 0.0
-radius = 0.045
-ymax = 0.0
-ymin = {{neg $stem}}
+pos_x = -0.045
+pos_y = {{neg $stem}}
+pos_z = -0.045
+width = 0.09
+height = {{$stem}}
 material = "metal"
 albedo = [1.0, 1.0, 1.0]
 

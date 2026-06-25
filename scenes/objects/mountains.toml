@@ -75,7 +75,6 @@ at = [60.0, 0.0, -30.0]
 rotate_y = -135
 follow_terrain = true
 
-
 [[include]]
 file ="pine-tree-cluster.toml"
 at = [50.0, 0.0, -80.0]

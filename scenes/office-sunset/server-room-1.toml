@@ -1,0 +1,100 @@
+
+# floor
+[[box]]
+material = "diffuse"
+texture = "marble"
+albedo = [0.1, 0.1, 0.1]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 50.0
+height = 0.2
+depth = 50.0
+reflect = 0.1
+
+# ceiling
+[[box]]
+material = "diffuse"
+texture = "cement"
+albedo = [0.3, 0.3, 0.3]
+pos_x = 0.0
+pos_y = 9.0
+pos_z = 0.0
+width = 50.0
+height = 0.2
+depth = 50.0
+
+# north wall
+[[box]]
+material = "diffuse"
+albedo = [0.7, 0.7, 0.7]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 50.0
+height = 9.0
+depth = 0.2
+
+# east wall
+[[box]]
+material = "diffuse"
+albedo = [0.7, 0.7, 0.7]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 0.2
+height = 9.0
+depth = 50.0
+
+# south wall
+[[box]]
+material = "diffuse"
+albedo = [0.7, 0.7, 0.7]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 50.0
+width = 50.0
+height = 9.0
+depth = 0.2
+
+# east wall
+[[box]]
+material = "diffuse"
+albedo = [0.7, 0.7, 0.7]
+pos_x = 49.8
+pos_y = 0.0
+pos_z = 0.0
+width = 0.2
+height = 9.0
+depth = 50.8
+
+# Door
+[[box.hole]]
+pos_x = 48
+pos_y = 0
+pos_z = 25
+width = 4
+height = 9.0
+depth = 5
+
+# cube
+[[include]]
+file = "objects/cube.toml"
+at = [10.0, 1, 2.0]
+rotate_y = 0.0
+
+# stairs to the cube
+[[include]]
+file = "../objects/staircase.toml"
+at = [9.7, 0, 7.5]
+rotate_y = 90
+instance = true
+params = { steps = 5, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.1 }
+
+# table
+[[include]]
+file = "../objects/simple-table.toml"
+at = [14.5, 0.2, 7.0]
+rotate_y = -20
+params = { width = 1.5, height = 0.9, texture = "wood" }
+

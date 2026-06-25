@@ -363,46 +363,46 @@ depth = 0.4
 # -------------------------------------------------------------- columns ----
 
 [[cylinder]] # back-left column: stone
+pos_x = -3.7800000000000002
+pos_y = 0.4
+pos_z = -3.7800000000000002
+width = 0.56
+height = 4
 albedo = [1.0, 1.0, 1.0]
-cx = -3.5
-cz = -3.5
 material = "diffuse"
-radius = 0.28
 texture = "stone"
-ymax = 4.4
-ymin = 0.4
 
 # (back-right column removed: replaced by the round tiled stove in that corner.)
 
 [[cylinder]] # front-left column (metal)
+pos_x = -3.7800000000000002
+pos_y = 0.4
+pos_z = 3.2199999999999998
+width = 0.56
+height = 4
 albedo = [0.8, 0.82, 0.85]
-cx = -3.5
-cz = 3.5
 material = "metal"
-radius = 0.28
 rough = 0.05
-ymax = 4.4
-ymin = 0.4
 
 [[cylinder]] # front-right column (metal)
+pos_x = 3.2199999999999998
+pos_y = 0.4
+pos_z = 3.2199999999999998
+width = 0.56
+height = 4
 albedo = [0.8, 0.82, 0.85]
-cx = 3.5
-cz = 3.5
 material = "metal"
-radius = 0.28
 rough = 0.05
-ymax = 4.4
-ymin = 0.4
 
 [[cylinder]] # thin decorative column center-back (mirror)
+pos_x = -0.18
+pos_y = 0.4
+pos_z = -3.98
+width = 0.36
+height = 3.5
 albedo = [0.9, 0.88, 0.92]
-cx = 0.0
-cz = -3.8
 material = "mirror"
-radius = 0.18
 rough = 0.02
-ymax = 3.9
-ymin = 0.4
 
 # ---------------------------------------------------------------- cones ----
 

@@ -1019,44 +1019,44 @@ depth = 13.4
 texture = "cement"
 
 [[cylinder]] # tower 1 column
+pos_x = -21.95
+pos_y = 0
+pos_z = 4.05
+width = 0.9
+height = 33
 albedo = [0.58, 0.57, 0.55]
-cx = -21.5
-cz = 4.5
 material = "diffuse"
-radius = 0.45
 texture = "cement"
-ymax = 33.0
-ymin = 0.0
 
 [[cylinder]] # tower 1 column
+pos_x = -21.95
+pos_y = 0
+pos_z = 0.55
+width = 0.9
+height = 33
 albedo = [0.58, 0.57, 0.55]
-cx = -21.5
-cz = 1.0
 material = "diffuse"
-radius = 0.45
 texture = "cement"
-ymax = 33.0
-ymin = 0.0
 
 [[cylinder]] # tower 1 column
+pos_x = -12.95
+pos_y = 0
+pos_z = 4.05
+width = 0.9
+height = 33
 albedo = [0.58, 0.57, 0.55]
-cx = -12.5
-cz = 4.5
 material = "diffuse"
-radius = 0.45
 texture = "cement"
-ymax = 33.0
-ymin = 0.0
 
 [[cylinder]] # tower 1 column
+pos_x = -12.95
+pos_y = 0
+pos_z = 0.55
+width = 0.9
+height = 33
 albedo = [0.58, 0.57, 0.55]
-cx = -12.5
-cz = 1.0
 material = "diffuse"
-radius = 0.45
 texture = "cement"
-ymax = 33.0
-ymin = 0.0
 
 [[light]] # tower 1 interior glow
 brightness = 1.0
@@ -2030,44 +2030,44 @@ depth = 13.4
 texture = "cement"
 
 [[cylinder]] # tower 2 column
+pos_x = -4.95
+pos_y = 0
+pos_z = 4.05
+width = 0.9
+height = 33
 albedo = [0.58, 0.57, 0.55]
-cx = -4.5
-cz = 4.5
 material = "diffuse"
-radius = 0.45
 texture = "cement"
-ymax = 33.0
-ymin = 0.0
 
 [[cylinder]] # tower 2 column
+pos_x = -4.95
+pos_y = 0
+pos_z = 0.55
+width = 0.9
+height = 33
 albedo = [0.58, 0.57, 0.55]
-cx = -4.5
-cz = 1.0
 material = "diffuse"
-radius = 0.45
 texture = "cement"
-ymax = 33.0
-ymin = 0.0
 
 [[cylinder]] # tower 2 column
+pos_x = 4.05
+pos_y = 0
+pos_z = 4.05
+width = 0.9
+height = 33
 albedo = [0.58, 0.57, 0.55]
-cx = 4.5
-cz = 4.5
 material = "diffuse"
-radius = 0.45
 texture = "cement"
-ymax = 33.0
-ymin = 0.0
 
 [[cylinder]] # tower 2 column
+pos_x = 4.05
+pos_y = 0
+pos_z = 0.55
+width = 0.9
+height = 33
 albedo = [0.58, 0.57, 0.55]
-cx = 4.5
-cz = 1.0
 material = "diffuse"
-radius = 0.45
 texture = "cement"
-ymax = 33.0
-ymin = 0.0
 
 [[light]] # tower 2 interior glow
 brightness = 1.0
@@ -3041,44 +3041,44 @@ depth = 13.4
 texture = "cement"
 
 [[cylinder]] # tower 3 column
+pos_x = 12.05
+pos_y = 0
+pos_z = 4.05
+width = 0.9
+height = 33
 albedo = [0.58, 0.57, 0.55]
-cx = 12.5
-cz = 4.5
 material = "diffuse"
-radius = 0.45
 texture = "cement"
-ymax = 33.0
-ymin = 0.0
 
 [[cylinder]] # tower 3 column
+pos_x = 12.05
+pos_y = 0
+pos_z = 0.55
+width = 0.9
+height = 33
 albedo = [0.58, 0.57, 0.55]
-cx = 12.5
-cz = 1.0
 material = "diffuse"
-radius = 0.45
 texture = "cement"
-ymax = 33.0
-ymin = 0.0
 
 [[cylinder]] # tower 3 column
+pos_x = 21.05
+pos_y = 0
+pos_z = 4.05
+width = 0.9
+height = 33
 albedo = [0.58, 0.57, 0.55]
-cx = 21.5
-cz = 4.5
 material = "diffuse"
-radius = 0.45
 texture = "cement"
-ymax = 33.0
-ymin = 0.0
 
 [[cylinder]] # tower 3 column
+pos_x = 21.05
+pos_y = 0
+pos_z = 0.55
+width = 0.9
+height = 33
 albedo = [0.58, 0.57, 0.55]
-cx = 21.5
-cz = 1.0
 material = "diffuse"
-radius = 0.45
 texture = "cement"
-ymax = 33.0
-ymin = 0.0
 
 [[light]] # tower 3 interior glow
 brightness = 1.0

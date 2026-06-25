@@ -1,0 +1,1110 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "$id": "https://github.com/arnoldgraf/ray-tracer/schemas/scene.schema.json",
+  "title": "Ray Tracer Scene",
+  "description": "TOML scene or object library consumed by internal/sceneio. Primitives are array-of-tables (e.g. [[box]]); config blocks are single tables (e.g. [camera]).",
+  "$comment": "Source of truth for the loader: internal/sceneio/toml.go. Update this file whenever the TOML format changes.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "extends": {
+      "type": "string",
+      "description": "Path to a base scene file (relative to this file or absolute). The base is loaded first; this file overrides [camera], [environment], [[light]], [[campfire]], and may add [[include]] entries or [[terrain.pad]] stubs. Used for scene variants that share most content."
+    },
+    "camera": {
+      "$ref": "#/definitions/camera",
+      "description": "TOML table [camera]. Optional starting viewpoint when the scene loads."
+    },
+    "environment": {
+      "$ref": "#/definitions/environment",
+      "description": "TOML table [environment]. Sky gradient, ambient light, and directional sun."
+    },
+    "interact": {
+      "$ref": "#/definitions/interact",
+      "description": "TOML table [interact]. One use-target for the player (E key). Typically on small object files, not full scenes."
+    },
+    "include": {
+      "type": "array",
+      "description": "TOML array-of-tables [[include]]. Instantiates another TOML file with a placement transform.",
+      "items": {
+        "$ref": "#/definitions/include"
+      }
+    },
+    "sphere": {
+      "type": "array",
+      "description": "TOML [[sphere]]. Spherical primitives.",
+      "items": {
+        "$ref": "#/definitions/sphere"
+      }
+    },
+    "plane": {
+      "type": "array",
+      "description": "TOML [[plane]]. Infinite planes (half-space intersection).",
+      "items": {
+        "$ref": "#/definitions/plane"
+      }
+    },
+    "box": {
+      "type": "array",
+      "description": "TOML [[box]]. Axis-aligned boxes; optional [[box.hole]] sub-tables cut rectangular openings.",
+      "items": {
+        "$ref": "#/definitions/box"
+      }
+    },
+    "cylinder": {
+      "type": "array",
+      "description": "TOML [[cylinder]]. Vertical cylinders (optionally tapered with radius_top).",
+      "items": {
+        "$ref": "#/definitions/cylinder"
+      }
+    },
+    "cone": {
+      "type": "array",
+      "description": "TOML [[cone]]. Vertical cones along Y.",
+      "items": {
+        "$ref": "#/definitions/cone"
+      }
+    },
+    "torus": {
+      "type": "array",
+      "description": "TOML [[torus]]. Ring torus in the XZ plane (major/minor radii).",
+      "items": {
+        "$ref": "#/definitions/torus"
+      }
+    },
+    "terrain": {
+      "type": "array",
+      "description": "TOML [[terrain]]. Procedural height field with optional [[terrain.feature]] hills/valleys and [[terrain.pad]] building pads.",
+      "items": {
+        "$ref": "#/definitions/terrain"
+      }
+    },
+    "water": {
+      "type": "array",
+      "description": "TOML [[water]]. Circular water surface with ripples.",
+      "items": {
+        "$ref": "#/definitions/water"
+      }
+    },
+    "light": {
+      "type": "array",
+      "description": "TOML [[light]]. Soft area lights (spherical emissive sources).",
+      "items": {
+        "$ref": "#/definitions/light"
+      }
+    },
+    "campfire": {
+      "type": "array",
+      "description": "TOML [[campfire]]. Flickering warm light source (no visible geometry).",
+      "items": {
+        "$ref": "#/definitions/campfire"
+      }
+    },
+    "sound": {
+      "type": "array",
+      "description": "TOML [[sound]]. Spatial ambient audio emitters.",
+      "items": {
+        "$ref": "#/definitions/sound"
+      }
+    },
+    "player_spawnpoint": {
+      "type": "array",
+      "description": "TOML [[player_spawnpoint]]. Named spawn locations for portal transitions and debugging.",
+      "items": {
+        "$ref": "#/definitions/player_spawnpoint"
+      }
+    }
+  },
+  "definitions": {
+    "vec3": {
+      "type": "array",
+      "description": "Three-component vector [x, y, z] in world units. Write components as floats (e.g. 0.0, not 0).",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "vec2": {
+      "type": "array",
+      "description": "Two-component vector [a, b], typically X/Z or U/V.",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "rgb": {
+      "$ref": "#/definitions/vec3",
+      "description": "Linear RGB color [r, g, b]. Components are often in 0..1 but HDR emit colors may exceed 1."
+    },
+    "material": {
+      "type": "string",
+      "enum": [
+        "diffuse",
+        "mirror",
+        "metal",
+        "glass",
+        "emit",
+        "checker"
+      ],
+      "description": "Shading model. diffuse: Lambertian; mirror: perfect reflector; metal: glossy metal (use rough); glass: refractive (use ior, transmit); emit: emissive; checker: two-color pattern (planes use albedo2)."
+    },
+    "texture": {
+      "type": "string",
+      "enum": [
+        "none",
+        "wood",
+        "brick",
+        "stone",
+        "cement",
+        "marble",
+        "grass",
+        "dirt",
+        "snow",
+        "wallpaper_navy",
+        "wallpaper_green",
+        "wallpaper_rose",
+        "stone_wall",
+        "capture_forward",
+        "capture_left",
+        "capture_right",
+        "capture_up",
+        "capture_down"
+      ],
+      "description": "Procedural world-space texture id. Omitted or \"none\" leaves the surface untextured (albedo only). Capture_* slots are filled at runtime by the portal system."
+    },
+    "sky": {
+      "type": "string",
+      "enum": [
+        "clear",
+        "cloudy",
+        "night_stars",
+        "night_storm",
+        "sunset"
+      ],
+      "description": "Preset sky dome and sun/moon appearance."
+    },
+    "on_use": {
+      "type": "string",
+      "enum": [
+        "exit_portal"
+      ],
+      "description": "Handler invoked when the player uses (E) this interactable within use_range."
+    },
+    "sound_id": {
+      "type": "string",
+      "enum": [
+        "crickets"
+      ],
+      "description": "Named ambient sound loop synthesized at load time."
+    },
+    "rotate_x": {
+      "type": "number",
+      "description": "Rotation about +X in degrees about the primitive's geometric center. Defaults to 0."
+    },
+    "rotate_y": {
+      "type": "number",
+      "description": "Rotation about +Y in degrees about the primitive's geometric center. Defaults to 0."
+    },
+    "rotate_z": {
+      "type": "number",
+      "description": "Rotation about +Z in degrees about the primitive's geometric center. Defaults to 0."
+    },
+    "surface_albedo": {
+      "$ref": "#/definitions/rgb",
+      "description": "Base color or tint multiplied by procedural texture."
+    },
+    "surface_rough": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Surface roughness for glossy materials (metal, diffuse with soft highlights). 0 = mirror-smooth."
+    },
+    "surface_ior": {
+      "type": "number",
+      "minimum": 0,
+      "exclusiveMinimum": true,
+      "description": "Index of refraction for glass. Defaults to 1.5 when omitted."
+    },
+    "surface_reflect": {
+      "type": "number",
+      "description": "Extra reflection weight blended on top of the material model (0..1 typical)."
+    },
+    "surface_transmit": {
+      "type": "number",
+      "description": "Transmission weight for glass-like surfaces (0 = opaque, 1 = fully transmissive)."
+    },
+    "primitive_surface": {
+      "type": "object",
+      "description": "Material and shading fields merged into every shaded primitive table.",
+      "properties": {
+        "material": {
+          "$ref": "#/definitions/material"
+        },
+        "albedo": {
+          "$ref": "#/definitions/surface_albedo"
+        },
+        "rough": {
+          "$ref": "#/definitions/surface_rough"
+        },
+        "ior": {
+          "$ref": "#/definitions/surface_ior"
+        },
+        "texture": {
+          "$ref": "#/definitions/texture"
+        },
+        "reflect": {
+          "$ref": "#/definitions/surface_reflect"
+        },
+        "transmit": {
+          "$ref": "#/definitions/surface_transmit"
+        }
+      },
+      "required": [
+        "material"
+      ]
+    },
+    "primitive_transform": {
+      "type": "object",
+      "description": "Optional per-primitive rotation fields.",
+      "properties": {
+        "rotate_x": {
+          "$ref": "#/definitions/rotate_x"
+        },
+        "rotate_y": {
+          "$ref": "#/definitions/rotate_y"
+        },
+        "rotate_z": {
+          "$ref": "#/definitions/rotate_z"
+        }
+      }
+    },
+    "box_extent_pos_size": {
+      "type": "object",
+      "description": "Box defined by one corner (pos_*) and positive extents along +X, +Y, +Z.",
+      "properties": {
+        "pos_x": {
+          "type": "number",
+          "description": "Minimum X corner."
+        },
+        "pos_y": {
+          "type": "number",
+          "description": "Minimum Y corner."
+        },
+        "pos_z": {
+          "type": "number",
+          "description": "Minimum Z corner."
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Extent along +X."
+        },
+        "height": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Extent along +Y."
+        },
+        "depth": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Extent along +Z."
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "depth"
+      ],
+      "additionalProperties": false
+    },
+    "box_extent_min_max": {
+      "type": "object",
+      "description": "Legacy box definition by opposite corners (min strictly less than max on each axis).",
+      "properties": {
+        "min": {
+          "$ref": "#/definitions/vec3",
+          "description": "Minimum corner [x, y, z]."
+        },
+        "max": {
+          "$ref": "#/definitions/vec3",
+          "description": "Maximum corner [x, y, z]."
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "additionalProperties": false
+    },
+    "box_hole": {
+      "description": "TOML [[box.hole]] nested under a [[box]]. Rectangular void subtracted from the parent box; should pierce fully through the faces it cuts.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/box_extent_pos_size"
+        },
+        {
+          "$ref": "#/definitions/box_extent_min_max"
+        }
+      ]
+    },
+    "sphere": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "center": {
+              "$ref": "#/definitions/vec3",
+              "description": "Sphere center in world space."
+            },
+            "radius": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Sphere radius."
+            }
+          },
+          "required": [
+            "center",
+            "radius"
+          ]
+        },
+        {
+          "$ref": "#/definitions/primitive_transform"
+        },
+        {
+          "$ref": "#/definitions/primitive_surface"
+        }
+      ]
+    },
+    "plane": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "normal": {
+              "$ref": "#/definitions/vec3",
+              "description": "Plane normal (need not be unit length; normalized at load)."
+            },
+            "d": {
+              "type": "number",
+              "description": "Plane equation n\u00b7p = d (signed distance along normal)."
+            },
+            "albedo2": {
+              "$ref": "#/definitions/rgb",
+              "description": "Second color for checker material; ignored for other materials."
+            }
+          },
+          "required": [
+            "normal",
+            "d"
+          ]
+        },
+        {
+          "$ref": "#/definitions/primitive_transform"
+        },
+        {
+          "$ref": "#/definitions/primitive_surface"
+        }
+      ]
+    },
+    "box": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "pos_x": {
+              "type": "number",
+              "description": "Minimum X corner (pos/size form)."
+            },
+            "pos_y": {
+              "type": "number",
+              "description": "Minimum Y corner (pos/size form)."
+            },
+            "pos_z": {
+              "type": "number",
+              "description": "Minimum Z corner (pos/size form)."
+            },
+            "width": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Extent along +X (pos/size form)."
+            },
+            "height": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Extent along +Y (pos/size form)."
+            },
+            "depth": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Extent along +Z (pos/size form)."
+            },
+            "min": {
+              "$ref": "#/definitions/vec3",
+              "description": "Minimum corner (legacy min/max form)."
+            },
+            "max": {
+              "$ref": "#/definitions/vec3",
+              "description": "Maximum corner (legacy min/max form)."
+            },
+            "hole": {
+              "type": "array",
+              "description": "Nested [[box.hole]] tables belonging to this box.",
+              "items": {
+                "$ref": "#/definitions/box_hole"
+              }
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "width",
+                "height",
+                "depth"
+              ]
+            },
+            {
+              "required": [
+                "min",
+                "max"
+              ]
+            }
+          ]
+        },
+        {
+          "$ref": "#/definitions/primitive_transform"
+        },
+        {
+          "$ref": "#/definitions/primitive_surface"
+        }
+      ]
+    },
+    "cylinder": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "pos_x": {
+              "type": "number",
+              "description": "Minimum X corner of the footprint square (like [[box]] pos_x)."
+            },
+            "pos_y": {
+              "type": "number",
+              "description": "Bottom Y (minimum height)."
+            },
+            "pos_z": {
+              "type": "number",
+              "description": "Minimum Z corner of the footprint square."
+            },
+            "width": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Diameter when uniform (also used as bottom diameter when width_bottom is omitted)."
+            },
+            "height": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Vertical extent along +Y."
+            },
+            "width_bottom": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Bottom diameter for a tapered cylinder. Defaults to width."
+            },
+            "width_top": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Top diameter for a tapered cylinder. Defaults to width_bottom."
+            }
+          },
+          "required": ["pos_x", "pos_y", "pos_z", "height"]
+        },
+        {
+          "$ref": "#/definitions/primitive_transform"
+        },
+        {
+          "$ref": "#/definitions/primitive_surface"
+        }
+      ]
+    },
+    "cone": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "cx": {
+              "type": "number",
+              "description": "Center X at the base."
+            },
+            "cz": {
+              "type": "number",
+              "description": "Center Z at the base."
+            },
+            "ybase": {
+              "type": "number",
+              "description": "Y of the wide base."
+            },
+            "ytip": {
+              "type": "number",
+              "description": "Y of the tip."
+            },
+            "rbase": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Radius at the base."
+            }
+          },
+          "required": [
+            "cx",
+            "cz",
+            "ybase",
+            "ytip",
+            "rbase"
+          ]
+        },
+        {
+          "$ref": "#/definitions/primitive_transform"
+        },
+        {
+          "$ref": "#/definitions/primitive_surface"
+        }
+      ]
+    },
+    "torus": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "center": {
+              "$ref": "#/definitions/vec3",
+              "description": "Torus center (ring lies in XZ plane)."
+            },
+            "major": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Major radius (ring centerline to tube center)."
+            },
+            "minor": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Minor radius (tube thickness)."
+            }
+          },
+          "required": [
+            "center",
+            "major",
+            "minor"
+          ]
+        },
+        {
+          "$ref": "#/definitions/primitive_transform"
+        },
+        {
+          "$ref": "#/definitions/primitive_surface"
+        }
+      ]
+    },
+    "terrain_feature": {
+      "type": "object",
+      "description": "TOML [[terrain.feature]] nested under [[terrain]]. Adds a smooth hill or valley bump to the height field.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "peak",
+            "valley"
+          ],
+          "description": "peak (default): positive height raises terrain. valley: positive height is negated to carve downward."
+        },
+        "pos": {
+          "$ref": "#/definitions/vec2",
+          "description": "Feature center [x, z] in terrain-local coordinates."
+        },
+        "height": {
+          "type": "number",
+          "description": "Bump amplitude in world units. For valleys, a positive value is treated as negative depth."
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Characteristic width of the bump. Defaults to 1 when omitted or 0."
+        },
+        "steepness": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Profile sharpness (higher = steeper sides). Defaults to 2 when omitted or 0."
+        },
+        "extend": {
+          "$ref": "#/definitions/vec2",
+          "description": "Anisotropic stretch [x, z] of the bump footprint. Defaults to [1, 1]."
+        },
+        "angle": {
+          "type": "number",
+          "description": "Rotation of the bump in degrees about Y."
+        }
+      },
+      "required": [
+        "pos"
+      ],
+      "additionalProperties": false
+    },
+    "terrain_pad": {
+      "type": "object",
+      "description": "TOML [[terrain.pad]] nested under [[terrain]], or stub pads in extend files. Flattens a rectangular site to a target level with a smooth margin.",
+      "properties": {
+        "center": {
+          "$ref": "#/definitions/vec2",
+          "description": "Pad center [x, z] in terrain-local coordinates."
+        },
+        "half": {
+          "$ref": "#/definitions/vec2",
+          "description": "Half-extents [half_x, half_z] of the inner flat rectangle."
+        },
+        "level": {
+          "type": "number",
+          "description": "Target ground height inside the pad."
+        },
+        "margin": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Blend width around the pad edge where height eases to natural terrain."
+        }
+      },
+      "required": [
+        "center",
+        "half"
+      ],
+      "additionalProperties": false
+    },
+    "terrain": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "$ref": "#/definitions/vec3",
+          "description": "World position of the terrain corner. Only origin[0] (X) and origin[2] (Z) are used."
+        },
+        "size": {
+          "$ref": "#/definitions/vec2",
+          "description": "Footprint [size_x, size_z] in world units."
+        },
+        "base": {
+          "type": "number",
+          "description": "Base elevation before detail noise and features."
+        },
+        "detail": {
+          "type": "number",
+          "description": "Amplitude of fractal detail noise."
+        },
+        "detail_scale": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Spatial frequency of detail noise. Defaults to 0.1 when omitted or 0."
+        },
+        "step": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Height quantization step for a terraced look (0 = smooth)."
+        },
+        "grid_cell": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Internal sampling grid cell size for the height field mesh."
+        },
+        "grass": {
+          "$ref": "#/definitions/texture",
+          "description": "Texture on gentle slopes. Defaults to grass."
+        },
+        "rock": {
+          "$ref": "#/definitions/texture",
+          "description": "Texture on steep slopes. Defaults to stone."
+        },
+        "snow": {
+          "$ref": "#/definitions/texture",
+          "description": "Texture at high elevation/slope. Defaults to snow."
+        },
+        "grass_col": {
+          "$ref": "#/definitions/rgb",
+          "description": "Tint for grass layer. All zeros default to white (show texture as authored)."
+        },
+        "rock_col": {
+          "$ref": "#/definitions/rgb",
+          "description": "Tint for rock layer."
+        },
+        "snow_col": {
+          "$ref": "#/definitions/rgb",
+          "description": "Tint for snow layer."
+        },
+        "slope_lo": {
+          "type": "number",
+          "description": "Slope angle (degrees) where grass\u2192rock blend begins."
+        },
+        "slope_hi": {
+          "type": "number",
+          "description": "Slope angle where grass\u2192rock blend completes."
+        },
+        "snow_lo": {
+          "type": "number",
+          "description": "Height or blend threshold where snow begins."
+        },
+        "snow_hi": {
+          "type": "number",
+          "description": "Height or blend threshold where snow is fully white."
+        },
+        "feature": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/terrain_feature"
+          }
+        },
+        "pad": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/terrain_pad"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "water": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "pos": {
+              "$ref": "#/definitions/vec2",
+              "description": "Disk center [x, z] in world space."
+            },
+            "radius": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Horizontal radius of the water surface."
+            },
+            "level": {
+              "type": "number",
+              "description": "Water surface height (Y)."
+            },
+            "ripple": {
+              "type": "number",
+              "description": "Normal-map ripple strength."
+            },
+            "ripple_animation_speed": {
+              "type": "number",
+              "description": "Speed of animated ripples (0 = static)."
+            },
+            "ripple_direction": {
+              "$ref": "#/definitions/vec2",
+              "description": "Direction [x, z] the ripples travel along."
+            }
+          },
+          "required": [
+            "pos",
+            "radius",
+            "level"
+          ]
+        },
+        {
+          "$ref": "#/definitions/primitive_surface"
+        }
+      ]
+    },
+    "light": {
+      "type": "object",
+      "properties": {
+        "pos": {
+          "$ref": "#/definitions/vec3",
+          "description": "Light center."
+        },
+        "color": {
+          "$ref": "#/definitions/rgb",
+          "description": "Emissive color (HDR allowed)."
+        },
+        "radius": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Physical radius of the emissive sphere (soft shadow penumbra)."
+        },
+        "range": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Distance falloff range (0 = infinite)."
+        },
+        "brightness": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Intensity multiplier applied to color at load time. Defaults to 1."
+        }
+      },
+      "required": [
+        "pos",
+        "color"
+      ],
+      "additionalProperties": false
+    },
+    "campfire": {
+      "type": "object",
+      "description": "Animated flickering point light without geometry.",
+      "properties": {
+        "center": {
+          "$ref": "#/definitions/vec3",
+          "description": "Fire position."
+        },
+        "color": {
+          "$ref": "#/definitions/rgb",
+          "description": "Emissive tint. Defaults to warm orange if omitted."
+        },
+        "brightness": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Intensity scale. Defaults to 1."
+        },
+        "range": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Light falloff distance."
+        },
+        "jitter": {
+          "type": "number",
+          "description": "Positional jitter amplitude. Defaults to 0.16."
+        },
+        "flicker": {
+          "type": "number",
+          "description": "Brightness flicker amount. Defaults to 0.45."
+        },
+        "speed": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Flicker animation speed. Defaults to 1."
+        },
+        "seed": {
+          "type": "number",
+          "description": "Random seed for reproducible flicker."
+        }
+      },
+      "required": [
+        "center"
+      ],
+      "additionalProperties": false
+    },
+    "sound": {
+      "type": "object",
+      "properties": {
+        "sound": {
+          "$ref": "#/definitions/sound_id"
+        },
+        "at": {
+          "$ref": "#/definitions/vec3",
+          "description": "Emitter position."
+        },
+        "gain": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Volume scale. Defaults to 0.3."
+        },
+        "radius": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Audible falloff radius. Defaults to 20."
+        }
+      },
+      "required": [
+        "sound",
+        "at"
+      ],
+      "additionalProperties": false
+    },
+    "camera": {
+      "type": "object",
+      "properties": {
+        "pos": {
+          "$ref": "#/definitions/vec3",
+          "description": "Starting camera position (eye)."
+        },
+        "yaw": {
+          "type": "number",
+          "description": "Horizontal look angle in degrees (0 = +Z)."
+        },
+        "pitch": {
+          "type": "number",
+          "description": "Vertical look angle in degrees (negative = look down)."
+        }
+      },
+      "required": [
+        "pos"
+      ],
+      "additionalProperties": false
+    },
+    "sun": {
+      "type": "object",
+      "description": "Visible sun/moon disc appearance. Position comes from environment.sun_dir.",
+      "properties": {
+        "color": {
+          "$ref": "#/definitions/rgb",
+          "description": "Disc color."
+        },
+        "size": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Angular diameter in degrees."
+        },
+        "glow": {
+          "type": "number",
+          "description": "Halo strength around the disc. Omitted or 0 defaults to 1 when sun is configured."
+        }
+      },
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "sky": {
+          "$ref": "#/definitions/sky"
+        },
+        "ambient_sky": {
+          "$ref": "#/definitions/rgb",
+          "description": "Hemisphere ambient from above."
+        },
+        "ambient_ground": {
+          "$ref": "#/definitions/rgb",
+          "description": "Hemisphere ambient from below."
+        },
+        "sun_dir": {
+          "$ref": "#/definitions/vec3",
+          "description": "Direction toward the sun (normalized at load). Zero vector disables directional sun."
+        },
+        "sun_color": {
+          "$ref": "#/definitions/rgb",
+          "description": "Directional sunlight color."
+        },
+        "sun": {
+          "$ref": "#/definitions/sun"
+        }
+      },
+      "additionalProperties": false
+    },
+    "interact": {
+      "type": "object",
+      "properties": {
+        "hint": {
+          "type": "string",
+          "description": "HUD prompt shown when the player is in range (e.g. \"Exit\")."
+        },
+        "on_use": {
+          "$ref": "#/definitions/on_use"
+        },
+        "use_range": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true,
+          "description": "Maximum distance from the player to the interact center."
+        },
+        "center": {
+          "$ref": "#/definitions/vec3",
+          "description": "World-space point for range tests (often the object origin)."
+        }
+      },
+      "required": [
+        "on_use",
+        "center"
+      ],
+      "additionalProperties": false
+    },
+    "player_spawnpoint": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique name referenced by portal handlers and debug commands."
+        },
+        "pos": {
+          "$ref": "#/definitions/vec3",
+          "description": "Spawn eye position."
+        },
+        "floor_y": {
+          "type": "number",
+          "description": "Optional explicit floor height; when set, the player is placed standing on this Y instead of terrain query."
+        },
+        "yaw": {
+          "type": "number",
+          "description": "Initial look yaw (degrees)."
+        },
+        "pitch": {
+          "type": "number",
+          "description": "Initial look pitch (degrees)."
+        }
+      },
+      "required": [
+        "id",
+        "pos"
+      ],
+      "additionalProperties": false
+    },
+    "include": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to the included TOML (relative to the parent file or absolute)."
+        },
+        "at": {
+          "$ref": "#/definitions/vec3",
+          "description": "Placement translation. When the parent has terrain, at.y is an offset above ground at (at.x, at.z); 0 snaps the object origin to ground (or a terrain pad at the origin)."
+        },
+        "rotate_x": {
+          "type": "number",
+          "description": "Rotation about X after placement (degrees)."
+        },
+        "rotate_y": {
+          "type": "number",
+          "description": "Rotation about Y after placement (degrees)."
+        },
+        "rotate_z": {
+          "type": "number",
+          "description": "Rotation about Z after placement (degrees)."
+        },
+        "follow_terrain": {
+          "type": "boolean",
+          "description": "When true, Y is resolved in a post-pass after all terrain is merged: the include is shifted vertically so its anchor sits on the baked height field. Only this [[include]] line is snapped; nested includes without the flag move rigidly with the parent. For scattered props, set on each child include, not on layout files."
+        },
+        "instance": {
+          "type": "boolean",
+          "description": "When true, identical geometry from the included file is merged into a GPU instancing batch (TLAS/BLAS). The included file may be a layout of multiple [[include]] children; each unique mesh is instanced separately. Imposes an instance count limit."
+        },
+        "params": {
+          "type": "object",
+          "description": "Template parameters passed to the included file (Go text/template data). Use {{.name}} in the child file; helpers: add, sub, mul, div, neg, seq, vec3, orVec3.",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

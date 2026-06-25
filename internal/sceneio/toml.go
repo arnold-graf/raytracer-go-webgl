@@ -2,6 +2,10 @@
 // format mirrors the primitives in package scene: each primitive kind is an
 // array of tables (e.g. [[box]]), and materials are referenced by name.
 //
+// The TOML format is documented by JSON Schema in schemas/scene.schema.json
+// (and schemas/player.schema.json for movement config). Update those schemas
+// when adding or changing tables or fields.
+//
 // Numbers must be written as floats (use 0.0, not 0) because vectors decode
 // into fixed [3]float64 arrays.
 package sceneio
@@ -180,14 +184,49 @@ func snapBounds(min, max vec.V) (vec.V, vec.V) {
 }
 
 type cylinderDTO struct {
-	CX        float64 `toml:"cx"`
-	CZ        float64 `toml:"cz"`
-	Radius    float64 `toml:"radius"`
-	RadiusTop float64 `toml:"radius_top"`
-	YMin      float64 `toml:"ymin"`
-	YMax      float64 `toml:"ymax"`
+	PosX        float64 `toml:"pos_x"`
+	PosY        float64 `toml:"pos_y"`
+	PosZ        float64 `toml:"pos_z"`
+	Width       float64 `toml:"width"`        // uniform diameter when not tapered
+	Height      float64 `toml:"height"`
+	WidthBottom float64 `toml:"width_bottom"` // bottom diameter (defaults to width)
+	WidthTop    float64 `toml:"width_top"`    // top diameter (defaults to width_bottom)
 	transformDTO
 	surfaceDTO
+}
+
+// specs resolves the engine cylinder from box-style placement fields. pos_* is
+// the minimum corner of the footprint square (side = max(bottom, top) diameter);
+// the cylinder axis runs through the center of that square.
+func (d cylinderDTO) specs() (cx, cz, ymin, ymax, radius, radiusTop float64, err error) {
+	bottomD := d.WidthBottom
+	if bottomD == 0 {
+		bottomD = d.Width
+	}
+	if bottomD <= 0 {
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("width or width_bottom must be positive")
+	}
+	if d.Height <= 0 {
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("height must be positive")
+	}
+	topD := d.WidthTop
+	if topD == 0 {
+		topD = bottomD
+	}
+	foot := bottomD
+	if topD > foot {
+		foot = topD
+	}
+	cx = d.PosX + foot/2
+	cz = d.PosZ + foot/2
+	ymin = d.PosY
+	ymax = d.PosY + d.Height
+	radius = bottomD / 2
+	radiusTop = topD / 2
+	if math.Abs(topD-bottomD) < 1e-12 {
+		radiusTop = 0 // uniform: engine treats 0 as same as Radius
+	}
+	return cx, cz, ymin, ymax, radius, radiusTop, nil
 }
 
 type coneDTO struct {
@@ -807,11 +846,15 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cylinder[%d]: %w", i, err)
 		}
-		center := vec.New(d.CX, (d.YMin+d.YMax)/2, d.CZ)
+		cx, cz, ymin, ymax, radius, radiusTop, err := d.specs()
+		if err != nil {
+			return nil, fmt.Errorf("cylinder[%d]: %w", i, err)
+		}
+		center := vec.New(cx, (ymin+ymax)/2, cz)
 		surf.Xform = d.transformDTO.buildAbout(center)
 		s.Cylinders = append(s.Cylinders, scene.Cylinder{
-			CX: d.CX, CZ: d.CZ, Radius: d.Radius, RadiusTop: d.RadiusTop,
-			YMin: d.YMin, YMax: d.YMax, Surface: surf,
+			CX: cx, CZ: cz, Radius: radius, RadiusTop: radiusTop,
+			YMin: ymin, YMax: ymax, Surface: surf,
 		})
 	}
 	for i, d := range dto.Cone {

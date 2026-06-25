@@ -26,30 +26,30 @@
 # ----------------------------------------------------------- plinth base ----
 
 [[cylinder]]
+pos_x = -0.62
+pos_y = 0
+pos_z = -0.62
+width = 1.24
+height = 0.1
 albedo = [0.98, 0.97, 0.94]
-cx = 0.0
-cz = 0.0
 material = "diffuse"
-radius = 0.62
 reflect = 0.22
 rough = 0.08
 texture = "marble"
-ymax = 0.10
-ymin = 0.0
 
 # -------------------------------------------------------- firebox section ----
 
 [[cylinder]] # lower body (wider firebox block)
+pos_x = -0.55
+pos_y = 0.1
+pos_z = -0.55
+width = 1.1
+height = 0.72
 albedo = [0.98, 0.97, 0.94]
-cx = 0.0
-cz = 0.0
 material = "diffuse"
-radius = 0.55
 reflect = 0.22
 rough = 0.08
 texture = "marble"
-ymax = 0.82
-ymin = 0.10
 
 [[box]] # curved firebox door (glass inset, +Z face toward the room)
 albedo = [0.35, 0.18, 0.08]
@@ -68,82 +68,82 @@ transmit = 0.75
 # Stepped belt where the lower block transitions into the upper shaft.
 
 [[cylinder]] # flare out
+pos_x = -0.58
+pos_y = 0.82
+pos_z = -0.58
+width = 1.16
+height = 0.08000000000000007
 albedo = [0.98, 0.97, 0.94]
-cx = 0.0
-cz = 0.0
 material = "diffuse"
-radius = 0.58
 reflect = 0.22
 rough = 0.08
 texture = "marble"
-ymax = 0.90
-ymin = 0.82
 
 [[cylinder]] # step back in
+pos_x = -0.52
+pos_y = 0.9
+pos_z = -0.52
+width = 1.04
+height = 0.07999999999999996
 albedo = [0.98, 0.97, 0.94]
-cx = 0.0
-cz = 0.0
 material = "diffuse"
-radius = 0.52
 reflect = 0.22
 rough = 0.08
 texture = "marble"
-ymax = 0.98
-ymin = 0.90
 
 # ---------------------------------------------------------- upper shaft ----
 
 [[cylinder]] # tall upper body (slender column)
+pos_x = -0.48
+pos_y = 0.98
+pos_z = -0.48
+width = 0.96
+height = 1.52
 albedo = [0.98, 0.97, 0.94]
-cx = 0.0
-cz = 0.0
 material = "diffuse"
-radius = 0.48
 reflect = 0.22
 rough = 0.08
 texture = "marble"
-ymax = 2.50
-ymin = 0.98
 
 # -------------------------------------------------------- cornice belt ----
 
 [[cylinder]] # cornice flare
+pos_x = -0.54
+pos_y = 2.5
+pos_z = -0.54
+width = 1.08
+height = 0.06999999999999984
 albedo = [0.98, 0.97, 0.94]
-cx = 0.0
-cz = 0.0
 material = "diffuse"
-radius = 0.54
 reflect = 0.22
 rough = 0.08
 texture = "marble"
-ymax = 2.57
-ymin = 2.50
 
 [[cylinder]] # cornice neck
+pos_x = -0.5
+pos_y = 2.57
+pos_z = -0.5
+width = 1
+height = 0.07000000000000028
 albedo = [0.98, 0.97, 0.94]
-cx = 0.0
-cz = 0.0
 material = "diffuse"
-radius = 0.50
 reflect = 0.22
 rough = 0.08
 texture = "marble"
-ymax = 2.64
-ymin = 2.57
 
 # ------------------------------------------------------------- cap dome ----
 
 [[cylinder]] # cap drum under the dome
+pos_x = -0.46
+pos_y = 2.64
+pos_z = -0.46
+width = 0.92
+height = 0.08000000000000007
 albedo = [0.98, 0.97, 0.94]
-cx = 0.0
-cz = 0.0
 material = "diffuse"
-radius = 0.46
 reflect = 0.22
 rough = 0.08
 texture = "marble"
-ymax = 2.72
-ymin = 2.64
 
 [[cone]] # domed top
 albedo = [0.98, 0.97, 0.94]

@@ -194,15 +194,33 @@ max = [-4.4, 3.5,  1.0]
 windows and doorways. A box may have multiple holes.
 
 ### Cylinder (finite, axis = Y)
+Defined like a box footprint: `pos_*` is the minimum corner of the square
+bounding the circular cross-section; `width` is the diameter; `height` is the
+vertical extent. For tapering, set `width_bottom` and `width_top` (diameters).
+
 ```toml
 [[cylinder]]
-cx = 0.0
-cz = 0.0
-radius = 0.28
-ymin = 0.4
-ymax = 4.4
+pos_x = -0.28
+pos_y = 0.4
+pos_z = -0.28
+width = 0.56
+height = 4.0
 material = "diffuse"
 texture = "stone"
+```
+
+Tapered example (pine trunk):
+
+```toml
+[[cylinder]]
+pos_x = -0.65
+pos_y = 0.4
+pos_z = -0.65
+width_bottom = 1.3
+width_top = 0.4
+height = 7.2
+material = "diffuse"
+texture = "wood"
 ```
 
 ### Cone (finite, axis = Y)
@@ -437,8 +455,11 @@ derive geometry with the math helpers:
 {{$orbY := neg (add $stem (mul $orb 0.875))}}
 
 [[cylinder]] # stem
-ymax = 0.0
-ymin = {{neg $stem}}
+pos_x = -0.045
+pos_y = {{neg $stem}}
+pos_z = -0.045
+width = 0.09
+height = {{$stem}}
 
 [[sphere]]   # orb hangs just below the stem end
 center = [0.0, {{$orbY}}, 0.0]

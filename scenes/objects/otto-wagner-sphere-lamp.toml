@@ -23,23 +23,24 @@
 {{$orbY := neg (add $stem (mul $orb 0.875))}}
 {{$range := or .range 16}}
 [[cylinder]] # ceiling canopy (bronze)
+pos_x = -0.18
+pos_y = -0.08
+pos_z = -0.18
+width = 0.36
+height = 0.08
 albedo = [0.66, 0.45, 0.24]
-cx = 0.0
-cz = 0.0
 material = "metal"
-radius = 0.18
 rough = 0.22
-ymax = 0.0
-ymin = -0.08
 
 [[cylinder]] # stem / suspension rod (bronze)
+pos_x = -0.045
+pos_y = {{neg $stem}}
+pos_z = -0.045
+width = 0.09
+height = {{$stem}}
 albedo = [0.70, 0.48, 0.26]
-cx = 0.0
-cz = 0.0
 material = "metal"
-radius = 0.045
-ymax = 0.0
-ymin = {{neg $stem}}
+rough = 0.22
 
 [[sphere]] # glass orb
 albedo = [0.95, 0.92, 0.85]

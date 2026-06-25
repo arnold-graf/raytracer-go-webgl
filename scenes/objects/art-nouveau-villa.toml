@@ -392,24 +392,24 @@ texture = "cement"
 # ---- facade corner cylinders (softened corners) ----
 
 [[cylinder]] # left wing front corner
+pos_x = -2.65
+pos_y = 1.2
+pos_z = 7.15
+width = 0.7
+height = 4.6499999999999995
 albedo = [0.94, 0.93, 0.90]
-cx = -2.3
-cz = 7.5
-radius = 0.35
 material = "diffuse"
 texture = "cement"
-ymax = 5.85
-ymin = 1.2
 
 [[cylinder]] # right wing front corner
+pos_x = 1.9499999999999997
+pos_y = 1.2
+pos_z = 7.15
+width = 0.7
+height = 4.6499999999999995
 albedo = [0.94, 0.93, 0.90]
-cx = 2.3
-cz = 7.5
-radius = 0.35
 material = "diffuse"
 texture = "cement"
-ymax = 5.85
-ymin = 1.2
 
 # ========================================================= SECOND FLOOR WALLS ====
 # y = 5.7 .. 10.15

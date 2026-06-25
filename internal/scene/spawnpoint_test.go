@@ -17,6 +17,10 @@ func TestPlayerSpawnpointPlaced(t *testing.T) {
 	if math.Abs(got.Pos.X-want.X) > 1e-9 || math.Abs(got.Pos.Z-want.Z) > 1e-9 {
 		t.Fatalf("pos = %v, want %v", got.Pos, want)
 	}
+	wantFloor := xf.ToWorld(vec.New(1, 0.3, 2)).Y
+	if math.Abs(got.FloorY-wantFloor) > 1e-9 {
+		t.Fatalf("floor_y = %v, want %v", got.FloorY, wantFloor)
+	}
 	if math.Abs(got.Yaw+math.Pi/2) > 1e-6 {
 		t.Fatalf("yaw = %v, want -pi/2", got.Yaw)
 	}
