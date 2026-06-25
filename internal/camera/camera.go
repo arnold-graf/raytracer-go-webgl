@@ -127,12 +127,13 @@ func (c *Camera) EyeHeight() float64 {
 func (c *Camera) SetWorld(w World) { c.world = w }
 
 // SnapToGround places the camera directly on the surface underfoot, avoiding an
-// initial fall when a scene's start pose is above the ground.
+// initial fall when a scene's start pose is above the ground. headY is the
+// camera eye height so ceilings above the player are ignored.
 func (c *Camera) SnapToGround() {
 	if c.world == nil {
 		return
 	}
-	g := c.world.GroundHeight(c.Pos.X, c.Pos.Z, c.Pos.Y+1e3)
+	g := c.world.GroundHeight(c.Pos.X, c.Pos.Z, c.Pos.Y)
 	c.Pos.Y = g + c.cfg.EyeHeight
 	c.velY = 0
 	c.onGround = true

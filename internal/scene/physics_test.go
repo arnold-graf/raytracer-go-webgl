@@ -57,6 +57,18 @@ func TestGroundHeightFollowsTerrain(t *testing.T) {
 // TestBlockedHonorsBoxTransform guards against the regression where collision
 // used a box's local Min/Max and ignored its world transform, producing a
 // phantom wall at the origin and none at the real (translated) location.
+func TestGroundHeightIgnoresCeilingAboveHead(t *testing.T) {
+	s := &Scene{
+		Boxes: []Box{
+			{Min: vec.New(0, 0, 0), Max: vec.New(10, 0.2, 10)},
+			{Min: vec.New(0, 9, 0), Max: vec.New(10, 9.2, 10)},
+		},
+	}
+	if g := s.GroundHeight(5, 5, 2.0); math.Abs(g-0.2) > 1e-9 {
+		t.Fatalf("ground below ceiling = %v, want 0.2", g)
+	}
+}
+
 func TestBlockedHonorsBoxTransform(t *testing.T) {
 	xf := NewInstanceTransform(0, 0, 0, vec.New(16, 0, -2))
 	s := &Scene{Boxes: []Box{

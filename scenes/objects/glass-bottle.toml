@@ -1,0 +1,22 @@
+# body of the bottle
+[[cylinder]]
+material = "glass"
+reflect = 0.2
+rough = 0.02
+albedo = [1, 1, 1]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 0.1
+height = 0.2
+
+[[cylinder]]
+material = "glass"
+reflect = 0.2
+rough = 0.01
+albedo = [1, 1, 1]
+pos_x = 0.025
+pos_y = 0.2
+pos_z = 0.025
+width = 0.05
+height = 0.1

@@ -1,0 +1,40 @@
+
+# Left Pole 1
+[[box]]
+material = "diffuse"
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 0.1
+height = 2.5
+depth = 0.1
+albedo = [0.5, 0.5, 0.5]
+reflect = 0.5
+rough = 0.01
+
+# Left Pole 2
+
+[[box]]
+material = "diffuse"
+pos_x = 0
+pos_y = 0
+pos_z = 0.5
+width = 0.1
+height = 2.5
+depth = 0.1
+albedo = [0.5, 0.5, 0.5]
+reflect = 0.5
+rough = 0.01
+
+# Horizontal Bar 1
+[[box]]
+material = "diffuse"
+pos_x = 0
+pos_y = 2.5
+pos_z = 0
+width = 0.1
+height = 0.1
+depth = 0.6
+albedo = [0.5, 0.5, 0.5]
+reflect = 0.5
+rough = 0.01

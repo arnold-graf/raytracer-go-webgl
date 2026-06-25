@@ -1,0 +1,70 @@
+[[include]]
+file = "server-rack.toml"
+at = [0, 0, 0]
+
+[[include]]
+file = "server.toml"
+at = [0.1, 1.7, -0.2]
+
+[[include]]
+file = "server.toml"
+at = [0.1, 1, -0.2]
+
+[[include]]
+file = "server.toml"
+at = [0.1, 0.3, -0.2]
+
+[[include]]
+file = "server-rack.toml"
+at = [1, 0, 0]
+
+[[include]]
+file = "server.toml"
+at = [1.1, 1.7, -0.2]
+
+[[include]]
+file = "server.toml"
+at = [1.1, 1, -0.2]
+
+[[include]]
+file = "server.toml"
+at = [1.1, 0.3, -0.2]
+
+
+[[include]]
+file = "server-rack.toml"
+at = [2, 0, 0]
+
+[[include]]
+file = "server.toml"
+at = [2.1, 1.7, -0.2]
+
+[[include]]
+file = "server.toml"
+at = [2.1, 1, -0.2]
+
+[[include]]
+file = "server.toml"
+at = [2.1, 0.3, -0.2]
+
+[[include]]
+file = "server-rack.toml"
+at = [3, 0, 0]
+
+[[include]]
+file = "server.toml"
+at = [3.1, 1.7, -0.2]
+
+[[include]]
+file = "server.toml"
+at = [3.1, 1, -0.2]
+
+[[include]]
+file = "server.toml"
+at = [3.1, 0.3, -0.2]
+
+[[include]]
+file = "server-rack.toml"
+at = [4, 0, 0]
+
+

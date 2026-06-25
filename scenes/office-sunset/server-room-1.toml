@@ -27,7 +27,7 @@ depth = 50.0
 # north wall
 [[box]]
 material = "diffuse"
-albedo = [0.7, 0.7, 0.7]
+albedo = [0.3, 0.3, 0.3]
 pos_x = 0.0
 pos_y = 0.0
 pos_z = 0.0
@@ -38,7 +38,7 @@ depth = 0.2
 # east wall
 [[box]]
 material = "diffuse"
-albedo = [0.7, 0.7, 0.7]
+albedo = [0.3, 0.3, 0.3]
 pos_x = 0.0
 pos_y = 0.0
 pos_z = 0.0
@@ -49,7 +49,7 @@ depth = 50.0
 # south wall
 [[box]]
 material = "diffuse"
-albedo = [0.7, 0.7, 0.7]
+albedo = [0.3, 0.3, 0.3]
 pos_x = 0.0
 pos_y = 0.0
 pos_z = 50.0
@@ -60,7 +60,7 @@ depth = 0.2
 # east wall
 [[box]]
 material = "diffuse"
-albedo = [0.7, 0.7, 0.7]
+albedo = [0.3, 0.3, 0.3]
 pos_x = 49.8
 pos_y = 0.0
 pos_z = 0.0
@@ -83,18 +83,61 @@ file = "objects/cube.toml"
 at = [10.0, 1, 2.0]
 rotate_y = 0.0
 
+# server rack left of the cube
+[[include]]
+file = "objects/server-column.toml"
+at = [3.0, 0.2, 8.0]
+rotate_y = 30
+instance = true
+
+[[include]]
+file = "objects/server-column.toml"
+at = [20.0, 0.2, 8.0]
+rotate_y = 90
+instance = true
+
+[[include]]
+file = "objects/server-column.toml"
+at = [23.0, 0.2, 8.0]
+rotate_y = 90
+instance = true
+
+[[include]]
+file = "objects/server-column.toml"
+at = [26.0, 0.2, 8.0]
+rotate_y = 90
+instance = true
+
+[[include]]
+file = "objects/server-column.toml"
+at = [29.0, 0.2, 8.0]
+rotate_y = 90
+instance = true
+
+
 # stairs to the cube
 [[include]]
 file = "../objects/staircase.toml"
 at = [9.7, 0, 7.5]
 rotate_y = 90
 instance = true
-params = { steps = 5, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.1 }
+params = { steps = 5, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.5 }
+
+# Lamp
+[[include]]
+file = "../objects/otto-wagner-sphere-lamp.toml"
+at = [25.0, 9, 25.0]
+params = { stem_len = 2.1, orb_radius = 0.5, brightness = 0.1, range = 10 }
+
 
 # table
 [[include]]
 file = "../objects/simple-table.toml"
-at = [14.5, 0.2, 7.0]
+at = [14.7, 0.2, 7.0]
 rotate_y = -20
 params = { width = 1.5, height = 0.9, texture = "wood" }
 
+# glass bottle on the table
+[[include]]
+file = "../objects/glass-bottle.toml"
+at = [14, 1.1, 7.3]

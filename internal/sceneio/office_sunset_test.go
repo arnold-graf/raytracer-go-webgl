@@ -29,4 +29,10 @@ func TestOfficeSunsetIndexLoadsGeometry(t *testing.T) {
 	if !sp.UseFloor || math.Abs(sp.FloorY-(200.0+1.0+0.3)) > 1e-6 {
 		t.Fatalf("floor_y = %v useFloor=%v, want %v true", sp.FloorY, sp.UseFloor, 200.0+1.0+0.3)
 	}
+	// Camera start in the server room: floor top at y=200.2, ceiling at ~209.2.
+	const eyeY = 201.8
+	g := s.GroundHeight(10, 8, eyeY)
+	if math.Abs(g-200.2) > 0.05 {
+		t.Fatalf("GroundHeight at camera = %v, want floor top ~200.2 (not ceiling)", g)
+	}
 }

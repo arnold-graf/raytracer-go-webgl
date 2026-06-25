@@ -130,8 +130,10 @@ func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath s
 	g.setScene(sc) // builds the probe, bakes AO, binds the camera's world
 	if sc.Start.Set {
 		g.cam.Pos, g.cam.Yaw, g.cam.Pitch = sc.Start.Pos, sc.Start.Yaw, sc.Start.Pitch
+		g.cam.Land()
+	} else {
+		g.cam.SnapToGround()
 	}
-	g.cam.SnapToGround()
 	// Seed the watch timestamps so the first poll doesn't trigger a needless
 	// reload of the files we just loaded.
 	g.sceneDeps = seedSceneDeps(scenePath)

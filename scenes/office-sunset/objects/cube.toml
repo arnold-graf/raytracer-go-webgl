@@ -26,12 +26,14 @@ albedo = [2, 2, 2]
 texture = "capture_forward"
 
 # Light
-[[light]]
-pos = [2.5, 2.5, 2.5]
-color = [0.2, 0.2, 0.1]
-radius = 10
-brightness = 1
-range = 10
+[[campfire]]
+center = [2.5, 2.5, 4]
+color = [0, 0.1, 0.3]
+brightness = 0.8
+range = 50
+flicker = 0.5
+speed = 1
+seed = 0
 
 # Left wall (interior face +X at x = -0.5)
 [[box]]
@@ -45,6 +47,19 @@ depth = 5
 albedo = [1.2, 1.2, 1.2]
 texture = "capture_left"
 
+# Left wall metal cover
+[[box]]
+material = "diffuse"
+reflect = 0.2
+pos_x = -1.1
+pos_y = -1
+pos_z = -1
+width = 0.1
+height = 5.5
+depth = 5
+rough = 0.01
+albedo = [0.5, 0.5, 0.5]
+
 # Right wall (interior face -X at x = 3.5)
 [[box]]
 material = "diffuse"
@@ -52,10 +67,23 @@ pos_x = 4
 pos_y = -1
 pos_z = -1
 width = 0.5
-height = 5
+height = 5.5
 depth = 5
 albedo = [1.2, 1.2, 1.2]
 texture = "capture_right"
+
+# Right wall metal cover
+[[box]]
+material = "diffuse"
+reflect = 0.6
+pos_x = 4.5
+pos_y = -1
+pos_z = -1
+width = 0.1
+height = 5.5
+depth = 5
+rough = 0.01
+albedo = [0.5, 0.5, 0.5]
 
 # Roof (interior face -Y at y = 3.5)
 [[box]]
@@ -68,6 +96,51 @@ height = 0.5
 depth = 5
 albedo = [1, 1, 1]
 texture = "capture_up"
+
+# Cone over the roof
+# [[cone]]
+# material = "metal"
+# rough = 0
+# cx = 1.5
+# cz = 1.5
+# ybase = 4.5
+# ytip = 7
+# rbase = 2.5
+# albedo = [2, 2, 2]
+
+# Pipes from the cube to the ceiling
+[[cylinder]]
+material = "diffuse"
+reflect = 0.2
+rough = 0.01
+albedo = [1, 0, 0]
+pos_x = 1.4
+pos_y = 5
+pos_z = 1.2
+width = 0.2
+height = 2
+
+[[cylinder]]
+material = "diffuse"
+reflect = 0.2
+rough = 0.01
+albedo = [0, 1, 0]
+pos_x = 0.7
+pos_y = 5
+pos_z = 1.2
+width = 0.2
+height = 2
+
+[[cylinder]]
+material = "diffuse"
+reflect = 0.2
+rough = 0.01
+albedo = [1, 1, 0]
+pos_x = 2
+pos_y = 5
+pos_z = 1.2
+width = 0.2
+height = 2
 
 # Floor (interior face +Y at y = 0.25)
 [[box]]

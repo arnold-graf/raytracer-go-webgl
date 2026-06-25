@@ -7,13 +7,13 @@ import (
 
 // mockWorld is a programmable World for exercising movement physics.
 type mockWorld struct {
-	height  func(x, z float64) float64
+	height  func(x, z, headY float64) float64
 	blocked func(x, z float64) bool
 }
 
 func (m mockWorld) GroundHeight(x, z, headY float64) float64 {
 	if m.height != nil {
-		return m.height(x, z)
+		return m.height(x, z, headY)
 	}
 	return 0
 }
@@ -184,10 +184,28 @@ func TestNoClipPassesThroughWalls(t *testing.T) {
 	}
 }
 
+func TestSnapToGroundIgnoresCeilingAboveEye(t *testing.T) {
+	world := mockWorld{height: func(x, z, headY float64) float64 {
+		const floor, ceiling = 200.2, 209.2
+		if headY >= ceiling {
+			return ceiling
+		}
+		return floor
+	}}
+	c := New()
+	c.SetWorld(world)
+	c.Pos.Y = 201.0
+	c.SnapToGround()
+	want := 200.2 + c.cfg.EyeHeight
+	if math.Abs(c.Pos.Y-want) > 1e-9 {
+		t.Fatalf("SnapToGround eye = %v, want %v (floor, not ceiling)", c.Pos.Y, want)
+	}
+}
+
 func TestGroundFollowing(t *testing.T) {
 	height := 2.0
 	c := New()
-	c.SetWorld(mockWorld{height: func(x, z float64) float64 { return height }})
+	c.SetWorld(mockWorld{height: func(x, z, headY float64) float64 { return height }})
 
 	c.Update(Move{}, 0.1)
 	if math.Abs(c.Pos.Y-(2.0+c.cfg.EyeHeight)) > 1e-9 {
