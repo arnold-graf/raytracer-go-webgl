@@ -113,6 +113,13 @@
       "items": {
         "$ref": "#/definitions/player_spawnpoint"
       }
+    },
+    "npc": {
+      "type": "array",
+      "description": "TOML [[npc]]. Procedural character spawns (YAML rig + runtime pose).",
+      "items": {
+        "$ref": "#/definitions/npc"
+      }
     }
   },
   "definitions": {
@@ -1060,6 +1067,41 @@
       "required": [
         "id",
         "pos"
+      ],
+      "additionalProperties": false
+    },
+    "npc": {
+      "type": "object",
+      "properties": {
+        "rig": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to a YAML rig file (relative to repo root or absolute)."
+        },
+        "pose": {
+          "type": "string",
+          "description": "Named pose from the rig YAML. Default: idle."
+        },
+        "at": {
+          "$ref": "#/definitions/vec3",
+          "description": "Feet anchor position [x, y, z]. Y=0 uses terrain/box ground height at x,z."
+        },
+        "yaw": {
+          "type": "number",
+          "description": "Character facing yaw in degrees."
+        },
+        "speed": {
+          "type": "number",
+          "description": "Locomotion speed in m/s. 0 = idle (static pose)."
+        },
+        "heading": {
+          "type": "number",
+          "description": "Walk direction in degrees. Defaults to yaw when omitted."
+        }
+      },
+      "required": [
+        "rig",
+        "at"
       ],
       "additionalProperties": false
     },

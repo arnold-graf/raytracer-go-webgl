@@ -509,6 +509,7 @@ type sceneDTO struct {
 	Campfire    []campfireDTO   `toml:"campfire"`
 	Sound       []soundDTO      `toml:"sound"`
 	PlayerSpawnpoint []playerSpawnpointDTO `toml:"player_spawnpoint"`
+	NPC              []npcDTO              `toml:"npc"`
 }
 
 // tintOrWhite returns v as a color, defaulting an omitted (all-zero) vector to
@@ -933,6 +934,12 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		}
 		seenSpawn[sp.ID] = true
 		s.Spawnpoints = append(s.Spawnpoints, sp)
+	}
+	for i, d := range dto.NPC {
+		s.NPCSpawns = append(s.NPCSpawns, d.build())
+		if s.NPCSpawns[len(s.NPCSpawns)-1].Rig == "" {
+			return nil, fmt.Errorf("npc[%d]: missing rig", i)
+		}
 	}
 
 	return s, nil

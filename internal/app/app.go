@@ -17,6 +17,7 @@ import (
 
 	"raytracer/internal/audio"
 	"raytracer/internal/camera"
+	"raytracer/internal/npc"
 	"raytracer/internal/probe"
 	"raytracer/internal/render"
 	"raytracer/internal/scene"
@@ -104,6 +105,8 @@ type Game struct {
 	portalPhase      portalPhase
 
 	hudSmooth hudSmoother
+
+	npcs *npc.Manager
 }
 
 // New builds a game with the given internal render resolution rendering the
@@ -159,6 +162,8 @@ func (g *Game) setScene(sc *scene.Scene) {
 	g.sc = sc
 	g.pb = probe.New(sc)
 	g.cam.SetWorld(sc)
+	g.npcs = npc.NewManager()
+	_ = g.npcs.Instantiate(sc, npc.FootWorld(sc))
 	g.aoMu.Lock()
 	g.aoOK = false
 	g.aoData = probe.AOData{}
@@ -457,6 +462,11 @@ func (g *Game) Update() error {
 		g.updateFootsteps()
 
 		g.handleInteract()
+
+		if g.npcs != nil {
+			const npcDt = 1.0 / 60.0
+			g.npcs.Update(g.sc, npc.FootWorld(g.sc), npcDt)
+		}
 	}
 	g.updateFade()
 	g.updatePortalTransition()

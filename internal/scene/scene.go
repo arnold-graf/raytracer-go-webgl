@@ -27,6 +27,8 @@ type Scene struct {
 	Ambiences []Ambience
 	Interactables []Interactable
 	Spawnpoints   []PlayerSpawnpoint
+	NPCSpawns     []NPCSpawn
+	DynamicBodies []DynamicBody
 	Start     CameraStart
 	Env       Environment
 

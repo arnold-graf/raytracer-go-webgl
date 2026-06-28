@@ -74,6 +74,29 @@ func NewTransform(degX, degY, degZ float64, pivot vec.V) *Transform {
 	return &Transform{fwd: fwd, inv: fwd.transpose(), t: pivot.Sub(fwd.mul(pivot))}
 }
 
+// NewRigidTransform builds a world transform with Euler rotation (degrees,
+// Rz*Ry*Rx order) and translation at pos.
+func NewRigidTransform(degX, degY, degZ float64, pos vec.V) *Transform {
+	fwd := rotation(degX, degY, degZ)
+	return &Transform{fwd: fwd, inv: fwd.transpose(), t: pos}
+}
+
+// ChildAt returns a child bone frame: joint at parent.ToWorld(jointLocal) with
+// world rotation parent * localEuler. parent may be nil (world root).
+func (parent *Transform) ChildAt(jointLocal vec.V, degX, degY, degZ float64) *Transform {
+	local := rotation(degX, degY, degZ)
+	var jointWorld vec.V
+	var fwd mat3
+	if parent == nil {
+		jointWorld = jointLocal
+		fwd = local
+	} else {
+		jointWorld = parent.ToWorld(jointLocal)
+		fwd = parent.fwd.mulM(local)
+	}
+	return &Transform{fwd: fwd, inv: fwd.transpose(), t: jointWorld}
+}
+
 // NewInstanceTransform builds the transform applied to an included sub-scene:
 // rotate about the sub-scene origin, then translate by at. It returns nil when
 // the transform is the identity so callers can skip merging work entirely.
@@ -161,6 +184,29 @@ func (x *Transform) RotateDir(d vec.V) vec.V {
 		return d
 	}
 	return x.fwd.mul(d)
+}
+
+// NewTransformYAxis builds a rigid transform with local +Y aligned from origin
+// toward tip (bone segment orientation).
+func NewTransformYAxis(origin, tip vec.V) *Transform {
+	yDir := tip.Sub(origin)
+	if yDir.LenSq() < 1e-12 {
+		return NewRigidTransform(0, 0, 0, origin)
+	}
+	yDir = yDir.Normalize()
+	ref := vec.V{Y: 1}
+	if math.Abs(yDir.Y) > 0.99 {
+		ref = vec.V{X: 1}
+	}
+	xDir := ref.Cross(yDir).Normalize()
+	zDir := xDir.Cross(yDir).Normalize()
+	// Column-basis layout so mul(local +Y) == yDir (matches rotation() matrices).
+	fwd := mat3{
+		xDir.X, yDir.X, zDir.X,
+		xDir.Y, yDir.Y, zDir.Y,
+		xDir.Z, yDir.Z, zDir.Z,
+	}
+	return &Transform{fwd: fwd, inv: fwd.transpose(), t: origin}
 }
 
 // Compose returns the transform equivalent to applying inner first, then the

@@ -256,3 +256,19 @@ func TestBlockedHonorsConeTransform(t *testing.T) {
 		t.Fatal("origin must be clear")
 	}
 }
+
+func TestGroundHeightStaticIgnoresDynamicBoxes(t *testing.T) {
+	s := &Scene{
+		Boxes: []Box{
+			{Min: vec.New(-2, 0, -2), Max: vec.New(2, 0.2, 2)},
+			{Min: vec.New(-0.2, 0, -0.2), Max: vec.New(0.2, 1.5, 0.2)},
+		},
+		DynamicBodies: []DynamicBody{{Boxes: [2]int{1, 2}}},
+	}
+	if g := s.GroundHeight(0, 0, 2); math.Abs(g-1.5) > 1e-9 {
+		t.Fatalf("full query = %v, want 1.5 (torso box)", g)
+	}
+	if g := s.GroundHeightStatic(0, 0, 2); math.Abs(g-0.2) > 1e-9 {
+		t.Fatalf("static query = %v, want 0.2 (floor)", g)
+	}
+}

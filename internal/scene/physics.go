@@ -11,6 +11,25 @@ import (
 // for the terrain plus the flat tops of axis-aligned boxes (floors, platforms,
 // foundations) the player is standing over. Implements camera.World.
 func (s *Scene) GroundHeight(x, z, headY float64) float64 {
+	return s.groundHeight(x, z, headY, nil)
+}
+
+// GroundHeightStatic is like GroundHeight but ignores runtime NPC/dynamic body
+// boxes so characters do not stand on their own limb geometry.
+func (s *Scene) GroundHeightStatic(x, z, headY float64) float64 {
+	return s.groundHeight(x, z, headY, s.isDynamicBox)
+}
+
+func (s *Scene) isDynamicBox(i int) bool {
+	for _, db := range s.DynamicBodies {
+		if i >= db.Boxes[0] && i < db.Boxes[1] {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Scene) groundHeight(x, z, headY float64, skipBox func(int) bool) float64 {
 	g := math.Inf(-1)
 
 	for i := range s.Terrains {
@@ -23,6 +42,9 @@ func (s *Scene) GroundHeight(x, z, headY float64) float64 {
 	}
 
 	for i := range s.Boxes {
+		if skipBox != nil && skipBox(i) {
+			continue
+		}
 		b := &s.Boxes[i]
 		_, mx := b.WorldBounds()
 		if mx.Y > headY {
@@ -49,6 +71,30 @@ func (s *Scene) GroundHeight(x, z, headY float64) float64 {
 		return 0
 	}
 	return g
+}
+
+// GroundNormal returns an upward-pointing surface normal at (x,z) estimated by
+// finite differences on GroundHeight. headY caps ceiling/overhang selection.
+func (s *Scene) GroundNormal(x, z, headY float64) vec.V {
+	return s.groundNormal(x, z, headY, nil)
+}
+
+// GroundNormalStatic is like GroundNormal but ignores dynamic body boxes.
+func (s *Scene) GroundNormalStatic(x, z, headY float64) vec.V {
+	return s.groundNormal(x, z, headY, s.isDynamicBox)
+}
+
+func (s *Scene) groundNormal(x, z, headY float64, skipBox func(int) bool) vec.V {
+	const eps = 0.08
+	hL := s.groundHeight(x-eps, z, headY, skipBox)
+	hR := s.groundHeight(x+eps, z, headY, skipBox)
+	hN := s.groundHeight(x, z-eps, headY, skipBox)
+	hS := s.groundHeight(x, z+eps, headY, skipBox)
+	n := vec.V{hL - hR, 2 * eps, hN - hS}
+	if n.LenSq() < 1e-12 {
+		return vec.V{Y: 1}
+	}
+	return n.Normalize()
 }
 
 // Blocked reports whether a vertical capsule of the given radius, standing on

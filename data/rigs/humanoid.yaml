@@ -1,0 +1,156 @@
+name: humanoid
+hip_height: 0.80
+ankle_height: 0.06
+
+bones:
+  hips:
+    parent: null
+    length: 0
+  spine:
+    parent: hips
+    length: 0.35
+    offset: [0, 0, 0]
+  head:
+    parent: spine
+    length: 0.22
+    offset: [0, 0, 0]
+  thigh_l:
+    parent: hips
+    length: 0.40
+    offset: [0.14, -0.02, 0]
+  shin_l:
+    parent: thigh_l
+    length: 0.34
+    ik: two_bone
+    pole: [0, 0, 1]
+  foot_l:
+    parent: shin_l
+    length: 0.10
+  thigh_r:
+    parent: hips
+    length: 0.40
+    offset: [-0.14, -0.02, 0]
+  shin_r:
+    parent: thigh_r
+    length: 0.34
+    ik: two_bone
+    pole: [0, 0, 1]
+  foot_r:
+    parent: shin_r
+    length: 0.10
+  upper_arm_l:
+    parent: spine
+    length: 0.28
+    offset: [0.24, 0.45, 0]
+  forearm_l:
+    parent: upper_arm_l
+    length: 0.26
+    ik: two_bone
+    pole: [0, 0, 1]
+  upper_arm_r:
+    parent: spine
+    length: 0.28
+    offset: [-0.24, 0.45, 0]
+  forearm_r:
+    parent: upper_arm_r
+    length: 0.26
+    ik: two_bone
+    pole: [0, 0, 1]
+
+attachments:
+  - bone: spine
+    kind: box
+    size: [0.36, 0.6, 0.20]
+    offset: [0, 0.22, 0]
+    albedo: [0.55, 0.45, 0.38]
+  - bone: head
+    kind: sphere
+    radius: 0.13
+    offset: [0, 0.3, 0]
+    albedo: [0.72, 0.58, 0.48]
+  - bone: thigh_l
+    kind: cylinder
+    radius: 0.07
+    length: 0.40
+    albedo: [0.35, 0.35, 0.42]
+  - bone: shin_l
+    kind: cylinder
+    radius: 0.06
+    length: 0.34
+    albedo: [0.35, 0.35, 0.42]
+  - bone: foot_l
+    kind: box
+    size: [0.08, 0.18, 0.05]
+    offset: [0, 0.05, -0.025]
+    albedo: [0.28, 0.28, 0.32]
+  - bone: thigh_r
+    kind: cylinder
+    radius: 0.07
+    length: 0.40
+    albedo: [0.35, 0.35, 0.42]
+  - bone: shin_r
+    kind: cylinder
+    radius: 0.06
+    length: 0.34
+    albedo: [0.35, 0.35, 0.42]
+  - bone: foot_r
+    kind: box
+    size: [0.08, 0.18, 0.05]
+    offset: [0, 0.05, -0.025]
+    albedo: [0.28, 0.28, 0.32]
+  - bone: upper_arm_l
+    kind: cylinder
+    radius: 0.05
+    length: 0.28
+    albedo: [0.55, 0.45, 0.38]
+  - bone: forearm_l
+    kind: cylinder
+    radius: 0.045
+    length: 0.26
+    albedo: [0.55, 0.45, 0.38]
+  - bone: upper_arm_r
+    kind: cylinder
+    radius: 0.05
+    length: 0.28
+    albedo: [0.55, 0.45, 0.38]
+  - bone: forearm_r
+    kind: cylinder
+    radius: 0.045
+    length: 0.26
+    albedo: [0.55, 0.45, 0.38]
+
+poses:
+  idle:
+    spine: { pitch: 4, yaw: 0, roll: 0 }
+    head: { pitch: -2, yaw: 0, roll: 0 }
+    thigh_l: { pitch: 180, yaw: 0, roll: 0 }
+    shin_l: { pitch: 0, yaw: 0, roll: 0 }
+    foot_l: { pitch: 0, yaw: 0, roll: 0 }
+    thigh_r: { pitch: 180, yaw: 0, roll: 0 }
+    shin_r: { pitch: 0, yaw: 0, roll: 0 }
+    foot_r: { pitch: 0, yaw: 0, roll: 0 }
+    upper_arm_l: { pitch: 168, yaw: 0, roll: 5 }
+    forearm_l: { pitch: 12, yaw: 0, roll: 0 }
+    upper_arm_r: { pitch: 168, yaw: 0, roll: -5 }
+    forearm_r: { pitch: 12, yaw: 0, roll: 0 }
+  walk:
+    spine: { pitch: 2, yaw: 0, roll: 0 }
+    head: { pitch: -2, yaw: 0, roll: 0 }
+    upper_arm_l: { pitch: 168, yaw: 0, roll: 5 }
+    forearm_l: { pitch: 10, yaw: 0, roll: 0 }
+    upper_arm_r: { pitch: 168, yaw: 0, roll: -5 }
+    forearm_r: { pitch: 10, yaw: 0, roll: 0 }
+
+gaits:
+  walk:
+    speed: 1.4
+    step_rate: 2.0
+    stride: 0.52
+    lift: 0.10
+    bob: 0.01
+  run:
+    speed: 4.0
+    step_rate: 3.5
+    stride: 1.0
+    lift: 0.12
+    bob: 0.03
