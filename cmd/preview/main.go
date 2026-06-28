@@ -18,9 +18,15 @@ import (
 	"raytracer/internal/webgpu"
 )
 
+// Default render size matches main.go (512 wide, 5:8 aspect).
+const (
+	defaultRenderW = 512
+	defaultRenderH = defaultRenderW * 625 / 1000 // 320
+)
+
 func main() {
-	w := flag.Int("w", 800, "render width")
-	h := flag.Int("h", 600, "render height")
+	w := flag.Int("w", defaultRenderW, "render width")
+	h := flag.Int("h", defaultRenderH, "render height")
 	pix := flag.Int("pix", 1, "pixel block size (1 = full quality)")
 	out := flag.String("o", "preview.png", "output PNG path")
 	scenePath := flag.String("scene", "", "path to a TOML scene file (default: built-in scene)")
