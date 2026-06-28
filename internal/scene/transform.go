@@ -209,6 +209,30 @@ func NewTransformYAxis(origin, tip vec.V) *Transform {
 	return &Transform{fwd: fwd, inv: fwd.transpose(), t: origin}
 }
 
+// NewTransformYZ builds a transform at origin with local +Y along yDir and
+// local +Z along zDir (X completes the right-handed frame).
+func NewTransformYZ(origin, yDir, zDir vec.V) *Transform {
+	z := zDir
+	if z.LenSq() < 1e-12 {
+		z = vec.V{Y: 1}
+	} else {
+		z = z.Normalize()
+	}
+	y := yDir.Sub(z.Scale(yDir.Dot(z)))
+	if y.LenSq() < 1e-12 {
+		return NewRigidTransform(0, 0, 0, origin)
+	}
+	y = y.Normalize()
+	x := y.Cross(z).Normalize()
+	y = z.Cross(x).Normalize()
+	fwd := mat3{
+		x.X, y.X, z.X,
+		x.Y, y.Y, z.Y,
+		x.Z, y.Z, z.Z,
+	}
+	return &Transform{fwd: fwd, inv: fwd.transpose(), t: origin}
+}
+
 // Compose returns the transform equivalent to applying inner first, then the
 // receiver: result(p) = receiver(inner(p)). It is used when an already-rotated
 // primitive inside an included sub-scene is placed by an outer instance

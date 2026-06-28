@@ -17,9 +17,29 @@ type TwoBoneResult struct {
 // SolveTwoBone finds the elbow/knee position for a chain root→mid→end with
 // segment lengths l1 and l2 reaching target. pole hints bend direction.
 func SolveTwoBone(root, target, pole vec.V, l1, l2 float64) TwoBoneResult {
+	return solveTwoBone(root, target, pole, l1, l2, 0)
+}
+
+// SolveTwoBoneMinBend is like SolveTwoBone but never fully extends the chain;
+// minBendDeg is the minimum flex angle at the mid joint (0 = allow straight).
+func SolveTwoBoneMinBend(root, target, pole vec.V, l1, l2, minBendDeg float64) TwoBoneResult {
+	return solveTwoBone(root, target, pole, l1, l2, minBendDeg)
+}
+
+// twoBoneMaxReach returns the maximum root→target distance while keeping at
+// least minBendDeg of flex at the mid joint.
+func twoBoneMaxReach(l1, l2, minBendDeg float64) float64 {
+	if minBendDeg <= 0 {
+		return l1 + l2
+	}
+	b := minBendDeg * math.Pi / 180
+	return math.Sqrt(l1*l1 + l2*l2 + 2*l1*l2*math.Cos(b))
+}
+
+func solveTwoBone(root, target, pole vec.V, l1, l2, minBendDeg float64) TwoBoneResult {
 	d := target.Sub(root)
 	dist := d.Len()
-	maxReach := l1 + l2 - 1e-6
+	maxReach := twoBoneMaxReach(l1, l2, minBendDeg) - 1e-6
 	minReach := math.Abs(l1-l2) + 1e-6
 	if dist > maxReach {
 		d = d.Scale(maxReach / dist)

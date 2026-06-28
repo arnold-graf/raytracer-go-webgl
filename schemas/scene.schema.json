@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-04/schema#",
-  "$id": "https://github.com/arnoldgraf/ray-tracer/schemas/scene.schema.json",
+  "$id": "ray-tracer/scene.schema.json",
   "title": "Ray Tracer Scene",
   "description": "TOML scene or object library consumed by internal/sceneio. Primitives are array-of-tables (e.g. [[box]]); config blocks are single tables (e.g. [camera]).",
   "$comment": "Source of truth for the loader: internal/sceneio/toml.go. Update this file whenever the TOML format changes.",
@@ -116,7 +116,7 @@
     },
     "npc": {
       "type": "array",
-      "description": "TOML [[npc]]. Procedural character spawns (YAML rig + runtime pose).",
+      "description": "TOML array-of-tables [[npc]]. Procedural humanoid (or other YAML rig) spawns. The runtime NPC manager loads the rig, appends limb primitives to the scene, and animates locomotion when speed > 0.",
       "items": {
         "$ref": "#/definitions/npc"
       }
@@ -951,7 +951,7 @@
         },
         "yaw": {
           "type": "number",
-          "description": "Horizontal look angle in degrees (0 = +Z)."
+          "description": "Horizontal look angle in degrees. Forward at yaw 0 is −Z (same convention as NPC heading and player movement)."
         },
         "pitch": {
           "type": "number",
@@ -1072,31 +1072,33 @@
     },
     "npc": {
       "type": "object",
+      "description": "TOML [[npc]]. Procedural character spawn (YAML rig + runtime pose/locomotion).",
       "properties": {
         "rig": {
           "type": "string",
           "minLength": 1,
-          "description": "Path to a YAML rig file (relative to repo root or absolute)."
+          "description": "Path to a YAML rig file (relative to repo root or absolute), e.g. data/rigs/humanoid.yaml."
         },
         "pose": {
           "type": "string",
-          "description": "Named pose from the rig YAML. Default: idle."
+          "description": "Named pose from the rig YAML (e.g. idle). Default: idle. Upper body switches to walk when speed > 0."
         },
         "at": {
           "$ref": "#/definitions/vec3",
-          "description": "Feet anchor position [x, y, z]. Y=0 uses terrain/box ground height at x,z."
+          "description": "Spawn anchor [x, y, z]. Y is feet height; 0 uses ground height at x,z."
         },
         "yaw": {
           "type": "number",
-          "description": "Character facing yaw in degrees."
+          "description": "Root facing yaw in degrees (same convention as [camera].yaw: 0 = −Z, 90 = −X, 270 = +X)."
         },
         "speed": {
           "type": "number",
-          "description": "Locomotion speed in m/s. 0 = idle (static pose)."
+          "minimum": 0,
+          "description": "Locomotion speed in m/s. 0 = idle (planted feet, no hip advance)."
         },
         "heading": {
           "type": "number",
-          "description": "Walk direction in degrees. Defaults to yaw when omitted."
+          "description": "Walk direction in degrees (same as yaw convention). When omitted, defaults to yaw. Example: steps along +X use heading = 270."
         }
       },
       "required": [

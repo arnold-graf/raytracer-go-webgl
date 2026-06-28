@@ -1,6 +1,7 @@
 package character
 
 import (
+	"math"
 	"testing"
 
 	"raytracer/internal/vec"
@@ -37,11 +38,21 @@ func TestFootToePointsForward(t *testing.T) {
 	}
 	world := flatGround{}
 	loc := NewLocomotor(r, vec.V{}, 0, 1.2, world)
-	loc.Update(0.1, r, world)
+	for i := 0; i < 480; i++ {
+		loc.Update(1.0 / 60.0, r, world)
+	}
 	pose := ComputeLocomotionPose(r, &loc, "idle", world)
 	travel := yawForward(loc.Heading)
 
-	for _, foot := range []string{"foot_l", "foot_r"} {
+	for _, side := range []struct {
+		name string
+		foot Foot
+	}{
+		{"foot_l", loc.Left},
+		{"foot_r", loc.Right},
+	} {
+		foot := side.name
+		f := side.foot
 		xf := pose.Bones[foot]
 		if xf == nil {
 			t.Fatalf("missing %s", foot)
@@ -54,6 +65,9 @@ func TestFootToePointsForward(t *testing.T) {
 		toe := footToeWorld(r, pose, foot)
 		if toe.Sub(ankle).Dot(travel) < 0.01 {
 			t.Fatalf("%s shoe toe %v should be ahead of ankle %v along travel %v", foot, toe, ankle, travel)
+		}
+		if math.Abs(footRollDeg(f.Phase, f.StanceT)) > 1 {
+			continue // roll temporarily shifts heel/toe along travel
 		}
 		heel := footHeelWorld(r, pose, foot)
 		if heel.Sub(ankle).Dot(travel) > 0 {
@@ -78,13 +92,4 @@ func footHeelWorld(r *Rig, pose SkeletonPose, footName string) vec.V {
 	}
 	xf := pose.Bones[footName]
 	return xf.ToWorld(att.Offset.Sub(vec.V{Y: att.Size.Y * 0.5}))
-}
-
-func footAttachment(r *Rig, footName string) *Attachment {
-	for i := range r.Attachments {
-		if r.Attachments[i].Bone == footName {
-			return &r.Attachments[i]
-		}
-	}
-	return nil
 }

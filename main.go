@@ -10,12 +10,15 @@ package main
 import (
 	_ "embed"
 	"flag"
+	"fmt"
 	"log"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"raytracer/internal/app"
 	"raytracer/internal/camera"
+	"raytracer/internal/character"
+	"raytracer/internal/npc"
 	"raytracer/internal/scene"
 	"raytracer/internal/sceneio"
 	"raytracer/internal/webgpu"
@@ -36,6 +39,10 @@ var defaultPlayerTOML []byte
 func main() {
 	scenePath := flag.String("scene", "", "path to a TOML scene file (default: built-in scene)")
 	playerPath := flag.String("player", "", "path to a TOML player-movement config (default: built-in)")
+	dumpPoses := flag.String("dump-npc-poses", "", "write JSONL NPC pose dump to path and exit")
+	dumpFrames := flag.Int("dump-npc-frames", 120, "frames for -dump-npc-poses")
+	dumpReport := flag.String("dump-npc-report", "", "write gait analysis report (default: <poses>.report.txt)")
+	analyzePoses := flag.String("analyze-npc-poses", "", "analyze an existing JSONL pose dump and print report")
 	flag.Parse()
 
 	var (
@@ -49,6 +56,38 @@ func main() {
 	}
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	if *analyzePoses != "" {
+		recs, err := character.ReadPoseRecords(*analyzePoses)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Print(character.FormatGaitReport(character.AnalyzePoseRecords(recs)))
+		fmt.Println("\nPer-frame summary (last 20):")
+		start := 0
+		if len(recs) > 20 {
+			start = len(recs) - 20
+		}
+		for _, rec := range recs[start:] {
+			fmt.Println(character.FormatFrameSummary(rec))
+		}
+		return
+	}
+
+	if *dumpPoses != "" {
+		report := *dumpReport
+		if report == "" {
+			report = *dumpPoses + ".report.txt"
+		}
+		if err := npc.DumpPosesWithReport(sc, npc.FootWorld(sc), *dumpFrames, *dumpPoses, report); err != nil {
+			log.Fatal(err)
+		}
+		recs, err := character.ReadPoseRecords(*dumpPoses)
+		if err == nil {
+			fmt.Print(character.FormatGaitReport(character.AnalyzePoseRecords(recs)))
+		}
+		return
 	}
 
 	var cfg camera.Config

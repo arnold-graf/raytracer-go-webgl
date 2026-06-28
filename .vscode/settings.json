@@ -2,6 +2,7 @@
   "evenBetterToml.schema.repositoryEnabled": false,
   "evenBetterToml.schema.catalogs": [],
   "evenBetterToml.schema.associations": {
+    "scenes/*.toml": "schemas/scene.schema.json",
     "**/scenes/**/*.toml": "schemas/scene.schema.json",
     "**/player.toml": "schemas/player.schema.json"
   },

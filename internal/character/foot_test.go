@@ -1,7 +1,6 @@
 package character
 
 import (
-	"math"
 	"testing"
 
 	"raytracer/internal/vec"
@@ -13,8 +12,10 @@ func TestFootPlantOnGround(t *testing.T) {
 		t.Fatal(err)
 	}
 	world := flatGround{}
-	loc := NewLocomotor(r, vec.V{}, 0, 1.2, world)
-	loc.Update(0.1, r, world)
+	loc := NewLocomotor(r, vec.V{}, 0, 0, world)
+	for i := 0; i < 30; i++ {
+		loc.Update(1.0/60.0, r, world)
+	}
 	pose := ComputeLocomotionPose(r, &loc, "idle", world)
 
 	for _, foot := range []string{"foot_l", "foot_r"} {
@@ -46,35 +47,4 @@ func TestIdleFeetPlanted(t *testing.T) {
 			t.Fatalf("idle %s sole Y=%v, want near ground", foot, sole.Y)
 		}
 	}
-}
-
-// footSoleWorld returns the lowest corner of the foot box attachment in world space.
-func footSoleWorld(r *Rig, pose SkeletonPose, footName string) vec.V {
-	att := footAttachment(r, footName)
-	if att == nil || pose.Bones[footName] == nil {
-		return vec.V{}
-	}
-	xf := pose.Bones[footName]
-	half := att.Size.Scale(0.5)
-	minLocal := att.Offset.Sub(half)
-	corners := []vec.V{
-		minLocal,
-		minLocal.Add(vec.V{X: att.Size.X}),
-		minLocal.Add(vec.V{Y: att.Size.Y}),
-		minLocal.Add(vec.V{Z: att.Size.Z}),
-		minLocal.Add(vec.V{X: att.Size.X, Y: att.Size.Y}),
-		minLocal.Add(vec.V{X: att.Size.X, Z: att.Size.Z}),
-		minLocal.Add(vec.V{Y: att.Size.Y, Z: att.Size.Z}),
-		minLocal.Add(att.Size),
-	}
-	soleY := math.Inf(1)
-	var sole vec.V
-	for _, c := range corners {
-		w := xf.ToWorld(c)
-		if w.Y < soleY {
-			soleY = w.Y
-			sole = w
-		}
-	}
-	return sole
 }

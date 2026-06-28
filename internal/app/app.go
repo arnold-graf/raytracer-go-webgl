@@ -107,6 +107,9 @@ type Game struct {
 	hudSmooth hudSmoother
 
 	npcs *npc.Manager
+
+	// npcDebug draws skeleton/foot overlay segments (key 6).
+	npcDebug bool
 }
 
 // New builds a game with the given internal render resolution rendering the
@@ -433,6 +436,7 @@ func (g *Game) Update() error {
 	g.checkReload()
 	g.handleCapture()
 	g.handleToggles()
+	g.handleNPCDebugKeys()
 
 	// Mouse look while captured (relative motion, like pointer lock).
 	if g.locked {
@@ -726,6 +730,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 
 	g.drawInteractHint(screen)
+	g.drawNPCDebug(screen)
 	g.drawFade(screen)
 
 	// Briefly surface the result of a hot-reload (kept even when the HUD is off).
@@ -752,14 +757,14 @@ func (g *Game) backendName() string {
 
 func (g *Game) statusLine() string {
 	if g.locked {
-		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s px[-/+]:%d  HUD[0]  ESC release",
-			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), g.pixSize)
+		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s npc[6]:%s px[-/+]:%d  HUD[0]  ESC release",
+			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), g.pixSize)
 	}
 	return "click to capture mouse"
 }
 
 func (g *Game) helpLine() string {
-	return "WASD/arrows move   mouse look   Space jump   Shift sprint   C crouch   pad: sticks move/look, triggers crouch/run, A jump"
+	return "WASD/arrows move   mouse look   Space jump   Shift sprint   C crouch   6 NPC debug   P pose dump+report   pad: sticks move/look, triggers crouch/run, A jump"
 }
 
 func onOff(b bool) string {

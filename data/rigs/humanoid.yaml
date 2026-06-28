@@ -143,10 +143,10 @@ poses:
 
 gaits:
   walk:
-    speed: 1.4
-    step_rate: 2.0
+    speed: 0.2
+    step_rate: 1
     stride: 0.52
-    lift: 0.10
+    lift: 0.1
     bob: 0.01
   run:
     speed: 4.0

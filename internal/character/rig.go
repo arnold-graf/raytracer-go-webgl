@@ -38,6 +38,25 @@ var DefaultWalkGait = GaitParams{Speed: 1.4, StepRate: 2.0, Stride: 0.55, Lift: 
 // DefaultRunGait is used when a rig omits gaits.run.
 var DefaultRunGait = GaitParams{Speed: 4.0, StepRate: 3.5, Stride: 1.0, Lift: 0.12, Bob: 0.05}
 
+// TravelSpeed returns horizontal speed (m/s) for the agent.
+func (g GaitParams) TravelSpeed(agentSpeed float64) float64 {
+	if agentSpeed > 0 {
+		return agentSpeed
+	}
+	if g.Speed > 0 {
+		return g.Speed
+	}
+	return g.Stride * g.StepRate
+}
+
+// StepStride returns distance covered per step cycle at travelSpeed (m).
+func (g GaitParams) StepStride(travelSpeed float64) float64 {
+	if g.StepRate <= 0 {
+		return g.Stride
+	}
+	return travelSpeed / g.StepRate
+}
+
 // Bone describes one joint in the skeleton tree.
 type Bone struct {
 	Name   string

@@ -4,18 +4,16 @@ import (
 	"math"
 
 	"raytracer/internal/scene"
-	"raytracer/internal/vec"
 )
+
+// minKneeBendDeg keeps a slight knee flex during locomotion (real gait rarely
+// locks the leg fully straight).
+const minKneeBendDeg = 10.0
 
 // ComputeLocomotionPose builds a full skeleton pose with IK legs and swaying
 // upper body for the current locomotor state.
 func ComputeLocomotionPose(rig *Rig, loc *Locomotor, poseName string, world FootWorld) SkeletonPose {
 	hips := loc.HipPos
-	if world != nil {
-		headY := loc.HipPos.Y + 0.5
-		gy := world.GroundHeight(loc.HipPos.X, loc.HipPos.Z, headY)
-		hips = HipPositionFromGround(loc.HipPos.X, gy, loc.HipPos.Z, rig.HipHeight)
-	}
 
 	if loc.Speed < 0.05 && world == nil {
 		return rig.ComputeFK(poseName, hips, loc.Heading)
@@ -36,8 +34,8 @@ func ComputeLocomotionPose(rig *Rig, loc *Locomotor, poseName string, world Foot
 		return rig.ComputeFK(poseName, hips, loc.Heading)
 	}
 
-	applyLegIK(rig, &pose, "thigh_l", "shin_l", "foot_l", loc.Left.World, loc.Heading, 1, world)
-	applyLegIK(rig, &pose, "thigh_r", "shin_r", "foot_r", loc.Right.World, loc.Heading, -1, world)
+	applyLegIK(rig, &pose, "thigh_l", "shin_l", "foot_l", loc.Left, loc.Heading, 1, world)
+	applyLegIK(rig, &pose, "thigh_r", "shin_r", "foot_r", loc.Right, loc.Heading, -1, world)
 	return pose
 }
 
@@ -86,7 +84,8 @@ func (r *Rig) computeUpperBodyPose(poseName string, loc *Locomotor, phase float6
 	return out
 }
 
-func applyLegIK(rig *Rig, pose *SkeletonPose, thighName, shinName, footName string, contact vec.V, heading, sideSign float64, world FootWorld) {
+func applyLegIK(rig *Rig, pose *SkeletonPose, thighName, shinName, footName string, foot Foot, heading, sideSign float64, world FootWorld) {
+	contact := foot.World
 	hips := pose.Bones["hips"]
 	if hips == nil {
 		return
@@ -95,26 +94,26 @@ func applyLegIK(rig *Rig, pose *SkeletonPose, thighName, shinName, footName stri
 	thigh := rig.Bones[thighName]
 	shin := rig.Bones[shinName]
 
-	normal := vec.V{Y: 1}
-	if world != nil {
-		normal = world.GroundNormal(contact.X, contact.Z, contact.Y+0.5)
-		if normal.LenSq() < 1e-12 {
-			normal = vec.V{Y: 1}
-		} else {
-			normal = normal.Normalize()
-		}
-	}
-	ankle := anklePosition(contact, normal, rig.AnkleHeight)
+	normal := footGroundNormal(foot, world)
+	soleDrop := footSoleBelowAnkle(rig, footName)
+	ankleTarget := anklePosition(contact, normal, soleDrop)
 
 	fwd := yawForward(heading)
 	right := yawRight(heading)
 	pole := hipSocket.Add(fwd.Scale(0.42)).Add(right.Scale(0.12 * sideSign))
 
-	res := SolveTwoBone(hipSocket, ankle, pole, thigh.Length, shin.Length)
+	res := SolveTwoBoneMinBend(hipSocket, ankleTarget, pole, thigh.Length, shin.Length, minKneeBendDeg)
 	if !res.OK {
 		return
 	}
+	// Prefer a grounded ankle; relax min-bend when the chain cannot reach.
+	if res.EndError(ankleTarget) > 0.015 {
+		if loose := SolveTwoBone(hipSocket, ankleTarget, pole, thigh.Length, shin.Length); loose.OK {
+			res = loose
+		}
+	}
+	ikAnkle := res.End
 	pose.Bones[thighName] = scene.NewTransformYAxis(hipSocket, res.Mid)
-	pose.Bones[shinName] = scene.NewTransformYAxis(res.Mid, ankle)
-	applyFootPlant(rig, pose, footName, ankle, contact, normal, heading)
+	pose.Bones[shinName] = scene.NewTransformYAxis(res.Mid, ikAnkle)
+	applyFootPlant(rig, pose, footName, ikAnkle, contact, normal, heading, foot.Phase, foot.StanceT)
 }

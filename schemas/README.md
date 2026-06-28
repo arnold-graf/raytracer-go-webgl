@@ -15,8 +15,10 @@ Install the [**Even Better TOML**](https://marketplace.visualstudio.com/items?it
 
 This repo wires schemas via:
 
-- `.vscode/settings.json` — `evenBetterToml.schema.associations` for `scenes/**/*.toml` and `player.toml`
+- `.vscode/settings.json` — `evenBetterToml.schema.associations` for `scenes/*.toml`, `scenes/**/*.toml`, and `player.toml`
 - `taplo.toml` — same associations for Taplo CLI and the extension’s language server
+
+**Glob note:** `scenes/*.toml` (files directly in `scenes/`) needs its own pattern; `scenes/**/*.toml` alone does **not** match `scenes/npc-test.toml`.
 
 After installing, open a scene file: you should get diagnostics (squiggles), hover docs from schema `description` fields, and completion on table keys.
 

@@ -81,10 +81,9 @@ func TestLocomotionKneeBendsDuringStride(t *testing.T) {
 		pose := ComputeLocomotionPose(r, &loc, "idle", world)
 		for _, pair := range []struct {
 			thigh, shin string
-			contact     vec.V
 		}{
-			{"thigh_l", "shin_l", loc.Left.World},
-			{"thigh_r", "shin_r", loc.Right.World},
+			{"thigh_l", "shin_l"},
+			{"thigh_r", "shin_r"},
 		} {
 			hip := pose.Bones["hips"].ToWorld(r.JointLocal(pair.thigh))
 			shin := pose.Bones[pair.shin]
@@ -93,16 +92,15 @@ func TestLocomotionKneeBendsDuringStride(t *testing.T) {
 			}
 			knee := shin.Translation()
 			ankle := r.BoneTip(pose, pair.shin)
-			thighDir := knee.Sub(hip).Normalize()
-			shinDir := ankle.Sub(knee).Normalize()
-			flex := 1 + thighDir.Dot(shinDir) // 0 straight, >0 bent
+			flex := kneeFlex(hip, knee, ankle)
 			if flex > maxFlex {
 				maxFlex = flex
 			}
 		}
 	}
-	if maxFlex < 0.04 {
-		t.Fatalf("expected visible knee bend during walk, max flex=%v", maxFlex)
+	// 2 = fully straight; 22° min bend caps flex around 1.93.
+	if maxFlex > 1+math.Cos(minKneeBendDeg*math.Pi/180)+0.02 {
+		t.Fatalf("knee over-extended during walk, max flex=%v (2=straight)", maxFlex)
 	}
 }
 

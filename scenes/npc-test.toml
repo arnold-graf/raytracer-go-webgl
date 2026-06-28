@@ -1,3 +1,4 @@
+#:schema ../schemas/scene.schema.json
 # Minimal scene for testing procedural NPC locomotion.
 # Run: go run . -scene scenes/npc-test.toml
 
@@ -27,24 +28,10 @@ d = -5.0
 material = "diffuse"
 albedo = [0.7, 0.7, 0.72]
 
-# Small stepped platforms along +X for uneven-ground foot placement.
-[[box]]
-min = [2.0, 0.0, -0.8]
-max = [4.0, 0.15, 0.8]
-material = "diffuse"
-albedo = [0.6, 0.55, 0.5]
-
-[[box]]
-min = [4.0, 0.0, -0.8]
-max = [6.0, 0.30, 0.8]
-material = "diffuse"
-albedo = [0.6, 0.55, 0.5]
-
-[[box]]
-min = [6.0, 0.0, -0.8]
-max = [8.0, 0.15, 0.8]
-material = "diffuse"
-albedo = [0.6, 0.55, 0.5]
+[[include]]
+file = "objects/staircase.toml"
+at = [2.0, 0.0, -1.0]
+params = { steps = 8, run = 0.4, rise = 0.25, width = 1.6 }
 
 [[box]]
 min = [-0.5, 0.0, -0.5]
@@ -69,5 +56,5 @@ pose = "idle"
 at = [-1.0, 0.0, 0.0]
 # heading 270° walks toward +X, across the stepped boxes above.
 yaw = 270.0
-speed = 1.2
+speed = 1
 heading = 270.0
