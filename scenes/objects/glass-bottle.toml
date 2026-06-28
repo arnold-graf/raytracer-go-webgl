@@ -9,7 +9,21 @@ pos_y = 0
 pos_z = 0
 width = 0.1
 height = 0.2
+transmit = 0.9
 
+# liquid inside the bottle
+[[cylinder]]
+material = "glass"
+reflect = 0.2
+rough = 0.1
+albedo = [1, 1, 1]
+pos_x = 0.02
+pos_y = 0.02
+pos_z = 0.02
+width = 0.06
+height = 0.1
+
+# neck
 [[cylinder]]
 material = "glass"
 reflect = 0.2

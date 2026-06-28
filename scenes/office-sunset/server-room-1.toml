@@ -10,7 +10,8 @@ pos_z = 0.0
 width = 50.0
 height = 0.2
 depth = 50.0
-reflect = 0.1
+reflect = 0.2
+rough = 0.007
 
 # ceiling
 [[box]]
@@ -18,7 +19,7 @@ material = "diffuse"
 texture = "cement"
 albedo = [0.3, 0.3, 0.3]
 pos_x = 0.0
-pos_y = 9.0
+pos_y = 8.0
 pos_z = 0.0
 width = 50.0
 height = 0.2
@@ -32,7 +33,7 @@ pos_x = 0.0
 pos_y = 0.0
 pos_z = 0.0
 width = 50.0
-height = 9.0
+height = 8.0
 depth = 0.2
 
 # east wall
@@ -43,7 +44,7 @@ pos_x = 0.0
 pos_y = 0.0
 pos_z = 0.0
 width = 0.2
-height = 9.0
+height = 8.0
 depth = 50.0
 
 # south wall
@@ -52,9 +53,9 @@ material = "diffuse"
 albedo = [0.3, 0.3, 0.3]
 pos_x = 0.0
 pos_y = 0.0
-pos_z = 50.0
+pos_z = 25.0
 width = 50.0
-height = 9.0
+height = 8.0
 depth = 0.2
 
 # east wall
@@ -65,17 +66,17 @@ pos_x = 49.8
 pos_y = 0.0
 pos_z = 0.0
 width = 0.2
-height = 9.0
+height = 8.0
 depth = 50.8
 
 # Door
 [[box.hole]]
 pos_x = 48
 pos_y = 0
-pos_z = 25
-width = 4
-height = 9.0
-depth = 5
+pos_z = 2
+width = 3
+height = 5.0
+depth = 3
 
 # cube
 [[include]]
@@ -90,6 +91,14 @@ at = [3.0, 0.2, 8.0]
 rotate_y = 30
 instance = true
 
+# server rack opposite the cube
+[[include]]
+file = "objects/server-column.toml"
+at = [7.0, 0.2, 14.0]
+rotate_y = -30
+instance = true
+
+# server racks right of the cube
 [[include]]
 file = "objects/server-column.toml"
 at = [20.0, 0.2, 8.0]
@@ -114,7 +123,6 @@ at = [29.0, 0.2, 8.0]
 rotate_y = 90
 instance = true
 
-
 # stairs to the cube
 [[include]]
 file = "../objects/staircase.toml"
@@ -123,21 +131,65 @@ rotate_y = 90
 instance = true
 params = { steps = 5, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.5 }
 
-# Lamp
+# Lamp 1
 [[include]]
+instance = true
 file = "../objects/otto-wagner-sphere-lamp.toml"
-at = [25.0, 9, 25.0]
+at = [26.0, 8, 15.0]
 params = { stem_len = 2.1, orb_radius = 0.5, brightness = 0.1, range = 10 }
 
+# Lamp 2
+[[include]]
+instance = true
+file = "../objects/otto-wagner-sphere-lamp.toml"
+at = [30.0, 8, 15.0]
+params = { stem_len = 2.1, orb_radius = 0.5, brightness = 0.1, range = 10 }
 
-# table
+# Lamp 3
+[[include]]
+instance = true
+file = "../objects/otto-wagner-sphere-lamp.toml"
+at = [34.0, 8, 15.0]
+params = { stem_len = 2.1, orb_radius = 0.5, brightness = 0.1, range = 10 }
+
+# table to the right of the cube
 [[include]]
 file = "../objects/simple-table.toml"
 at = [14.7, 0.2, 7.0]
 rotate_y = -20
 params = { width = 1.5, height = 0.9, texture = "wood" }
-
 # glass bottle on the table
 [[include]]
 file = "../objects/glass-bottle.toml"
 at = [14, 1.1, 7.3]
+# ashtray on the table
+[[include]]
+file = "../objects/ashtray.toml"
+at = [14.5, 1.1, 7.3]
+rotate_y = -50
+
+
+
+# table (desk) to the left of the cube
+[[include]]
+file = "../objects/simple-table.toml"
+at = [7.0, 0.2, 10.0]
+rotate_y = 20
+params = { width = 2, height = 0.9, texture = "wood" }
+
+# Laptop on the desk
+[[include]]
+file = "objects/laptop.toml"
+at = [7.0, 1.1, 10.3]
+rotate_y = 15
+
+# glass bottle on the desk
+[[include]]
+file = "../objects/glass-bottle.toml"
+at = [6.6, 1.1, 10.5]
+
+# ashtray on the desk
+[[include]]
+file = "../objects/ashtray.toml"
+at = [7.5, 1.1, 10.3]
+

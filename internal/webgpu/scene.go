@@ -470,10 +470,10 @@ func PackCampfireParams(s *scene.Scene) []CampfireParams {
 // AOVolume is the GPU-side handle for a baked ambient-occlusion volume: scalar
 // grid params live in the uniform Params; Data is the nx*ny*nz*6 ambient cube.
 type AOVolume struct {
-	Min            vec.V
+	Min             vec.V
 	Inv, Cell, Bias float64
-	NX, NY, NZ     int
-	Data           []float32
+	NX, NY, NZ      int
+	Data            []float32
 }
 
 // PackAOVolume returns the view's baked volume snapshot for upload, or ok=false

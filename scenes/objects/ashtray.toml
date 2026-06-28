@@ -1,0 +1,68 @@
+# base box
+[[box]]
+material = "diffuse"
+reflect = 0.5
+rough = 0.1
+albedo = [0.3, 0.3, 0.1]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 0.15
+height = 0.01
+depth = 0.15
+
+# walls of the ashtray (left)
+[[box]]
+reflect = 0.5
+rough = 0.02
+material = "diffuse"
+albedo = [0.3, 0.3, 0.1]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 0.01
+height = 0.03
+depth = 0.15
+
+# walls of the ashtray (right)
+[[box]]
+material = "diffuse"
+reflect = 0.5
+rough = 0.02
+albedo = [0.3, 0.3, 0.1]
+pos_x = 0.14
+pos_y = 0
+pos_z = 0.0
+width = 0.01
+height = 0.03
+depth = 0.15
+
+# walls of the ashtray (back)
+[[box]]
+material = "diffuse"
+reflect = 0.5
+rough = 0.02
+albedo = [0.3, 0.3, 0.1]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 0.15
+height = 0.03
+depth = 0.01
+
+# walls of the ashtray (front)
+[[box]]
+material = "diffuse"
+reflect = 0.5
+rough = 0.02
+albedo = [0.3, 0.3, 0.1]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.14
+width = 0.15
+height = 0.03
+depth = 0.01
+
+[[include]]
+file = "cigarette.toml"
+at = [0.05, -0.025, 0.13]

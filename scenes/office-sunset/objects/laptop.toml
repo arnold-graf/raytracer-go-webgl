@@ -1,0 +1,93 @@
+# base box
+[[box]]
+material = "diffuse"
+reflect = 0.005
+albedo = [0.1, 0.1, 0.1]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 0.4
+height = 0.07
+depth = 0.3
+
+# screen case
+[[box]]
+material = "diffuse"
+albedo = [0.1, 0.1, 0.1]
+rotate_x = -10
+pos_x = 0.0
+pos_y = 0.0
+pos_z = -0.05
+width = 0.4
+height = 0.4
+depth = 0.05
+
+# screen
+[[box]]
+material = "emit"
+albedo = [1, 1, 2]
+reflect = 0.1
+rough = 0.02
+rotate_x = -10
+pos_x = 0.05
+pos_y = 0.11
+pos_z = -0.01
+width = 0.3
+height = 0.25
+depth = 0.01
+
+# trackball
+[[sphere]]
+material = "diffuse"
+reflect = 0.1
+albedo = [0.2, 0.2, 0.2]
+center = [0.2, 0.06, 0.25]
+radius = 0.03
+
+# screen light
+[[light]]
+pos = [0.2, 0.25, 0.05]
+color = [1, 1, 2]
+range = 1
+brightness = 0.2
+
+# keyboard
+[[box]]
+material = "diffuse"
+albedo = [0.05, 0.05, 0.05]
+pos_x = 0.05
+pos_y = 0.05
+pos_z = 0.05
+width = 0.3
+height = 0.03
+depth = 0.03
+
+[[box]]
+material = "diffuse"
+albedo = [0.05, 0.05, 0.05]
+pos_x = 0.05
+pos_y = 0.05
+pos_z = 0.09
+width = 0.3
+height = 0.03
+depth = 0.03
+
+[[box]]
+material = "diffuse"
+albedo = [0.05, 0.05, 0.05]
+pos_x = 0.05
+pos_y = 0.05
+pos_z = 0.13
+width = 0.3
+height = 0.03
+depth = 0.03
+
+[[box]]
+material = "diffuse"
+albedo = [0.05, 0.05, 0.05]
+pos_x = 0.05
+pos_y = 0.05
+pos_z = 0.17
+width = 0.3
+height = 0.03
+depth = 0.03
