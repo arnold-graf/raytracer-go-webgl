@@ -1098,7 +1098,19 @@
         },
         "heading": {
           "type": "number",
-          "description": "Walk direction in degrees (same as yaw convention). When omitted, defaults to yaw. Example: steps along +X use heading = 270."
+          "description": "Walk direction in degrees (same as yaw convention). When omitted, defaults to yaw. Ignored when patrol or goal is set."
+        },
+        "patrol": {
+          "type": "array",
+          "description": "Closed-loop patrol waypoints as [x, y, z] arrays. Y is an optional feet-height hint (0 = sample ground at runtime). Mutually exclusive with goal.",
+          "items": {
+            "$ref": "#/definitions/vec3"
+          },
+          "minItems": 1
+        },
+        "goal": {
+          "$ref": "#/definitions/vec3",
+          "description": "Single navigation target [x, y, z]. Y is an optional feet-height hint (0 = sample ground at runtime). Agent stops within ~0.2 m horizontally. Mutually exclusive with patrol."
         }
       },
       "required": [

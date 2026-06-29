@@ -30,7 +30,7 @@ func TestTrunkPrimAtTemplateBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prims, _, _, _, _, isp, ok := packInstancedScene(sc)
+	prims, _, _, _, _, isp, _, ok := packInstancedScene(sc)
 	if !ok {
 		t.Fatal("pack failed")
 	}
@@ -54,7 +54,7 @@ func TestPackInstancedVillaScene(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prims, _, nodes, bvhN, blkN, isp, ok := packInstancedScene(sc)
+	prims, _, nodes, bvhN, blkN, isp, _, ok := packInstancedScene(sc)
 	if !ok {
 		t.Fatal("packInstancedScene failed")
 	}
@@ -119,7 +119,7 @@ func TestInstancedBLASTrunkRayHit(t *testing.T) {
 		t.Fatal(err)
 	}
 	sc.ApplyInstanceTerrainFollow()
-	prims, _, nodes, _, _, isp, ok := packInstancedScene(sc)
+	prims, _, nodes, _, _, isp, _, ok := packInstancedScene(sc)
 	if !ok {
 		t.Fatal("pack failed")
 	}
@@ -164,6 +164,8 @@ func hitGPUPrim(p GPUPrimitive, ro, rd vec.V) float64 {
 		lrd = xfToLocalDir(p, rd)
 	}
 	switch p.Meta[0] {
+	case primBox:
+		return hitGPUBox(p, lro, lrd)
 	case primCylinder:
 		return hitGPUCylinder(p, lro, lrd)
 	case primCone:
@@ -188,6 +190,36 @@ func xfToLocalDir(p GPUPrimitive, wd vec.V) vec.V {
 		Y: float64(p.Xf1[0])*wd.X + float64(p.Xf1[1])*wd.Y + float64(p.Xf1[2])*wd.Z,
 		Z: float64(p.Xf2[0])*wd.X + float64(p.Xf2[1])*wd.Y + float64(p.Xf2[2])*wd.Z,
 	}
+}
+
+func hitGPUBox(p GPUPrimitive, ro, rd vec.V) float64 {
+	min := vec.V{X: float64(p.GeoA[0]), Y: float64(p.GeoA[1]), Z: float64(p.GeoA[2])}
+	max := vec.V{X: float64(p.GeoB[0]), Y: float64(p.GeoB[1]), Z: float64(p.GeoB[2])}
+	inv := vec.V{X: 1 / rd.X, Y: 1 / rd.Y, Z: 1 / rd.Z}
+	t1 := (min.X - ro.X) * inv.X
+	t2 := (max.X - ro.X) * inv.X
+	if t1 > t2 {
+		t1, t2 = t2, t1
+	}
+	t3 := (min.Y - ro.Y) * inv.Y
+	t4 := (max.Y - ro.Y) * inv.Y
+	if t3 > t4 {
+		t3, t4 = t4, t3
+	}
+	t5 := (min.Z - ro.Z) * inv.Z
+	t6 := (max.Z - ro.Z) * inv.Z
+	if t5 > t6 {
+		t5, t6 = t6, t5
+	}
+	tn := math.Max(math.Max(t1, t3), t5)
+	tf := math.Min(math.Min(t2, t4), t6)
+	if tf < tn || tf < gpuRayEps {
+		return gpuTMiss
+	}
+	if tn < gpuRayEps {
+		return tf
+	}
+	return tn
 }
 
 func hitGPUCylinder(p GPUPrimitive, ro, rd vec.V) float64 {
@@ -360,5 +392,101 @@ func instLocalDir(rec GPUInstanceRecord, rd vec.V) vec.V {
 		X: float64(rec.Xf0[0])*rd.X + float64(rec.Xf0[1])*rd.Y + float64(rec.Xf0[2])*rd.Z,
 		Y: float64(rec.Xf1[0])*rd.X + float64(rec.Xf1[1])*rd.Y + float64(rec.Xf1[2])*rd.Z,
 		Z: float64(rec.Xf2[0])*rd.X + float64(rec.Xf2[1])*rd.Y + float64(rec.Xf2[2])*rd.Z,
+	}
+}
+
+// gpuInstBlockerAnyHit mirrors inst_bvh_any_hit in trace.wgsl (shadow blocker TLAS).
+func gpuInstBlockerAnyHit(nodes []GPUBVHNode, isp instScenePack, prims []GPUPrimitive, ro, rd vec.V, maxT float64) bool {
+	return gpuInstBlockerAnyHitTLAS(nodes, isp, prims, ro, rd, maxT, true)
+}
+
+func gpuInstBlockerAnyHitTLAS(nodes []GPUBVHNode, isp instScenePack, prims []GPUPrimitive, ro, rd vec.V, maxT float64, traverseTLASInternal bool) bool {
+	stack := []uint32{isp.blockerInstBase}
+	for len(stack) > 0 {
+		sp := len(stack) - 1
+		ni := stack[sp]
+		stack = stack[:sp]
+		n := nodes[ni]
+		nmin := vec.V{X: float64(n.Min[0]), Y: float64(n.Min[1]), Z: float64(n.Min[2])}
+		nmax := vec.V{X: float64(n.Max[0]), Y: float64(n.Max[1]), Z: float64(n.Max[2])}
+		if !gpuSlabHit(nmin, nmax, ro, rd, maxT) {
+			continue
+		}
+		if n.Info[2] == bvhTagTLAS && n.Info[3] > 0 {
+			instIdx := n.Info[0]
+			rec := isp.instances[instIdx]
+			tmpl := isp.templates[rec.TemplateID]
+			lro := instLocalOrigin(rec, ro)
+			lrd := instLocalDir(rec, rd)
+			if gpuBLASAnyHit(nodes, tmpl.BlockerBlasRoot, prims, lro, lrd, maxT) {
+				return true
+			}
+			continue
+		}
+		if traverseTLASInternal && n.Info[2] == bvhTagTLAS && n.Info[3] == 0 {
+			stack = append(stack, n.Info[1], n.Info[0])
+		}
+	}
+	return false
+}
+
+func gpuBLASAnyHit(nodes []GPUBVHNode, root uint32, prims []GPUPrimitive, ro, rd vec.V, maxT float64) bool {
+	limit := maxT - 0.05
+	stack := []uint32{root}
+	for len(stack) > 0 {
+		sp := len(stack) - 1
+		ni := stack[sp]
+		stack = stack[:sp]
+		n := nodes[ni]
+		nmin := vec.V{X: float64(n.Min[0]), Y: float64(n.Min[1]), Z: float64(n.Min[2])}
+		nmax := vec.V{X: float64(n.Max[0]), Y: float64(n.Max[1]), Z: float64(n.Max[2])}
+		if !gpuSlabHit(nmin, nmax, ro, rd, maxT) {
+			continue
+		}
+		count := n.Info[3]
+		if count > 0 {
+			for k := uint32(0); k < count; k++ {
+				pidx := n.Info[0]
+				if k == 1 {
+					pidx = n.Info[1]
+				}
+				t := hitGPUPrim(prims[pidx], ro, rd)
+				if t > gpuRayEps && t < limit {
+					return true
+				}
+			}
+		} else if n.Info[2] != bvhTagTLAS {
+			stack = append(stack, n.Info[1], n.Info[0])
+		}
+	}
+	return false
+}
+
+func TestInstancedBlockerTLASShadowTraversal(t *testing.T) {
+	root := filepath.Join("..", "..")
+	sc, err := sceneio.Load(filepath.Join(root, "scenes", "office-sunset", "index.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockers, _, nodes, _, _, isp, _, ok := packInstancedScene(sc)
+	if !ok {
+		t.Fatal("pack failed")
+	}
+	if len(isp.instances) < 2 {
+		t.Fatalf("instances = %d, want >= 2 for internal blocker TLAS", len(isp.instances))
+	}
+	if isp.blockerInstCount == 0 {
+		t.Fatal("expected instanced blocker BVH section")
+	}
+	blkRoot := nodes[isp.blockerInstBase]
+	if blkRoot.Info[2] != bvhTagTLAS || blkRoot.Info[3] != 0 {
+		t.Fatalf("blocker TLAS root tag=%d w=%d, want TLAS internal node", blkRoot.Info[2], blkRoot.Info[3])
+	}
+
+	// Downward ray; without internal-node descent the TLAS root is never entered.
+	ro := vec.New(10, 220, 10)
+	rd := vec.New(0, -1, 0)
+	if gpuInstBlockerAnyHitTLAS(nodes, isp, blockers, ro, rd, 50, false) {
+		t.Fatal("shadow blocker TLAS traversal without internal nodes should miss")
 	}
 }

@@ -1,0 +1,8 @@
+Gait report (1 frames)
+  stance backward skate frames: 0 (max vel 0.0000 m/f)
+  swing backward arc frames:    0 (max vel 0.0000 m/f)
+  ✓ foot motion generally aligned with travel
+
+
+Per-frame summary (last 20):
+f1127 phase=18.78 L:stance fwd=-0.397 soleY=0.296 | R:swing fwd=-0.041 soleY=0.170

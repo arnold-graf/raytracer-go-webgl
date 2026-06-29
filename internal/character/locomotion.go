@@ -8,7 +8,7 @@ import (
 
 // minKneeBendDeg keeps a slight knee flex during locomotion (real gait rarely
 // locks the leg fully straight).
-const minKneeBendDeg = 10.0
+const minKneeBendDeg = 18.0
 
 // ComputeLocomotionPose builds a full skeleton pose with IK legs and swaying
 // upper body for the current locomotor state.
@@ -100,15 +100,33 @@ func applyLegIK(rig *Rig, pose *SkeletonPose, thighName, shinName, footName stri
 
 	fwd := yawForward(heading)
 	right := yawRight(heading)
-	pole := hipSocket.Add(fwd.Scale(0.42)).Add(right.Scale(0.12 * sideSign))
+	pole := legIKPole(hipSocket, ankleTarget, fwd, right, sideSign, foot)
 
-	res := SolveTwoBoneMinBend(hipSocket, ankleTarget, pole, thigh.Length, shin.Length, minKneeBendDeg)
+	minBend := minKneeBendDeg
+	stepUp := footStepUp(foot.PlantWorld, foot.SwingTo)
+	if foot.Phase == FootSwing {
+		minBend = 28.0
+		if stepUp > stepUpMinHeight {
+			intensity := stepUpIntensity(stepUp, foot.PlantGroundY)
+			minBend = 32.0 + 12.0*intensity // 32°..44° depending on riser / ground context
+		} else if ankleTarget.Y >= hipSocket.Y-0.08 {
+			minBend = 32.0
+		}
+	} else if hipSocket.Y-ankleTarget.Y > 0.10 {
+		minBend = 22.0
+	}
+
+	res := SolveTwoBoneMinBend(hipSocket, ankleTarget, pole, thigh.Length, shin.Length, minBend)
 	if !res.OK {
 		return
 	}
-	// Prefer a grounded ankle; relax min-bend when the chain cannot reach.
+	fallbackBend := 18.0
+	if foot.Phase == FootSwing && stepUp > stepUpMinHeight {
+		intensity := stepUpIntensity(stepUp, foot.PlantGroundY)
+		fallbackBend = 24.0 + 10.0*intensity
+	}
 	if res.EndError(ankleTarget) > 0.015 {
-		if loose := SolveTwoBone(hipSocket, ankleTarget, pole, thigh.Length, shin.Length); loose.OK {
+		if loose := SolveTwoBoneMinBend(hipSocket, ankleTarget, pole, thigh.Length, shin.Length, fallbackBend); loose.OK {
 			res = loose
 		}
 	}

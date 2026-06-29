@@ -1,4 +1,3 @@
-
 # floor
 [[box]]
 material = "diffuse"
@@ -128,7 +127,6 @@ instance = true
 file = "../objects/staircase.toml"
 at = [9.7, 0, 7.5]
 rotate_y = 90
-instance = true
 params = { steps = 5, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.5 }
 
 # Lamp 1
@@ -160,10 +158,12 @@ rotate_y = -20
 params = { width = 1.5, height = 0.9, texture = "wood" }
 # glass bottle on the table
 [[include]]
+instance = true
 file = "../objects/glass-bottle.toml"
 at = [14, 1.1, 7.3]
 # ashtray on the table
-[[include]]
+[[include]] 
+instance = true
 file = "../objects/ashtray.toml"
 at = [14.5, 1.1, 7.3]
 rotate_y = -50
@@ -185,11 +185,22 @@ rotate_y = 15
 
 # glass bottle on the desk
 [[include]]
+instance = true
 file = "../objects/glass-bottle.toml"
 at = [6.6, 1.1, 10.5]
 
 # ashtray on the desk
 [[include]]
+instance = true
 file = "../objects/ashtray.toml"
 at = [7.5, 1.1, 10.3]
+
+
+#npc walking around
+# [[npc]]
+# rig = "data/rigs/humanoid.yaml"
+# pose = "idle"
+# at = [8.0, 0.2, 10.0]
+# speed = 1
+# patrol = [[8, 0.2, 12.0], [16, 0.2, 18.0], [8.0, 0.2, 18.0]]
 

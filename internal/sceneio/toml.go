@@ -936,7 +936,11 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		s.Spawnpoints = append(s.Spawnpoints, sp)
 	}
 	for i, d := range dto.NPC {
-		s.NPCSpawns = append(s.NPCSpawns, d.build())
+		sp, err := d.build()
+		if err != nil {
+			return nil, fmt.Errorf("npc[%d]: %w", i, err)
+		}
+		s.NPCSpawns = append(s.NPCSpawns, sp)
 		if s.NPCSpawns[len(s.NPCSpawns)-1].Rig == "" {
 			return nil, fmt.Errorf("npc[%d]: missing rig", i)
 		}
@@ -1143,6 +1147,9 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 	}
 	for _, sp := range sub.Spawnpoints {
 		dst.Spawnpoints = append(dst.Spawnpoints, sp.Placed(xf))
+	}
+	for _, sp := range sub.NPCSpawns {
+		dst.NPCSpawns = append(dst.NPCSpawns, sp.Placed(xf))
 	}
 }
 

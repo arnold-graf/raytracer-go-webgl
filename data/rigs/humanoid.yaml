@@ -17,7 +17,7 @@ bones:
   thigh_l:
     parent: hips
     length: 0.40
-    offset: [0.14, -0.02, 0]
+    offset: [0.10, -0.02, 0]
   shin_l:
     parent: thigh_l
     length: 0.34
@@ -29,7 +29,7 @@ bones:
   thigh_r:
     parent: hips
     length: 0.40
-    offset: [-0.14, -0.02, 0]
+    offset: [-0.10, -0.02, 0]
   shin_r:
     parent: thigh_r
     length: 0.34
@@ -62,7 +62,7 @@ attachments:
     kind: box
     size: [0.36, 0.6, 0.20]
     offset: [0, 0.22, 0]
-    albedo: [0.55, 0.45, 0.38]
+    albedo: [0.1, 0.1, 0.1]
   - bone: head
     kind: sphere
     radius: 0.13
@@ -72,12 +72,12 @@ attachments:
     kind: cylinder
     radius: 0.07
     length: 0.40
-    albedo: [0.35, 0.35, 0.42]
+    albedo: [0.1, 0.1, 0.1]
   - bone: shin_l
     kind: cylinder
     radius: 0.06
     length: 0.34
-    albedo: [0.35, 0.35, 0.42]
+    albedo: [0.1, 0.1, 0.1]
   - bone: foot_l
     kind: box
     size: [0.08, 0.18, 0.05]
@@ -87,12 +87,12 @@ attachments:
     kind: cylinder
     radius: 0.07
     length: 0.40
-    albedo: [0.35, 0.35, 0.42]
+    albedo: [0.1, 0.1, 0.1]
   - bone: shin_r
     kind: cylinder
     radius: 0.06
     length: 0.34
-    albedo: [0.35, 0.35, 0.42]
+    albedo: [0.1, 0.1, 0.1]
   - bone: foot_r
     kind: box
     size: [0.08, 0.18, 0.05]
@@ -102,22 +102,22 @@ attachments:
     kind: cylinder
     radius: 0.05
     length: 0.28
-    albedo: [0.55, 0.45, 0.38]
+    albedo: [0.1, 0.1, 0.1]
   - bone: forearm_l
     kind: cylinder
     radius: 0.045
     length: 0.26
-    albedo: [0.55, 0.45, 0.38]
+    albedo: [0.1, 0.1, 0.1]
   - bone: upper_arm_r
     kind: cylinder
     radius: 0.05
     length: 0.28
-    albedo: [0.55, 0.45, 0.38]
+    albedo: [0.1, 0.1, 0.1]
   - bone: forearm_r
     kind: cylinder
     radius: 0.045
     length: 0.26
-    albedo: [0.55, 0.45, 0.38]
+    albedo: [0.1, 0.1, 0.1]
 
 poses:
   idle:
@@ -143,11 +143,11 @@ poses:
 
 gaits:
   walk:
-    speed: 0.2
+    speed: 1
     step_rate: 1
     stride: 0.52
     lift: 0.1
-    bob: 0.01
+    bob: 0.0
   run:
     speed: 4.0
     step_rate: 3.5

@@ -1622,6 +1622,15 @@ fn inst_bvh_any_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool
             }
             continue;
         }
+        if (n.info.z == BVH_TAG_TLAS && n.info.w == 0u) {
+            if (sp + 2u <= 64u) {
+                stack[sp] = n.info.x;
+                sp = sp + 1u;
+                stack[sp] = n.info.y;
+                sp = sp + 1u;
+            }
+            continue;
+        }
         let count = n.info.w;
         if (count > 0u) {
             for (var k = 0u; k < count; k = k + 1u) {

@@ -79,9 +79,14 @@ func (loc *Locomotor) initFeet(rig *Rig, world FootWorld) {
 
 // hipGroundSmoothRate controls pelvis descent; climbing uses hipGroundRiseRate.
 const (
-	hipGroundSmoothRate = 5.0
-	hipGroundRiseRate   = 14.0
-	groundHeadClearance = 2.5 // headY hint so GroundHeight sees steps above the pelvis
+	hipGroundSmoothRate        = 5.0
+	hipGroundRiseRate          = 10.0
+	hipPlantRisePerSec         = 2.5  // smooth catch-up when a foot lands on a higher tread
+	pelvisForwardProbe         = 0.18 // anticipates upcoming rises under the torso (flat/downhill)
+	stepUpMinHeight            = 0.06 // treat footfalls this much higher as a step-up
+	swingHipPreviewStart       = 0.65 // blend hips toward landing over the last 35% of flat swing
+	swingHipPreviewStartStepUp = 0.68 // step-up swings: pelvis follows the foot slightly later
+	groundHeadClearance        = 2.5
 )
 
 // Update advances hip motion, foot placement, and step arcs.
@@ -101,7 +106,7 @@ func (loc *Locomotor) Update(dt float64, rig *Rig, world FootWorld) {
 
 	// Preliminary hip base for ground queries this tick.
 	prelimBase := loc.GroundY + rig.HipHeight
-	targetGy := loc.targetGroundY(rig, gait, world, prelimBase)
+	targetGy := loc.targetGroundY(world, prelimBase)
 	rate := hipGroundSmoothRate
 	if targetGy > loc.GroundY {
 		rate = hipGroundRiseRate
@@ -111,11 +116,13 @@ func (loc *Locomotor) Update(dt float64, rig *Rig, world FootWorld) {
 		blend = 1
 	}
 	loc.GroundY += (targetGy - loc.GroundY) * blend
-	hipBase := loc.GroundY + rig.HipHeight
-	loc.HipPos.Y = hipBase + math.Sin(loc.Phase*2*math.Pi)*gait.Bob
+	loc.updateHipHeight(rig, gait)
 
+	hipBase := loc.GroundY + rig.HipHeight
 	loc.updateFoot(&loc.Left, 1, 0, gait, world, hipBase)
 	loc.updateFoot(&loc.Right, -1, 0.5, gait, world, hipBase)
+	loc.enforceFootSeparation()
+	loc.catchUpGroundFromPlantedFeet(rig, gait, dt)
 }
 
 func groundHeadHint(loc *Locomotor, hipBaseY float64) float64 {
@@ -126,32 +133,127 @@ func groundHeadHint(loc *Locomotor, hipBaseY float64) float64 {
 	return h
 }
 
-func (loc *Locomotor) targetGroundY(rig *Rig, gait GaitParams, world FootWorld, hipBaseY float64) float64 {
-	y := loc.plantedGroundY()
-	headY := groundHeadHint(loc, hipBaseY)
+func footStepUp(from, to vec.V) float64 {
+	return to.Y - from.Y
+}
 
-	if gy := world.GroundHeight(loc.HipPos.X, loc.HipPos.Z, headY); gy > y {
-		y = gy
+// stepUpIntensity scales step-up effects by riser height; first tread from flat ground is softer.
+func stepUpIntensity(stepUp, fromGroundY float64) float64 {
+	if stepUp <= stepUpMinHeight {
+		return 0
 	}
+	height := (stepUp - stepUpMinHeight) / (0.40 - stepUpMinHeight)
+	scale := 0.62 + 0.38*clamp(height, 0, 1)
+	if fromGroundY < 0.12 {
+		scale *= 0.80
+	}
+	return scale
+}
 
-	for _, spec := range []struct {
-		foot     *Foot
-		sideSign float64
-		off      float64
-	}{
-		{&loc.Left, 1, 0},
-		{&loc.Right, -1, 0.5},
-	} {
-		f := spec.foot
-		if !f.Initialized || f.Phase != FootSwing || f.SwingT < 0.45 {
+func (loc *Locomotor) targetGroundY(world FootWorld, hipBaseY float64) float64 {
+	y := loc.plantedGroundY()
+	stepUpSwing := loc.stepUpSwingProgress()
+
+	// Late swing preview: on step-ups, delay pelvis rise so the climbing foot bends the knee first.
+	for _, f := range []Foot{loc.Left, loc.Right} {
+		if !f.Initialized || f.Phase != FootSwing {
 			continue
 		}
-		tgt := loc.footTarget(spec.sideSign, spec.off, gait, world, hipBaseY)
-		if tgt.Y > y {
-			y = tgt.Y
+		stepUp := footStepUp(f.PlantWorld, f.SwingTo)
+		previewStart := swingHipPreviewStart
+		if stepUp > stepUpMinHeight {
+			intensity := stepUpIntensity(stepUp, f.PlantGroundY)
+			previewStart += (swingHipPreviewStartStepUp - swingHipPreviewStart) * intensity
+		}
+		if f.SwingT < previewStart {
+			continue
+		}
+		blend := (f.SwingT - previewStart) / (1.0 - previewStart)
+		if blend > 1 {
+			blend = 1
+		}
+		preview := y + (f.SwingTo.Y-y)*blend
+		if preview > y {
+			y = preview
+		}
+	}
+
+	// Terrain under the pelvis: on flat/downhill use forward probe. During an active step-up
+	// swing, only allow gradual rise with swing progress so the torso does not outrun the foot.
+	if world != nil {
+		terrainGy := loc.pelvisTerrainY(world, hipBaseY)
+		if terrainGy > y {
+			if stepUpSwing.active {
+				intensity := stepUpIntensity(stepUpSwing.stepUp, loc.plantedGroundY())
+				cap := y + stepUpSwing.stepUp*stepUpSwing.progress*(0.55+0.25*intensity)
+				if terrainGy > cap {
+					terrainGy = cap
+				}
+			}
+			if terrainGy > y {
+				y = terrainGy
+			}
 		}
 	}
 	return y
+}
+
+type stepUpSwingState struct {
+	active   bool
+	stepUp   float64
+	progress float64 // max SwingT among active step-up swings
+}
+
+func (loc *Locomotor) stepUpSwingProgress() stepUpSwingState {
+	var st stepUpSwingState
+	for _, f := range []Foot{loc.Left, loc.Right} {
+		if !f.Initialized || f.Phase != FootSwing {
+			continue
+		}
+		stepUp := footStepUp(f.PlantWorld, f.SwingTo)
+		if stepUp <= stepUpMinHeight {
+			continue
+		}
+		st.active = true
+		if stepUp > st.stepUp {
+			st.stepUp = stepUp
+		}
+		if f.SwingT > st.progress {
+			st.progress = f.SwingT
+		}
+	}
+	return st
+}
+
+func (loc *Locomotor) updateHipHeight(rig *Rig, gait GaitParams) {
+	hipBase := loc.GroundY + rig.HipHeight
+	loc.HipPos.Y = hipBase + math.Sin(loc.Phase*2*math.Pi)*gait.Bob
+}
+
+func (loc *Locomotor) pelvisTerrainY(world FootWorld, hipBaseY float64) float64 {
+	headY := groundHeadHint(loc, hipBaseY)
+	center := world.GroundHeight(loc.HipPos.X, loc.HipPos.Z, headY)
+	fwd := yawForward(loc.Heading)
+	front := world.GroundHeight(loc.HipPos.X+fwd.X*pelvisForwardProbe, loc.HipPos.Z+fwd.Z*pelvisForwardProbe, headY)
+	if front > center {
+		return front
+	}
+	return center
+}
+
+// catchUpGroundFromPlantedFeet eases pelvis rise when a foot lands on a higher tread.
+func (loc *Locomotor) catchUpGroundFromPlantedFeet(rig *Rig, gait GaitParams, dt float64) {
+	planted := loc.plantedGroundY()
+	if planted <= loc.GroundY {
+		return
+	}
+	maxRise := hipPlantRisePerSec * dt
+	rise := planted - loc.GroundY
+	if rise > maxRise {
+		rise = maxRise
+	}
+	loc.GroundY += rise
+	loc.updateHipHeight(rig, gait)
 }
 
 func (loc *Locomotor) plantedGroundY() float64 {
@@ -173,21 +275,31 @@ func (loc *Locomotor) plantedGroundY() float64 {
 	return y
 }
 
+func (loc *Locomotor) lowerPlantedGroundY() float64 {
+	var ys []float64
+	for _, f := range []Foot{loc.Left, loc.Right} {
+		if f.Initialized && f.Phase != FootSwing {
+			ys = append(ys, f.PlantGroundY)
+		}
+	}
+	if len(ys) == 0 {
+		return loc.GroundY
+	}
+	y := ys[0]
+	for _, v := range ys[1:] {
+		if v < y {
+			y = v
+		}
+	}
+	return y
+}
+
 func (loc *Locomotor) footTarget(sideSign, phaseOff float64, gait GaitParams, world FootWorld, hipBaseY float64) vec.V {
-	return loc.footTargetAt(loc.Phase, loc.HipPos, sideSign, phaseOff, gait, world, hipBaseY)
+	return loc.planFootTarget(loc.Phase, loc.HipPos, sideSign, phaseOff, gait, world, hipBaseY)
 }
 
 func (loc *Locomotor) footTargetAt(phase float64, hip vec.V, sideSign, phaseOff float64, gait GaitParams, world FootWorld, hipBaseY float64) vec.V {
-	fwd, right := yawForward(loc.Heading), yawRight(loc.Heading)
-	lateral := right.Scale(sideSign * 0.14)
-	travel := gait.TravelSpeed(loc.Speed)
-	stride := gait.StepStride(travel)
-	// Negative cos: foot lands ahead of the hip in the travel direction at heel strike.
-	fwdOff := -math.Cos((phase+phaseOff)*2*math.Pi) * stride * 0.5
-	hipBase := vec.V{X: hip.X, Y: hipBaseY, Z: hip.Z}
-	target := hipBase.Add(fwd.Scale(fwdOff)).Add(lateral)
-	target.Y = world.GroundHeight(target.X, target.Z, groundHeadHint(loc, hipBaseY))
-	return target
+	return loc.planFootTarget(phase, hip, sideSign, phaseOff, gait, world, hipBaseY)
 }
 
 func lockFootPlant(foot *Foot, world FootWorld) {
@@ -233,7 +345,8 @@ func (loc *Locomotor) updateFoot(foot *Foot, sideSign, phaseOff float64, gait Ga
 		foot.SwingT = footCycle / swingFraction
 		foot.StanceT = 0
 		from := foot.PlantWorld
-		foot.World = footArc(from, foot.SwingTo, gait.Lift, foot.SwingT)
+		rightVec := yawRight(loc.Heading)
+		foot.World = footSwingArc(from, foot.SwingTo, gait.Lift, foot.SwingT, loc.HipPos, rightVec, sideSign)
 		return
 	}
 
@@ -246,13 +359,6 @@ func (loc *Locomotor) updateFoot(foot *Foot, sideSign, phaseOff float64, gait Ga
 		lockFootPlant(foot, world)
 	}
 	foot.World = foot.PlantWorld
-}
-
-func footArc(from, to vec.V, lift, t float64) vec.V {
-	mid := from.Add(to).Scale(0.5)
-	mid.Y += lift
-	u := 1 - t
-	return from.Scale(u * u).Add(mid.Scale(2 * u * t)).Add(to.Scale(t * t))
 }
 
 func yawForward(yawDeg float64) vec.V {

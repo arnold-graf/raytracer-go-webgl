@@ -23,11 +23,11 @@ func TestGaitStateForSpeed(t *testing.T) {
 func TestFootArc(t *testing.T) {
 	from := vec.New(0, 0, 0)
 	to := vec.New(1, 0, 0)
-	mid := footArc(from, to, 0.2, 0.5)
+	mid := footArcBezier(from, to, 0.2, 0.5)
 	if mid.Y < 0.05 {
 		t.Fatalf("arc midpoint should lift, got Y=%v", mid.Y)
 	}
-	end := footArc(from, to, 0.2, 1)
+	end := footArcBezier(from, to, 0.2, 1)
 	if math.Abs(end.X-1) > 1e-9 || math.Abs(end.Z) > 1e-9 {
 		t.Fatalf("arc end = %v, want (1,0,0)", end)
 	}

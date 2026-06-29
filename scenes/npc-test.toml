@@ -1,4 +1,3 @@
-#:schema ../schemas/scene.schema.json
 # Minimal scene for testing procedural NPC locomotion.
 # Run: go run . -scene scenes/npc-test.toml
 
@@ -42,7 +41,7 @@ rough = 0.1
 
 [[light]]
 pos = [2.0, 3.5, 1.0]
-color = [8.0, 7.0, 5.0]
+color = [2.0, 1.5, 1.0]
 radius = 0.4
 
 [[light]]
@@ -54,7 +53,6 @@ radius = 0.3
 rig = "data/rigs/humanoid.yaml"
 pose = "idle"
 at = [-1.0, 0.0, 0.0]
-# heading 270° walks toward +X, across the stepped boxes above.
-yaw = 270.0
 speed = 1
-heading = 270.0
+# Patrol across the stepped boxes; navigation picks heading automatically.
+patrol = [[-1.0, 0.0, 0.0], [6.5, 0.0, 0.0], [-1.0, 0.0, 0.0]]

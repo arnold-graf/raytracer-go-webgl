@@ -50,17 +50,23 @@ func packInstancedScene(s *scene.Scene) (
 	nodes []GPUBVHNode,
 	staticBVHCount, staticBlockerBVHCount uint32,
 	isp instScenePack,
+	dynGPU gpuIndexMap,
 	ok bool,
 ) {
 	cat := s.Instancing()
 	static, haveStatic := s.StaticPrimitiveCounts()
 	if cat == nil || len(cat.Placements) == 0 || !haveStatic {
-		return nil, nil, nil, 0, 0, instScenePack{}, false
+		return nil, nil, nil, 0, 0, instScenePack{}, gpuIndexMap{}, false
 	}
 
 	staticScene := sliceStaticScene(s, static)
 	prims = PackPrimitives(staticScene)
 	blockers = PackBlockers(staticScene)
+	var dynMap gpuIndexMap
+	var dynBlocker gpuIndexMap
+	prims, dynMap = appendDynamicBodyPrimitives(s, prims)
+	blockers, dynBlocker = appendDynamicBodyBlockers(s, blockers)
+	dynMap.primToBlocker = linkPrimToBlocker(dynMap, dynBlocker)
 	staticBVH := PackBVH(prims)
 	staticBlkBVH := PackBVH(blockers)
 
@@ -166,7 +172,7 @@ func packInstancedScene(s *scene.Scene) (
 
 	staticBVHCount = uint32(len(staticBVH))
 	staticBlockerBVHCount = uint32(len(staticBlkBVH))
-	return prims, blockers, nodes, staticBVHCount, staticBlockerBVHCount, isp, true
+	return prims, blockers, nodes, staticBVHCount, staticBlockerBVHCount, isp, dynMap, true
 }
 
 func offsetBLASNode(n *GPUBVHNode, primBase, root uint32) {

@@ -25,6 +25,7 @@ type Agent struct {
 	Spawn     vec.V
 	Yaw       float64
 	Locomotor character.Locomotor
+	Nav       *Navigator
 }
 
 // NewManager returns an empty NPC manager.
@@ -59,6 +60,23 @@ func (m *Manager) Instantiate(sc *scene.Scene, world character.FootWorld) error 
 		if heading == 0 && sp.Yaw != 0 {
 			heading = sp.Yaw
 		}
+		nav := NewNavigator(sp)
+		if nav != nil {
+			if len(sp.Patrol) > 0 {
+				for len(sp.Patrol) > 1 && horizDist(sp.Pos, sp.Patrol[nav.wpIdx]) < navArriveDist {
+					next := (nav.wpIdx + 1) % len(sp.Patrol)
+					if next == nav.wpIdx {
+						break
+					}
+					nav.wpIdx = next
+				}
+			}
+			heading = nav.InitialHeading(sp.Pos)
+		}
+		speed := sp.Speed
+		if nav != nil && speed < 0.05 {
+			speed = nav.walkSpeed
+		}
 		agent := Agent{
 			Name:  name,
 			Rig:   rig,
@@ -66,7 +84,8 @@ func (m *Manager) Instantiate(sc *scene.Scene, world character.FootWorld) error 
 			Body:  body,
 			Spawn: sp.Pos,
 			Yaw:   sp.Yaw,
-			Locomotor: character.NewLocomotor(rig, sp.Pos, heading, sp.Speed, world),
+			Nav:   nav,
+			Locomotor: character.NewLocomotor(rig, sp.Pos, heading, speed, world),
 		}
 		m.applyAgent(sc, world, &agent)
 		m.agents = append(m.agents, agent)
@@ -83,6 +102,9 @@ func (m *Manager) Update(sc *scene.Scene, world character.FootWorld, dt float64)
 	changed := false
 	for i := range m.agents {
 		a := &m.agents[i]
+		if a.Nav != nil {
+			a.Nav.Tick(a, sc, dt)
+		}
 		if a.Locomotor.Speed < 0.05 {
 			continue
 		}
@@ -91,7 +113,7 @@ func (m *Manager) Update(sc *scene.Scene, world character.FootWorld, dt float64)
 		changed = true
 	}
 	if changed {
-		sc.Touch()
+		sc.TouchTransforms()
 	}
 	return changed
 }

@@ -29,6 +29,24 @@ func (s *Scene) isDynamicBox(i int) bool {
 	return false
 }
 
+func (s *Scene) isDynamicCylinder(i int) bool {
+	for _, db := range s.DynamicBodies {
+		if i >= db.Cylinders[0] && i < db.Cylinders[1] {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Scene) isDynamicSphere(i int) bool {
+	for _, db := range s.DynamicBodies {
+		if i >= db.Spheres[0] && i < db.Spheres[1] {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Scene) groundHeight(x, z, headY float64, skipBox func(int) bool) float64 {
 	g := math.Inf(-1)
 
@@ -153,6 +171,87 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 	// Spheres only block when they rest near the floor (e.g. a ball on the
 	// ground), so floating spheres like tree canopies can be walked under.
 	for i := range s.Spheres {
+		sp := &s.Spheres[i]
+		if sp.Mat == MatEmit {
+			continue
+		}
+		center := sp.Center
+		if sp.Xform != nil {
+			center = sp.Xform.ToWorld(center)
+		}
+		bottom := center.Y - sp.Radius
+		top := center.Y + sp.Radius
+		if top <= walkTop || bottom >= headY || bottom > walkTop {
+			continue
+		}
+		dx, dz := x-center.X, z-center.Z
+		rr := radius + sp.Radius
+		if dx*dx+dz*dz < rr*rr {
+			return true
+		}
+	}
+
+	return false
+}
+
+// BlockedStatic is like Blocked but ignores runtime NPC/dynamic body geometry so
+// pathfinding does not treat other characters as walls.
+func (s *Scene) BlockedStatic(x, z, feetY, headY, radius, step float64) bool {
+	walkTop := feetY + step
+
+	for i := range s.Boxes {
+		if s.isDynamicBox(i) {
+			continue
+		}
+		b := &s.Boxes[i]
+		mn, mx := b.WorldBounds()
+		if mx.Y <= walkTop || mn.Y >= headY {
+			continue
+		}
+		if x > mn.X-radius && x < mx.X+radius && z > mn.Z-radius && z < mx.Z+radius {
+			if !b.blocksColumn(x, z, walkTop, headY, radius) {
+				continue
+			}
+			if b.PassableThroughHole(x, z, walkTop, headY, radius) {
+				continue
+			}
+			return true
+		}
+	}
+
+	for i := range s.Cylinders {
+		if s.isDynamicCylinder(i) {
+			continue
+		}
+		c := &s.Cylinders[i]
+		mn, mx := c.WorldBounds()
+		if mx.Y <= walkTop || mn.Y >= headY {
+			continue
+		}
+		if x > mn.X-radius && x < mx.X+radius && z > mn.Z-radius && z < mx.Z+radius {
+			if c.blocksColumn(x, z, walkTop, headY, radius) {
+				return true
+			}
+		}
+	}
+
+	for i := range s.Cones {
+		co := &s.Cones[i]
+		mn, mx := co.WorldBounds()
+		if mx.Y <= walkTop || mn.Y >= headY {
+			continue
+		}
+		if x > mn.X-radius && x < mx.X+radius && z > mn.Z-radius && z < mx.Z+radius {
+			if co.blocksColumn(x, z, walkTop, headY, radius) {
+				return true
+			}
+		}
+	}
+
+	for i := range s.Spheres {
+		if s.isDynamicSphere(i) {
+			continue
+		}
 		sp := &s.Spheres[i]
 		if sp.Mat == MatEmit {
 			continue

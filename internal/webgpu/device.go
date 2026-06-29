@@ -471,6 +471,7 @@ func (r *Renderer) RenderSquare(buf []byte, size int, cam *camera.Camera, v *ren
 
 func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 	uploadStatic := false
+	uploadPartial := false
 	timeSec := 0.0
 	shadows := false
 	mirror := false
@@ -487,6 +488,9 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		if !r.cache.fresh(v) {
 			r.cache.rebuild(v)
 			uploadStatic = true
+		} else if !r.cache.transformsFresh(v) {
+			r.cache.updateDynamicTransforms(v.Scene)
+			uploadPartial = len(r.cache.partialPrimSpans) > 0 || len(r.cache.partialBlockerSpans) > 0
 		} else if v.AOok && v.AOVersion != r.cache.aoVersion {
 			r.cache.ao, r.cache.aoOK = PackAOVolume(v)
 			r.cache.aoVersion = v.AOVersion
@@ -519,7 +523,9 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		shadows: shadows, mirror: mirror, timeSec: timeSec, sky: sky,
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
 		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
-		uploadStatic: uploadStatic,
+		uploadStatic: uploadStatic, uploadPartial: uploadPartial,
+		partialPrimSpans: c.partialPrimSpans,
+		partialBlockerSpans: c.partialBlockerSpans,
 	}
 	if v != nil {
 		rp.colorQuant = v.ColorQuant
@@ -583,6 +589,10 @@ type renderParams struct {
 	// must be re-sent to the GPU. When false, render() uploads only the per-frame
 	// params; the static SSBOs already hold the right data.
 	uploadStatic bool
+	// uploadPartial re-sends only dirty primitive spans + refit BVH after NPC pose updates.
+	uploadPartial    bool
+	partialPrimSpans [][2]int
+	partialBlockerSpans [][2]int
 }
 
 func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh int) error {
@@ -662,6 +672,44 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 		if len(p.ao.Data) > 0 {
 			if err := r.queue.WriteBuffer(r.aoVolume, 0, floatBytes(p.ao.Data)); err != nil {
 				return err
+			}
+		}
+	} else if p.uploadPartial {
+		for _, span := range p.partialPrimSpans {
+			if span[0] < 0 || span[1] > len(p.prims) || span[0] >= span[1] {
+				continue
+			}
+			offset := uint64(span[0] * primStride)
+			slice := p.prims[span[0]:span[1]]
+			if err := r.queue.WriteBuffer(r.prims, offset, primBytes(slice)); err != nil {
+				return err
+			}
+		}
+		for _, span := range p.partialBlockerSpans {
+			if span[0] < 0 || span[1] > len(p.blockers) || span[0] >= span[1] {
+				continue
+			}
+			offset := uint64(span[0] * primStride)
+			slice := p.blockers[span[0]:span[1]]
+			if err := r.queue.WriteBuffer(r.blockers, offset, primBytes(slice)); err != nil {
+				return err
+			}
+		}
+		if len(p.bvhNodes) > 0 && p.bvhNodeCount > 0 {
+			nodes := p.bvhNodes[:p.bvhNodeCount]
+			if err := r.queue.WriteBuffer(r.bvhNodes, 0, nodeBytes(nodes)); err != nil {
+				return err
+			}
+		}
+		if len(p.bvhNodes) > 0 && p.blockerNodeCount > 0 {
+			start := int(p.blockerSecStart)
+			end := start + int(p.blockerNodeCount)
+			if start >= 0 && end <= len(p.bvhNodes) {
+				nodes := p.bvhNodes[start:end]
+				offset := uint64(start * nodeStride)
+				if err := r.queue.WriteBuffer(r.bvhNodes, offset, nodeBytes(nodes)); err != nil {
+					return err
+				}
 			}
 		}
 	}

@@ -10,17 +10,19 @@ import (
 // scene is packed and uploaded once instead of every frame. The big wins are
 // the primitive/BVH builds and the terrain heightfield, which can be megabytes.
 //
-// Invalidation is keyed on (scene pointer, scene.Generation()): a hot-reload
-// swaps the pointer, and any in-place geometry edit bumps the generation via
-// scene.Touch(). When the upcoming animation system moves objects each tick it
-// will call Touch, so this cache degrades gracefully to today's per-frame
-// packing for fully dynamic scenes while costing nothing for static ones. The
-// same generation signal is the intended hook for a future partial-update path
-// (re-pack only the dirty primitives) without changing this contract.
+// Invalidation is keyed on (scene pointer, scene.Generation()) for full rebuilds
+// and scene.TransformGeneration() for pose-only updates. Touch() bumps both;
+// TouchTransforms() bumps only TransformGeneration so dynamic NPC poses can
+// partially re-upload + refit the BVH without re-packing static geometry.
 type sceneCache struct {
 	scene *scene.Scene
 	gen   uint64
+	xformGen uint64
 	valid bool
+
+	layout           primLayout
+	partialPrimSpans [][2]int // coalesced GPU prim index spans dirtied last partial update
+	partialBlockerSpans [][2]int
 
 	prims            []GPUPrimitive
 	blockers         []GPUPrimitive
@@ -48,9 +50,14 @@ type sceneCache struct {
 }
 
 // fresh reports whether the cache already holds the static buffers for this
-// view's scene at its current generation.
+// view's scene at its current geometry generation.
 func (c *sceneCache) fresh(v *render.View) bool {
 	return c.valid && c.scene == v.Scene && c.gen == v.Scene.Generation()
+}
+
+// transformsFresh reports whether transform-only GPU data matches the scene.
+func (c *sceneCache) transformsFresh(v *render.View) bool {
+	return c.valid && c.scene == v.Scene && c.xformGen == v.Scene.TransformGeneration()
 }
 
 // rebuild re-packs every static buffer from the scene and records the cache key.
@@ -61,7 +68,7 @@ func (c *sceneCache) fresh(v *render.View) bool {
 func (c *sceneCache) rebuild(v *render.View) {
 	c.clearInstancing()
 	if v.Scene != nil && v.Scene.HasInstancing() {
-		if prims, blockers, nodes, bvhN, blkN, isp, ok := packInstancedScene(v.Scene); ok {
+		if prims, blockers, nodes, bvhN, blkN, isp, dynGPU, ok := packInstancedScene(v.Scene); ok {
 			c.prims = prims
 			c.blockers = blockers
 			c.bvhNodes = nodes
@@ -74,12 +81,17 @@ func (c *sceneCache) rebuild(v *render.View) {
 			c.blockerSecStart = isp.blockerSectionStart
 			c.blockerInstBase = isp.blockerInstBase
 			c.blockerInstCount = isp.blockerInstCount
+			c.layout = computePrimLayout(v.Scene)
+			c.layout.gpu = dynGPU
+			goto afterPack
 		} else {
 			c.rebuildFlat(v.Scene)
 		}
 	} else {
 		c.rebuildFlat(v.Scene)
 	}
+
+afterPack:
 
 	c.lights = PackLights(v.Scene)
 	c.terrains, c.samples = PackTerrains(v.Scene)
@@ -91,7 +103,73 @@ func (c *sceneCache) rebuild(v *render.View) {
 
 	c.scene = v.Scene
 	c.gen = v.Scene.Generation()
+	c.xformGen = v.Scene.TransformGeneration()
+	if len(c.layout.gpu.sphere) == 0 && len(c.layout.gpu.box) == 0 && len(c.layout.gpu.cylinder) == 0 {
+		c.layout = computePrimLayout(v.Scene)
+	}
+	c.partialPrimSpans = nil
+	c.partialBlockerSpans = nil
 	c.valid = true
+}
+
+// updateDynamicTransforms re-packs moved dynamic primitives, refits the BVH, and
+// records byte spans for a partial GPU upload. Called when only xformGen changed.
+func (c *sceneCache) updateDynamicTransforms(s *scene.Scene) {
+	if s == nil || !c.valid {
+		return
+	}
+	var dirtyPrim []int
+	var dirtyBlocker []int
+	repack := func(sceneIdx int, primIdx int, repackFn func(*scene.Scene, int, *GPUPrimitive)) {
+		if primIdx < 0 || primIdx >= len(c.prims) {
+			return
+		}
+		repackFn(s, sceneIdx, &c.prims[primIdx])
+		dirtyPrim = append(dirtyPrim, primIdx)
+		if blkIdx, ok := c.layout.gpu.primToBlocker[primIdx]; ok && blkIdx >= 0 && blkIdx < len(c.blockers) {
+			repackFn(s, sceneIdx, &c.blockers[blkIdx])
+			dirtyBlocker = append(dirtyBlocker, blkIdx)
+		}
+	}
+	for _, db := range s.DynamicBodies {
+		for i := db.Spheres[0]; i < db.Spheres[1]; i++ {
+			if gi, ok := c.layout.sphereGPU(i); ok {
+				repack(i, gi, repackSphere)
+			}
+		}
+		for i := db.Boxes[0]; i < db.Boxes[1]; i++ {
+			if gi, ok := c.layout.boxGPU(i); ok {
+				repack(i, gi, repackBox)
+			}
+		}
+		for i := db.Cylinders[0]; i < db.Cylinders[1]; i++ {
+			if gi, ok := c.layout.cylinderGPU(i); ok {
+				repack(i, gi, repackCylinder)
+			}
+		}
+	}
+	if len(dirtyPrim) == 0 {
+		c.xformGen = s.TransformGeneration()
+		c.partialPrimSpans = nil
+		c.partialBlockerSpans = nil
+		return
+	}
+	if c.hasInstancing() {
+		if int(c.bvhNodeCount) <= len(c.bvhNodes) {
+			RefitBVH(c.bvhNodes[:c.bvhNodeCount], c.prims)
+		}
+		if c.blockerNodeCount > 0 && int(c.blockerSecStart+c.blockerNodeCount) <= len(c.bvhNodes) {
+			RefitBVH(c.bvhNodes[c.blockerSecStart:c.blockerSecStart+c.blockerNodeCount], c.blockers)
+		}
+	} else {
+		RefitBVH(c.bvhNodes[:c.bvhNodeCount], c.prims)
+		if c.blockerNodeCount > 0 {
+			RefitBVH(c.bvhNodes[c.blockerSecStart:c.blockerSecStart+c.blockerNodeCount], c.blockers)
+		}
+	}
+	c.partialPrimSpans = coalesceIndices(dirtyPrim)
+	c.partialBlockerSpans = coalesceIndices(dirtyBlocker)
+	c.xformGen = s.TransformGeneration()
 }
 
 func (c *sceneCache) rebuildFlat(s *scene.Scene) {
@@ -103,6 +181,8 @@ func (c *sceneCache) rebuildFlat(s *scene.Scene) {
 	c.bvhNodeCount = uint32(len(bvhNodes))
 	c.blockerNodeCount = uint32(len(blkNodes))
 	c.blockerSecStart = c.bvhNodeCount
+	c.layout = computePrimLayout(s)
+	c.layout.gpu = buildDynamicGPUMaps(s)
 }
 
 func (c *sceneCache) clearInstancing() {

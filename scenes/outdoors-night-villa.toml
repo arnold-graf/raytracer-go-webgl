@@ -128,7 +128,6 @@ file = "objects/pine-tree-cluster.toml"
 at = [0.0, 0.0, 0.0]
 instance = true
 
-
 # ----------------------------------------------------------------- campfire ----
 # A campfire on the lake shore (replaces the old lantern orb). The visible part
 # is just three glowing orbs (which also reflect in the water); the light is a

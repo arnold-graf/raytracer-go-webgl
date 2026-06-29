@@ -37,6 +37,10 @@ type Scene struct {
 	// (e.g. the WebGPU backend's packed/uploaded GPU buffers). A static scene
 	// keeps gen constant, so that backend can skip per-frame packing entirely.
 	gen uint64
+	// xformGen bumps on TouchTransforms (pose-only edits). The WebGPU backend
+	// can re-pack and partially upload dynamic primitive ranges + refit the BVH
+	// without a full scene rebuild.
+	xformGen uint64
 
 	// instancing holds TLAS/BLAS template + placement data when [[include]]
 	// instance = true was used. Flat slices still hold materialized copies for
@@ -61,7 +65,10 @@ func (s *Scene) Generation() uint64 { return s.gen }
 // each tick it relocates objects, which transparently forces the GPU backend to
 // re-pack and re-upload; a future refinement can use the same signal to upload
 // only the dirty primitives instead of the whole scene.
-func (s *Scene) Touch() { s.gen++ }
+func (s *Scene) Touch() {
+	s.gen++
+	s.xformGen++
+}
 
 // PrepareTerrains bakes every height field's grid cache. Scene loaders call this
 // once after merging includes so pads/features do not trigger a full rebuild
