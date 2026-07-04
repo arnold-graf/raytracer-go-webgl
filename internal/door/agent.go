@@ -22,12 +22,12 @@ type panelXforms struct {
 
 // Panel tracks one swinging door leaf.
 type Panel struct {
-	Geom         scene.DoorPanelGeom
-	Hinge        vec.V
-	closed       panelXforms
-	Angle        float64
-	Target       float64
-	OpenSign     float64
+	Geom     scene.DoorPanelGeom
+	Hinge    vec.V
+	closed   panelXforms
+	Angle    float64
+	Target   float64
+	OpenSign float64
 }
 
 // Agent is one runtime door instance.

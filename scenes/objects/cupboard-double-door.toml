@@ -9,7 +9,7 @@
 #   width, height, depth   outer dimensions in metres (default 1.6, 2.2, 0.6)
 #   shelves                count of interior shelves, evenly spaced (default 3)
 #   door_gap               centre gap between closed door leaves in metres (default 0.005)
-#   right_door_yaw         closed-pose yaw of the right leaf in degrees (default 1)
+#   right_door_yaw         closed-pose yaw of the right leaf in degrees (default -2)
 #   material, texture      surface material / texture name
 #   albedo, reflect, rough surface overrides
 #
@@ -31,44 +31,13 @@
 {{$side := 0.06}}
 {{$back := 0.06}}
 {{$top := 0.06}}
-{{$doorTh := 0.06}}
-{{$doorGap := or .door_gap 0.005}}
 {{$shelfTh := 0.04}}
 {{$innerW := sub $width (mul $side 2)}}
 {{$innerD := sub $depth $back}}
-{{$doorW := div (sub $innerW $doorGap) 2}}
-{{$doorH := $height}}
 {{$shelfW := $innerW}}
 {{$shelfD := sub $innerD 0.04}}
 {{$shelfY0 := 0.18}}
 {{$shelfY1 := sub (sub $height $top) 0.12}}
-
-# Door panels first so panel_boxes indices stay [0, 1].
-[[box]] # left door panel
-material = "{{$material}}"
-{{if $texture}}texture = "{{$texture}}"{{end}}
-albedo = {{$albedo}}
-reflect = {{$reflect}}
-rough = {{$rough}}
-pos_x = {{$side}}
-pos_y = 0.0
-pos_z = {{neg $doorTh}}
-width = {{$doorW}}
-height = {{$doorH}}
-depth = {{$doorTh}}
-
-[[box]] # right door panel
-material = "{{$material}}"
-{{if $texture}}texture = "{{$texture}}"{{end}}
-albedo = {{$albedo}}
-reflect = {{$reflect}}
-rough = {{$rough}}
-pos_x = {{add $side $doorW $doorGap}}
-pos_y = 0.0
-pos_z = {{neg $doorTh}}
-width = {{$doorW}}
-height = {{$doorH}}
-depth = {{$doorTh}}
 
 [[door]]
 id = "cupboard_doors"
@@ -80,7 +49,8 @@ open_angle = 90
 swing = "one_way"
 open_sign = -1.0
 speed = 1.8
-panel_boxes = [0, 1]
+panel_left_file = "cupboard-door-panel-left.toml"
+panel_right_file = "cupboard-door-panel-right.toml"
 panel_closed_angle = [0, {{or .right_door_yaw -2.0}}]
 
   [door.interact]

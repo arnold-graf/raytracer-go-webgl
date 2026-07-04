@@ -9,7 +9,7 @@ pos_z = 0.0
 width = 40.0
 height = 0.2
 depth = 20.0
-reflect = 0.2
+reflect = 0.05
 rough = 0.007
 
 # ceiling
@@ -159,14 +159,14 @@ params = { steps = 5, run = 0.3, rise = 0.2, width = 4, texture = "marble", refl
 [[include]]
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
-at = [26.0, 8, 11.0]
+at = [35.0, 8, 16.0]
 params = { stem_len = 2.3, brightness = 0.1, range = 10 }
 
 # Lamp 2 (near the door)
 [[include]]
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
-at = [35.0, 8, 5.0]
+at = [35.0, 8, 3.5]
 params = { stem_len = 2.3, brightness = 0.1, range = 20 }
 
 # Lamp 3 (very dim) above the desk
@@ -174,7 +174,7 @@ params = { stem_len = 2.3, brightness = 0.1, range = 20 }
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
 at = [8.0, 8, 9.0]
-params = { stem_len = 2.3, brightness = 0.02, range = 20 }
+params = { stem_len = 3, brightness = 0.02, range = 20 }
 
 # desk to the left of the cube
 [[include]]

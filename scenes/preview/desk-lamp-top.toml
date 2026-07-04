@@ -1,0 +1,7 @@
+# Lamp preview — top-down.
+extends = "desk-lamp-front.toml"
+
+[camera]
+pos = [0.0, 2.1, 0.25]
+yaw = 0.0
+pitch = -1.187

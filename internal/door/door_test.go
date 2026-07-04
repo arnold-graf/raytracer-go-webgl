@@ -18,15 +18,15 @@ func testDoorScene(t *testing.T) (*scene.Scene, *Manager) {
 	sc := &scene.Scene{
 		Boxes: boxes,
 		DoorSpecs: []scene.DoorSpec{{
-			ID:         "test",
-			Kind:       "single",
-			Hinge:      vec.New(1, 0, 0),
-			Axis:       "y",
-			OpenAngle:  math.Pi / 2,
-			Swing:      "one_way",
-			OpenSign:   1,
-			Speed:      3,
-			Panels: []scene.DoorPanelGeom{{Boxes: [2]int{1, 2}}},
+			ID:        "test",
+			Kind:      "single",
+			Hinge:     vec.New(1, 0, 0),
+			Axis:      "y",
+			OpenAngle: math.Pi / 2,
+			Swing:     "one_way",
+			OpenSign:  1,
+			Speed:     3,
+			Panels:    []scene.DoorPanelGeom{{Boxes: [2]int{1, 2}}},
 		}},
 	}
 	mgr := NewManager()

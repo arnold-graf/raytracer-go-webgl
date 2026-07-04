@@ -7,7 +7,7 @@ pos_x = 0.0
 pos_y = 0.0
 pos_z = 0.0
 width = 0.4
-height = 0.07
+height = 0.05
 depth = 0.3
 
 # screen case
@@ -20,7 +20,7 @@ pos_y = 0.0
 pos_z = -0.06
 width = 0.4
 height = 0.4
-depth = 0.06
+depth = 0.04
 
 # screen
 [[box]]
@@ -41,22 +41,22 @@ depth = 0.01
 material = "diffuse"
 reflect = 0.1
 albedo = [0.2, 0.2, 0.2]
-center = [0.2, 0.06, 0.25]
+center = [0.2, 0.04, 0.25]
 radius = 0.03
 
 # screen light
 [[light]]
 pos = [0.2, 0.25, 0.05]
-color = [1, 1, 2]
+color = [1, 1, 6]
 range = 1
-brightness = 0.3
+brightness = 0.2
 
 # keyboard
 [[box]]
 material = "diffuse"
 albedo = [0.2, 0.2, 0.2]
 pos_x = 0.05
-pos_y = 0.05
+pos_y = 0.03
 pos_z = 0.05
 width = 0.3
 height = 0.03
@@ -66,7 +66,7 @@ depth = 0.03
 material = "diffuse"
 albedo = [0.2, 0.2, 0.2]
 pos_x = 0.05
-pos_y = 0.05
+pos_y = 0.03
 pos_z = 0.09
 width = 0.3
 height = 0.03
@@ -76,7 +76,7 @@ depth = 0.03
 material = "diffuse"
 albedo = [0.2, 0.2, 0.2]
 pos_x = 0.05
-pos_y = 0.05
+pos_y = 0.03
 pos_z = 0.13
 width = 0.3
 height = 0.03
@@ -86,7 +86,7 @@ depth = 0.03
 material = "diffuse"
 albedo = [0.2, 0.2, 0.2]
 pos_x = 0.05
-pos_y = 0.05
+pos_y = 0.03
 pos_z = 0.17
 width = 0.3
 height = 0.03

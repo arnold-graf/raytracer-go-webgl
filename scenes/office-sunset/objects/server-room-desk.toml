@@ -3,7 +3,7 @@
 file = "../../objects/simple-table.toml"
 at = [0, 0, 0]
 rotate_y = 20
-params = { width = 2, height = 0.9, texture = "wood" }
+params = { width = 2, height = 0.9, reflect = 0.01, texture = "wood" }
 
 # Laptop on the desk
 [[include]]
@@ -29,3 +29,11 @@ at = [-0.3, 0.9, 0.5]
 instance = true
 file = "../../objects/ashtray.toml"
 at = [0.5, 0.9, 0.3]
+
+# chrome desk lamp (back corner of the desk)
+[[include]]
+instance = true
+file = "../../objects/desk-anglepoise-lamp.toml"
+at = [-0.38, 0.9, 0]
+rotate_y = 35
+params = { brightness = 0.06, range = 5 }

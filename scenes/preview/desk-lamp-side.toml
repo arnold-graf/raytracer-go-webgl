@@ -1,0 +1,7 @@
+# Lamp preview — three-quarter view.
+extends = "desk-lamp-front.toml"
+
+[camera]
+pos = [0.85, 1.1, 0.15]
+yaw = 1.710
+pitch = -0.105
