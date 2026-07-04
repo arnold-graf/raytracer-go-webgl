@@ -11,11 +11,11 @@ import (
 
 func TestApplySpawnpointFloor(t *testing.T) {
 	cam := camera.New()
-	sp := scene.PlayerSpawnpoint{
+	sp := scene.Point{
 		Pos: vec.New(1.5, 0, 1.5), Yaw: 0.2, Pitch: -0.1,
 		UseFloor: true, FloorY: 0.3,
 	}
-	applySpawnpoint(cam, sp)
+	applyPlayerAtPoint(cam, sp)
 	if math.Abs(cam.Pos.X-1.5) > 1e-9 || math.Abs(cam.Pos.Z-1.5) > 1e-9 {
 		t.Fatalf("pos xz = %v", cam.Pos)
 	}
@@ -30,10 +30,10 @@ func TestApplySpawnpointFloor(t *testing.T) {
 
 func TestApplySpawnpointEyePos(t *testing.T) {
 	cam := camera.New()
-	sp := scene.PlayerSpawnpoint{
+	sp := scene.Point{
 		Pos: vec.New(0, 2.0, 28), Yaw: 0.5, Pitch: 0.16,
 	}
-	applySpawnpoint(cam, sp)
+	applyPlayerAtPoint(cam, sp)
 	if cam.Pos != sp.Pos {
 		t.Fatalf("pos = %v, want %v", cam.Pos, sp.Pos)
 	}

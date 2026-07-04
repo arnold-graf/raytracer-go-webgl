@@ -28,11 +28,14 @@ type Scene struct {
 	Campfires []Campfire
 	Ambiences []Ambience
 	Interactables []Interactable
-	Spawnpoints   []PlayerSpawnpoint
+	Points        []Point
 	NPCSpawns     []NPCSpawn
+	DoorSpecs     []DoorSpec
 	DynamicBodies []DynamicBody
 	Start     CameraStart
 	Env       Environment
+
+	doorGhost DoorGhostBox
 
 	// gen is bumped by Touch whenever the scene's geometry/materials change. It
 	// is the invalidation signal renderers use to cache expensive per-scene work

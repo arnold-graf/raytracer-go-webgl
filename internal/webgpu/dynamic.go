@@ -175,10 +175,14 @@ func buildDynamicGPUMaps(s *scene.Scene) gpuIndexMap {
 }
 
 func packPrimitivesWithoutDynamic(s *scene.Scene) []GPUPrimitive {
+	return packPrimitivesOmitDynamic(s, s)
+}
+
+func packPrimitivesOmitDynamic(s *scene.Scene, skipFrom *scene.Scene) []GPUPrimitive {
 	if s == nil {
 		return nil
 	}
-	sph, box, cyl, lens := dynamicIndexSets(s)
+	sph, box, cyl, lens := dynamicIndexSets(skipFrom)
 	out := make([]GPUPrimitive, 0, len(s.Spheres)+len(s.Planes)+len(s.Boxes))
 	for i := range s.Spheres {
 		if _, skip := sph[i]; skip {
@@ -238,10 +242,14 @@ func packPrimitivesWithoutDynamic(s *scene.Scene) []GPUPrimitive {
 }
 
 func packBlockersWithoutDynamic(s *scene.Scene) []GPUPrimitive {
+	return packBlockersOmitDynamic(s, s)
+}
+
+func packBlockersOmitDynamic(s *scene.Scene, skipFrom *scene.Scene) []GPUPrimitive {
 	if s == nil {
 		return nil
 	}
-	sph, box, cyl, lens := dynamicIndexSets(s)
+	sph, box, cyl, lens := dynamicIndexSets(skipFrom)
 	out := make([]GPUPrimitive, 0, len(s.Spheres)+len(s.Planes)+len(s.Boxes))
 	for i := range s.Spheres {
 		if _, skip := sph[i]; skip {

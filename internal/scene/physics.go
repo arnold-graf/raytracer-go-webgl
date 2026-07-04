@@ -47,6 +47,13 @@ func (s *Scene) isDynamicSphere(i int) bool {
 	return false
 }
 
+func (s *Scene) isDoorGhostBox(i int) bool {
+	if s == nil || s.doorGhost == nil {
+		return false
+	}
+	return s.doorGhost(i)
+}
+
 func (s *Scene) groundHeight(x, z, headY float64, skipBox func(int) bool) float64 {
 	g := math.Inf(-1)
 
@@ -124,6 +131,9 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 	walkTop := feetY + step
 
 	for i := range s.Boxes {
+		if s.isDoorGhostBox(i) {
+			continue
+		}
 		b := &s.Boxes[i]
 		mn, mx := b.WorldBounds()
 		if mx.Y <= walkTop || mn.Y >= headY {

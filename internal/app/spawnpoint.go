@@ -8,25 +8,25 @@ import (
 	"raytracer/internal/vec"
 )
 
-func applySpawnpoint(cam *camera.Camera, sp scene.PlayerSpawnpoint) {
-	if sp.UseFloor {
+func applyPlayerAtPoint(cam *camera.Camera, p scene.Point) {
+	if p.UseFloor {
 		cam.SetPose(camera.Pose{
-			Pos:   vec.New(sp.Pos.X, 0, sp.Pos.Z),
-			Yaw:   sp.Yaw,
-			Pitch: sp.Pitch,
+			Pos:   vec.New(p.Pos.X, 0, p.Pos.Z),
+			Yaw:   p.Yaw,
+			Pitch: p.Pitch,
 		})
-		cam.PlaceOnFloor(sp.FloorY)
+		cam.PlaceOnFloor(p.FloorY)
 		return
 	}
-	cam.SetPose(camera.Pose{Pos: sp.Pos, Yaw: sp.Yaw, Pitch: sp.Pitch})
+	cam.SetPose(camera.Pose{Pos: p.Pos, Yaw: p.Yaw, Pitch: p.Pitch})
 	cam.Land()
 }
 
 func spawnPlayerAt(cam *camera.Camera, sc *scene.Scene, id string) error {
-	sp, ok := sc.Spawnpoint(id)
+	p, ok := sc.PointByID(id)
 	if !ok {
-		return fmt.Errorf("player_spawnpoint %q not found", id)
+		return fmt.Errorf("point %q not found", id)
 	}
-	applySpawnpoint(cam, sp)
+	applyPlayerAtPoint(cam, p)
 	return nil
 }

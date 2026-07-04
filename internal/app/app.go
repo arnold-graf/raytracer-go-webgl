@@ -17,6 +17,7 @@ import (
 
 	"raytracer/internal/audio"
 	"raytracer/internal/camera"
+	"raytracer/internal/door"
 	"raytracer/internal/npc"
 	"raytracer/internal/probe"
 	"raytracer/internal/render"
@@ -108,6 +109,8 @@ type Game struct {
 
 	npcs *npc.Manager
 
+	doors *door.Manager
+
 	// npcDebug draws skeleton/foot overlay segments (key 6).
 	npcDebug bool
 
@@ -169,6 +172,11 @@ func (g *Game) setScene(sc *scene.Scene) {
 	g.cam.SetWorld(sc)
 	g.npcs = npc.NewManager()
 	_ = g.npcs.Instantiate(sc, npc.FootWorld(sc))
+	g.doors = door.NewManager()
+	if err := g.doors.Instantiate(sc); err != nil {
+		fmt.Fprintf(os.Stderr, "doors: %v\n", err)
+	}
+	sc.SetDoorGhost(g.doors.GhostBox)
 	if err := g.spyglass.Init(); err != nil {
 		fmt.Fprintf(os.Stderr, "spyglass: %v\n", err)
 	}
@@ -476,6 +484,11 @@ func (g *Game) Update() error {
 		if g.npcs != nil {
 			const npcDt = 1.0 / 60.0
 			g.npcs.Update(g.sc, npc.FootWorld(g.sc), npcDt)
+		}
+		if g.doors != nil {
+			feetY := g.cam.Pos.Y - g.cam.EyeHeight()
+			headY := g.cam.Pos.Y + 0.15
+			g.doors.Update(g.sc, g.cam.Pos, feetY, headY, 1.0/60.0)
 		}
 		g.spyglass.Update(g.sc, g.cam, 1.0/60.0)
 	}

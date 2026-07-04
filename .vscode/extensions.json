@@ -1,5 +1,8 @@
 {
   "recommendations": [
+    "tombi-toml.tombi"
+  ],
+  "unwantedRecommendations": [
     "tamasfe.even-better-toml"
   ]
 }

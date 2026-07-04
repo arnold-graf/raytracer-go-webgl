@@ -1,12 +1,11 @@
 # The Cube is a 5x5x0.5 room. Origin is the footprint center. Interior walls
 # display the five captured views (forward, left, right, up, down).
 #
-# Exit portal arrival uses [[player_spawnpoint]] id "cube_lab_1" (see
-# internal/app/portal.go). floor_y is the walkable surface; pos is x/z in the
-# room. Do not SnapToGround on arrival — Manhattan's center tower roof sits
-# above this point.
+# Exit portal arrival uses [[point]] id "cube_lab_1" (see internal/app/portal.go).
+# floor_y is the walkable surface; pos is x/z in the room. Do not SnapToGround on
+# arrival — Manhattan's center tower roof sits above this point.
 
-[[player_spawnpoint]]
+[[point]]
 id = "cube_lab_1"
 pos = [1.5, 0.0, 1.5]
 floor_y = 0.3

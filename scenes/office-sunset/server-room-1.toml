@@ -52,7 +52,7 @@ material = "diffuse"
 albedo = [0.3, 0.3, 0.3]
 pos_x = 0.0
 pos_y = 0.0
-pos_z = 25.0
+pos_z = 20.0
 width = 50.0
 height = 8.0
 depth = 0.2
@@ -122,6 +122,32 @@ at = [29.0, 0.2, 8.0]
 rotate_y = 90
 instance = true
 
+# server racks on the other side of the room
+[[include]]
+file = "objects/server-column.toml"
+at = [20.0, 0.2, 18.0]
+rotate_y = 90
+instance = true
+
+[[include]]
+file = "objects/server-column.toml"
+at = [23.0, 0.2, 18.0]
+rotate_y = 90
+instance = true
+
+[[include]]
+file = "objects/server-column.toml"
+at = [26.0, 0.2, 18.0]
+rotate_y = 90
+instance = true
+
+[[include]]
+file = "objects/server-column.toml"
+at = [29.0, 0.2, 18.0]
+rotate_y = 90
+instance = true
+
+
 # stairs to the cube
 [[include]]
 file = "../objects/staircase.toml"
@@ -133,7 +159,7 @@ params = { steps = 5, run = 0.3, rise = 0.2, width = 4, texture = "marble", refl
 [[include]]
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
-at = [26.0, 8, 15.0]
+at = [26.0, 8, 11.0]
 params = { stem_len = 2.3, brightness = 0.1, range = 10 }
 
 # Lamp 2 (near the door)
@@ -143,13 +169,23 @@ file = "../objects/art-deco-ring-lamp.toml"
 at = [42.0, 8, 5.0]
 params = { stem_len = 2.3, brightness = 0.1, range = 20 }
 
-# Lamp 3 (very dim) above the table
+# Lamp 3 (very dim) above the desk
 [[include]]
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
-at = [7.0, 8, 10.0]
+at = [8.0, 8, 9.0]
 params = { stem_len = 2.3, brightness = 0.02, range = 20 }
 
+# desk to the left of the cube
+[[include]]
+file = "objects/server-room-desk.toml"
+at = [8.0, 0.2, 9.0]
+
+# switch cupboard opposite the cube
+[[include]]
+file = "../objects/cupboard-double-door.toml"
+at = [16.0, 0.0, 18.8]
+params = { width = 2, height = 3.0, depth = 0.5, shelves = 4, albedo = [0.1, 0.1, 0.2 ], reflect = 0.02, rough = 0.01 }
 
 # table to the right of the cube
 [[include]]
@@ -168,39 +204,6 @@ instance = true
 file = "../objects/ashtray.toml"
 at = [14.5, 1.1, 7.3]
 rotate_y = -50
-
-
-
-# table (desk) to the left of the cube
-[[include]]
-file = "../objects/simple-table.toml"
-at = [7.0, 0.2, 10.0]
-rotate_y = 20
-params = { width = 2, height = 0.9, texture = "wood" }
-
-# Laptop on the desk
-[[include]]
-file = "objects/laptop.toml"
-at = [7.0, 1.1, 10.3]
-rotate_y = 15
-
-# Chair at the desk (faces the laptop)
-[[include]]
-file = "../objects/simple-chair.toml"
-at = [7.5, 0.2, 12]
-rotate_y = -27
-
-# glass bottle on the desk
-[[include]]
-instance = true
-file = "../objects/glass-bottle.toml"
-at = [6.6, 1.1, 10.5]
-
-# ashtray on the desk
-[[include]]
-instance = true
-file = "../objects/ashtray.toml"
-at = [7.5, 1.1, 10.3]
 
 
 #npc walking around

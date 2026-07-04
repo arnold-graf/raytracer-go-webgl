@@ -1,5 +1,4 @@
-# Taplo / Even Better TOML configuration (auto-discovered in workspace root).
-# See schemas/README.md for schema maintenance.
+# Taplo CLI configuration (taplo check). IDE uses tombi.toml — see schemas/README.md.
 
 [[rule]]
 include = ["scenes/*.toml", "scenes/**/*.toml"]

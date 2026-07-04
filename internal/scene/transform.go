@@ -74,6 +74,18 @@ func NewTransform(degX, degY, degZ float64, pivot vec.V) *Transform {
 	return &Transform{fwd: fwd, inv: fwd.transpose(), t: pivot.Sub(fwd.mul(pivot))}
 }
 
+// RotationAboutAxis builds a rotation (degrees) about pivot on a principal axis.
+func RotationAboutAxis(axis string, deg float64, pivot vec.V) *Transform {
+	switch axis {
+	case "x":
+		return NewTransform(deg, 0, 0, pivot)
+	case "z":
+		return NewTransform(0, 0, deg, pivot)
+	default:
+		return NewTransform(0, deg, 0, pivot)
+	}
+}
+
 // NewRigidTransform builds a world transform with Euler rotation (degrees,
 // Rz*Ry*Rx order) and translation at pos.
 func NewRigidTransform(degX, degY, degZ float64, pos vec.V) *Transform {

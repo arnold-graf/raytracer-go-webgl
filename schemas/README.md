@@ -11,28 +11,31 @@ Human-editable scene files (`scenes/**/*.toml`) and player configs are described
 
 ## IDE support (VS Code / Cursor)
 
-Install the [**Even Better TOML**](https://marketplace.visualstudio.com/items?itemName=tamasfe.even-better-toml) extension (`tamasfe.even-better-toml`). Cursor prompts to install recommended extensions from `.vscode/extensions.json` when you open the repo.
+Install [**Tombi**](https://marketplace.visualstudio.com/items?itemName=tombi-toml.tombi) (`tombi-toml.tombi`). Cursor prompts to install recommended extensions from `.vscode/extensions.json` when you open the repo.
 
 This repo wires schemas via:
 
-- `.vscode/settings.json` — `evenBetterToml.schema.associations` for `scenes/*.toml`, `scenes/**/*.toml`, and `player.toml`
-- `taplo.toml` — same associations for Taplo CLI and the extension’s language server
+- `tombi.toml` — `[[schemas]]` mappings for scene and player TOML files (primary)
+- `taplo.toml` — same associations for Taplo CLI (`taplo check`)
+- `.vscode/settings.json` — Tombi as the default TOML formatter
 
 **Glob note:** `scenes/*.toml` (files directly in `scenes/`) needs its own pattern; `scenes/**/*.toml` alone does **not** match `scenes/npc-test.toml`.
 
 After installing, open a scene file: you should get diagnostics (squiggles), hover docs from schema `description` fields, and completion on table keys.
 
-**Per-file override** (optional): add a header directive at the top of a TOML file ([Taplo directives](https://taplo.tamasfe.dev/configuration/directives.html)):
+**Per-file override** (optional): add a header directive at the top of a TOML file:
 
 ```toml
 #:schema ../schemas/scene.schema.json
 ```
 
-**Alternative:** [Tombi](https://open-vsx.org/extension/tombi-toml/tombi) is a newer TOML language server for Cursor. Configure it with `tombi.toml` and `[[schemas]]` entries instead of `taplo.toml`.
+**Even Better TOML / Taplo** (alternative): configure `evenBetterToml.schema.associations` or use `taplo.toml`. Taplo only supports [JSON Schema Draft 4](https://taplo.tamasfe.dev/configuration/developing-schemas.html); disable the Schema Store catalog (`evenBetterToml.schema.repositoryEnabled: false`) so catalog schemas do not override repo associations.
 
-**Taplo / Even Better TOML** only supports [JSON Schema Draft 4](https://taplo.tamasfe.dev/configuration/developing-schemas.html). The scene schema uses `definitions` (not `$defs`) and Draft-4-style `"exclusiveMinimum": true` (boolean). Disable the Schema Store catalog in `.vscode/settings.json` (`evenBetterToml.schema.repositoryEnabled: false`) so random catalog schemas do not override repo associations.
+**Tombi style lints:** `tombi.toml` disables `tables-out-of-order` and `dotted-keys-out-of-order` so scene files can group primitives however you like (e.g. interleaving `[[box]]` and `[[cylinder]]`).
 
-IDE validation is best-effort; the Go validator above is the authoritative check.
+**Tombi strict mode:** Primitives use `allOf` to compose geometry fields with `primitive_transform` and `primitive_surface`. Tombi validates each `allOf` branch separately, so partial subschemas set `"additionalProperties": true` to avoid false positives on valid keys like `pos_z`. The root schema still uses `"additionalProperties": false` to reject unknown top-level tables.
+
+IDE validation is best-effort; the Go validator below is the authoritative check.
 
 ## Validating a file
 

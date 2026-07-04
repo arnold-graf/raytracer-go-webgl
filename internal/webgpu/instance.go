@@ -60,8 +60,8 @@ func packInstancedScene(s *scene.Scene) (
 	}
 
 	staticScene := sliceStaticScene(s, static)
-	prims = PackPrimitives(staticScene)
-	blockers = PackBlockers(staticScene)
+	prims = packPrimitivesOmitDynamic(staticScene, s)
+	blockers = packBlockersOmitDynamic(staticScene, s)
 	var dynMap gpuIndexMap
 	var dynBlocker gpuIndexMap
 	prims, dynMap = appendDynamicBodyPrimitives(s, prims)

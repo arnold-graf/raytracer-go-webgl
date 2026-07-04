@@ -490,7 +490,7 @@ func (d interactDTO) build() scene.Interactable {
 	}
 }
 
-type playerSpawnpointDTO struct {
+type pointDTO struct {
 	ID      string   `toml:"id"`
 	Pos     vec3     `toml:"pos"`
 	FloorY  *float64 `toml:"floor_y"`
@@ -498,21 +498,21 @@ type playerSpawnpointDTO struct {
 	Pitch   float64  `toml:"pitch"`
 }
 
-func (d playerSpawnpointDTO) build() (scene.PlayerSpawnpoint, error) {
+func (d pointDTO) build() (scene.Point, error) {
 	if d.ID == "" {
-		return scene.PlayerSpawnpoint{}, fmt.Errorf("missing id")
+		return scene.Point{}, fmt.Errorf("missing id")
 	}
-	sp := scene.PlayerSpawnpoint{
+	p := scene.Point{
 		ID:    d.ID,
 		Pos:   d.Pos.toV(),
 		Yaw:   d.Yaw,
 		Pitch: d.Pitch,
 	}
 	if d.FloorY != nil {
-		sp.FloorY = *d.FloorY
-		sp.UseFloor = true
+		p.FloorY = *d.FloorY
+		p.UseFloor = true
 	}
-	return sp, nil
+	return p, nil
 }
 
 type sceneDTO struct {
@@ -534,8 +534,9 @@ type sceneDTO struct {
 	Light       []lightDTO      `toml:"light"`
 	Campfire    []campfireDTO   `toml:"campfire"`
 	Sound       []soundDTO      `toml:"sound"`
-	PlayerSpawnpoint []playerSpawnpointDTO `toml:"player_spawnpoint"`
+	Point            []pointDTO            `toml:"point"`
 	NPC              []npcDTO              `toml:"npc"`
+	Door             []doorDTO             `toml:"door"`
 }
 
 // tintOrWhite returns v as a color, defaulting an omitted (all-zero) vector to
@@ -978,17 +979,17 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 	if dto.Interact != nil {
 		s.Interactables = append(s.Interactables, dto.Interact.build())
 	}
-	seenSpawn := map[string]bool{}
-	for i, d := range dto.PlayerSpawnpoint {
-		sp, err := d.build()
+	seenPoint := map[string]bool{}
+	for i, d := range dto.Point {
+		p, err := d.build()
 		if err != nil {
-			return nil, fmt.Errorf("player_spawnpoint[%d]: %w", i, err)
+			return nil, fmt.Errorf("point[%d]: %w", i, err)
 		}
-		if seenSpawn[sp.ID] {
-			return nil, fmt.Errorf("player_spawnpoint[%d]: duplicate id %q", i, sp.ID)
+		if seenPoint[p.ID] {
+			return nil, fmt.Errorf("point[%d]: duplicate id %q", i, p.ID)
 		}
-		seenSpawn[sp.ID] = true
-		s.Spawnpoints = append(s.Spawnpoints, sp)
+		seenPoint[p.ID] = true
+		s.Points = append(s.Points, p)
 	}
 	for i, d := range dto.NPC {
 		sp, err := d.build()
@@ -999,6 +1000,13 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if s.NPCSpawns[len(s.NPCSpawns)-1].Rig == "" {
 			return nil, fmt.Errorf("npc[%d]: missing rig", i)
 		}
+	}
+	for i, d := range dto.Door {
+		spec, err := d.build(len(s.Boxes))
+		if err != nil {
+			return nil, fmt.Errorf("door[%d]: %w", i, err)
+		}
+		s.DoorSpecs = append(s.DoorSpecs, spec)
 	}
 
 	return s, nil
@@ -1015,7 +1023,16 @@ func (dto sceneDTO) buildWithIncludes(path string, seen map[string]bool, deps *[
 			return nil, err
 		}
 	}
+	appendDoorInteractables(s)
 	return s, nil
+}
+
+func appendDoorInteractables(s *scene.Scene) {
+	for _, ds := range s.DoorSpecs {
+		if ds.Interact != nil {
+			s.Interactables = append(s.Interactables, *ds.Interact)
+		}
+	}
 }
 
 func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) error {
@@ -1102,6 +1119,7 @@ func instanceTransform(dst *scene.Scene, sub *scene.Scene, inc includeDTO, follo
 // mergeScene appends every primitive from sub into dst, composing each
 // primitive's local transform with the instance transform xf.
 func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
+	boxOffset := len(dst.Boxes)
 	// Finite primitives keep their geometry in the sub-scene's local space and
 	// carry the composed instance transform; the BVH, CPU tracer and GPU all
 	// intersect in local space and map back via Xform (see bvh.addBounded and
@@ -1210,12 +1228,13 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 		}
 		dst.Interactables = append(dst.Interactables, ia)
 	}
-	for _, sp := range sub.Spawnpoints {
-		dst.Spawnpoints = append(dst.Spawnpoints, sp.Placed(xf))
+	for _, p := range sub.Points {
+		dst.Points = append(dst.Points, p.Placed(xf))
 	}
 	for _, sp := range sub.NPCSpawns {
 		dst.NPCSpawns = append(dst.NPCSpawns, sp.Placed(xf))
 	}
+	mergeDoorSpecs(dst, sub, xf, boxOffset)
 }
 
 // addTerrainPads appends pads to every terrain in dst and re-Prepares the

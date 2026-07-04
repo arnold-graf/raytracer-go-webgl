@@ -235,6 +235,20 @@ func (b *Box) localPointInsideSolid(p vec.V, radius float64) bool {
 		p.Z >= b.Min.Z-radius-eps && p.Z <= b.Max.Z+radius+eps
 }
 
+// PlayerOverlapsBox reports whether a vertical player capsule overlaps the box
+// at world (x,z) between feetY and headY.
+func (b *Box) PlayerOverlapsBox(x, z, feetY, headY, radius, step float64) bool {
+	walkTop := feetY + step
+	mn, mx := b.WorldBounds()
+	if mx.Y <= walkTop || mn.Y >= headY {
+		return false
+	}
+	if x <= mn.X-radius || x >= mx.X+radius || z <= mn.Z-radius || z >= mx.Z+radius {
+		return false
+	}
+	return b.blocksColumn(x, z, walkTop, headY, radius)
+}
+
 // blocksColumn reports whether a player footprint at world (wx,wz) with vertical
 // extent [bandLo,bandHi] and the given radius intersects the box's solid volume.
 // The query is evaluated in the box's local frame so rotation is honored.

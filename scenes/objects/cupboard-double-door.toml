@@ -1,0 +1,160 @@
+# Floor-standing cupboard with double swinging doors and interior shelves.
+#
+# Local origin (0, 0, 0) is the front-left-bottom outer corner. The carcass
+# extends +X (width), +Y (height), and +Z (depth, into the cupboard). Doors
+# mount on the front face (z = 0) and swing outward toward -Z.
+# open_sign = -1 because door panels extend in -Z from the hinge plane.
+#
+# Parameterized via [[include]] params (all optional):
+#   width, height, depth   outer dimensions in metres (default 1.6, 2.2, 0.6)
+#   shelves                count of interior shelves, evenly spaced (default 3)
+#   door_gap               centre gap between closed door leaves in metres (default 0.005)
+#   right_door_yaw         closed-pose yaw of the right leaf in degrees (default 1)
+#   material, texture      surface material / texture name
+#   albedo, reflect, rough surface overrides
+#
+#   [[include]]
+#   file = "objects/cupboard-double-door.toml"
+#   at = [12.0, 0.0, 18.8]
+#   params = { width = 4.7, height = 3.0, depth = 1.0, shelves = 4, albedo = [0.01, 0.01, 0.01] }
+
+{{$width := or .width 1.6}}
+{{$height := or .height 2.2}}
+{{$depth := or .depth 0.6}}
+{{$shelves := or .shelves 3}}
+{{$material := or .material "diffuse"}}
+{{$texture := or .texture ""}}
+{{$albedo := orVec3 .albedo 0.12 0.11 0.10}}
+{{$reflect := or .reflect 0.02}}
+{{$rough := or .rough 0.04}}
+
+{{$side := 0.06}}
+{{$back := 0.06}}
+{{$top := 0.06}}
+{{$doorTh := 0.06}}
+{{$doorGap := or .door_gap 0.005}}
+{{$shelfTh := 0.04}}
+{{$innerW := sub $width (mul $side 2)}}
+{{$innerD := sub $depth $back}}
+{{$doorW := div (sub $innerW $doorGap) 2}}
+{{$doorH := $height}}
+{{$shelfW := $innerW}}
+{{$shelfD := sub $innerD 0.04}}
+{{$shelfY0 := 0.18}}
+{{$shelfY1 := sub (sub $height $top) 0.12}}
+
+# Door panels first so panel_boxes indices stay [0, 1].
+[[box]] # left door panel
+material = "{{$material}}"
+{{if $texture}}texture = "{{$texture}}"{{end}}
+albedo = {{$albedo}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = {{$side}}
+pos_y = 0.0
+pos_z = {{neg $doorTh}}
+width = {{$doorW}}
+height = {{$doorH}}
+depth = {{$doorTh}}
+
+[[box]] # right door panel
+material = "{{$material}}"
+{{if $texture}}texture = "{{$texture}}"{{end}}
+albedo = {{$albedo}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = {{add $side $doorW $doorGap}}
+pos_y = 0.0
+pos_z = {{neg $doorTh}}
+width = {{$doorW}}
+height = {{$doorH}}
+depth = {{$doorTh}}
+
+[[door]]
+id = "cupboard_doors"
+kind = "double"
+hinge_left = [{{$side}}, 0.0, 0.0]
+hinge_right = [{{sub $width $side}}, 0.0, 0.0]
+axis = "y"
+open_angle = 90
+swing = "one_way"
+open_sign = -1.0
+speed = 1.8
+panel_boxes = [0, 1]
+panel_closed_angle = [0, {{or .right_door_yaw -2.0}}]
+
+  [door.interact]
+  center = [{{div $width 2}}, {{div $height 2}}, 0.0]
+  use_range = 2.0
+  hint = "press {{use_button}} to open"
+
+[[box]] # left side
+material = "{{$material}}"
+{{if $texture}}texture = "{{$texture}}"{{end}}
+albedo = {{$albedo}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = {{$side}}
+height = {{$height}}
+depth = {{$depth}}
+
+[[box]] # right side
+material = "{{$material}}"
+{{if $texture}}texture = "{{$texture}}"{{end}}
+albedo = {{$albedo}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = {{sub $width $side}}
+pos_y = 0.0
+pos_z = 0.0
+width = {{$side}}
+height = {{$height}}
+depth = {{$depth}}
+
+[[box]] # back
+material = "{{$material}}"
+{{if $texture}}texture = "{{$texture}}"{{end}}
+albedo = {{$albedo}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = {{$side}}
+pos_y = 0.0
+pos_z = {{sub $depth $back}}
+width = {{$innerW}}
+height = {{$height}}
+depth = {{$back}}
+
+[[box]] # top
+material = "{{$material}}"
+{{if $texture}}texture = "{{$texture}}"{{end}}
+albedo = {{$albedo}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = 0.0
+pos_y = {{sub $height $top}}
+pos_z = 0.0
+width = {{$width}}
+height = {{$top}}
+depth = {{$depth}}
+
+{{range $i := seq $shelves}}
+{{$n := add $i 1}}
+{{$span := sub $shelfY1 $shelfY0}}
+{{$step := div $span (add $shelves 1)}}
+{{$y := add $shelfY0 (mul $step $n)}}
+[[box]] # shelf {{$n}}
+material = "{{$material}}"
+{{if $texture}}texture = "{{$texture}}"{{end}}
+albedo = {{$albedo}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = {{$side}}
+pos_y = {{$y}}
+pos_z = {{0.02}}
+width = {{$shelfW}}
+height = {{$shelfTh}}
+depth = {{$shelfD}}
+{{end}}

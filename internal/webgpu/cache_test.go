@@ -71,3 +71,21 @@ func TestSceneCachePartialTransformUpdate(t *testing.T) {
 		t.Fatal("TransformGeneration should have advanced")
 	}
 }
+
+func TestRebuildFlatSingleDynamicBox(t *testing.T) {
+	sc := &scene.Scene{
+		Boxes: []scene.Box{
+			{Min: vec.V{}, Max: vec.V{X: 1}, Surface: scene.Surface{Mat: scene.MatDiffuse}},
+			{Min: vec.V{X: 2}, Max: vec.V{X: 3}, Surface: scene.Surface{Mat: scene.MatDiffuse, Tex: 1}},
+		},
+		DynamicBodies: []scene.DynamicBody{{Boxes: [2]int{1, 2}}},
+	}
+	var c sceneCache
+	c.rebuildFlat(sc)
+	if len(c.prims) != 2 {
+		t.Fatalf("prims = %d, want 2 (static box + one dynamic copy)", len(c.prims))
+	}
+	if gi, ok := c.layout.gpu.box[1]; !ok || gi != 1 {
+		t.Fatalf("dynamic box GPU index = %v ok=%v, want 1", gi, ok)
+	}
+}

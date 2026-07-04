@@ -178,16 +178,27 @@ func (c *sceneCache) updateDynamicTransforms(s *scene.Scene) {
 }
 
 func (c *sceneCache) rebuildFlat(s *scene.Scene) {
-	c.prims = PackPrimitives(s)
-	c.blockers = PackBlockers(s)
+	if s != nil && len(s.DynamicBodies) > 0 {
+		c.prims = packPrimitivesWithoutDynamic(s)
+		c.blockers = packBlockersWithoutDynamic(s)
+		var blkMap gpuIndexMap
+		var primMap gpuIndexMap
+		c.prims, primMap = appendDynamicBodyPrimitives(s, c.prims)
+		c.blockers, blkMap = appendDynamicBodyBlockers(s, c.blockers)
+		primMap.primToBlocker = linkPrimToBlocker(primMap, blkMap)
+		c.layout = computePrimLayout(s)
+		c.layout.gpu = primMap
+	} else {
+		c.prims = PackPrimitives(s)
+		c.blockers = PackBlockers(s)
+		c.layout = computePrimLayout(s)
+	}
 	bvhNodes := PackBVH(c.prims)
 	blkNodes := PackBVH(c.blockers)
 	c.bvhNodes = append(append([]GPUBVHNode(nil), bvhNodes...), blkNodes...)
 	c.bvhNodeCount = uint32(len(bvhNodes))
 	c.blockerNodeCount = uint32(len(blkNodes))
 	c.blockerSecStart = c.bvhNodeCount
-	c.layout = computePrimLayout(s)
-	c.layout.gpu = buildDynamicGPUMaps(s)
 }
 
 func (c *sceneCache) clearInstancing() {

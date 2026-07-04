@@ -121,11 +121,11 @@
         "$ref": "#/definitions/sound"
       }
     },
-    "player_spawnpoint": {
+    "point": {
       "type": "array",
-      "description": "TOML [[player_spawnpoint]]. Named spawn locations for portal transitions and debugging.",
+      "description": "TOML [[point]]. Named locations in scene space (player spawn, future NPC targets, etc.).",
       "items": {
-        "$ref": "#/definitions/player_spawnpoint"
+        "$ref": "#/definitions/point"
       }
     },
     "npc": {
@@ -133,6 +133,13 @@
       "description": "TOML array-of-tables [[npc]]. Procedural humanoid (or other YAML rig) spawns. The runtime NPC manager loads the rig, appends limb primitives to the scene, and animates locomotion when speed > 0.",
       "items": {
         "$ref": "#/definitions/npc"
+      }
+    },
+    "door": {
+      "type": "array",
+      "description": "TOML [[door]]. Swinging door panels with hinge animation and E-key interaction.",
+      "items": {
+        "$ref": "#/definitions/door"
       }
     }
   },
@@ -209,7 +216,8 @@
     "on_use": {
       "type": "string",
       "enum": [
-        "exit_portal"
+        "exit_portal",
+        "door"
       ],
       "description": "Handler invoked when the player uses (E) this interactable within use_range."
     },
@@ -283,7 +291,8 @@
       },
       "required": [
         "material"
-      ]
+      ],
+      "additionalProperties": true
     },
     "primitive_transform": {
       "type": "object",
@@ -298,7 +307,8 @@
         "rotate_z": {
           "$ref": "#/definitions/rotate_z"
         }
-      }
+      },
+      "additionalProperties": true
     },
     "box_extent_pos_size": {
       "type": "object",
@@ -391,7 +401,8 @@
           "required": [
             "center",
             "radius"
-          ]
+          ],
+          "additionalProperties": true
         },
         {
           "$ref": "#/definitions/primitive_transform"
@@ -422,7 +433,8 @@
           "required": [
             "normal",
             "d"
-          ]
+          ],
+          "additionalProperties": true
         },
         {
           "$ref": "#/definitions/primitive_transform"
@@ -497,7 +509,8 @@
                 "max"
               ]
             }
-          ]
+          ],
+          "additionalProperties": true
         },
         {
           "$ref": "#/definitions/primitive_transform"
@@ -557,7 +570,8 @@
               "description": "Omit the top end cap (hollow tube)."
             }
           },
-          "required": ["pos_x", "pos_y", "pos_z", "height"]
+          "required": ["pos_x", "pos_y", "pos_z", "height"],
+          "additionalProperties": true
         },
         {
           "$ref": "#/definitions/primitive_transform"
@@ -601,7 +615,8 @@
             "ybase",
             "ytip",
             "rbase"
-          ]
+          ],
+          "additionalProperties": true
         },
         {
           "$ref": "#/definitions/primitive_transform"
@@ -637,7 +652,8 @@
             "center",
             "major",
             "minor"
-          ]
+          ],
+          "additionalProperties": true
         },
         {
           "$ref": "#/definitions/primitive_transform"
@@ -677,7 +693,8 @@
               "description": "Vertical extent along Y."
             }
           },
-          "required": ["cx", "cy", "cz", "radius"]
+          "required": ["cx", "cy", "cz", "radius"],
+          "additionalProperties": true
         },
         {
           "$ref": "#/definitions/primitive_transform"
@@ -729,7 +746,8 @@
               "description": "Center thickness along the optical axis."
             }
           },
-          "required": ["cx", "cy", "cz", "aperture", "r_front", "r_back", "thickness"]
+          "required": ["cx", "cy", "cz", "aperture", "r_front", "r_back", "thickness"],
+          "additionalProperties": true
         },
         {
           "$ref": "#/definitions/primitive_transform"
@@ -939,7 +957,8 @@
             "pos",
             "radius",
             "level"
-          ]
+          ],
+          "additionalProperties": true
         },
         {
           "$ref": "#/definitions/primitive_surface"
@@ -1153,29 +1172,30 @@
       ],
       "additionalProperties": false
     },
-    "player_spawnpoint": {
+    "point": {
       "type": "object",
+      "description": "Named anchor in scene space.",
       "properties": {
         "id": {
           "type": "string",
           "minLength": 1,
-          "description": "Unique name referenced by portal handlers and debug commands."
+          "description": "Unique name referenced by game code (portals, NPC goals, etc.)."
         },
         "pos": {
           "$ref": "#/definitions/vec3",
-          "description": "Spawn eye position."
+          "description": "Anchor position. For player spawn with floor_y, X/Z are horizontal and Y is ignored."
         },
         "floor_y": {
           "type": "number",
-          "description": "Optional explicit floor height; when set, the player is placed standing on this Y instead of terrain query."
+          "description": "Optional walkable surface height for player spawn (adds eye height above this Y)."
         },
         "yaw": {
           "type": "number",
-          "description": "Initial look yaw (degrees)."
+          "description": "Optional initial look yaw for player spawn."
         },
         "pitch": {
           "type": "number",
-          "description": "Initial look pitch (degrees)."
+          "description": "Optional initial look pitch for player spawn."
         }
       },
       "required": [
@@ -1231,6 +1251,93 @@
         "rig",
         "at"
       ],
+      "additionalProperties": false
+    },
+    "door": {
+      "type": "object",
+      "description": "TOML [[door]]. Swinging door with dynamic panel box(es) and optional nested [door.interact].",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique door name for interaction and debugging."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["single", "double"],
+          "description": "Single panel or paired double doors. Default: single."
+        },
+        "hinge": {
+          "$ref": "#/definitions/vec3",
+          "description": "Hinge edge position for single doors (or left panel on double doors)."
+        },
+        "hinge_left": {
+          "$ref": "#/definitions/vec3",
+          "description": "Left panel hinge for double doors."
+        },
+        "hinge_right": {
+          "$ref": "#/definitions/vec3",
+          "description": "Right panel hinge for double doors."
+        },
+        "axis": {
+          "type": "string",
+          "enum": ["x", "y", "z"],
+          "description": "Rotation axis through the hinge. Default: y."
+        },
+        "open_angle": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum swing in degrees. Default: 90."
+        },
+        "swing": {
+          "type": "string",
+          "enum": ["one_way", "both"],
+          "description": "one_way always opens the same direction; both picks from the player side when closed."
+        },
+        "open_sign": {
+          "type": "number",
+          "description": "Swing direction (+1 / −1) for one_way doors."
+        },
+        "speed": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Swing speed in rad/s. Default: 1.5."
+        },
+        "panel_boxes": {
+          "type": "array",
+          "description": "Indices into this file's [[box]] tables for the moving panel(s).",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "minItems": 1
+        },
+        "panel_closed_angle": {
+          "type": "array",
+          "description": "Optional per-panel closed-pose rotation in degrees about each hinge. Length may be less than panel_boxes.",
+          "items": {
+            "type": "number"
+          }
+        },
+        "interact": {
+          "type": "object",
+          "properties": {
+            "hint": {
+              "type": "string"
+            },
+            "use_range": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "center": {
+              "$ref": "#/definitions/vec3"
+            }
+          },
+          "required": ["center"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["id", "panel_boxes"],
       "additionalProperties": false
     },
     "include": {

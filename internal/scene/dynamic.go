@@ -57,6 +57,19 @@ type DynamicBody struct {
 	Lenses    [2]int
 }
 
+// IsDynamicCylinder reports whether cylinder index i belongs to a DynamicBody.
+func (s *Scene) IsDynamicCylinder(i int) bool {
+	if s == nil {
+		return false
+	}
+	for _, db := range s.DynamicBodies {
+		if i >= db.Cylinders[0] && i < db.Cylinders[1] {
+			return true
+		}
+	}
+	return false
+}
+
 // TouchTransforms marks primitive transforms as changed without invalidating
 // static geometry. NPC pose updates use this so the GPU backend can partially
 // re-upload and refit the BVH instead of a full scene rebuild.
@@ -70,3 +83,9 @@ func (s *Scene) TouchTransforms() {
 // TransformGeneration bumps on TouchTransforms; renderers use it for partial
 // transform uploads without rebuilding static geometry.
 func (s *Scene) TransformGeneration() uint64 { return s.xformGen }
+
+// SetDoorGhost registers the callback used by Blocked to skip door panels that
+// are ghosting through the player. Pass nil to clear.
+func (s *Scene) SetDoorGhost(fn DoorGhostBox) {
+	s.doorGhost = fn
+}
