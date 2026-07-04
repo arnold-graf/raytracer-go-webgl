@@ -59,6 +59,10 @@ struct Params {
     blocker_inst_base: u32,
 	blocker_inst_count: u32,
     profile_enabled: u32,
+    // Counts of the precomputed plane-index lists (plane_idx / blocker_plane_idx),
+    // so the tracer iterates only planes instead of scanning every primitive.
+    plane_count: u32,
+    blocker_plane_count: u32,
 };
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).
@@ -195,6 +199,15 @@ var<storage, read> inst_records: array<InstanceRecord>;
 
 @group(0) @binding(16)
 var<storage, read_write> profile_counters: array<atomic<u32>>;
+
+// plane_idx / blocker_plane_idx list the indices of the infinite planes inside
+// the prims / blockers buffers. Planes are excluded from the BVH, so instead of
+// scanning every primitive each ray we walk these short lists.
+@group(0) @binding(17)
+var<storage, read> plane_idx: array<u32>;
+
+@group(0) @binding(18)
+var<storage, read> blocker_plane_idx: array<u32>;
 
 const PROF_PIXELS: u32 = 0u;
 const PROF_PATH_SEGS: u32 = 1u;
@@ -1886,15 +1899,14 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
 
     h = inst_nearest_hit(ro, rd, h);
 
-    // Infinite planes are not part of the finite BVH.
-    for (var i = 0u; i < params.prim_count; i = i + 1u) {
-        if (prims[i].info.x != PRIM_PLANE) {
-            continue;
-        }
-        let t = intersect(i, ro, rd);
+    // Infinite planes are not part of the finite BVH; walk the precomputed plane
+    // index list instead of scanning every primitive.
+    for (var i = 0u; i < params.plane_count; i = i + 1u) {
+        let pi = plane_idx[i];
+        let t = intersect(pi, ro, rd);
         if (t < h.t) {
             h.t = t;
-            h.idx = i;
+            h.idx = pi;
             h.kind = 0u;
         }
     }
@@ -2140,11 +2152,9 @@ fn shadowed(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
         return true;
     }
     let limit = max_t - 0.05;
-    for (var i = 0u; i < params.blocker_count; i = i + 1u) {
-        if (blockers[i].info.x != PRIM_PLANE) {
-            continue;
-        }
-        let t = intersect_blocker(i, origin, dir);
+    for (var i = 0u; i < params.blocker_plane_count; i = i + 1u) {
+        let bi = blocker_plane_idx[i];
+        let t = intersect_blocker(bi, origin, dir);
         if (t > RAY_EPSILON && t < limit) {
             prof_inc(PROF_SHADOW_BLOCK, 1u);
             return true;

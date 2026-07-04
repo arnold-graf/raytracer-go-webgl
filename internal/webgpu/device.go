@@ -73,10 +73,27 @@ type Renderer struct {
 	captures  *wgpu.Buffer
 	instTmpl  *wgpu.Buffer
 	instRecs  *wgpu.Buffer
+	planeIdx  *wgpu.Buffer
+	blkPlane  *wgpu.Buffer
 	output    *wgpu.Buffer
 	read      *wgpu.Buffer
 	pipeline  *wgpu.ComputePipeline
 	bind      *wgpu.BindGroup
+
+	// Frame pipelining: when enabled (SetPipelined), Render submits the current
+	// frame and hands back the previous frame's pixels, so the CPU packs frame
+	// N+1 while the GPU renders frame N instead of stalling on it. reads[] are
+	// two readback staging buffers ping-ponged so one can be mapped while the
+	// other receives the next copy. Portal captures and the profiling benchmark
+	// keep using the synchronous path (r.read).
+	pipelined    bool
+	reads        [2]*wgpu.Buffer
+	pipePending  bool
+	pipeSlot     int
+	pipeParity   int
+	pipeSize     uint64
+	pipeSub      wgpu.SubmissionIndex
+	pipeProfiled bool
 
 	cache  sceneCache  // memoized static scene buffers (see cache.go)
 	timing FrameTiming // phase breakdown of the most recent Render (see profile.go)
@@ -250,6 +267,22 @@ func (r *Renderer) init() error {
 	if err != nil {
 		return fmt.Errorf("create instance records buffer: %w", err)
 	}
+	r.planeIdx, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "plane indices",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  maxPrims * 4,
+	})
+	if err != nil {
+		return fmt.Errorf("create plane indices buffer: %w", err)
+	}
+	r.blkPlane, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "blocker plane indices",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  maxPrims * 4,
+	})
+	if err != nil {
+		return fmt.Errorf("create blocker plane indices buffer: %w", err)
+	}
 	r.profile, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "profile counters",
 		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopySrc | wgpu.BufferUsage_CopyDst,
@@ -293,6 +326,16 @@ func (r *Renderer) init() error {
 	})
 	if err != nil {
 		return fmt.Errorf("create readback buffer: %w", err)
+	}
+	for i := range r.reads {
+		r.reads[i], err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+			Label: "pipelined readback",
+			Usage: wgpu.BufferUsage_MapRead | wgpu.BufferUsage_CopyDst,
+			Size:  size,
+		})
+		if err != nil {
+			return fmt.Errorf("create pipelined readback buffer %d: %w", i, err)
+		}
 	}
 
 	shader, err := r.device.CreateShaderModule(&wgpu.ShaderModuleDescriptor{
@@ -366,6 +409,8 @@ func (r *Renderer) init() error {
 			{Binding: 14, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: instTemplateStride}},
 			{Binding: 15, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: instanceStride}},
 			{Binding: 16, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: profileCounterBytes}},
+			{Binding: 17, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
+			{Binding: 18, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 		},
 	})
 	if err != nil {
@@ -415,6 +460,8 @@ func (r *Renderer) init() error {
 			{Binding: 14, Buffer: r.instTmpl, Size: maxInstTemplates * instTemplateStride},
 			{Binding: 15, Buffer: r.instRecs, Size: maxInstances * instanceStride},
 			{Binding: 16, Buffer: r.profile, Size: profileCounterBytes},
+			{Binding: 17, Buffer: r.planeIdx, Size: maxPrims * 4},
+			{Binding: 18, Buffer: r.blkPlane, Size: maxPrims * 4},
 		},
 	})
 	if err != nil {
@@ -443,7 +490,16 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 		BVHNodes: len(rp.bvhNodes),
 		Holes:    len(rp.holes),
 	}
-	if err := r.render(buf[:r.w*r.h*4], cam, rp, r.w, r.h); err != nil {
+	var err error
+	if r.pipelined && !r.profiling {
+		err = r.renderPipelined(buf[:r.w*r.h*4], cam, rp)
+	} else {
+		// The synchronous path shares r.output/params with any in-flight
+		// pipelined frame; drain it first so nothing is lost or double-mapped.
+		r.discardPending()
+		err = r.render(buf[:r.w*r.h*4], cam, rp, r.w, r.h)
+	}
+	if err != nil {
 		for i := 0; i < r.w*r.h; i++ {
 			o := i * 4
 			buf[o], buf[o+1], buf[o+2], buf[o+3] = 255, 0, 255, 255
@@ -460,6 +516,9 @@ func (r *Renderer) RenderSquare(buf []byte, size int, cam *camera.Camera, v *ren
 	if cam == nil {
 		return
 	}
+	// Portal captures render synchronously into the shared output/params buffers;
+	// drain any in-flight pipelined frame first so it isn't clobbered or lost.
+	r.discardPending()
 	rp := r.buildRenderParams(v)
 	if err := r.render(buf[:size*size*4], cam, rp, size, size); err != nil {
 		for i := 0; i < size*size; i++ {
@@ -513,6 +572,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 	c := &r.cache
 	rp := renderParams{
 		prims: c.prims, blockers: c.blockers, lights: c.lights,
+		planeIdx: c.planeIdx, blockerPlaneIdx: c.blockerPlaneIdx,
 		bvhNodes: c.bvhNodes, bvhNodeCount: c.bvhNodeCount, blockerNodeCount: c.blockerNodeCount,
 		instTemplates: c.instTemplates, instPlacements: c.instPlacements,
 		instNodeBase: c.instNodeBase, instNodeCount: c.instNodeCount,
@@ -554,6 +614,8 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 // signature manageable as the GPU scene model grows.
 type renderParams struct {
 	prims, blockers  []GPUPrimitive
+	planeIdx         []uint32
+	blockerPlaneIdx  []uint32
 	lights           []GPULight
 	bvhNodes         []GPUBVHNode
 	bvhNodeCount     uint32
@@ -597,8 +659,10 @@ type renderParams struct {
 	partialBlockerSpans [][2]int
 }
 
-func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh int) error {
-	frameStart := time.Now()
+// uploadFrame writes the per-frame params and any dirty scene buffers to the
+// GPU (via queue writes, which the next Submit consumes in order). It does not
+// encode or submit any GPU work. It sets r.timing.Upload.
+func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) error {
 	uploadStart := time.Now()
 	if p.profileEnabled {
 		zeros := make([]byte, profileCounterBytes)
@@ -668,6 +732,16 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 				return err
 			}
 		}
+		if len(p.planeIdx) > 0 {
+			if err := r.queue.WriteBuffer(r.planeIdx, 0, u32Bytes(p.planeIdx)); err != nil {
+				return err
+			}
+		}
+		if len(p.blockerPlaneIdx) > 0 {
+			if err := r.queue.WriteBuffer(r.blkPlane, 0, u32Bytes(p.blockerPlaneIdx)); err != nil {
+				return err
+			}
+		}
 		// Upload whenever the cache holds an AO volume, independent of the runtime
 		// AO toggle: the toggle only gates the shader's sampling (the aoOK uniform
 		// in paramsBytes), so flipping it on later needs no re-pack/re-upload.
@@ -716,11 +790,16 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 		}
 	}
 	r.timing.Upload = time.Since(uploadStart)
+	return nil
+}
 
-	gpuStart := time.Now()
+// submitTrace encodes and submits one compute dispatch, copying the rendered
+// output (and, when profiling, the atomic counters) into dst. It does not wait
+// on the GPU; the returned submission index lets the caller poll for it later.
+func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled bool) (wgpu.SubmissionIndex, error) {
 	encoder, err := r.device.CreateCommandEncoder(&wgpu.CommandEncoderDescriptor{Label: "trace encoder"})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer encoder.Release()
 
@@ -730,33 +809,33 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 	pass.DispatchWorkgroups(uint32((fw+workgroupXY-1)/workgroupXY), uint32((fh+workgroupXY-1)/workgroupXY), 1)
 	if err := pass.End(); err != nil {
 		pass.Release()
-		return err
+		return 0, err
 	}
 	pass.Release()
 
 	size := uint64(fw * fh * 4)
-	if p.profileEnabled {
+	if profiled {
 		if err := encoder.CopyBufferToBuffer(r.profile, 0, r.profileRead, 0, profileCounterBytes); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	if err := encoder.CopyBufferToBuffer(r.output, 0, r.read, 0, size); err != nil {
-		return err
+	if err := encoder.CopyBufferToBuffer(r.output, 0, dst, 0, size); err != nil {
+		return 0, err
 	}
 	cmd, err := encoder.Finish(&wgpu.CommandBufferDescriptor{Label: "trace command buffer"})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer cmd.Release()
+	return r.queue.Submit(cmd), nil
+}
 
-	submission := r.queue.Submit(cmd)
-	wrapped := wgpu.WrappedSubmissionIndex{Queue: r.queue, SubmissionIndex: submission}
-	r.device.Poll(true, &wrapped)
-	r.timing.GPU = time.Since(gpuStart)
-
-	readStart := time.Now()
+// mapReadInto maps b (already rendered) and copies size bytes into buf. It polls
+// the whole device to service the map callback, so it must only be used once the
+// relevant submission is known complete (the synchronous path).
+func (r *Renderer) mapReadInto(b *wgpu.Buffer, size uint64, buf []byte) error {
 	done := make(chan error, 1)
-	if err := r.read.MapAsync(wgpu.MapMode_Read, 0, size, func(status wgpu.BufferMapAsyncStatus) {
+	if err := b.MapAsync(wgpu.MapMode_Read, 0, size, func(status wgpu.BufferMapAsyncStatus) {
 		if status != wgpu.BufferMapAsyncStatus_Success {
 			done <- fmt.Errorf("map readback: %s", status)
 			return
@@ -774,8 +853,58 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 	case <-time.After(2 * time.Second):
 		return fmt.Errorf("map readback timeout")
 	}
-	copy(buf, r.read.GetMappedRange(0, uint(size)))
-	if err := r.read.Unmap(); err != nil {
+	copy(buf, b.GetMappedRange(0, uint(size)))
+	return b.Unmap()
+}
+
+// mapReadOnSub maps b and copies size bytes into buf, waiting only for the given
+// submission (not the entire device queue). The pipelined path uses this to read
+// back the *previous* frame without blocking on the frame it just submitted.
+func (r *Renderer) mapReadOnSub(b *wgpu.Buffer, size uint64, sub wgpu.SubmissionIndex, buf []byte) error {
+	done := make(chan error, 1)
+	if err := b.MapAsync(wgpu.MapMode_Read, 0, size, func(status wgpu.BufferMapAsyncStatus) {
+		if status != wgpu.BufferMapAsyncStatus_Success {
+			done <- fmt.Errorf("map readback: %s", status)
+			return
+		}
+		done <- nil
+	}); err != nil {
+		return err
+	}
+	wrapped := wgpu.WrappedSubmissionIndex{Queue: r.queue, SubmissionIndex: sub}
+	r.device.Poll(true, &wrapped)
+	select {
+	case err := <-done:
+		if err != nil {
+			return err
+		}
+	case <-time.After(2 * time.Second):
+		return fmt.Errorf("map readback timeout")
+	}
+	copy(buf, b.GetMappedRange(0, uint(size)))
+	return b.Unmap()
+}
+
+// render is the synchronous path: submit one frame and block until its pixels
+// are read back. Used by RenderSquare (portal captures), the profiling
+// benchmark, and whenever pipelining is disabled.
+func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh int) error {
+	frameStart := time.Now()
+	if err := r.uploadFrame(cam, p, fw, fh); err != nil {
+		return err
+	}
+	gpuStart := time.Now()
+	sub, err := r.submitTrace(r.read, fw, fh, p.profileEnabled)
+	if err != nil {
+		return err
+	}
+	wrapped := wgpu.WrappedSubmissionIndex{Queue: r.queue, SubmissionIndex: sub}
+	r.device.Poll(true, &wrapped)
+	r.timing.GPU = time.Since(gpuStart)
+
+	readStart := time.Now()
+	size := uint64(fw * fh * 4)
+	if err := r.mapReadInto(r.read, size, buf); err != nil {
 		return err
 	}
 	if p.profileEnabled {
@@ -787,6 +916,71 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 	r.timing.Total = time.Since(frameStart)
 	return nil
 }
+
+// renderPipelined submits the current frame without waiting on it, then hands
+// back the previous frame's pixels. The GPU renders frame N while the CPU packs
+// and blits, instead of the whole thread stalling on device.Poll every frame.
+// The cost is one frame of latency (the first frame returns black). Only the
+// full-resolution main path (r.w × r.h) uses this.
+func (r *Renderer) renderPipelined(buf []byte, cam *camera.Camera, p renderParams) error {
+	frameStart := time.Now()
+	if err := r.uploadFrame(cam, p, r.w, r.h); err != nil {
+		return err
+	}
+	size := uint64(r.w * r.h * 4)
+	curSlot := r.pipeParity
+
+	gpuStart := time.Now()
+	sub, err := r.submitTrace(r.reads[curSlot], r.w, r.h, p.profileEnabled)
+	if err != nil {
+		return err
+	}
+	r.timing.GPU = time.Since(gpuStart)
+
+	readStart := time.Now()
+	if r.pipePending {
+		if err := r.mapReadOnSub(r.reads[r.pipeSlot], r.pipeSize, r.pipeSub, buf); err != nil {
+			return err
+		}
+		if r.pipeProfiled {
+			if err := r.readProfileCounters(); err != nil {
+				return err
+			}
+		}
+	} else {
+		// Cold start: no previous frame to return yet. Hand back a black frame
+		// this once; the frame we just submitted becomes next call's result.
+		for i := range buf {
+			buf[i] = 0
+		}
+	}
+	r.timing.Readback = time.Since(readStart)
+
+	r.pipePending = true
+	r.pipeSlot = curSlot
+	r.pipeSub = sub
+	r.pipeSize = size
+	r.pipeProfiled = p.profileEnabled
+	r.pipeParity ^= 1
+	r.timing.Total = time.Since(frameStart)
+	return nil
+}
+
+// discardPending drains any in-flight pipelined frame, freeing its staging
+// buffer. Used before falling back to the synchronous path (e.g. profiling).
+func (r *Renderer) discardPending() {
+	if !r.pipePending {
+		return
+	}
+	tmp := make([]byte, r.pipeSize)
+	_ = r.mapReadOnSub(r.reads[r.pipeSlot], r.pipeSize, r.pipeSub, tmp)
+	r.pipePending = false
+}
+
+// SetPipelined enables one-frame-deep CPU/GPU pipelining for the main Render
+// path. Off by default so single-shot callers (tests, preview, gpuprof) and
+// portal captures keep exact synchronous, same-frame semantics.
+func (r *Renderer) SetPipelined(on bool) { r.pipelined = on }
 
 func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [paramsSize]byte {
 	fwd, right, up := cam.Basis()
@@ -854,6 +1048,8 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	if p.profileEnabled {
 		putU32(out[268:272], 1)
 	}
+	putU32(out[272:276], uint32(len(p.planeIdx)))
+	putU32(out[276:280], uint32(len(p.blockerPlaneIdx)))
 	return out
 }
 
@@ -919,6 +1115,17 @@ func (r *Renderer) Release() {
 	}
 	if r.read != nil {
 		r.read.Release()
+	}
+	for i := range r.reads {
+		if r.reads[i] != nil {
+			r.reads[i].Release()
+		}
+	}
+	if r.planeIdx != nil {
+		r.planeIdx.Release()
+	}
+	if r.blkPlane != nil {
+		r.blkPlane.Release()
 	}
 	if r.output != nil {
 		r.output.Release()

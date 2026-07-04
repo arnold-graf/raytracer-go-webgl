@@ -15,17 +15,22 @@ import (
 // TouchTransforms() bumps only TransformGeneration so dynamic NPC poses can
 // partially re-upload + refit the BVH without re-packing static geometry.
 type sceneCache struct {
-	scene *scene.Scene
-	gen   uint64
+	scene    *scene.Scene
+	gen      uint64
 	xformGen uint64
-	valid bool
+	valid    bool
 
-	layout           primLayout
-	partialPrimSpans [][2]int // coalesced GPU prim index spans dirtied last partial update
+	layout              primLayout
+	partialPrimSpans    [][2]int // coalesced GPU prim index spans dirtied last partial update
 	partialBlockerSpans [][2]int
 
-	prims            []GPUPrimitive
-	blockers         []GPUPrimitive
+	prims    []GPUPrimitive
+	blockers []GPUPrimitive
+	// planeIdx / blockerPlaneIdx list the indices of infinite planes within
+	// prims / blockers. Planes are excluded from the BVH, so the shader walks
+	// these lists rather than scanning the whole primitive buffer each ray.
+	planeIdx         []uint32
+	blockerPlaneIdx  []uint32
 	bvhNodes         []GPUBVHNode
 	bvhNodeCount     uint32
 	blockerNodeCount uint32
@@ -100,6 +105,9 @@ afterPack:
 	c.holes = PackHoles(v.Scene)
 	c.ao, c.aoOK = PackAOVolume(v)
 	c.aoVersion = v.AOVersion
+
+	c.planeIdx = planeIndices(c.prims)
+	c.blockerPlaneIdx = planeIndices(c.blockers)
 
 	c.scene = v.Scene
 	c.gen = v.Scene.Generation()
@@ -199,6 +207,19 @@ func (c *sceneCache) rebuildFlat(s *scene.Scene) {
 	c.bvhNodeCount = uint32(len(bvhNodes))
 	c.blockerNodeCount = uint32(len(blkNodes))
 	c.blockerSecStart = c.bvhNodeCount
+}
+
+// planeIndices returns the indices of every infinite plane in prims, in
+// ascending order — matching the order the shader's old full-buffer scan hit
+// them, so switching to the index list is output-identical.
+func planeIndices(prims []GPUPrimitive) []uint32 {
+	var out []uint32
+	for i := range prims {
+		if prims[i].Meta[0] == primPlane {
+			out = append(out, uint32(i))
+		}
+	}
+	return out
 }
 
 func (c *sceneCache) clearInstancing() {

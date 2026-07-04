@@ -104,6 +104,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("webgpu renderer unavailable: %v", err)
 	}
+	// Pipeline the interactive loop: submit each frame and hand back the previous
+	// one so the GPU renders while the CPU packs/blits, instead of stalling on it.
+	ren.SetPipelined(true)
 
 	game := app.New(renderW, renderH, sc, cfg, *scenePath, *playerPath, ren)
 
