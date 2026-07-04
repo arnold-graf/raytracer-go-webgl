@@ -16,11 +16,11 @@ func TestLoadCupboardDoubleDoor(t *testing.T) {
 	if len(sc.DoorSpecs) != 1 || sc.DoorSpecs[0].Kind != "double" {
 		t.Fatalf("DoorSpecs = %+v", sc.DoorSpecs)
 	}
-	if len(sc.DoorSpecs[0].PanelBoxes) != 2 {
-		t.Fatalf("panel_boxes = %v", sc.DoorSpecs[0].PanelBoxes)
+	if len(sc.DoorSpecs[0].Panels) != 2 {
+		t.Fatalf("panels = %v", sc.DoorSpecs[0].Panels)
 	}
 	if len(sc.Boxes) < 6 {
-		t.Fatalf("boxes = %d, want carcass + 2 doors + shelves", len(sc.Boxes))
+		t.Fatalf("boxes = %d, want carcass + 2 door panels + shelves", len(sc.Boxes))
 	}
 }
 

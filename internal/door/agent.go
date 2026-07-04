@@ -14,14 +14,20 @@ const (
 	stateClosing = "closing"
 )
 
+type panelXforms struct {
+	boxes     map[int]*scene.Transform
+	spheres   map[int]*scene.Transform
+	cylinders map[int]*scene.Transform
+}
+
 // Panel tracks one swinging door leaf.
 type Panel struct {
-	BoxIndex   int
-	Hinge      vec.V
-	ClosedBase *scene.Transform
-	Angle      float64
-	Target     float64
-	OpenSign   float64
+	Geom         scene.DoorPanelGeom
+	Hinge        vec.V
+	closed       panelXforms
+	Angle        float64
+	Target       float64
+	OpenSign     float64
 }
 
 // Agent is one runtime door instance.
@@ -75,19 +81,19 @@ func newAgent(spec scene.DoorSpec) *Agent {
 
 	switch a.Kind {
 	case "double":
-		if len(spec.PanelBoxes) < 2 {
+		if len(spec.Panels) < 2 {
 			return nil
 		}
 		a.Panels = []Panel{
-			{BoxIndex: spec.PanelBoxes[0], Hinge: spec.Hinge, OpenSign: -1},
-			{BoxIndex: spec.PanelBoxes[1], Hinge: spec.HingeRight, OpenSign: 1},
+			{Geom: spec.Panels[0], Hinge: spec.Hinge, OpenSign: -1},
+			{Geom: spec.Panels[1], Hinge: spec.HingeRight, OpenSign: 1},
 		}
 	default:
-		if len(spec.PanelBoxes) < 1 {
+		if len(spec.Panels) < 1 {
 			return nil
 		}
 		a.Panels = []Panel{
-			{BoxIndex: spec.PanelBoxes[0], Hinge: spec.Hinge, OpenSign: a.OpenSign},
+			{Geom: spec.Panels[0], Hinge: spec.Hinge, OpenSign: a.OpenSign},
 		}
 	}
 	return a
@@ -151,25 +157,42 @@ func (a *Agent) pickSwingSign(playerPos vec.V) float64 {
 }
 
 func (a *Agent) closedFaceNormal(p Panel) vec.V {
-	// Closed panel extends along local +Z; hinge rotation is about axis.
-	// Use the panel's closed transform to get the outward normal.
-	if p.ClosedBase != nil {
+	idx := p.Geom.PrimaryBox()
+	if idx < 0 {
+		return vec.V{Z: 1}
+	}
+	if base := p.closed.boxes[idx]; base != nil {
 		switch a.Axis {
 		case "x":
-			return p.ClosedBase.RotateDir(vec.V{X: 1})
+			return base.RotateDir(vec.V{X: 1})
 		case "z":
-			return p.ClosedBase.RotateDir(vec.V{Z: 1})
+			return base.RotateDir(vec.V{Z: 1})
 		default:
-			return p.ClosedBase.RotateDir(vec.V{Z: 1})
+			return base.RotateDir(vec.V{Z: 1})
 		}
 	}
 	return vec.V{Z: 1}
 }
 
+func (p Panel) boxIndices() []int {
+	return rangeIndices(p.Geom.Boxes)
+}
+
+func rangeIndices(r [2]int) []int {
+	if r[0] >= r[1] {
+		return nil
+	}
+	out := make([]int, r[1]-r[0])
+	for i := range out {
+		out[i] = r[0] + i
+	}
+	return out
+}
+
 func (a *Agent) boxIndices() []int {
-	out := make([]int, len(a.Panels))
-	for i, p := range a.Panels {
-		out[i] = p.BoxIndex
+	var out []int
+	for _, p := range a.Panels {
+		out = append(out, p.boxIndices()...)
 	}
 	return out
 }

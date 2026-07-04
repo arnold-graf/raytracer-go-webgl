@@ -1303,18 +1303,24 @@
           "exclusiveMinimum": 0,
           "description": "Swing speed in rad/s. Default: 1.5."
         },
-        "panel_boxes": {
-          "type": "array",
-          "description": "Indices into this file's [[box]] tables for the moving panel(s).",
-          "items": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "minItems": 1
+        "panel_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to a TOML file with the moving panel geometry (boxes, cylinders, spheres). For single doors."
+        },
+        "panel_left_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Left leaf panel geometry file for double doors."
+        },
+        "panel_right_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Right leaf panel geometry file for double doors."
         },
         "panel_closed_angle": {
           "type": "array",
-          "description": "Optional per-panel closed-pose rotation in degrees about each hinge. Length may be less than panel_boxes.",
+          "description": "Optional per-panel closed-pose rotation in degrees about each hinge.",
           "items": {
             "type": "number"
           }
@@ -1337,7 +1343,7 @@
           "additionalProperties": false
         }
       },
-      "required": ["id", "panel_boxes"],
+      "required": ["id"],
       "additionalProperties": false
     },
     "include": {

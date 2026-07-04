@@ -19,6 +19,38 @@ func NewManager() *Manager {
 	return &Manager{}
 }
 
+func snapshotClosedBase(xf *scene.Transform, axis string, closedOffset float64, hinge vec.V) *scene.Transform {
+	var base *scene.Transform
+	if xf != nil {
+		cpy := *xf
+		base = &cpy
+	}
+	if closedOffset != 0 {
+		deg := closedOffset * 180 / math.Pi
+		off := scene.RotationAboutAxis(axis, deg, hinge)
+		base = off.Compose(base)
+	}
+	return base
+}
+
+func snapshotPanelXforms(sc *scene.Scene, geom scene.DoorPanelGeom, axis string, closedOffset float64, hinge vec.V) panelXforms {
+	out := panelXforms{
+		boxes:     map[int]*scene.Transform{},
+		spheres:   map[int]*scene.Transform{},
+		cylinders: map[int]*scene.Transform{},
+	}
+	for i := geom.Boxes[0]; i < geom.Boxes[1]; i++ {
+		out.boxes[i] = snapshotClosedBase(sc.Boxes[i].Xform, axis, closedOffset, hinge)
+	}
+	for i := geom.Spheres[0]; i < geom.Spheres[1]; i++ {
+		out.spheres[i] = snapshotClosedBase(sc.Spheres[i].Xform, axis, closedOffset, hinge)
+	}
+	for i := geom.Cylinders[0]; i < geom.Cylinders[1]; i++ {
+		out.cylinders[i] = snapshotClosedBase(sc.Cylinders[i].Xform, axis, closedOffset, hinge)
+	}
+	return out
+}
+
 // Instantiate spawns doors from scene DoorSpecs, registers panel DynamicBodies,
 // and snapshots each panel's closed transform.
 func (m *Manager) Instantiate(sc *scene.Scene) error {
@@ -32,27 +64,17 @@ func (m *Manager) Instantiate(sc *scene.Scene) error {
 			return fmt.Errorf("door[%d] %q: invalid spec", i, spec.ID)
 		}
 		for j := range a.Panels {
-			idx := a.Panels[j].BoxIndex
-			if idx < 0 || idx >= len(sc.Boxes) {
-				return fmt.Errorf("door[%d] %q: panel_boxes[%d] out of range", i, spec.ID, j)
+			p := &a.Panels[j]
+			if p.Geom.PrimaryBox() < 0 || p.Geom.PrimaryBox() >= len(sc.Boxes) {
+				return fmt.Errorf("door[%d] %q: panel[%d] has no valid box", i, spec.ID, j)
 			}
-			var base *scene.Transform
-			if xf := sc.Boxes[idx].Xform; xf != nil {
-				cpy := *xf
-				base = &cpy
+			var closedOffset float64
+			if j < len(spec.PanelClosedAngles) {
+				closedOffset = spec.PanelClosedAngles[j]
 			}
-			if j < len(spec.PanelClosedAngles) && spec.PanelClosedAngles[j] != 0 {
-				deg := spec.PanelClosedAngles[j] * 180 / math.Pi
-				off := scene.RotationAboutAxis(a.Axis, deg, a.Panels[j].Hinge)
-				base = off.Compose(base)
-			}
-			a.Panels[j].ClosedBase = base
+			p.closed = snapshotPanelXforms(sc, p.Geom, a.Axis, closedOffset, p.Hinge)
 		}
-		body := scene.DynamicBody{
-			Name:  "door_" + spec.ID,
-			Boxes: doorBoxRange(a),
-		}
-		sc.DynamicBodies = append(sc.DynamicBodies, body)
+		sc.DynamicBodies = append(sc.DynamicBodies, doorDynamicBody(a))
 		a.Interact = spec.Interact
 		m.agents = append(m.agents, *a)
 	}
@@ -63,20 +85,39 @@ func (m *Manager) Instantiate(sc *scene.Scene) error {
 	return nil
 }
 
-func doorBoxRange(a *Agent) [2]int {
-	if len(a.Panels) == 0 {
+func doorDynamicBody(a *Agent) scene.DynamicBody {
+	body := scene.DynamicBody{Name: "door_" + a.ID}
+	body.Boxes = unionRange(panelRanges(a, func(p Panel) [2]int { return p.Geom.Boxes }))
+	body.Spheres = unionRange(panelRanges(a, func(p Panel) [2]int { return p.Geom.Spheres }))
+	body.Cylinders = unionRange(panelRanges(a, func(p Panel) [2]int { return p.Geom.Cylinders }))
+	return body
+}
+
+func panelRanges(a *Agent, pick func(Panel) [2]int) [][2]int {
+	out := make([][2]int, len(a.Panels))
+	for i, p := range a.Panels {
+		out[i] = pick(p)
+	}
+	return out
+}
+
+func unionRange(ranges [][2]int) [2]int {
+	min, max := -1, -1
+	for _, r := range ranges {
+		if r[0] >= r[1] {
+			continue
+		}
+		if min < 0 || r[0] < min {
+			min = r[0]
+		}
+		if r[1]-1 > max {
+			max = r[1] - 1
+		}
+	}
+	if min < 0 {
 		return [2]int{0, 0}
 	}
-	min, max := a.Panels[0].BoxIndex, a.Panels[0].BoxIndex+1
-	for _, p := range a.Panels[1:] {
-		if p.BoxIndex < min {
-			min = p.BoxIndex
-		}
-		if p.BoxIndex+1 > max {
-			max = p.BoxIndex + 1
-		}
-	}
-	return [2]int{min, max}
+	return [2]int{min, max + 1}
 }
 
 // GhostBox returns true when the box should not block the player.
@@ -84,8 +125,8 @@ func (m *Manager) GhostBox(boxIndex int) bool {
 	for i := range m.agents {
 		a := &m.agents[i]
 		if !a.PanelCollision {
-			for _, p := range a.Panels {
-				if p.BoxIndex == boxIndex {
+			for _, idx := range a.boxIndices() {
+				if idx == boxIndex {
 					return true
 				}
 			}
@@ -245,7 +286,7 @@ func (m *Manager) updateCollision(a *Agent, sc *scene.Scene, playerPos vec.V, fe
 		return
 	}
 	for _, p := range a.Panels {
-		if PlayerOverlapsPanel(sc, p.BoxIndex, feetY, headY, playerPos) {
+		if PlayerOverlapsPanel(sc, p, feetY, headY, playerPos) {
 			a.PanelCollision = false
 			return
 		}

@@ -18,8 +18,8 @@ func TestLoadVillaDoor(t *testing.T) {
 	for _, ds := range sc.DoorSpecs {
 		if ds.ID == "villa_front_door" {
 			found = true
-			if len(ds.PanelBoxes) != 1 {
-				t.Fatalf("panel_boxes = %v, want 1", ds.PanelBoxes)
+			if len(ds.Panels) != 1 {
+				t.Fatalf("panels = %v, want 1", ds.Panels)
 			}
 		}
 	}
@@ -38,7 +38,7 @@ func TestLoadVillaDoor(t *testing.T) {
 }
 
 func TestLoadDoorTOML(t *testing.T) {
-	const body = `
+	panelBody := `
 [[box]]
 pos_x = 0.0
 pos_y = 0.0
@@ -48,10 +48,11 @@ height = 2.0
 depth = 0.08
 material = "diffuse"
 albedo = [0.5, 0.5, 0.5]
-
+`
+	const body = `
 [[door]]
 id = "d1"
-panel_boxes = [0]
+panel_file = "panel.toml"
 hinge = [0.0, 0.0, 0.0]
 
   [door.interact]
@@ -59,6 +60,9 @@ hinge = [0.0, 0.0, 0.0]
   use_range = 2.0
 `
 	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "panel.toml"), []byte(panelBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "door-test.toml")
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -69,5 +73,8 @@ hinge = [0.0, 0.0, 0.0]
 	}
 	if len(sc.DoorSpecs) != 1 || sc.DoorSpecs[0].ID != "d1" {
 		t.Fatalf("DoorSpecs = %+v", sc.DoorSpecs)
+	}
+	if len(sc.Boxes) != 1 {
+		t.Fatalf("boxes = %d, want 1 panel box merged", len(sc.Boxes))
 	}
 }

@@ -16,6 +16,7 @@ rotate_y = 15
 file = "../../objects/simple-chair.toml"
 at = [0.5, 0, 2]
 rotate_y = -7
+params = { reflect = 0.1 }
 
 # glass bottle on the desk
 [[include]]

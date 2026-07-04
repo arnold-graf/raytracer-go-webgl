@@ -6,9 +6,9 @@ albedo = [0.1, 0.1, 0.1]
 pos_x = 0.0
 pos_y = 0.0
 pos_z = 0.0
-width = 50.0
+width = 40.0
 height = 0.2
-depth = 50.0
+depth = 20.0
 reflect = 0.2
 rough = 0.007
 
@@ -20,9 +20,9 @@ albedo = [0.3, 0.3, 0.3]
 pos_x = 0.0
 pos_y = 8.0
 pos_z = 0.0
-width = 50.0
+width = 40.0
 height = 0.2
-depth = 50.0
+depth = 40.0
 
 # north wall
 [[box]]
@@ -31,11 +31,11 @@ albedo = [0.3, 0.3, 0.3]
 pos_x = 0.0
 pos_y = 0.0
 pos_z = 0.0
-width = 50.0
+width = 40.0
 height = 8.0
 depth = 0.2
 
-# east wall
+# west wall
 [[box]]
 material = "diffuse"
 albedo = [0.3, 0.3, 0.3]
@@ -53,7 +53,7 @@ albedo = [0.3, 0.3, 0.3]
 pos_x = 0.0
 pos_y = 0.0
 pos_z = 20.0
-width = 50.0
+width = 40.0
 height = 8.0
 depth = 0.2
 
@@ -61,16 +61,16 @@ depth = 0.2
 [[box]]
 material = "diffuse"
 albedo = [0.3, 0.3, 0.3]
-pos_x = 49.8
+pos_x = 40
 pos_y = 0.0
 pos_z = 0.0
 width = 0.2
 height = 8.0
-depth = 50.8
+depth = 40.8
 
 # Door
 [[box.hole]]
-pos_x = 48
+pos_x = 40
 pos_y = 0
 pos_z = 2
 width = 3
@@ -166,7 +166,7 @@ params = { stem_len = 2.3, brightness = 0.1, range = 10 }
 [[include]]
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
-at = [42.0, 8, 5.0]
+at = [35.0, 8, 5.0]
 params = { stem_len = 2.3, brightness = 0.1, range = 20 }
 
 # Lamp 3 (very dim) above the desk
@@ -185,7 +185,7 @@ at = [8.0, 0.2, 9.0]
 [[include]]
 file = "../objects/cupboard-double-door.toml"
 at = [16.0, 0.0, 18.8]
-params = { width = 2, height = 3.0, depth = 0.5, shelves = 4, albedo = [0.1, 0.1, 0.2 ], reflect = 0.02, rough = 0.01 }
+params = { width = 2, height = 3.0, depth = 0.5, shelves = 4, albedo = [0.1, 0.1, 0.2 ], reflect = 0.02, rough = 0.01, handle_radius = 0.1 }
 
 # table to the right of the cube
 [[include]]

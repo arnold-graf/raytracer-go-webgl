@@ -10,23 +10,29 @@ import (
 
 const playerRadius = 0.3
 
-// PlayerOverlapsPanel reports whether the player capsule intersects a door panel
-// box at its current world pose.
-func PlayerOverlapsPanel(sc *scene.Scene, boxIdx int, feetY, headY float64, pos vec.V) bool {
-	return sc.PlayerOverlapsBox(boxIdx, feetY, headY, pos, playerRadius, 0.45)
+// PlayerOverlapsPanel reports whether the player capsule intersects any box in
+// the panel at its current world pose.
+func PlayerOverlapsPanel(sc *scene.Scene, p Panel, feetY, headY float64, pos vec.V) bool {
+	for _, idx := range p.boxIndices() {
+		if sc.PlayerOverlapsBox(idx, feetY, headY, pos, playerRadius, 0.45) {
+			return true
+		}
+	}
+	return false
 }
 
-// PanelHitsStatic reports whether the panel at boxIdx in its current pose
+// PanelHitsStatic reports whether the panel's primary box in its current pose
 // intersects static scene geometry (excluding dynamic bodies and own panel).
-func PanelHitsStatic(sc *scene.Scene, boxIdx int, skipBox func(int) bool) bool {
-	return len(panelStaticHits(sc, boxIdx, skipBox)) > 0
+func PanelHitsStatic(sc *scene.Scene, p Panel, skipBox func(int) bool) bool {
+	return len(panelStaticHits(sc, p, skipBox)) > 0
 }
 
-func panelStaticHits(sc *scene.Scene, boxIdx int, skipBox func(int) bool) []int {
-	if sc == nil || boxIdx < 0 || boxIdx >= len(sc.Boxes) {
+func panelStaticHits(sc *scene.Scene, p Panel, skipBox func(int) bool) []int {
+	idx := p.Geom.PrimaryBox()
+	if idx < 0 {
 		return nil
 	}
-	hits := sc.ProbeBoxStaticHits(boxIdx, skipBox)
+	hits := sc.ProbeBoxStaticHits(idx, skipBox)
 	out := make([]int, 0, len(hits))
 	for _, h := range hits {
 		if h.Box >= 0 {
@@ -40,7 +46,7 @@ func panelStaticHits(sc *scene.Scene, boxIdx int, skipBox func(int) bool) []int 
 
 func staticHitsAt(sc *scene.Scene, a *Agent, p *Panel, angle float64, skipBox func(int) bool) map[int]bool {
 	applyPanelXform(sc, a, p, angle)
-	hits := panelStaticHits(sc, p.BoxIndex, skipBox)
+	hits := panelStaticHits(sc, *p, skipBox)
 	set := make(map[int]bool, len(hits))
 	for _, h := range hits {
 		set[h] = true
@@ -59,16 +65,29 @@ func clampAngle(sc *scene.Scene, a *Agent, p *Panel, proposed float64, skipBox f
 
 func PanelHitsStaticAt(sc *scene.Scene, a *Agent, p *Panel, angle float64, skipBox func(int) bool) bool {
 	applyPanelXform(sc, a, p, angle)
-	hit := PanelHitsStatic(sc, p.BoxIndex, skipBox)
+	hit := PanelHitsStatic(sc, *p, skipBox)
 	applyPanelXform(sc, a, p, p.Angle)
 	return hit
 }
 
 func applyPanelXform(sc *scene.Scene, a *Agent, p *Panel, angle float64) {
-	if p.BoxIndex < 0 || p.BoxIndex >= len(sc.Boxes) {
-		return
-	}
 	rot := scene.RotationAboutAxis(a.Axis, angle*180/math.Pi, p.Hinge)
-	// Rotate the placed panel about the world hinge: rot(placed(local)).
-	sc.Boxes[p.BoxIndex].Xform = rot.Compose(p.ClosedBase)
+	for i, base := range p.closed.boxes {
+		if i < 0 || i >= len(sc.Boxes) {
+			continue
+		}
+		sc.Boxes[i].Xform = rot.Compose(base)
+	}
+	for i, base := range p.closed.spheres {
+		if i < 0 || i >= len(sc.Spheres) {
+			continue
+		}
+		sc.Spheres[i].Xform = rot.Compose(base)
+	}
+	for i, base := range p.closed.cylinders {
+		if i < 0 || i >= len(sc.Cylinders) {
+			continue
+		}
+		sc.Cylinders[i].Xform = rot.Compose(base)
+	}
 }

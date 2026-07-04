@@ -26,8 +26,8 @@ func TestVillaDoorTogglesOnLoad(t *testing.T) {
 	a := &mgr.agents[0]
 	p := &a.Panels[0]
 	skip := mgr.skipBoxFunc()
-	t.Logf("panel idx=%d hinge=%v state=%s", p.BoxIndex, p.Hinge, a.State)
-	if PanelHitsStatic(sc, p.BoxIndex, skip) {
+	t.Logf("panel box=%d hinge=%v state=%s", p.Geom.PrimaryBox(), p.Hinge, a.State)
+	if PanelHitsStatic(sc, *p, skip) {
 		t.Log("panel hits static at rest")
 	}
 	mgr.Toggle(sc, a.ID, vec.New(0, 1.6, -6))
@@ -43,9 +43,11 @@ func TestVillaDoorTogglesOnLoad(t *testing.T) {
 func TestToggleInteractPicksIncludedInstance(t *testing.T) {
 	sc := &scene.Scene{
 		DoorSpecs: []scene.DoorSpec{
-			{ID: "d", Kind: "single", Hinge: vec.New(0, 0, 0), OpenAngle: math.Pi / 2, Speed: 10, PanelBoxes: []int{0},
+			{ID: "d", Kind: "single", Hinge: vec.New(0, 0, 0), OpenAngle: math.Pi / 2, Speed: 10,
+				Panels: []scene.DoorPanelGeom{{Boxes: [2]int{0, 1}}},
 				Interact: &scene.Interactable{Center: vec.New(0, 1, 0), DoorID: "d"}},
-			{ID: "d", Kind: "single", Hinge: vec.New(10, 0, 0), OpenAngle: math.Pi / 2, Speed: 10, PanelBoxes: []int{1},
+			{ID: "d", Kind: "single", Hinge: vec.New(10, 0, 0), OpenAngle: math.Pi / 2, Speed: 10,
+				Panels: []scene.DoorPanelGeom{{Boxes: [2]int{1, 2}}},
 				Interact: &scene.Interactable{Center: vec.New(10, 1, 0), DoorID: "d"}},
 		},
 		Boxes: []scene.Box{

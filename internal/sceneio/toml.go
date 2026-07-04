@@ -637,13 +637,17 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 				return nil, err
 			}
 		}
+		if err := resolveDoors(base, dto.Door, filepath.Dir(path), params, seen, deps); err != nil {
+			return nil, err
+		}
+		appendDoorInteractables(base)
 		base.PrepareTerrains()
 		base.ApplyTerrainFollow(extendPlacements)
 		base.ApplyInstanceTerrainFollow()
 		base.FinalizeInstancing()
 		return base, nil
 	}
-	return dto.buildWithIncludes(path, seen, deps, followPlacements)
+	return dto.buildWithIncludes(path, params, seen, deps, followPlacements)
 }
 
 // decodeSceneFile reads the file at path, runs it through the object template
@@ -1001,21 +1005,16 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			return nil, fmt.Errorf("npc[%d]: missing rig", i)
 		}
 	}
-	for i, d := range dto.Door {
-		spec, err := d.build(len(s.Boxes))
-		if err != nil {
-			return nil, fmt.Errorf("door[%d]: %w", i, err)
-		}
-		s.DoorSpecs = append(s.DoorSpecs, spec)
-	}
 
 	return s, nil
 }
 
-// buildWithIncludes builds the scene and merges any [[include]] composite files.
-func (dto sceneDTO) buildWithIncludes(path string, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
+func (dto sceneDTO) buildWithIncludes(path string, params map[string]any, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
 	s, err := dto.build()
 	if err != nil {
+		return nil, err
+	}
+	if err := resolveDoors(s, dto.Door, filepath.Dir(path), params, seen, deps); err != nil {
 		return nil, err
 	}
 	for i, inc := range dto.Include {
@@ -1120,6 +1119,8 @@ func instanceTransform(dst *scene.Scene, sub *scene.Scene, inc includeDTO, follo
 // primitive's local transform with the instance transform xf.
 func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 	boxOffset := len(dst.Boxes)
+	sphereOffset := len(dst.Spheres)
+	cylinderOffset := len(dst.Cylinders)
 	// Finite primitives keep their geometry in the sub-scene's local space and
 	// carry the composed instance transform; the BVH, CPU tracer and GPU all
 	// intersect in local space and map back via Xform (see bvh.addBounded and
@@ -1234,7 +1235,7 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 	for _, sp := range sub.NPCSpawns {
 		dst.NPCSpawns = append(dst.NPCSpawns, sp.Placed(xf))
 	}
-	mergeDoorSpecs(dst, sub, xf, boxOffset)
+	mergeDoorSpecs(dst, sub, xf, boxOffset, sphereOffset, cylinderOffset)
 }
 
 // addTerrainPads appends pads to every terrain in dst and re-Prepares the

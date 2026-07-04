@@ -2,6 +2,23 @@ package scene
 
 import "raytracer/internal/vec"
 
+// DoorPanelGeom is half-open index ranges into scene primitive slices for one
+// swinging door leaf. Populated at load time when a panel file is merged.
+type DoorPanelGeom struct {
+	Boxes     [2]int
+	Spheres   [2]int
+	Cylinders [2]int
+}
+
+// PrimaryBox returns the first box index in the panel, or -1 if the panel has
+// no boxes (used for hinge-plane queries and swing clamp probes).
+func (g DoorPanelGeom) PrimaryBox() int {
+	if g.Boxes[0] < g.Boxes[1] {
+		return g.Boxes[0]
+	}
+	return -1
+}
+
 // DoorSpec is a declarative swinging door loaded from [[door]] in scene TOML.
 // Runtime state lives in door.Manager agents.
 type DoorSpec struct {
@@ -15,7 +32,7 @@ type DoorSpec struct {
 	Swing       string  // "one_way" or "both"
 	OpenSign    float64 // +1 / -1 for one_way
 	Speed       float64 // rad/s
-	PanelBoxes  []int   // indices into Scene.Boxes
+	Panels      []DoorPanelGeom
 	// PanelClosedAngles are per-panel offsets from the closed pose (radians),
 	// applied about each panel's hinge. Optional; length may be less than panels.
 	PanelClosedAngles []float64

@@ -221,17 +221,6 @@ height = 2.45
 depth = 0.45
 texture = "cement"
 
-[[box]] # front door panel (swings on left hinge)
-albedo = [0.72, 0.55, 0.38]
-material = "diffuse"
-pos_x = -0.9
-pos_y = 1.28
-pos_z = 4.06
-width = 1.8
-height = 2.175
-depth = 0.08
-texture = "wood"
-
 [[door]]
 id = "villa_front_door"
 kind = "single"
@@ -241,7 +230,7 @@ open_angle = 90
 swing = "one_way"
 open_sign = 1.0
 speed = 1.5
-panel_boxes = [12]
+panel_file = "villa-front-door-panel.toml"
 
   [door.interact]
   center = [0.0, 1.1, 4.1]

@@ -26,7 +26,7 @@ func testDoorScene(t *testing.T) (*scene.Scene, *Manager) {
 			Swing:      "one_way",
 			OpenSign:   1,
 			Speed:      3,
-			PanelBoxes: []int{1},
+			Panels: []scene.DoorPanelGeom{{Boxes: [2]int{1, 2}}},
 		}},
 	}
 	mgr := NewManager()
@@ -105,7 +105,10 @@ func TestDoubleDoorOpensBothPanels(t *testing.T) {
 			ID: "double", Kind: "double",
 			Hinge: vec.New(0, 0, 0), HingeRight: vec.New(3, 0, 0),
 			Axis: "y", OpenAngle: math.Pi / 2, Swing: "one_way", OpenSign: 1, Speed: 10,
-			PanelBoxes: []int{0, 1},
+			Panels: []scene.DoorPanelGeom{
+				{Boxes: [2]int{0, 1}},
+				{Boxes: [2]int{1, 2}},
+			},
 		}},
 	}
 	mgr := NewManager()
@@ -135,7 +138,10 @@ func TestCupboardDoorsSwingOutward(t *testing.T) {
 			ID: "cupboard", Kind: "double",
 			Hinge: vec.New(0.06, 0, 0), HingeRight: vec.New(1.94, 0, 0),
 			Axis: "y", OpenAngle: math.Pi / 2, Swing: "one_way", OpenSign: -1, Speed: 10,
-			PanelBoxes: []int{0, 1},
+			Panels: []scene.DoorPanelGeom{
+				{Boxes: [2]int{0, 1}},
+				{Boxes: [2]int{1, 2}},
+			},
 		}},
 	}
 	mgr := NewManager()
@@ -189,7 +195,7 @@ func TestBothWaySwingPicksPlayerSide(t *testing.T) {
 			ID: "both", Kind: "single",
 			Hinge: vec.New(1, 0, 0), Axis: "y",
 			OpenAngle: math.Pi / 2, Swing: "both", Speed: 10,
-			PanelBoxes: []int{0},
+			Panels: []scene.DoorPanelGeom{{Boxes: [2]int{0, 1}}},
 		}},
 	}
 	mgr := NewManager()

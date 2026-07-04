@@ -1,0 +1,72 @@
+# Left door leaf for cupboard-double-door.toml (same local coords / params).
+
+{{$width := or .width 1.6}}
+{{$height := or .height 2.2}}
+{{$material := or .material "diffuse"}}
+{{$texture := or .texture ""}}
+{{$albedo := orVec3 .albedo 0.12 0.11 0.10}}
+{{$reflect := or .reflect 0.02}}
+{{$rough := or .rough 0.04}}
+
+{{$side := 0.06}}
+{{$doorTh := 0.06}}
+{{$doorGap := or .door_gap 0.005}}
+{{$innerW := sub $width (mul $side 2)}}
+{{$doorW := div (sub $innerW $doorGap) 2}}
+{{$handleY := mul $height 0.42}}
+{{$handleInset := 0.08}}
+{{$knobR := 0.05}}
+{{$stemR := 0.006}}
+{{$stemLen := 0.032}}
+{{$chromeAlbedo := orVec3 .chrome_albedo 0.88 0.89 0.92}}
+{{$chromeReflect := or .chrome_reflect 0.9}}
+{{$chromeRough := or .chrome_rough 0.03}}
+{{$handleX := sub (add $side $doorW) $handleInset}}
+
+[[box]]
+material = "{{$material}}"
+{{if $texture}}texture = "{{$texture}}"{{end}}
+albedo = {{$albedo}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = {{$side}}
+pos_y = 0.0
+pos_z = {{neg $doorTh}}
+width = {{$doorW}}
+height = {{$height}}
+depth = {{$doorTh}}
+
+[[cylinder]]
+material = "metal"
+albedo = {{$chromeAlbedo}}
+reflect = {{$chromeReflect}}
+rough = {{$chromeRough}}
+pos_x = {{$handleX}}
+pos_y = {{$handleY}}
+pos_z = -0.07
+width = 0.02
+height = 0.1
+rotate_x = 90
+
+[[cylinder]]
+material = "metal"
+albedo = {{$chromeAlbedo}}
+reflect = {{$chromeReflect}}
+rough = {{$chromeRough}}
+pos_x = {{$handleX}}
+pos_y = {{$handleY}}
+pos_z = -0.1
+width = 0.02
+height = 0.3
+
+[[cylinder]]
+material = "metal"
+albedo = {{$chromeAlbedo}}
+reflect = {{$chromeReflect}}
+rough = {{$chromeRough}}
+pos_x = {{$handleX}}
+pos_y = {{add $handleY 0.2}}
+pos_z = -0.07
+width = 0.02
+height = 0.1
+rotate_x = 90
