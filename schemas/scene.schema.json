@@ -72,6 +72,20 @@
         "$ref": "#/definitions/torus"
       }
     },
+    "ring": {
+      "type": "array",
+      "description": "TOML [[ring]]. Vertical annulus (washer) in the XZ plane.",
+      "items": {
+        "$ref": "#/definitions/ring"
+      }
+    },
+    "lens": {
+      "type": "array",
+      "description": "TOML [[lens]]. Biconvex optical lens along +Y (spyglass, optics).",
+      "items": {
+        "$ref": "#/definitions/lens"
+      }
+    },
     "terrain": {
       "type": "array",
       "description": "TOML [[terrain]]. Procedural height field with optional [[terrain.feature]] hills/valleys and [[terrain.pad]] building pads.",
@@ -533,6 +547,14 @@
               "minimum": 0,
               "exclusiveMinimum": true,
               "description": "Top diameter for a tapered cylinder. Defaults to width_bottom."
+            },
+            "open_min": {
+              "type": "boolean",
+              "description": "Omit the bottom end cap (hollow tube)."
+            },
+            "open_max": {
+              "type": "boolean",
+              "description": "Omit the top end cap (hollow tube)."
             }
           },
           "required": ["pos_x", "pos_y", "pos_z", "height"]
@@ -616,6 +638,98 @@
             "major",
             "minor"
           ]
+        },
+        {
+          "$ref": "#/definitions/primitive_transform"
+        },
+        {
+          "$ref": "#/definitions/primitive_surface"
+        }
+      ]
+    },
+    "ring": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "cx": {
+              "type": "number",
+              "description": "Center X."
+            },
+            "cy": {
+              "type": "number",
+              "description": "Center Y (mid-height of the annulus)."
+            },
+            "cz": {
+              "type": "number",
+              "description": "Center Z."
+            },
+            "radius": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Radius of the ring centerline."
+            },
+            "height": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Vertical extent along Y."
+            }
+          },
+          "required": ["cx", "cy", "cz", "radius"]
+        },
+        {
+          "$ref": "#/definitions/primitive_transform"
+        },
+        {
+          "$ref": "#/definitions/primitive_surface"
+        }
+      ]
+    },
+    "lens": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "cx": {
+              "type": "number",
+              "description": "Center X."
+            },
+            "cy": {
+              "type": "number",
+              "description": "Center Y (optical axis midpoint)."
+            },
+            "cz": {
+              "type": "number",
+              "description": "Center Z."
+            },
+            "aperture": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Clear aperture radius in the XZ plane."
+            },
+            "r_front": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Front (+Y) spherical cap radius of curvature."
+            },
+            "r_back": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Back (−Y) spherical cap radius of curvature."
+            },
+            "thickness": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "description": "Center thickness along the optical axis."
+            }
+          },
+          "required": ["cx", "cy", "cz", "aperture", "r_front", "r_back", "thickness"]
         },
         {
           "$ref": "#/definitions/primitive_transform"
