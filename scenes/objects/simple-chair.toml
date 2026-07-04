@@ -1,0 +1,115 @@
+# Simple blocky wooden chair in local coordinates.
+#
+# Origin (0,0,0) is the centre of the footprint on the floor. Front faces -Z.
+# Optional [[include]] params: albedo, reflect (defaults below).
+#
+#   [[include]]
+#   file = "objects/simple-chair.toml"
+#   at = [0.0, 0.0, 0.0]
+
+{{$albedo := orVec3 .albedo 0.58 0.44 0.30}}
+{{$reflect := or .reflect 0.01}}
+
+[[box]] # leg (front right)
+pos_x = 0.17
+pos_y = 0.0
+pos_z = 0.17
+width = 0.07
+height = 0.47
+depth = 0.07
+material = "diffuse"
+albedo = {{$albedo}}
+texture = "wood"
+reflect = {{$reflect}}
+rough = 0.02
+
+[[box]] # leg (back left)
+pos_x = -0.31
+pos_y = 0.0
+pos_z = -0.31
+width = 0.07
+height = 0.47
+depth = 0.07
+material = "diffuse"
+albedo = {{$albedo}}
+texture = "wood"
+reflect = {{$reflect}}
+rough = 0.02
+
+[[box]] # leg (front left)
+pos_x = 0.17
+pos_y = 0.0
+pos_z = -0.31
+width = 0.07
+height = 0.47
+depth = 0.07
+material = "diffuse"
+albedo = {{$albedo}}
+texture = "wood"
+reflect = {{$reflect}}
+rough = 0.02
+
+[[box]] # leg (back right)
+pos_x = -0.31
+pos_y = 0.0
+pos_z = 0.17
+width = 0.07
+height = 0.47
+depth = 0.07
+material = "diffuse"
+albedo = {{$albedo}}
+texture = "wood"
+reflect = {{$reflect}}
+rough = 0.02
+
+[[box]] # seat
+pos_x = -0.33
+pos_y = 0.47
+pos_z = -0.33
+width = 0.58
+height = 0.05
+depth = 0.58
+material = "diffuse"
+albedo = {{$albedo}}
+texture = "wood"
+reflect = {{$reflect}}
+rough = 0.02
+
+[[box]] # back post (left)
+pos_x = -0.31
+pos_y = 0.47
+pos_z = 0.17
+width = 0.07
+height = 0.52
+depth = 0.07
+material = "diffuse"
+albedo = {{$albedo}}
+texture = "wood"
+reflect = {{$reflect}}
+rough = 0.02
+
+[[box]] # back post (right)
+pos_x = 0.17
+pos_y = 0.47
+pos_z = 0.17
+width = 0.07
+height = 0.52
+depth = 0.07
+material = "diffuse"
+albedo = {{$albedo}}
+texture = "wood"
+reflect = {{$reflect}}
+rough = 0.02
+
+[[box]] # back top rail
+pos_x = -0.31
+pos_y = 0.93
+pos_z = 0.17
+width = 0.5
+height = 0.06
+depth = 0.07
+material = "diffuse"
+albedo = {{$albedo}}
+texture = "wood"
+reflect = {{$reflect}}
+rough = 0.02

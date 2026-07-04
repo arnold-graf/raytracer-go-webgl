@@ -7,9 +7,9 @@ import (
 )
 
 // primLayout maps scene primitive slice indices to packed GPU primitive indices.
-// PackPrimitives emits spheres, planes, boxes, cylinders, cones, then tori.
+// PackPrimitives emits spheres, planes, boxes, cylinders, cones, tori, then rings.
 type primLayout struct {
-	nSphere, nPlane, nBox, nCylinder, nCone, nTorus int
+	nSphere, nPlane, nBox, nCylinder, nCone, nTorus, nRing, nLens int
 	gpu gpuIndexMap // set for instanced scenes with dynamic NPC geometry
 }
 
@@ -24,11 +24,13 @@ func computePrimLayout(s *scene.Scene) primLayout {
 		nCylinder: len(s.Cylinders),
 		nCone:     len(s.Cones),
 		nTorus:    len(s.Tori),
+		nRing:     len(s.Rings),
+		nLens:     len(s.Lenses),
 	}
 }
 
 func (l primLayout) count() int {
-	return l.nSphere + l.nPlane + l.nBox + l.nCylinder + l.nCone + l.nTorus
+	return l.nSphere + l.nPlane + l.nBox + l.nCylinder + l.nCone + l.nTorus + l.nRing + l.nLens
 }
 
 func (l primLayout) sphereGPU(sceneIdx int) (int, bool) {
@@ -64,6 +66,17 @@ func (l primLayout) cylinderGPU(sceneIdx int) (int, bool) {
 	return 0, false
 }
 
+func (l primLayout) lensGPU(sceneIdx int) (int, bool) {
+	if len(l.gpu.lens) > 0 {
+		gi, ok := l.gpu.lens[sceneIdx]
+		return gi, ok
+	}
+	if sceneIdx >= 0 && sceneIdx < l.nLens {
+		return l.nSphere + l.nPlane + l.nBox + l.nCylinder + l.nCone + l.nTorus + l.nRing + sceneIdx, true
+	}
+	return 0, false
+}
+
 func dynamicGPUIndices(s *scene.Scene, l primLayout) []int {
 	if s == nil {
 		return nil
@@ -82,6 +95,11 @@ func dynamicGPUIndices(s *scene.Scene, l primLayout) []int {
 		}
 		for i := db.Cylinders[0]; i < db.Cylinders[1]; i++ {
 			if gi, ok := l.cylinderGPU(i); ok {
+				out = append(out, gi)
+			}
+		}
+		for i := db.Lenses[0]; i < db.Lenses[1]; i++ {
+			if gi, ok := l.lensGPU(i); ok {
 				out = append(out, gi)
 			}
 		}
@@ -135,6 +153,16 @@ func repackGPUPrim(s *scene.Scene, l primLayout, gpuIdx int, dst *GPUPrimitive) 
 	gpuIdx -= l.nCone
 	if gpuIdx < l.nTorus {
 		*dst = torusPrim(&s.Tori[gpuIdx])
+		return
+	}
+	gpuIdx -= l.nTorus
+	if gpuIdx < l.nRing {
+		*dst = ringPrim(&s.Rings[gpuIdx])
+		return
+	}
+	gpuIdx -= l.nRing
+	if gpuIdx < l.nLens {
+		*dst = lensPrim(&s.Lenses[gpuIdx])
 	}
 }
 

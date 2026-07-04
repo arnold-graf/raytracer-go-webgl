@@ -187,6 +187,45 @@ func TestSphereLampDefaultsUnchanged(t *testing.T) {
 	}
 }
 
+func TestSpyglassObjectShape(t *testing.T) {
+	s, err := Load(repoFile("scenes/objects/spyglass.toml"))
+	if err != nil {
+		t.Fatalf("load spyglass: %v", err)
+	}
+	if len(s.Cylinders) != 2 || len(s.Lenses) != 2 {
+		t.Fatalf("spyglass: %d cylinders, %d lenses", len(s.Cylinders), len(s.Lenses))
+	}
+	if !s.Cylinders[0].OpenMin || !s.Cylinders[0].OpenMax {
+		t.Fatal("barrel should have open ends")
+	}
+	if s.Lenses[1].RFront >= s.Lenses[0].RFront {
+		t.Fatal("objective should be stronger (smaller r) than eyepiece")
+	}
+}
+
+func TestArtDecoRingLampShape(t *testing.T) {
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "scene.toml")
+	lamp := repoFile("scenes/objects/art-deco-ring-lamp.toml")
+	if err := os.WriteFile(parent, []byte(
+		"[[include]]\nfile = "+strconv.Quote(lamp)+"\nat = [0.0, 0.0, 0.0]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatalf("load lamp: %v", err)
+	}
+	if len(s.Rings) != 5 || len(s.Cylinders) != 2 || len(s.Lights) != 1 {
+		t.Fatalf("lamp shape: %d rings, %d cylinders, %d lights", len(s.Rings), len(s.Cylinders), len(s.Lights))
+	}
+	if s.Rings[0].Radius < s.Rings[4].Radius {
+		t.Fatalf("rings should taper: top=%v bottom=%v", s.Rings[0].Radius, s.Rings[4].Radius)
+	}
+	if math.Abs(s.Rings[0].Height-0.03) > 1e-9 {
+		t.Fatalf("ring height = %v, want 0.03", s.Rings[0].Height)
+	}
+}
+
 // TestStaircaseSeqTemplate checks the real staircase object: default 8 steps
 // without params, and a custom step count via seq/range.
 func TestStaircaseSeqTemplate(t *testing.T) {

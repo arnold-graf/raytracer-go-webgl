@@ -4,7 +4,7 @@
 // not boundable / are handled separately by the tracer.
 //
 // Leaves reference primitives by (kind, idx) using the same kind codes the
-// tracer's dispatch switch uses (0 sphere, 2 box, 3 cylinder, 4 cone, 5 torus),
+// tracer's dispatch switch uses (0 sphere, 2 box, 3 cylinder, 4 cone, 5 torus, 6 ring, 7 lens),
 // so the result plugs directly into the existing shading path.
 package bvh
 
@@ -30,6 +30,8 @@ const (
 	KindCylinder = 3
 	KindCone     = 4
 	KindTorus    = 5
+	KindRing     = 6
+	KindLens     = 7
 )
 
 const leafSize = gpuscene.BVHLeafSize // max primitives per leaf
@@ -116,6 +118,25 @@ func build(s *scene.Scene, blockersOnly bool) *BVH {
 				vec.V{X: o.Center.X - rxz, Y: o.Center.Y - o.Rm, Z: o.Center.Z - rxz},
 				vec.V{X: o.Center.X + rxz, Y: o.Center.Y + o.Rm, Z: o.Center.Z + rxz})
 		}
+	}
+	for i := range s.Rings {
+		o := &s.Rings[i]
+		if blockersOnly && o.Mat == scene.MatGlass {
+			continue
+		}
+		sh := o.Shell()
+		half := o.HalfHeight()
+		b.addBounded(KindRing, i, o.Xform,
+			vec.V{X: o.CX - o.Radius - sh, Y: o.CY - half - sh, Z: o.CZ - o.Radius - sh},
+			vec.V{X: o.CX + o.Radius + sh, Y: o.CY + half + sh, Z: o.CZ + o.Radius + sh})
+	}
+	for i := range s.Lenses {
+		o := &s.Lenses[i]
+		if blockersOnly && o.Mat == scene.MatGlass {
+			continue
+		}
+		lmin, lmax := o.WorldBounds()
+		b.addBounded(KindLens, i, o.Xform, lmin, lmax)
 	}
 
 	if len(b.prims) > 0 {
@@ -468,6 +489,12 @@ func (b *BVH) primIntersect(p *primRef, r vec.Ray) float64 {
 		return o.Intersect(o.Xform.LocalRay(r))
 	case KindTorus:
 		o := &s.Tori[p.idx]
+		return o.Intersect(o.Xform.LocalRay(r))
+	case KindRing:
+		o := &s.Rings[p.idx]
+		return o.Intersect(o.Xform.LocalRay(r))
+	case KindLens:
+		o := &s.Lenses[p.idx]
 		return o.Intersect(o.Xform.LocalRay(r))
 	}
 	return scene.Inf

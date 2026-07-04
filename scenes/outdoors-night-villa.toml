@@ -26,6 +26,15 @@ color = [0.4, 0.45, 1.5]     # disc radiance (>1 reads as bright/HDR)
 size  = 5.0                  # angular diameter in degrees
 glow  = 0.1                  # halo strength (omit/0 -> 1.0)
 
+# Moonlight as a distant point light (shadows only come from [[light]]/campfire;
+# sun_dir and [environment.sun] are sky-only). Placed along -sun_dir so shadow
+# rays match the visible moon. range = 0 keeps it global across the valley.
+[[light]]
+pos = [-111.0, 133.0, -100.0]
+color = [1.4, 1.6, 2.4]
+brightness = 30.0
+range = 0
+
 # --------------------------------------------------------------- terrain ----
 # A single height field. Peaks have positive height, valleys negative (or use
 # kind="valley"). grass/rock/snow are blended by slope (slope_lo..slope_hi) and

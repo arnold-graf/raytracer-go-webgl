@@ -1,0 +1,83 @@
+# Art Deco copper ring pendant lamp, in local coordinates.
+#
+# Origin (0,0,0) is the ceiling mount; the lamp hangs straight down in -Y.
+# A short copper canopy and stem suspend a stack of horizontal rings whose
+# radius tapers from top to bottom, with a warm bulb at the shade centre.
+#
+# Parameterized via [[include]] params (all optional):
+#   stem_len      stem length below the canopy        (default 2.1)
+#   top_radius    widest ring radius                  (default 0.48)
+#   bottom_radius narrowest ring radius                (default 0.22)
+#   rings         number of shade rings               (default 5)
+#   ring_spacing  vertical gap between ring centres        (default 0.11)
+#   ring_height   vertical band height per ring            (default 0.03)
+#   brightness    point-light intensity multiplier  (default 0.1)
+#   range         point-light reach                   (default 20)
+#
+#   [[include]]
+#   file = "objects/art-deco-ring-lamp.toml"
+#   at = [26.0, 8.0, 15.0]
+#   params = { stem_len = 2.1, brightness = 0.1, range = 20 }
+{{$stem := or .stem_len 2.1}}
+{{$top := or .top_radius 1}}
+{{$bot := or .bottom_radius 0.22}}
+{{$rings := or .rings 5}}
+{{$spacing := or .ring_spacing 0.11}}
+{{$ringH := or .ring_height 0.2}}
+{{$brightness := or .brightness 0.1}}
+{{$range := or .range 20}}
+{{$copper := orVec3 .copper 0.82 0.52 0.30}}
+{{$bulbY := neg (add $stem (mul $spacing (div (add $rings 1) 2)))}}
+
+[[cylinder]] # ceiling canopy (copper)
+pos_x = -0.18
+pos_y = -0.08
+pos_z = -0.18
+width = 0.36
+height = 0.08
+albedo = {{$copper}}
+material = "metal"
+rough = 0.16
+
+[[cylinder]] # stem / suspension rod (copper)
+pos_x = -0.045
+pos_y = {{neg $stem}}
+pos_z = -0.045
+width = 0.09
+height = {{$stem}}
+albedo = {{$copper}}
+material = "metal"
+rough = 0.16
+
+{{range $i := seq $rings}}
+[[ring]] # shade ring {{$i}}
+cx = 0.0
+cz = 0.0
+cy = {{neg (add $stem (mul (add $i 1) $spacing))}}
+radius = {{if eq $rings 1}}{{$top}}{{else}}{{sub $top (mul (sub $top $bot) (div $i (sub $rings 1)))}}{{end}}
+height = {{$ringH}}
+albedo = {{$copper}}
+material = "diffuse"
+reflect = 0.7
+
+{{end}}
+[[sphere]] # filament (warm emitter inside the shade)
+albedo = [9.0, 5.4, 2.2]
+center = [0.0, {{$bulbY}}, 0.0]
+material = "emit"
+radius = 0.06
+
+[[light]]
+brightness = {{$brightness}}
+color = [3.5, 3.5, 2.4]
+pos = [0.0, {{$bulbY}}, 0.0]
+radius = 0.5
+range = {{$range}}
+
+[[light]]
+brightness = {{$brightness}}
+color = [3.5, 3.5, 2.4]
+pos = [0.0, {{add $bulbY 1}}, 0.0]
+radius = 0.5
+range = {{$range}}
+

@@ -398,6 +398,8 @@ type Cylinder struct {
 	Radius         float64
 	RadiusTop      float64
 	YMin, YMax     float64
+	// OpenMin/OpenMax omit the flat end cap at YMin/YMax so the tube is hollow.
+	OpenMin, OpenMax bool
 	Surface
 }
 
@@ -489,11 +491,15 @@ func (c *Cylinder) Intersect(r vec.Ray) float64 {
 	}
 
 	if math.Abs(dy) > 1e-6 {
-		if tb := c.capHit(r, c.YMin, r0); tb < best {
-			best = tb
+		if !c.OpenMin {
+			if tb := c.capHit(r, c.YMin, r0); tb < best {
+				best = tb
+			}
 		}
-		if tt := c.capHit(r, c.YMax, r1); tt < best {
-			best = tt
+		if !c.OpenMax {
+			if tt := c.capHit(r, c.YMax, r1); tt < best {
+				best = tt
+			}
 		}
 	}
 	return best
@@ -629,6 +635,237 @@ func (c *Cone) Normal(p vec.V, r vec.Ray, t float64) vec.V {
 	ny := k / math.Sqrt(1+k*k)
 	ns := 1 / math.Sqrt(1+k*k)
 	return vec.V{X: lx / lr * ns, Y: ny, Z: lz / lr * ns}
+}
+
+// RingShell is the radial hit tolerance for a ring hoop (no wall thickness).
+const RingShell = 0.01
+
+// DefaultRingHeight is the vertical band height when height is omitted (3 cm).
+const DefaultRingHeight = 0.03
+
+// Ring is a horizontal hoop centred at (CX, CY, CZ) with radius Radius and
+// vertical extent Height. It has no radial wall thickness; RingShell gives
+// rays a finite hit band on the side and cap edges.
+type Ring struct {
+	CX, CY, CZ float64
+	Radius     float64
+	Height     float64
+	Surface
+}
+
+func (r *Ring) height() float64 {
+	if r.Height > 0 {
+		return r.Height
+	}
+	return DefaultRingHeight
+}
+
+func (r *Ring) HalfHeight() float64 {
+	return r.height() * 0.5
+}
+
+func (r *Ring) Shell() float64 {
+	s := RingShell
+	if min := r.Radius * 0.02; s < min {
+		s = min
+	}
+	return s
+}
+
+// WorldBounds returns the ring's axis-aligned bounds in world space.
+func (r *Ring) WorldBounds() (vec.V, vec.V) {
+	sh := r.Shell()
+	half := r.HalfHeight()
+	return expandXformBounds(r.Xform,
+		vec.V{X: r.CX - r.Radius - sh, Y: r.CY - half - sh, Z: r.CZ - r.Radius - sh},
+		vec.V{X: r.CX + r.Radius + sh, Y: r.CY + half + sh, Z: r.CZ + r.Radius + sh})
+}
+
+// Intersect returns the nearest positive hit distance, or Inf on a miss.
+func (r *Ring) Intersect(ray vec.Ray) float64 {
+	half := r.HalfHeight()
+	ymin, ymax := r.CY-half, r.CY+half
+	sh := r.Shell()
+	ox, oz := ray.Origin.X-r.CX, ray.Origin.Z-r.CZ
+	dx, dy, dz := ray.Dir.X, ray.Dir.Y, ray.Dir.Z
+	best := Inf
+
+	// Side wall: solve for |xz - centre| = Radius while y is inside the band.
+	a := dx*dx + dz*dz
+	if a > 1e-12 {
+		b := 2 * (ox*dx + oz*dz)
+		cc := ox*ox + oz*oz - r.Radius*r.Radius
+		disc := b*b - 4*a*cc
+		if disc >= 0 {
+			sq := math.Sqrt(disc)
+			for _, t := range []float64{(-b - sq) / (2 * a), (-b + sq) / (2 * a)} {
+				if t < eps {
+					continue
+				}
+				y := ray.Origin.Y + dy*t
+				if y < ymin-eps || y > ymax+eps {
+					continue
+				}
+				d := math.Hypot(ray.Origin.X+dx*t-r.CX, ray.Origin.Z+dz*t-r.CZ)
+				if math.Abs(d-r.Radius) <= sh && t < best {
+					best = t
+				}
+			}
+		}
+	}
+
+	// Top/bottom cap edges.
+	if math.Abs(dy) > 1e-6 {
+		for _, yp := range []float64{ymin, ymax} {
+			t := (yp - ray.Origin.Y) / dy
+			if t < eps || t >= best {
+				continue
+			}
+			px := ray.Origin.X + dx*t
+			pz := ray.Origin.Z + dz*t
+			if math.Abs(math.Hypot(px-r.CX, pz-r.CZ)-r.Radius) <= sh {
+				best = t
+			}
+		}
+	}
+	return best
+}
+
+// Normal returns the outward unit normal at surface point p.
+func (r *Ring) Normal(p vec.V) vec.V {
+	half := r.HalfHeight()
+	if p.Y <= r.CY-half+1e-4 {
+		return vec.V{Y: -1}
+	}
+	if p.Y >= r.CY+half-1e-4 {
+		return vec.V{Y: 1}
+	}
+	dx, dz := p.X-r.CX, p.Z-r.CZ
+	l := math.Hypot(dx, dz)
+	if l == 0 {
+		return vec.V{X: 1}
+	}
+	return vec.V{X: dx / l, Y: 0, Z: dz / l}
+}
+
+// DefaultLensThickness is the centre thickness when thickness is omitted (4 mm).
+const DefaultLensThickness = 0.004
+
+// Lens is a biconvex glass element. Local +Y is the optical axis (view looks
+// from −Y). RFront/RBack are the front/back surface curvature radii; Thickness
+// is vertex-to-vertex along Y; Aperture is the clear radius in the XZ plane.
+type Lens struct {
+	CX, CY, CZ float64
+	Aperture   float64
+	RFront     float64
+	RBack      float64
+	Thickness  float64
+	Surface
+}
+
+func (l *Lens) thickness() float64 {
+	if l.Thickness > 0 {
+		return l.Thickness
+	}
+	return DefaultLensThickness
+}
+
+func (l *Lens) halfThickness() float64 { return l.thickness() * 0.5 }
+
+func (l *Lens) frontCenterY() float64 { return l.CY - l.halfThickness() + l.RFront }
+
+func (l *Lens) backCenterY() float64 { return l.CY + l.halfThickness() - l.RBack }
+
+// WorldBounds returns the lens's axis-aligned bounds in world space.
+func (l *Lens) WorldBounds() (vec.V, vec.V) {
+	half := l.halfThickness()
+	ap := l.Aperture
+	if ap <= 0 {
+		ap = 0.01
+	}
+	r := math.Max(l.RFront, l.RBack)
+	if r < ap {
+		r = ap
+	}
+	return expandXformBounds(l.Xform,
+		vec.V{X: l.CX - r, Y: l.CY - half - r, Z: l.CZ - r},
+		vec.V{X: l.CX + r, Y: l.CY + half + r, Z: l.CZ + r})
+}
+
+func lensSphereHit(ray vec.Ray, cy, radius float64, negFacing bool) float64 {
+	oc := vec.V{X: ray.Origin.X, Y: ray.Origin.Y - cy, Z: ray.Origin.Z}
+	b := oc.Dot(ray.Dir)
+	c := oc.LenSq() - radius*radius
+	disc := b*b - c
+	if disc < 0 {
+		return Inf
+	}
+	sq := math.Sqrt(disc)
+	best := Inf
+	for _, t := range []float64{-b - sq, -b + sq} {
+		if t < eps {
+			continue
+		}
+		py := ray.Origin.Y + ray.Dir.Y*t
+		if negFacing {
+			if py > cy+1e-6 {
+				continue
+			}
+		} else if py < cy-1e-6 {
+			continue
+		}
+		if t < best {
+			best = t
+		}
+	}
+	return best
+}
+
+// Intersect returns the nearest positive hit on either convex cap, or Inf.
+func (l *Lens) Intersect(ray vec.Ray) float64 {
+	if l.Aperture <= 0 || l.RFront <= 0 || l.RBack <= 0 {
+		return Inf
+	}
+	yf := l.frontCenterY()
+	yb := l.backCenterY()
+	best := Inf
+	for _, hit := range []struct {
+		t   float64
+		cy  float64
+		rad float64
+	}{
+		{lensSphereHit(ray, yf, l.RFront, true), yf, l.RFront},
+		{lensSphereHit(ray, yb, l.RBack, false), yb, l.RBack},
+	} {
+		if hit.t >= best {
+			continue
+		}
+		p := ray.Origin.Add(ray.Dir.Scale(hit.t))
+		dx, dz := p.X-l.CX, p.Z-l.CZ
+		if dx*dx+dz*dz > l.Aperture*l.Aperture+1e-9 {
+			continue
+		}
+		best = hit.t
+	}
+	return best
+}
+
+// Normal returns the outward unit normal at surface point p.
+func (l *Lens) Normal(p vec.V) vec.V {
+	yf := l.frontCenterY()
+	yb := l.backCenterY()
+	if p.Y < l.CY {
+		n := vec.V{X: p.X - l.CX, Y: p.Y - yf, Z: p.Z - l.CZ}
+		if ln := n.Len(); ln > 1e-12 {
+			return n.Scale(1 / ln)
+		}
+		return vec.V{Y: -1}
+	}
+	n := vec.V{X: p.X - l.CX, Y: p.Y - yb, Z: p.Z - l.CZ}
+	if ln := n.Len(); ln > 1e-12 {
+		return n.Scale(1 / ln)
+	}
+	return vec.V{Y: 1}
 }
 
 // Torus is a Y-axis-aligned torus with major radius R and minor radius r.

@@ -20,6 +20,8 @@ type Scene struct {
 	Cylinders []Cylinder
 	Cones     []Cone
 	Tori      []Torus
+	Rings     []Ring
+	Lenses    []Lens
 	Terrains  []Terrain
 	Waters    []WaterPool
 	Lights    []Light

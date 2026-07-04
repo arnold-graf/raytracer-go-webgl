@@ -158,7 +158,8 @@ func isLayoutDTO(dto sceneDTO) bool {
 
 func (dto sceneDTO) hasDirectGeometry() bool {
 	return len(dto.Sphere) > 0 || len(dto.Plane) > 0 || len(dto.Box) > 0 ||
-		len(dto.Cylinder) > 0 || len(dto.Cone) > 0 || len(dto.Torus) > 0
+		len(dto.Cylinder) > 0 || len(dto.Cone) > 0 || len(dto.Torus) > 0 || len(dto.Ring) > 0 ||
+		len(dto.Lens) > 0
 }
 
 func instanceTransformFromDTO(dst *scene.Scene, inc includeDTO, follow bool) *scene.Transform {

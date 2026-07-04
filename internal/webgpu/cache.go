@@ -147,6 +147,11 @@ func (c *sceneCache) updateDynamicTransforms(s *scene.Scene) {
 				repack(i, gi, repackCylinder)
 			}
 		}
+		for i := db.Lenses[0]; i < db.Lenses[1]; i++ {
+			if gi, ok := c.layout.lensGPU(i); ok {
+				repack(i, gi, repackLens)
+			}
+		}
 	}
 	if len(dirtyPrim) == 0 {
 		c.xformGen = s.TransformGeneration()

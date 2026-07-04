@@ -248,6 +248,40 @@ func primBounds(idx uint32, p *GPUPrimitive) (gpuPrimRef, bool) {
 		rxz := R + rm
 		min = vec.V{X: c.X - rxz, Y: c.Y - rm, Z: c.Z - rxz}
 		max = vec.V{X: c.X + rxz, Y: c.Y + rm, Z: c.Z + rxz}
+	case primRing:
+		cx, cz, r := float64(p.GeoA[0]), float64(p.GeoA[1]), float64(p.GeoA[2])
+		cy := float64(p.GeoA[3])
+		h := float64(p.GeoB[0])
+		if h <= 0 {
+			h = 0.03
+		}
+		sh := 0.01
+		if minR := r * 0.02; sh < minR {
+			sh = minR
+		}
+		half := h * 0.5
+		min = vec.V{X: cx - r - sh, Y: cy - half - sh, Z: cz - r - sh}
+		max = vec.V{X: cx + r + sh, Y: cy + half + sh, Z: cz + r + sh}
+	case primLens:
+		cx, cy, cz := float64(p.GeoA[0]), float64(p.GeoA[1]), float64(p.GeoA[2])
+		ap := float64(p.GeoA[3])
+		rf, rb, th := float64(p.GeoB[0]), float64(p.GeoB[1]), float64(p.GeoB[2])
+		if th <= 0 {
+			th = 0.004
+		}
+		if ap <= 0 {
+			ap = 0.01
+		}
+		r := rf
+		if rb > r {
+			r = rb
+		}
+		if ap > r {
+			r = ap
+		}
+		half := th * 0.5
+		min = vec.V{X: cx - r, Y: cy - half - r, Z: cz - r}
+		max = vec.V{X: cx + r, Y: cy + half + r, Z: cz + r}
 	default:
 		return gpuPrimRef{}, false
 	}

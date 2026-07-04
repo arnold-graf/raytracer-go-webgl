@@ -40,7 +40,6 @@ width = 0.09
 height = {{$stem}}
 albedo = [0.70, 0.48, 0.26]
 material = "metal"
-rough = 0.22
 
 [[sphere]] # glass orb
 albedo = [0.95, 0.92, 0.85]

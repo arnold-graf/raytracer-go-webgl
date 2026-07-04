@@ -54,6 +54,7 @@ type DynamicBody struct {
 	Boxes     [2]int
 	Cylinders [2]int
 	Spheres   [2]int
+	Lenses    [2]int
 }
 
 // TouchTransforms marks primitive transforms as changed without invalidating

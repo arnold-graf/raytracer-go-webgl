@@ -18,8 +18,8 @@ struct Params {
     blocker_bvh_node_count: u32,
     terrain_count: u32,
     water_count: u32,
-    time: f32,
-    _p0: f32,
+	time: f32,
+    max_bounce_depth: u32,
     aspect: f32,
     fov_scale: f32,
     ambient: f32,
@@ -66,7 +66,8 @@ struct Prim {
     geo_a: vec4<f32>,   // sphere: center.xyz, radius | plane: n.xyz, d | box: min.xyz, holeStart
                         // cylinder: cx, cz, radius, ymin | cone: cx, cz, rbase, ybase
                         // torus: center.xyz, majorR
-    geo_b: vec4<f32>,   // box: max.xyz, holeCount | cylinder: ymax, radius_top | cone: ytip | torus: minorR
+                        // ring: cx, cz, radius, cy
+    geo_b: vec4<f32>,   // box: max.xyz, holeCount | cylinder: ymax, radius_top | cone: ytip | torus: minorR | ring: height
     albedo: vec4<f32>,  // linear rgb in xyz
     albedo2: vec4<f32>, // checker second color
     surf: vec4<f32>,    // rough, ior, reflect, transmit
@@ -231,6 +232,9 @@ const PRIM_BOX: u32 = 2u;
 const PRIM_CYLINDER: u32 = 3u;
 const PRIM_CONE: u32 = 4u;
 const PRIM_TORUS: u32 = 5u;
+const PRIM_RING: u32 = 6u;
+const PRIM_LENS: u32 = 7u;
+const RING_SHELL: f32 = 0.01;
 const MAT_DIFFUSE: u32 = 0u;
 const MAT_MIRROR: u32 = 1u;
 const MAT_METAL: u32 = 3u;
@@ -1161,10 +1165,14 @@ fn hit_cylinder(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
         }
     }
     if (abs(rd.y) > 1e-6) {
-        let tb = cyl_cap(ro, rd, cx, cz, r0, ymin);
-        if (tb < best) { best = tb; }
-        let tt = cyl_cap(ro, rd, cx, cz, r1, ymax);
-        if (tt < best) { best = tt; }
+        if (p.geo_b.z < 0.5) {
+            let tb = cyl_cap(ro, rd, cx, cz, r0, ymin);
+            if (tb < best) { best = tb; }
+        }
+        if (p.geo_b.w < 0.5) {
+            let tt = cyl_cap(ro, rd, cx, cz, r1, ymax);
+            if (tt < best) { best = tt; }
+        }
     }
     return best;
 }
@@ -1265,6 +1273,138 @@ fn hit_torus(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
     return T_MISS;
 }
 
+fn hit_ring(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
+    let cx = p.geo_a.x;
+    let cz = p.geo_a.y;
+    let radius = p.geo_a.z;
+    let cy = p.geo_a.w;
+    var height = p.geo_b.x;
+    if (height <= 0.0) {
+        height = 0.03;
+    }
+    let band_half = height * 0.5;
+    let ymin = cy - band_half;
+    let ymax = cy + band_half;
+    var shell = RING_SHELL;
+    let min_shell = radius * 0.02;
+    if (shell < min_shell) {
+        shell = min_shell;
+    }
+
+    var best = T_MISS;
+    let ox = ro.x - cx;
+    let oz = ro.z - cz;
+    let a = rd.x * rd.x + rd.z * rd.z;
+    if (a > 1e-12) {
+        let b = 2.0 * (ox * rd.x + oz * rd.z);
+        let cc = ox * ox + oz * oz - radius * radius;
+        let disc = b * b - 4.0 * a * cc;
+        if (disc >= 0.0) {
+            let sq = sqrt(disc);
+            for (var k = 0u; k < 2u; k = k + 1u) {
+                let t = (select(-sq, sq, k == 1u) - b) / (2.0 * a);
+                if (t < RAY_EPSILON || t >= best) {
+                    continue;
+                }
+                let y = ro.y + rd.y * t;
+                if (y < ymin - 1e-6 || y > ymax + 1e-6) {
+                    continue;
+                }
+                let px = ro.x + rd.x * t;
+                let pz = ro.z + rd.z * t;
+                let d = sqrt((px - cx) * (px - cx) + (pz - cz) * (pz - cz));
+                if (abs(d - radius) <= shell) {
+                    best = t;
+                }
+            }
+        }
+    }
+
+    if (abs(rd.y) > 1e-6) {
+        for (var k = 0u; k < 2u; k = k + 1u) {
+            let yp = select(ymin, ymax, k == 1u);
+            let t = (yp - ro.y) / rd.y;
+            if (t < RAY_EPSILON || t >= best) {
+                continue;
+            }
+            let px = ro.x + rd.x * t;
+            let pz = ro.z + rd.z * t;
+            let d = sqrt((px - cx) * (px - cx) + (pz - cz) * (pz - cz));
+            if (abs(d - radius) <= shell) {
+                best = t;
+            }
+        }
+    }
+    return best;
+}
+
+fn lens_sphere_cap(ro: vec3<f32>, rd: vec3<f32>, cy: f32, radius: f32, neg_facing: bool) -> f32 {
+    let oc = vec3<f32>(ro.x, ro.y - cy, ro.z);
+    let b = dot(oc, rd);
+    let c = dot(oc, oc) - radius * radius;
+    let disc = b * b - c;
+    if (disc < 0.0) {
+        return T_MISS;
+    }
+    let sq = sqrt(disc);
+    var best = T_MISS;
+    for (var k = 0u; k < 2u; k = k + 1u) {
+        let t = (select(-sq, sq, k == 1u) - b);
+        if (t < RAY_EPSILON || t >= best) {
+            continue;
+        }
+        let py = ro.y + rd.y * t;
+        if (neg_facing) {
+            if (py > cy + 1e-6) {
+                continue;
+            }
+        } else if (py < cy - 1e-6) {
+            continue;
+        }
+        best = t;
+    }
+    return best;
+}
+
+fn hit_lens(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
+    let cx = p.geo_a.x;
+    let cy = p.geo_a.y;
+    let cz = p.geo_a.z;
+    let aperture = p.geo_a.w;
+    let r_front = p.geo_b.x;
+    let r_back = p.geo_b.y;
+    var thickness = p.geo_b.z;
+    if (thickness <= 0.0) {
+        thickness = 0.004;
+    }
+    if (aperture <= 0.0 || r_front <= 0.0 || r_back <= 0.0) {
+        return T_MISS;
+    }
+    let half_t = thickness * 0.5;
+    let y_front = cy - half_t + r_front;
+    let y_back = cy + half_t - r_back;
+    var best = T_MISS;
+    let t_front = lens_sphere_cap(ro, rd, y_front, r_front, true);
+    let t_back = lens_sphere_cap(ro, rd, y_back, r_back, false);
+    for (var k = 0u; k < 2u; k = k + 1u) {
+        let t = select(t_front, t_back, k == 1u);
+        if (t >= best) {
+            continue;
+        }
+        let px = ro.x + rd.x * t;
+        let py = ro.y + rd.y * t;
+        let pz = ro.z + rd.z * t;
+        let dx = px - cx;
+        let dz = pz - cz;
+        if (dx * dx + dz * dz > aperture * aperture + 1e-9) {
+            continue;
+        }
+        _ = py;
+        best = t;
+    }
+    return best;
+}
+
 // xf_to_local_point maps a world point into a transformed primitive's local
 // space: inv * (w - t). The world->local rotation rows live in xf0..xf2.xyz and
 // the translation in their .w lanes. Mirrors scene.Transform.LocalRay.
@@ -1312,6 +1452,12 @@ fn hit_prim(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
     }
     if (kind == PRIM_CONE) {
         return hit_cone(p, lro, lrd);
+    }
+    if (kind == PRIM_RING) {
+        return hit_ring(p, lro, lrd);
+    }
+    if (kind == PRIM_LENS) {
+        return hit_lens(p, lro, lrd);
     }
     return hit_torus(p, lro, lrd);
 }
@@ -1910,6 +2056,57 @@ fn torus_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     return normalize(e - c);
 }
 
+fn ring_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
+    let cx = p.geo_a.x;
+    let cz = p.geo_a.y;
+    let cy = p.geo_a.w;
+    var height = p.geo_b.x;
+    if (height <= 0.0) {
+        height = 0.03;
+    }
+    let band_half = height * 0.5;
+    if (hp.y <= cy - band_half + 1e-4) {
+        return vec3<f32>(0.0, -1.0, 0.0);
+    }
+    if (hp.y >= cy + band_half - 1e-4) {
+        return vec3<f32>(0.0, 1.0, 0.0);
+    }
+    let lx = hp.x - cx;
+    let lz = hp.z - cz;
+    var l = sqrt(lx * lx + lz * lz);
+    if (l == 0.0) { l = 1e-9; }
+    return vec3<f32>(lx / l, 0.0, lz / l);
+}
+
+fn lens_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
+    let cx = p.geo_a.x;
+    let cy = p.geo_a.y;
+    let cz = p.geo_a.z;
+    let r_front = p.geo_b.x;
+    let r_back = p.geo_b.y;
+    var thickness = p.geo_b.z;
+    if (thickness <= 0.0) {
+        thickness = 0.004;
+    }
+    let half_t = thickness * 0.5;
+    let y_front = cy - half_t + r_front;
+    let y_back = cy + half_t - r_back;
+    if (hp.y < cy) {
+        var n = vec3<f32>(hp.x - cx, hp.y - y_front, hp.z - cz);
+        let l = length(n);
+        if (l > 1e-12) {
+            return n / l;
+        }
+        return vec3<f32>(0.0, -1.0, 0.0);
+    }
+    var n = vec3<f32>(hp.x - cx, hp.y - y_back, hp.z - cz);
+    let l = length(n);
+    if (l > 1e-12) {
+        return n / l;
+    }
+    return vec3<f32>(0.0, 1.0, 0.0);
+}
+
 fn normal_at(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     let kind = p.info.x;
     if (kind == PRIM_SPHERE) {
@@ -1926,6 +2123,12 @@ fn normal_at(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     }
     if (kind == PRIM_CONE) {
         return cone_normal(p, hp);
+    }
+    if (kind == PRIM_RING) {
+        return ring_normal(p, hp);
+    }
+    if (kind == PRIM_LENS) {
+        return lens_normal(p, hp);
     }
     return torus_normal(p, hp);
 }
@@ -2322,8 +2525,12 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
             transmit = 0.9;
         }
         let ep = hp + n * SURFACE_EPSILON;
-        // reflective = depth < maxBounces-1 && mirror enabled.
-        let reflective = depth < 2u && params.mirror != 0u;
+        // reflective = depth < max_bounce_depth && mirror enabled.
+        var max_depth = params.max_bounce_depth;
+        if (max_depth == 0u) {
+            max_depth = 2u;
+        }
+        let reflective = depth < max_depth && params.mirror != 0u;
 
         if ((mat == MAT_MIRROR || mat == MAT_METAL) && reflective) {
             prof_inc(PROF_MIRROR_BOUNCES, 1u);

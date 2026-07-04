@@ -191,6 +191,8 @@ type cylinderDTO struct {
 	Height      float64 `toml:"height"`
 	WidthBottom float64 `toml:"width_bottom"` // bottom diameter (defaults to width)
 	WidthTop    float64 `toml:"width_top"`    // top diameter (defaults to width_bottom)
+	OpenMin     bool    `toml:"open_min"`     // omit bottom end cap (hollow tube)
+	OpenMax     bool    `toml:"open_max"`     // omit top end cap
 	transformDTO
 	surfaceDTO
 }
@@ -243,6 +245,28 @@ type torusDTO struct {
 	Center vec3    `toml:"center"`
 	Major  float64 `toml:"major"`
 	Minor  float64 `toml:"minor"`
+	transformDTO
+	surfaceDTO
+}
+
+type ringDTO struct {
+	CX     float64 `toml:"cx"`
+	CZ     float64 `toml:"cz"`
+	CY     float64 `toml:"cy"`
+	Radius float64 `toml:"radius"`
+	Height float64 `toml:"height"`
+	transformDTO
+	surfaceDTO
+}
+
+type lensDTO struct {
+	CX        float64 `toml:"cx"`
+	CY        float64 `toml:"cy"`
+	CZ        float64 `toml:"cz"`
+	Aperture  float64 `toml:"aperture"`
+	RFront    float64 `toml:"r_front"`
+	RBack     float64 `toml:"r_back"`
+	Thickness float64 `toml:"thickness"`
 	transformDTO
 	surfaceDTO
 }
@@ -503,6 +527,8 @@ type sceneDTO struct {
 	Cylinder    []cylinderDTO   `toml:"cylinder"`
 	Cone        []coneDTO       `toml:"cone"`
 	Torus       []torusDTO      `toml:"torus"`
+	Ring        []ringDTO       `toml:"ring"`
+	Lens        []lensDTO       `toml:"lens"`
 	Terrain     []terrainDTO    `toml:"terrain"`
 	Water       []waterDTO      `toml:"water"`
 	Light       []lightDTO      `toml:"light"`
@@ -855,7 +881,8 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		surf.Xform = d.transformDTO.buildAbout(center)
 		s.Cylinders = append(s.Cylinders, scene.Cylinder{
 			CX: cx, CZ: cz, Radius: radius, RadiusTop: radiusTop,
-			YMin: ymin, YMax: ymax, Surface: surf,
+			YMin: ymin, YMax: ymax, OpenMin: d.OpenMin, OpenMax: d.OpenMax,
+			Surface: surf,
 		})
 	}
 	for i, d := range dto.Cone {
@@ -875,6 +902,34 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		center := d.Center.toV()
 		surf.Xform = d.transformDTO.buildAbout(center)
 		s.Tori = append(s.Tori, scene.Torus{Center: center, R: d.Major, Rm: d.Minor, Surface: surf})
+	}
+	for i, d := range dto.Ring {
+		surf, err := d.toSurface()
+		if err != nil {
+			return nil, fmt.Errorf("ring[%d]: %w", i, err)
+		}
+		if d.Radius <= 0 {
+			return nil, fmt.Errorf("ring[%d]: radius must be > 0", i)
+		}
+		center := vec.New(d.CX, d.CY, d.CZ)
+		surf.Xform = d.transformDTO.buildAbout(center)
+		s.Rings = append(s.Rings, scene.Ring{CX: d.CX, CZ: d.CZ, CY: d.CY, Radius: d.Radius, Height: d.Height, Surface: surf})
+	}
+	for i, d := range dto.Lens {
+		surf, err := d.toSurface()
+		if err != nil {
+			return nil, fmt.Errorf("lens[%d]: %w", i, err)
+		}
+		if d.Aperture <= 0 || d.RFront <= 0 || d.RBack <= 0 {
+			return nil, fmt.Errorf("lens[%d]: aperture, r_front, and r_back must be > 0", i)
+		}
+		center := vec.New(d.CX, d.CY, d.CZ)
+		surf.Xform = d.transformDTO.buildAbout(center)
+		s.Lenses = append(s.Lenses, scene.Lens{
+			CX: d.CX, CY: d.CY, CZ: d.CZ,
+			Aperture: d.Aperture, RFront: d.RFront, RBack: d.RBack, Thickness: d.Thickness,
+			Surface: surf,
+		})
 	}
 	for i, d := range dto.Terrain {
 		ter, err := d.build()
@@ -1089,6 +1144,16 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 		o := sub.Tori[i]
 		o.Xform = xf.Compose(o.Xform)
 		dst.Tori = append(dst.Tori, o)
+	}
+	for i := range sub.Rings {
+		o := sub.Rings[i]
+		o.Xform = xf.Compose(o.Xform)
+		dst.Rings = append(dst.Rings, o)
+	}
+	for i := range sub.Lenses {
+		o := sub.Lenses[i]
+		o.Xform = xf.Compose(o.Xform)
+		dst.Lenses = append(dst.Lenses, o)
 	}
 	for i := range sub.Lights {
 		l := sub.Lights[i]

@@ -212,6 +212,8 @@ func sliceStaticScene(s *scene.Scene, static scene.PrimitiveCounts) *scene.Scene
 		Cylinders: append([]scene.Cylinder(nil), s.Cylinders[:min(static.Cylinders, len(s.Cylinders))]...),
 		Cones:     append([]scene.Cone(nil), s.Cones[:min(static.Cones, len(s.Cones))]...),
 		Tori:      append([]scene.Torus(nil), s.Tori[:min(static.Tori, len(s.Tori))]...),
+		Rings:     append([]scene.Ring(nil), s.Rings[:min(static.Rings, len(s.Rings))]...),
+		Lenses:    append([]scene.Lens(nil), s.Lenses[:min(static.Lenses, len(s.Lenses))]...),
 	}
 }
 

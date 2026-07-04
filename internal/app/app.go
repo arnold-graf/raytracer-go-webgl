@@ -110,6 +110,8 @@ type Game struct {
 
 	// npcDebug draws skeleton/foot overlay segments (key 6).
 	npcDebug bool
+
+	spyglass Spyglass
 }
 
 // New builds a game with the given internal render resolution rendering the
@@ -167,6 +169,9 @@ func (g *Game) setScene(sc *scene.Scene) {
 	g.cam.SetWorld(sc)
 	g.npcs = npc.NewManager()
 	_ = g.npcs.Instantiate(sc, npc.FootWorld(sc))
+	if err := g.spyglass.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "spyglass: %v\n", err)
+	}
 	g.aoMu.Lock()
 	g.aoOK = false
 	g.aoData = probe.AOData{}
@@ -196,15 +201,16 @@ func (g *Game) view() *render.View {
 	aoData, aoOK, aoVer := g.aoData, g.aoOK, g.aoVer
 	g.aoMu.Unlock()
 	return &render.View{
-		Scene:      g.sc,
-		Time:       g.elapsed,
-		Shadow:     g.shadow,
-		Mirror:     g.mirror,
-		AO:         g.ao,
-		AOData:     aoData,
-		AOok:       aoOK,
-		AOVersion:  aoVer,
-		ColorQuant: g.colorQuant,
+		Scene:          g.sc,
+		Time:           g.elapsed,
+		Shadow:         g.shadow,
+		Mirror:         g.mirror,
+		AO:             g.ao,
+		AOData:         aoData,
+		AOok:           aoOK,
+		AOVersion:      aoVer,
+		ColorQuant:     g.colorQuant,
+		MaxBounceDepth: g.spyglass.MaxBounceDepth(),
 	}
 }
 
@@ -471,6 +477,7 @@ func (g *Game) Update() error {
 			const npcDt = 1.0 / 60.0
 			g.npcs.Update(g.sc, npc.FootWorld(g.sc), npcDt)
 		}
+		g.spyglass.Update(g.sc, g.cam, 1.0/60.0)
 	}
 	g.updateFade()
 	g.updatePortalTransition()
@@ -681,6 +688,9 @@ func (g *Game) handleToggles() {
 		if g.hudHidden {
 			g.hudSmooth.reset()
 		}
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyQ) {
+		g.spyglass.Toggle()
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyMinus) || inpututil.IsKeyJustPressed(ebiten.KeyLeftBracket) {
 		if g.pixSize < 8 {

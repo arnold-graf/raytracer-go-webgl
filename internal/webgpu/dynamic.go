@@ -9,11 +9,12 @@ type gpuIndexMap struct {
 	sphere        map[int]int
 	box           map[int]int
 	cylinder      map[int]int
+	lens          map[int]int
 	primToBlocker map[int]int // prim GPU index -> blocker GPU index
 }
 
-func dynamicIndexSets(s *scene.Scene) (spheres, boxes, cylinders map[int]struct{}) {
-	spheres, boxes, cylinders = map[int]struct{}{}, map[int]struct{}{}, map[int]struct{}{}
+func dynamicIndexSets(s *scene.Scene) (spheres, boxes, cylinders, lenses map[int]struct{}) {
+	spheres, boxes, cylinders, lenses = map[int]struct{}{}, map[int]struct{}{}, map[int]struct{}{}, map[int]struct{}{}
 	if s == nil {
 		return
 	}
@@ -27,16 +28,20 @@ func dynamicIndexSets(s *scene.Scene) (spheres, boxes, cylinders map[int]struct{
 		for i := db.Cylinders[0]; i < db.Cylinders[1]; i++ {
 			cylinders[i] = struct{}{}
 		}
+		for i := db.Lenses[0]; i < db.Lenses[1]; i++ {
+			lenses[i] = struct{}{}
+		}
 	}
 	return
 }
 
 func appendDynamicBodyPrimitives(s *scene.Scene, prims []GPUPrimitive) ([]GPUPrimitive, gpuIndexMap) {
-	sphSet, boxSet, cylSet := dynamicIndexSets(s)
+	sphSet, boxSet, cylSet, lensSet := dynamicIndexSets(s)
 	m := gpuIndexMap{
 		sphere:   map[int]int{},
 		box:      map[int]int{},
 		cylinder: map[int]int{},
+		lens:     map[int]int{},
 	}
 	if s == nil {
 		return prims, m
@@ -70,6 +75,13 @@ func appendDynamicBodyPrimitives(s *scene.Scene, prims []GPUPrimitive) ([]GPUPri
 		m.cylinder[i] = len(prims)
 		prims = append(prims, cylinderPrim(&s.Cylinders[i]))
 	}
+	for i := range s.Lenses {
+		if _, ok := lensSet[i]; !ok {
+			continue
+		}
+		m.lens[i] = len(prims)
+		prims = append(prims, lensPrim(&s.Lenses[i]))
+	}
 	if len(prims) > maxPrims {
 		prims = prims[:maxPrims]
 	}
@@ -77,11 +89,12 @@ func appendDynamicBodyPrimitives(s *scene.Scene, prims []GPUPrimitive) ([]GPUPri
 }
 
 func appendDynamicBodyBlockers(s *scene.Scene, blockers []GPUPrimitive) ([]GPUPrimitive, gpuIndexMap) {
-	sphSet, boxSet, cylSet := dynamicIndexSets(s)
+	sphSet, boxSet, cylSet, _ := dynamicIndexSets(s)
 	m := gpuIndexMap{
 		sphere:   map[int]int{},
 		box:      map[int]int{},
 		cylinder: map[int]int{},
+		lens:     map[int]int{},
 	}
 	if s == nil {
 		return blockers, m
@@ -165,7 +178,7 @@ func packPrimitivesWithoutDynamic(s *scene.Scene) []GPUPrimitive {
 	if s == nil {
 		return nil
 	}
-	sph, box, cyl := dynamicIndexSets(s)
+	sph, box, cyl, lens := dynamicIndexSets(s)
 	out := make([]GPUPrimitive, 0, len(s.Spheres)+len(s.Planes)+len(s.Boxes))
 	for i := range s.Spheres {
 		if _, skip := sph[i]; skip {
@@ -212,6 +225,15 @@ func packPrimitivesWithoutDynamic(s *scene.Scene) []GPUPrimitive {
 	for i := range s.Tori {
 		out = append(out, torusPrim(&s.Tori[i]))
 	}
+	for i := range s.Rings {
+		out = append(out, ringPrim(&s.Rings[i]))
+	}
+	for i := range s.Lenses {
+		if _, skip := lens[i]; skip {
+			continue
+		}
+		out = append(out, lensPrim(&s.Lenses[i]))
+	}
 	return out
 }
 
@@ -219,7 +241,7 @@ func packBlockersWithoutDynamic(s *scene.Scene) []GPUPrimitive {
 	if s == nil {
 		return nil
 	}
-	sph, box, cyl := dynamicIndexSets(s)
+	sph, box, cyl, lens := dynamicIndexSets(s)
 	out := make([]GPUPrimitive, 0, len(s.Spheres)+len(s.Planes)+len(s.Boxes))
 	for i := range s.Spheres {
 		if _, skip := sph[i]; skip {
@@ -277,6 +299,16 @@ func packBlockersWithoutDynamic(s *scene.Scene) []GPUPrimitive {
 		}
 		out = append(out, conePrim(co))
 	}
+	for i := range s.Lenses {
+		if _, skip := lens[i]; skip {
+			continue
+		}
+		ln := &s.Lenses[i]
+		if ln.Mat == scene.MatGlass {
+			continue
+		}
+		out = append(out, lensPrim(ln))
+	}
 	return out
 }
 
@@ -306,4 +338,11 @@ func repackCylinder(s *scene.Scene, sceneIdx int, dst *GPUPrimitive) {
 		return
 	}
 	*dst = cylinderPrim(&s.Cylinders[sceneIdx])
+}
+
+func repackLens(s *scene.Scene, sceneIdx int, dst *GPUPrimitive) {
+	if s == nil || dst == nil || sceneIdx < 0 || sceneIdx >= len(s.Lenses) {
+		return
+	}
+	*dst = lensPrim(&s.Lenses[sceneIdx])
 }

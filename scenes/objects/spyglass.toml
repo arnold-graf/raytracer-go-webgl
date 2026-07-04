@@ -1,0 +1,78 @@
+# Handheld spyglass mesh in local coordinates.
+#
+# +Y is the optical axis (forward when raised). Origin (0,0,0) is the eyepiece
+# end. The runtime app attaches this with NewTransformYZ and animates it on Q.
+#
+# Active: Keplerian pair (weak eyepiece just ahead of the eye + strong objective
+# at the front). Higher magnification than a single lens; keep apertures matched
+# to the front bore so there is no unmagnified ring around the glass.
+
+[[cylinder]] # tapered barrel
+pos_x = -0.022
+pos_y = 0.0
+pos_z = -0.022
+width_bottom = 0.044
+width_top = 0.020
+height = 0.050
+open_min = true
+open_max = true
+material = "metal"
+albedo = [0.72, 0.54, 0.28]
+rough = 0.18
+
+[[cylinder]] # front retaining ring (same bore as the lenses)
+pos_x = -0.011
+pos_y = 0.046
+pos_z = -0.011
+width = 0.022
+height = 0.007
+open_min = true
+open_max = true
+material = "metal"
+albedo = [0.72, 0.54, 0.28]
+rough = 0.18
+
+# Eyepiece: just ahead of the camera (eye ≈ Y 0.022 when raised).
+[[lens]]
+cx = 0.0
+cy = 0.027
+cz = 0.0
+aperture = 0.0105
+r_front = 0.028
+r_back = 0.028
+thickness = 0.002
+material = "glass"
+albedo = [1.0, 1.0, 1.0]
+rough = 0.05
+ior = 1.52
+transmit = 1
+
+# Objective: strong curvature at the tube mouth (front vertex Y ≈ 0.050).
+[[lens]]
+cx = 0.0
+cy = 0.05225
+cz = 0.0
+aperture = 0.0105
+r_front = 0.007
+r_back = 0.007
+thickness = 0.0045
+material = "glass"
+albedo = [1.0, 1.0, 1.0]
+rough = 0.05
+ior = 1.52
+transmit = 1
+
+# --- Single-lens alternative (simpler, less magnification, more uniform distortion) ---
+# [[lens]]
+# cx = 0.0
+# cy = 0.05225
+# cz = 0.0
+# aperture = 0.0105
+# r_front = 0.013
+# r_back = 0.013
+# thickness = 0.0045
+# material = "glass"
+# albedo = [1.0, 1.0, 1.0]
+# rough = 0.01
+# ior = 1.52
+# transmit = 0.97

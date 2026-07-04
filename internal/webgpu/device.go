@@ -30,7 +30,7 @@ const (
 
 	// ambientFlat is the CPU shade()'s flat-ambient term used when a scene has
 	// no hemispheric sky/ground ambient: lit = albedo * 0.04.
-	ambientFlat = 0.04
+	ambientFlat = 0.03
 )
 
 func maxCapturePixels(maxDim int) int {
@@ -81,10 +81,10 @@ type Renderer struct {
 	cache  sceneCache  // memoized static scene buffers (see cache.go)
 	timing FrameTiming // phase breakdown of the most recent Render (see profile.go)
 
-	profiling         bool
-	profileCounters   GPUProfileCounters
-	profile           *wgpu.Buffer
-	profileRead       *wgpu.Buffer
+	profiling       bool
+	profileCounters GPUProfileCounters
+	profile         *wgpu.Buffer
+	profileRead     *wgpu.Buffer
 
 	liveWorkload  bool
 	workloadFrame int
@@ -518,17 +518,18 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		instNodeBase: c.instNodeBase, instNodeCount: c.instNodeCount,
 		blockerSecStart: c.blockerSecStart, blockerInstBase: c.blockerInstBase,
 		blockerInstCount: c.blockerInstCount,
-		terrains: c.terrains, samples: c.samples, waters: c.waters,
+		terrains:         c.terrains, samples: c.samples, waters: c.waters,
 		campfireParams: c.campfireParams, holes: c.holes, ao: c.ao, aoOK: c.aoOK && aoEnabled,
 		shadows: shadows, mirror: mirror, timeSec: timeSec, sky: sky,
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
 		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
 		uploadStatic: uploadStatic, uploadPartial: uploadPartial,
-		partialPrimSpans: c.partialPrimSpans,
+		partialPrimSpans:    c.partialPrimSpans,
 		partialBlockerSpans: c.partialBlockerSpans,
 	}
 	if v != nil {
 		rp.colorQuant = v.ColorQuant
+		rp.maxBounceDepth = v.MaxBounceDepth
 	}
 	if v == nil || v.Scene == nil {
 		rp = renderParams{}
@@ -578,20 +579,21 @@ type renderParams struct {
 	// Visible celestial body (sun/moon disc) drawn in the sky. bodyDir points
 	// from the camera toward the body (= -Env.SunDir); bodyCosRadius is the
 	// cosine of its angular radius.
-	bodyEnabled   bool
-	bodyDir       vec.V
-	bodyColor     vec.V
-	bodyCosRadius float32
-	bodyGlow      float32
-	colorQuant    uint32
+	bodyEnabled    bool
+	bodyDir        vec.V
+	bodyColor      vec.V
+	bodyCosRadius  float32
+	bodyGlow       float32
+	colorQuant     uint32
+	maxBounceDepth uint32
 	profileEnabled bool
 	// uploadStatic is set when the cached scene buffers changed this frame and
 	// must be re-sent to the GPU. When false, render() uploads only the per-frame
 	// params; the static SSBOs already hold the right data.
 	uploadStatic bool
 	// uploadPartial re-sends only dirty primitive spans + refit BVH after NPC pose updates.
-	uploadPartial    bool
-	partialPrimSpans [][2]int
+	uploadPartial       bool
+	partialPrimSpans    [][2]int
 	partialBlockerSpans [][2]int
 }
 
@@ -802,7 +804,7 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	putU32(out[32:36], uint32(len(p.terrains)))
 	putU32(out[36:40], uint32(len(p.waters)))
 	putF32(out[40:44], float32(p.timeSec))
-	// out[44:48] padding
+	putU32(out[44:48], p.maxBounceDepth)
 	putF32(out[48:52], float32(float64(fw)/float64(fh)))
 	putF32(out[52:56], float32(fovScale))
 	putF32(out[56:60], float32(ambientFlat))

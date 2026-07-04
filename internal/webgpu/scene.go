@@ -20,6 +20,8 @@ const (
 	primCylinder uint32 = 3
 	primCone     uint32 = 4
 	primTorus    uint32 = 5
+	primRing     uint32 = 6
+	primLens     uint32 = 7
 )
 
 // maxPrims caps the GPU primitive storage buffer. The current scenes use far
@@ -178,6 +180,12 @@ func PackPrimitives(s *scene.Scene) []GPUPrimitive {
 	for i := range s.Tori {
 		out = append(out, torusPrim(&s.Tori[i]))
 	}
+	for i := range s.Rings {
+		out = append(out, ringPrim(&s.Rings[i]))
+	}
+	for i := range s.Lenses {
+		out = append(out, lensPrim(&s.Lenses[i]))
+	}
 	if len(out) > maxPrims {
 		out = out[:maxPrims]
 	}
@@ -217,7 +225,7 @@ func cylinderPrim(c *scene.Cylinder) GPUPrimitive {
 	}
 	p := GPUPrimitive{
 		GeoA:   [4]float32{f(c.CX), f(c.CZ), f(c.Radius), f(c.YMin)},
-		GeoB:   [4]float32{f(c.YMax), f(rt), 0, 0},
+		GeoB:   [4]float32{f(c.YMax), f(rt), openCap(c.OpenMin), openCap(c.OpenMax)},
 		Albedo: albedo(c.Albedo),
 		Params: surfaceParams(c.Surface),
 		Meta:   [4]uint32{primCylinder, uint32(c.Mat), uint32(c.Tex), 0},
@@ -247,6 +255,38 @@ func torusPrim(t *scene.Torus) GPUPrimitive {
 		Meta:   [4]uint32{primTorus, uint32(t.Mat), uint32(t.Tex), 0},
 	}
 	setXform(&p, t.Xform)
+	return p
+}
+
+func ringPrim(r *scene.Ring) GPUPrimitive {
+	h := r.Height
+	if h <= 0 {
+		h = scene.DefaultRingHeight
+	}
+	p := GPUPrimitive{
+		GeoA:   [4]float32{f(r.CX), f(r.CZ), f(r.Radius), f(r.CY)},
+		GeoB:   [4]float32{f(h), 0, 0, 0},
+		Albedo: albedo(r.Albedo),
+		Params: surfaceParams(r.Surface),
+		Meta:   [4]uint32{primRing, uint32(r.Mat), uint32(r.Tex), 0},
+	}
+	setXform(&p, r.Xform)
+	return p
+}
+
+func lensPrim(l *scene.Lens) GPUPrimitive {
+	th := l.Thickness
+	if th <= 0 {
+		th = scene.DefaultLensThickness
+	}
+	p := GPUPrimitive{
+		GeoA:   [4]float32{f(l.CX), f(l.CY), f(l.CZ), f(l.Aperture)},
+		GeoB:   [4]float32{f(l.RFront), f(l.RBack), f(th), 0},
+		Albedo: albedo(l.Albedo),
+		Params: surfaceParams(l.Surface),
+		Meta:   [4]uint32{primLens, uint32(l.Mat), uint32(l.Tex), 0},
+	}
+	setXform(&p, l.Xform)
 	return p
 }
 
@@ -329,6 +369,20 @@ func PackBlockers(s *scene.Scene) []GPUPrimitive {
 			continue
 		}
 		out = append(out, conePrim(co))
+	}
+	for i := range s.Rings {
+		rg := &s.Rings[i]
+		if rg.Mat == scene.MatGlass {
+			continue
+		}
+		out = append(out, ringPrim(rg))
+	}
+	for i := range s.Lenses {
+		ln := &s.Lenses[i]
+		if ln.Mat == scene.MatGlass {
+			continue
+		}
+		out = append(out, lensPrim(ln))
 	}
 	// Tori are intentionally excluded: the CPU shadow path skips tori entirely.
 	if len(out) > maxPrims {
@@ -568,6 +622,13 @@ func surfaceParams(s scene.Surface) [4]float32 {
 func albedo(v vec.V) [4]float32 { return [4]float32{f(v.X), f(v.Y), f(v.Z), 0} }
 
 func f(x float64) float32 { return float32(x) }
+
+func openCap(open bool) float32 {
+	if open {
+		return 1
+	}
+	return 0
+}
 
 // f32u stores a small unsigned count in an f32 lane; exact for v < 2^24.
 func f32u(v uint32) float32 { return float32(v) }

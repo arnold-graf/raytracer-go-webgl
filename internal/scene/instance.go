@@ -216,6 +216,31 @@ func forEachTemplateBounds(tmpl *Scene, blockersOnly bool, fn func(lmin, lmax ve
 			fn(lmin, lmax)
 		}
 	}
+	for i := range tmpl.Rings {
+		rg := &tmpl.Rings[i]
+		if blockersOnly && rg.Mat == MatGlass {
+			continue
+		}
+		sh := rg.Shell()
+		half := rg.HalfHeight()
+		lmin := vec.V{X: rg.CX - rg.Radius - sh, Y: rg.CY - half - sh, Z: rg.CZ - rg.Radius - sh}
+		lmax := vec.V{X: rg.CX + rg.Radius + sh, Y: rg.CY + half + sh, Z: rg.CZ + rg.Radius + sh}
+		if rg.Xform != nil {
+			lmin, lmax = transformAABB(rg.Xform, lmin, lmax)
+		}
+		fn(lmin, lmax)
+	}
+	for i := range tmpl.Lenses {
+		ln := &tmpl.Lenses[i]
+		if blockersOnly && ln.Mat == MatGlass {
+			continue
+		}
+		lmin, lmax := ln.WorldBounds()
+		if ln.Xform != nil {
+			lmin, lmax = transformAABB(ln.Xform, lmin, lmax)
+		}
+		fn(lmin, lmax)
+	}
 }
 
 func transformAABB(xf *Transform, lmin, lmax vec.V) (vec.V, vec.V) {
@@ -283,6 +308,16 @@ func mergeSceneInto(dst, sub *Scene, xf *Transform) {
 		o := sub.Tori[i]
 		o.Xform = xf.Compose(o.Xform)
 		dst.Tori = append(dst.Tori, o)
+	}
+	for i := range sub.Rings {
+		o := sub.Rings[i]
+		o.Xform = xf.Compose(o.Xform)
+		dst.Rings = append(dst.Rings, o)
+	}
+	for i := range sub.Lenses {
+		o := sub.Lenses[i]
+		o.Xform = xf.Compose(o.Xform)
+		dst.Lenses = append(dst.Lenses, o)
 	}
 	for i := range sub.Lights {
 		l := sub.Lights[i]

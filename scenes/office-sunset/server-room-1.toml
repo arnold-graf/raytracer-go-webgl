@@ -129,26 +129,27 @@ at = [9.7, 0, 7.5]
 rotate_y = 90
 params = { steps = 5, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.5 }
 
-# Lamp 1
+# Lamp 1 (in the middle of the room)
 [[include]]
 instance = true
-file = "../objects/otto-wagner-sphere-lamp.toml"
+file = "../objects/art-deco-ring-lamp.toml"
 at = [26.0, 8, 15.0]
-params = { stem_len = 2.1, orb_radius = 0.5, brightness = 0.1, range = 10 }
+params = { stem_len = 2.3, brightness = 0.1, range = 10 }
 
-# Lamp 2
+# Lamp 2 (near the door)
 [[include]]
 instance = true
-file = "../objects/otto-wagner-sphere-lamp.toml"
-at = [30.0, 8, 15.0]
-params = { stem_len = 2.1, orb_radius = 0.5, brightness = 0.1, range = 10 }
+file = "../objects/art-deco-ring-lamp.toml"
+at = [42.0, 8, 5.0]
+params = { stem_len = 2.3, brightness = 0.1, range = 20 }
 
-# Lamp 3
+# Lamp 3 (very dim) above the table
 [[include]]
 instance = true
-file = "../objects/otto-wagner-sphere-lamp.toml"
-at = [34.0, 8, 15.0]
-params = { stem_len = 2.1, orb_radius = 0.5, brightness = 0.1, range = 10 }
+file = "../objects/art-deco-ring-lamp.toml"
+at = [7.0, 8, 10.0]
+params = { stem_len = 2.3, brightness = 0.02, range = 20 }
+
 
 # table to the right of the cube
 [[include]]
@@ -182,6 +183,12 @@ params = { width = 2, height = 0.9, texture = "wood" }
 file = "objects/laptop.toml"
 at = [7.0, 1.1, 10.3]
 rotate_y = 15
+
+# Chair at the desk (faces the laptop)
+[[include]]
+file = "../objects/simple-chair.toml"
+at = [7.5, 0.2, 12]
+rotate_y = -27
 
 # glass bottle on the desk
 [[include]]

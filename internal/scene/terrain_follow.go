@@ -4,7 +4,7 @@ import "raytracer/internal/vec"
 
 // PrimitiveCounts tracks how many of each primitive type are in a scene.
 type PrimitiveCounts struct {
-	Spheres, Boxes, Cylinders, Cones, Tori int
+	Spheres, Boxes, Cylinders, Cones, Tori, Rings, Lenses int
 	Lights, Campfires, Ambiences, Interacts int
 }
 
@@ -15,7 +15,8 @@ func CountPrimitives(s *Scene) PrimitiveCounts {
 	}
 	return PrimitiveCounts{
 		Spheres: len(s.Spheres), Boxes: len(s.Boxes),
-		Cylinders: len(s.Cylinders), Cones: len(s.Cones), Tori: len(s.Tori),
+		Cylinders: len(s.Cylinders), Cones: len(s.Cones), Tori: len(s.Tori), Rings: len(s.Rings),
+		Lenses: len(s.Lenses),
 		Lights: len(s.Lights), Campfires: len(s.Campfires),
 		Ambiences: len(s.Ambiences), Interacts: len(s.Interactables),
 	}
@@ -34,6 +35,7 @@ type TerrainFollowPlacement struct {
 	CylinderStart, CylinderEnd   int
 	ConeStart, ConeEnd           int
 	TorusStart, TorusEnd         int
+	RingStart, RingEnd           int
 	LightStart, LightEnd         int
 	CampfireStart, CampfireEnd   int
 	AmbienceStart, AmbienceEnd   int
@@ -50,6 +52,7 @@ func PlacementFromRange(before, after PrimitiveCounts, yOffset float64) TerrainF
 		CylinderStart: before.Cylinders, CylinderEnd: after.Cylinders,
 		ConeStart: before.Cones, ConeEnd: after.Cones,
 		TorusStart: before.Tori, TorusEnd: after.Tori,
+		RingStart: before.Rings, RingEnd: after.Rings,
 		LightStart: before.Lights, LightEnd: after.Lights,
 		CampfireStart: before.Campfires, CampfireEnd: after.Campfires,
 		AmbienceStart: before.Ambiences, AmbienceEnd: after.Ambiences,
@@ -72,6 +75,8 @@ func OffsetPlacements(placements []TerrainFollowPlacement, off PrimitiveCounts) 
 		p.ConeEnd += off.Cones
 		p.TorusStart += off.Tori
 		p.TorusEnd += off.Tori
+		p.RingStart += off.Rings
+		p.RingEnd += off.Rings
 		p.LightStart += off.Lights
 		p.LightEnd += off.Lights
 		p.CampfireStart += off.Campfires
@@ -119,6 +124,9 @@ func (p TerrainFollowPlacement) snapEach(s *Scene) {
 	}
 	for i := p.TorusStart; i < p.TorusEnd; i++ {
 		s.Tori[i].Xform = shift.Compose(s.Tori[i].Xform)
+	}
+	for i := p.RingStart; i < p.RingEnd; i++ {
+		s.Rings[i].Xform = shift.Compose(s.Rings[i].Xform)
 	}
 	for i := p.LightStart; i < p.LightEnd; i++ {
 		s.Lights[i].Pos.Y += dy
