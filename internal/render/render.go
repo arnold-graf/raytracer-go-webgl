@@ -126,12 +126,19 @@ type LiveWorkloadController interface {
 	SetLiveWorkload(on bool)
 }
 
-// FormatFrameBudget renders the primary timing signal: GPU ms and implied fps cap.
-func FormatFrameBudget(gpuMS float64) string {
-	if gpuMS <= 0 {
-		return "gpu —"
+// FormatFrameBudget renders the primary timing signal: the true GPU compute
+// cost per frame and the actual presented frame rate. With CPU/GPU pipelining
+// the GPU no longer bounds the loop, so fps (real, vsync-limited) and the GPU
+// ms (the GPU-bound ceiling ≈ 1000/gpuMS) are reported separately.
+func FormatFrameBudget(gpuMS, fps float64) string {
+	gpu := "gpu —"
+	if gpuMS > 0 {
+		gpu = fmt.Sprintf("gpu %.1f ms (%.0f fps cap)", gpuMS, 1000.0/gpuMS)
 	}
-	return fmt.Sprintf("gpu %.1f ms (%.0f fps)", gpuMS, 1000.0/gpuMS)
+	if fps > 0 {
+		return fmt.Sprintf("%s · %.0f fps", gpu, fps)
+	}
+	return gpu
 }
 
 // FormatWorkloadHUD renders a compact two-line workload summary for the HUD.

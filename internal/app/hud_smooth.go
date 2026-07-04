@@ -16,7 +16,7 @@ type hudSmoother struct {
 	ready bool
 }
 
-func (s *hudSmoother) sample(gpuMS, fps float64) (smoothGPU float64) {
+func (s *hudSmoother) sample(gpuMS, fps float64) (smoothGPU, smoothFPS float64) {
 	now := time.Now()
 	alpha := 1.0
 	if !s.last.IsZero() {
@@ -35,7 +35,7 @@ func (s *hudSmoother) sample(gpuMS, fps float64) (smoothGPU float64) {
 		s.gpuMS += alpha * (gpuMS - s.gpuMS)
 		s.fps += alpha * (fps - s.fps)
 	}
-	return s.gpuMS
+	return s.gpuMS, s.fps
 }
 
 func (s *hudSmoother) reset() {

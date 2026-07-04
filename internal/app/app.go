@@ -734,9 +734,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		if prof, ok := g.ren.(render.PhaseTimingsProvider); ok {
 			gpuMS = prof.LastPhaseTimings().GPU
 		}
-		smoothGPU := g.hudSmooth.sample(gpuMS, ebiten.ActualFPS())
+		smoothGPU, smoothFPS := g.hudSmooth.sample(gpuMS, ebiten.ActualFPS())
 		hud := fmt.Sprintf("%s | %s",
-			g.frameBudgetLine(smoothGPU), g.statusLine())
+			g.frameBudgetLine(smoothGPU, smoothFPS), g.statusLine())
 		ebitenutil.DebugPrintAt(screen, hud, 4, y)
 		y += 14
 
@@ -762,8 +762,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 }
 
-func (g *Game) frameBudgetLine(gpuMS float64) string {
-	return render.FormatFrameBudget(gpuMS)
+func (g *Game) frameBudgetLine(gpuMS, fps float64) string {
+	return render.FormatFrameBudget(gpuMS, fps)
 }
 
 func (g *Game) workloadHUD(w render.GPUWorkload) (string, string) {

@@ -94,6 +94,15 @@ type Renderer struct {
 	pipeSize     uint64
 	pipeSub      wgpu.SubmissionIndex
 	pipeProfiled bool
+	// gpuTime is the last true GPU compute wall time (submit->idle), measured on
+	// the synchronous workload-sample frames and carried on pipelined frames so
+	// the HUD keeps reporting real GPU cost instead of the ~0 async submit time.
+	gpuTime time.Duration
+	// lastFrame retains the most recently presented pixels so the pipeline's cold
+	// path (startup, or the frame after a synchronous sample) reuses them instead
+	// of flashing black.
+	lastFrame      []byte
+	lastFrameReady bool
 
 	cache  sceneCache  // memoized static scene buffers (see cache.go)
 	timing FrameTiming // phase breakdown of the most recent Render (see profile.go)
@@ -490,8 +499,11 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 		BVHNodes: len(rp.bvhNodes),
 		Holes:    len(rp.holes),
 	}
+	// Workload-sample frames (rp.profileEnabled, ~once/sec) go through the
+	// synchronous path so their submit->idle wall time gives a true GPU cost
+	// reading; pipelined frames carry that value forward for the HUD.
 	var err error
-	if r.pipelined && !r.profiling {
+	if r.pipelined && !r.profiling && !rp.profileEnabled && r.lastFrameReady {
 		err = r.renderPipelined(buf[:r.w*r.h*4], cam, rp)
 	} else {
 		// The synchronous path shares r.output/params with any in-flight
@@ -504,7 +516,19 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 			o := i * 4
 			buf[o], buf[o+1], buf[o+2], buf[o+3] = 255, 0, 255, 255
 		}
+		return
 	}
+	r.retainLastFrame(buf[:r.w*r.h*4])
+}
+
+// retainLastFrame snapshots the just-presented pixels so the pipeline's cold
+// path can reuse them instead of showing black.
+func (r *Renderer) retainLastFrame(buf []byte) {
+	if len(r.lastFrame) != len(buf) {
+		r.lastFrame = make([]byte, len(buf))
+	}
+	copy(r.lastFrame, buf)
+	r.lastFrameReady = true
 }
 
 // RenderSquare fills buf (len ≥ size²×4) with a square 1:1-aspect frame. Used
@@ -901,6 +925,9 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 	wrapped := wgpu.WrappedSubmissionIndex{Queue: r.queue, SubmissionIndex: sub}
 	r.device.Poll(true, &wrapped)
 	r.timing.GPU = time.Since(gpuStart)
+	// This is a real submit->idle measurement; remember it as the true GPU cost
+	// for the pipelined frames (which never block on the GPU) to report.
+	r.gpuTime = r.timing.GPU
 
 	readStart := time.Now()
 	size := uint64(fw * fh * 4)
@@ -930,12 +957,13 @@ func (r *Renderer) renderPipelined(buf []byte, cam *camera.Camera, p renderParam
 	size := uint64(r.w * r.h * 4)
 	curSlot := r.pipeParity
 
-	gpuStart := time.Now()
 	sub, err := r.submitTrace(r.reads[curSlot], r.w, r.h, p.profileEnabled)
 	if err != nil {
 		return err
 	}
-	r.timing.GPU = time.Since(gpuStart)
+	// The submit itself does not block, so the async "GPU time" would be ~0 and
+	// meaningless. Report the last true GPU cost measured on a sync sample frame.
+	r.timing.GPU = r.gpuTime
 
 	readStart := time.Now()
 	if r.pipePending {
@@ -947,9 +975,11 @@ func (r *Renderer) renderPipelined(buf []byte, cam *camera.Camera, p renderParam
 				return err
 			}
 		}
+	} else if r.lastFrameReady {
+		// No previous frame in flight (startup, or just after a sync sample
+		// frame). Reuse the last presented pixels so nothing flashes black.
+		copy(buf, r.lastFrame)
 	} else {
-		// Cold start: no previous frame to return yet. Hand back a black frame
-		// this once; the frame we just submitted becomes next call's result.
 		for i := range buf {
 			buf[i] = 0
 		}
