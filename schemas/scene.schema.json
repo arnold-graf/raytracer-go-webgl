@@ -141,6 +141,13 @@
       "items": {
         "$ref": "#/definitions/door"
       }
+    },
+    "document": {
+      "type": "array",
+      "description": "TOML [[document]]. Readable paper with rasterized text on the +Z face. The runtime spawns a thin box, registers an E-key interact target, and animates pick-up/read/put-away.",
+      "items": {
+        "$ref": "#/definitions/document"
+      }
     }
   },
   "definitions": {
@@ -217,7 +224,8 @@
       "type": "string",
       "enum": [
         "exit_portal",
-        "door"
+        "door",
+        "document"
       ],
       "description": "Handler invoked when the player uses (E) this interactable within use_range."
     },
@@ -1344,6 +1352,106 @@
         }
       },
       "required": ["id"],
+      "additionalProperties": false
+    },
+    "document": {
+      "type": "object",
+      "description": "TOML [[document]]. A4-style paper with dynamic text rasterized at load time. pos_x/y/z is the anchor corner; after rotation the lowest point rests at pos_y. Text appears on the +Z face (use rotate_x = -90 for a flat desk memo). The runtime document manager spawns a centered thin box and handles read/put-away animation.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique document name for interaction and debugging. Default: document_N."
+        },
+        "pos_x": {
+          "type": "number",
+          "description": "Anchor corner X in the parent/include frame."
+        },
+        "pos_y": {
+          "type": "number",
+          "description": "Surface Y the paper rests on after rotation (lowest rotated point)."
+        },
+        "pos_z": {
+          "type": "number",
+          "description": "Anchor corner Z in the parent/include frame."
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Paper width in meters. Default: 0.21 (A4 width)."
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Paper height in meters. Default: 0.297 (A4 height)."
+        },
+        "depth": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Paper thickness in meters. Default: 0.002."
+        },
+        "rotate_x": {
+          "$ref": "#/definitions/rotate_x"
+        },
+        "rotate_y": {
+          "$ref": "#/definitions/rotate_y"
+        },
+        "rotate_z": {
+          "$ref": "#/definitions/rotate_z"
+        },
+        "headline": {
+          "type": "string",
+          "description": "Optional headline rendered larger at the top of the page."
+        },
+        "paragraphs": {
+          "type": "array",
+          "description": "Body text blocks. Each entry is one paragraph; long strings may be split on blank lines.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "font": {
+          "type": "string",
+          "description": "Path to a TTF/OTF file (relative to this TOML file). Default: assets/PixelOperator.ttf."
+        },
+        "font_size_px": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "Body font size in pixels for the 512×512 raster. Default: 18."
+        },
+        "albedo": {
+          "$ref": "#/definitions/surface_albedo",
+          "description": "Tint multiplied with the rasterized ink and paper grain."
+        },
+        "on_use": {
+          "type": "string",
+          "description": "Optional handler id invoked when the player opens the document (after the read animation starts). Overrides top-level on_use when [document.interact] is present."
+        },
+        "interact": {
+          "type": "object",
+          "description": "Optional overrides for the auto-registered read interactable.",
+          "properties": {
+            "hint": {
+              "type": "string",
+              "description": "HUD prompt when in range. Default: press {{use_button}} to read."
+            },
+            "use_range": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Maximum distance from the player to the document center. Default: 1.2."
+            },
+            "on_use": {
+              "type": "string",
+              "description": "Handler id invoked when the document is opened."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "pos_x",
+        "pos_y",
+        "pos_z"
+      ],
       "additionalProperties": false
     },
     "include": {

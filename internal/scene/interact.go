@@ -12,7 +12,8 @@ type Interactable struct {
 	Handler string
 	Range   float64
 	Center  vec.V
-	DoorID  string // links on_use=door to a [[door]] id
+	DoorID     string // links on_use=door to a [[door]] id
+	DocumentID string // links on_use=document to a [[document]] id
 }
 
 // NearestInteractable returns the closest interactable within its use range

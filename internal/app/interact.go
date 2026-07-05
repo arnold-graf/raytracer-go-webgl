@@ -12,6 +12,13 @@ func (g *Game) handleInteract() {
 	if g.sc == nil || g.transitionActive {
 		return
 	}
+	if g.documents != nil && g.documents.Reading() {
+		g.activeHint = "press E to put away"
+		if inpututil.IsKeyJustPressed(ebiten.KeyE) {
+			g.documents.Dismiss(g.sc)
+		}
+		return
+	}
 	ia := g.sc.NearestInteractable(g.cam.Pos)
 	g.activeHint = ""
 	if ia != nil {

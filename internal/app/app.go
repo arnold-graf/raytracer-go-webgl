@@ -17,6 +17,7 @@ import (
 
 	"raytracer/internal/audio"
 	"raytracer/internal/camera"
+	"raytracer/internal/document"
 	"raytracer/internal/door"
 	"raytracer/internal/npc"
 	"raytracer/internal/probe"
@@ -111,6 +112,8 @@ type Game struct {
 
 	doors *door.Manager
 
+	documents *document.Manager
+
 	// npcDebug draws skeleton/foot overlay segments (key 6).
 	npcDebug bool
 
@@ -168,6 +171,11 @@ func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath s
 // is left untouched so a hot-reload keeps the player in place.
 func (g *Game) setScene(sc *scene.Scene) {
 	g.sc = sc
+	if sync, ok := g.ren.(render.DocumentTexturesSyncer); ok {
+		sync.SyncDocumentTextures()
+	} else if inv, ok := g.ren.(render.DocumentTexturesInvalidator); ok {
+		inv.InvalidateDocumentTextures()
+	}
 	g.pb = probe.New(sc)
 	g.cam.SetWorld(sc)
 	g.npcs = npc.NewManager()
@@ -176,7 +184,19 @@ func (g *Game) setScene(sc *scene.Scene) {
 	if err := g.doors.Instantiate(sc); err != nil {
 		fmt.Fprintf(os.Stderr, "doors: %v\n", err)
 	}
-	sc.SetDoorGhost(g.doors.GhostBox)
+	g.documents = document.NewManager()
+	if err := g.documents.Instantiate(sc); err != nil {
+		fmt.Fprintf(os.Stderr, "documents: %v\n", err)
+	}
+	sc.SetDoorGhost(func(i int) bool {
+		if g.doors != nil && g.doors.GhostBox(i) {
+			return true
+		}
+		if g.documents != nil && g.documents.GhostBox(i) {
+			return true
+		}
+		return false
+	})
 	if err := g.spyglass.Init(); err != nil {
 		fmt.Fprintf(os.Stderr, "spyglass: %v\n", err)
 	}
@@ -462,16 +482,19 @@ func (g *Game) Update() error {
 	if !g.transitionActive {
 		// Fixed-step dt matching the original (clamped to 0.1 of a 60 Hz frame).
 		const dt = 0.1
-		mv := camera.Move{
-			Forward: ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyArrowUp),
-			Back:    ebiten.IsKeyPressed(ebiten.KeyS) || ebiten.IsKeyPressed(ebiten.KeyArrowDown),
-			Left:    ebiten.IsKeyPressed(ebiten.KeyA) || ebiten.IsKeyPressed(ebiten.KeyArrowLeft),
-			Right:   ebiten.IsKeyPressed(ebiten.KeyD) || ebiten.IsKeyPressed(ebiten.KeyArrowRight),
-			Jump:    ebiten.IsKeyPressed(ebiten.KeySpace),
-			Sprint:  ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight),
-			Crouch:  ebiten.IsKeyPressed(ebiten.KeyC),
+		mv := camera.Move{}
+		if g.documents == nil || !g.documents.Reading() {
+			mv = camera.Move{
+				Forward: ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyArrowUp),
+				Back:    ebiten.IsKeyPressed(ebiten.KeyS) || ebiten.IsKeyPressed(ebiten.KeyArrowDown),
+				Left:    ebiten.IsKeyPressed(ebiten.KeyA) || ebiten.IsKeyPressed(ebiten.KeyArrowLeft),
+				Right:   ebiten.IsKeyPressed(ebiten.KeyD) || ebiten.IsKeyPressed(ebiten.KeyArrowRight),
+				Jump:    ebiten.IsKeyPressed(ebiten.KeySpace),
+				Sprint:  ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight),
+				Crouch:  ebiten.IsKeyPressed(ebiten.KeyC),
+			}
+			g.applyGamepad(&mv)
 		}
-		g.applyGamepad(&mv)
 		g.cam.Update(mv, dt)
 
 		// Footsteps, room reverb, and spatial ambients derive from the post-move state.
@@ -489,6 +512,9 @@ func (g *Game) Update() error {
 			feetY := g.cam.Pos.Y - g.cam.EyeHeight()
 			headY := g.cam.Pos.Y + 0.15
 			g.doors.Update(g.sc, g.cam.Pos, feetY, headY, 1.0/60.0)
+		}
+		if g.documents != nil {
+			g.documents.Update(g.sc, g.cam, 1.0/60.0)
 		}
 		g.spyglass.Update(g.sc, g.cam, 1.0/60.0)
 	}

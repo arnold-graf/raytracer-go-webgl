@@ -29,6 +29,7 @@ const (
 	WallpaperGreen
 	WallpaperRose
 	StoneWall
+	Paper
 )
 
 var byName = map[string]int{
@@ -45,6 +46,7 @@ var byName = map[string]int{
 	"wallpaper_green": WallpaperGreen,
 	"wallpaper_rose":  WallpaperRose,
 	"stone_wall":      StoneWall,
+	"paper":           Paper,
 }
 
 // ID resolves a texture name to its id. Ok is false for unknown names.
@@ -84,6 +86,8 @@ func EvalWithNormal(id int, p, n, base vec.V) vec.V {
 		return wallpaper(p, base, id)
 	case StoneWall:
 		return stoneWall(p, n, base)
+	case Paper:
+		return paper(p, base)
 	default:
 		return base
 	}
@@ -235,6 +239,16 @@ func cement(p, tint vec.V) vec.V {
 	speck := 0.5 + 0.5*perlin(p.X*40, p.Y*40, p.Z*40)
 	g := 0.62 + 0.06*n + 0.03*(speck-0.5)
 	return vec.New(g, g, g*0.99).Mul(tint)
+}
+
+// paper: warm off-white sheet with subtle fiber grain for document edges/back.
+func paper(p, tint vec.V) vec.V {
+	fiber := fbm(p.X*18, p.Y*18, p.Z*18, 3)
+	grain := 0.5 + 0.5*perlin(p.X*80, p.Y*80, p.Z*80)
+	base := vec.New(0.96, 0.94, 0.90)
+	c := base.Scale(0.92 + 0.08*fiber)
+	c = c.Scale(0.95 + 0.05*grain)
+	return c.Mul(tint)
 }
 
 // marble: classic turbulence-warped sine veining.

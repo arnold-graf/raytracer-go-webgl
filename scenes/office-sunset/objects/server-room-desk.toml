@@ -37,3 +37,21 @@ file = "../../objects/desk-anglepoise-lamp.toml"
 at = [-0.38, 0.9, 0]
 rotate_y = 35
 params = { brightness = 0.06, range = 5 }
+
+# access memo on the desk (flat, beside the laptop)
+[[document]]
+id = "server_memo"
+pos_x = 0.65
+pos_y = 0.9
+pos_z = -0.15
+rotate_x = -90
+rotate_y = 20
+headline = "Server Room Access"
+paragraphs = [
+  "Temporary credentials are valid until end of shift.",
+  "Do not share this memo with unauthorized personnel!",
+  "- Admin"
+]
+font = "../../../assets/M42.ttf"
+font_size_px = 13
+albedo = [1.0, 1.0, 1.0]

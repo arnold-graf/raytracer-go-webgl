@@ -1,0 +1,14 @@
+[[document]]
+id = "server_memo"
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 0.21
+height = 0.297
+headline = "Server Room Access"
+paragraphs = [
+  "Temporary credentials are valid until end of shift.",
+  "Do not share this memo with unauthorized personnel.",
+]
+font_size_px = 25
+albedo = [1.0, 1.0, 1.0]

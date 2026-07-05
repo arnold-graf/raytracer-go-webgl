@@ -71,6 +71,7 @@ type Renderer struct {
 	campfires *wgpu.Buffer
 	holes     *wgpu.Buffer
 	captures  *wgpu.Buffer
+	documents *wgpu.Buffer
 	instTmpl  *wgpu.Buffer
 	instRecs  *wgpu.Buffer
 	planeIdx  *wgpu.Buffer
@@ -116,11 +117,41 @@ type Renderer struct {
 	workloadFrame int
 	workload      render.GPUWorkload
 
-	captureVer    uint64
-	captureW      int
-	captureH      int
-	captureLoaded bool
-	captureBytes  uint64 // GPU buffer size for five square captures
+	captureVer     uint64
+	captureW       int
+	captureH       int
+	captureLoaded  bool
+	captureBytes   uint64 // GPU buffer size for five square captures
+	documentVer    uint64
+	documentLoaded bool
+	documentBytes  uint64
+}
+
+// InvalidateDocumentTextures forces document text textures to re-upload on the next frame.
+func (r *Renderer) InvalidateDocumentTextures() {
+	r.documentVer = 0
+	r.documentLoaded = false
+}
+
+// SyncDocumentTextures uploads document text textures immediately. Used after
+// scene reload so the next frame does not render with a stale document_loaded flag.
+func (r *Renderer) SyncDocumentTextures() {
+	r.documentVer = 0
+	r.documentLoaded = false
+	r.uploadDocumentTextures()
+}
+
+func (r *Renderer) uploadDocumentTextures() {
+	ver := texture.DocumentGPUVersion()
+	px, ok := texture.PackDocumentsGPU()
+	if !ok || len(px)*4 > int(r.documentBytes) {
+		return
+	}
+	if err := r.queue.WriteBuffer(r.documents, 0, u32Bytes(px)); err != nil {
+		return
+	}
+	r.documentLoaded = true
+	r.documentVer = ver
 }
 
 // New initializes WebGPU and compiles the skeleton sky compute pipeline.
@@ -133,6 +164,7 @@ func New(w, h int) (*Renderer, error) {
 		r.maxDim = h
 	}
 	r.captureBytes = uint64(maxCapturePixels(r.maxDim) * 4)
+	r.documentBytes = uint64(texture.DocumentCount * texture.DocumentTexW * texture.DocumentTexH * 4)
 	if err := r.init(); err != nil {
 		r.Release()
 		return nil, err
@@ -316,6 +348,14 @@ func (r *Renderer) init() error {
 	if err != nil {
 		return fmt.Errorf("create captures buffer: %w", err)
 	}
+	r.documents, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "document pixels",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  r.documentBytes,
+	})
+	if err != nil {
+		return fmt.Errorf("create documents buffer: %w", err)
+	}
 	// The permutation table is constant, so upload it once up front.
 	if err := r.queue.WriteBuffer(r.perm, 0, u32Bytes(PackPerm())); err != nil {
 		return fmt.Errorf("upload perm table: %w", err)
@@ -420,6 +460,7 @@ func (r *Renderer) init() error {
 			{Binding: 16, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: profileCounterBytes}},
 			{Binding: 17, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 			{Binding: 18, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
+			{Binding: 19, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 		},
 	})
 	if err != nil {
@@ -471,6 +512,7 @@ func (r *Renderer) init() error {
 			{Binding: 16, Buffer: r.profile, Size: profileCounterBytes},
 			{Binding: 17, Buffer: r.planeIdx, Size: maxPrims * 4},
 			{Binding: 18, Buffer: r.blkPlane, Size: maxPrims * 4},
+			{Binding: 19, Buffer: r.documents, Size: r.documentBytes},
 		},
 	})
 	if err != nil {
@@ -629,6 +671,9 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 			r.captureW, r.captureH = 0, 0
 		}
 		r.captureVer = ver
+	}
+	if ver := texture.DocumentGPUVersion(); ver != r.documentVer || !r.documentLoaded {
+		r.uploadDocumentTextures()
 	}
 	r.maybeProfileWorkload(&rp)
 	return rp
@@ -1068,18 +1113,21 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 		putU32(out[232:236], uint32(r.captureW))
 		putU32(out[236:240], uint32(r.captureH))
 	}
-	putU32(out[240:244], uint32(len(p.instTemplates)))
-	putU32(out[244:248], uint32(len(p.instPlacements)))
-	putU32(out[248:252], p.instNodeBase)
-	putU32(out[252:256], p.instNodeCount)
-	putU32(out[256:260], p.blockerSecStart)
-	putU32(out[260:264], p.blockerInstBase)
-	putU32(out[264:268], p.blockerInstCount)
-	if p.profileEnabled {
-		putU32(out[268:272], 1)
+	if r.documentLoaded {
+		putU32(out[240:244], 1)
 	}
-	putU32(out[272:276], uint32(len(p.planeIdx)))
-	putU32(out[276:280], uint32(len(p.blockerPlaneIdx)))
+	putU32(out[244:248], uint32(len(p.instTemplates)))
+	putU32(out[248:252], uint32(len(p.instPlacements)))
+	putU32(out[252:256], p.instNodeBase)
+	putU32(out[256:260], p.instNodeCount)
+	putU32(out[260:264], p.blockerSecStart)
+	putU32(out[264:268], p.blockerInstBase)
+	putU32(out[268:272], p.blockerInstCount)
+	if p.profileEnabled {
+		putU32(out[272:276], 1)
+	}
+	putU32(out[276:280], uint32(len(p.planeIdx)))
+	putU32(out[280:284], uint32(len(p.blockerPlaneIdx)))
 	return out
 }
 
@@ -1171,6 +1219,9 @@ func (r *Renderer) Release() {
 	}
 	if r.captures != nil {
 		r.captures.Release()
+	}
+	if r.documents != nil {
+		r.documents.Release()
 	}
 	if r.campfires != nil {
 		r.campfires.Release()

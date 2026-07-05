@@ -31,6 +31,7 @@ type Scene struct {
 	Points        []Point
 	NPCSpawns     []NPCSpawn
 	DoorSpecs     []DoorSpec
+	DocumentSpecs []DocumentSpec
 	DynamicBodies []DynamicBody
 	Start     CameraStart
 	Env       Environment

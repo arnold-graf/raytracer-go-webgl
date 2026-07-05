@@ -51,6 +51,7 @@ struct Params {
     capture_loaded: u32,
     capture_w: u32,
     capture_h: u32,
+    document_loaded: u32,
     inst_template_count: u32,
     inst_count: u32,
     inst_node_base: u32,
@@ -191,6 +192,9 @@ var<storage, read> holes: array<Hole>;
 @group(0) @binding(13)
 var<storage, read> capture_pixels: array<u32>;
 
+@group(0) @binding(19)
+var<storage, read> document_pixels: array<u32>;
+
 @group(0) @binding(14)
 var<storage, read> inst_templates: array<TemplateRecord>;
 
@@ -275,8 +279,13 @@ const TEX_WALLPAPER_NAVY: u32 = 9u;
 const TEX_WALLPAPER_GREEN: u32 = 10u;
 const TEX_WALLPAPER_ROSE: u32 = 11u;
 const TEX_STONE_WALL: u32 = 12u;
+const TEX_PAPER: u32 = 13u;
 const TEX_CAPTURE_BASE: u32 = 50u;
 const TEX_CAPTURE_COUNT: u32 = 5u;
+const TEX_DOCUMENT_BASE: u32 = 55u;
+const TEX_DOCUMENT_COUNT: u32 = 16u;
+const DOCUMENT_TEX_W: u32 = 512u;
+const DOCUMENT_TEX_H: u32 = 512u;
 
 const RAY_EPSILON: f32 = 1e-4;
 const SURFACE_EPSILON: f32 = 5e-4;
@@ -501,6 +510,15 @@ fn tex_cement(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(g, g, g * 0.99) * tint;
 }
 
+fn tex_paper(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
+    let fiber = fbm(p.x * 18.0, p.y * 18.0, p.z * 18.0, 3u);
+    let grain = 0.5 + 0.5 * perlin(p.x * 80.0, p.y * 80.0, p.z * 80.0);
+    let base = vec3<f32>(0.96, 0.94, 0.90);
+    var c = base * (0.92 + 0.08 * fiber);
+    c = c * (0.95 + 0.05 * grain);
+    return c * tint;
+}
+
 fn tex_marble(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
     let t = turbulence(p.x * 1.2, p.y * 1.2, p.z * 1.2, 5u);
     let veins = 0.5 + 0.5 * sin((p.x + p.z) * 1.5 + 6.0 * t);
@@ -708,7 +726,12 @@ fn texture_eval(tex: u32, p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f
     if (tex == TEX_DIRT) { return tex_dirt(p, tint); }
     if (tex == TEX_SNOW) { return tex_snow(p, tint); }
     if (tex == TEX_STONE_WALL) { return tex_stone_wall(p, n, tint); }
+    if (tex == TEX_PAPER) { return tex_paper(p, tint); }
     return tex_wallpaper(p, tint, tex);
+}
+
+fn is_document(tex: u32) -> bool {
+    return tex >= TEX_DOCUMENT_BASE && tex < TEX_DOCUMENT_BASE + TEX_DOCUMENT_COUNT;
 }
 
 fn is_capture(tex: u32) -> bool {
@@ -772,6 +795,43 @@ fn sample_capture(tex: u32, u: f32, v: f32, tint: vec3<f32>) -> vec3<f32> {
     let g = f32((px >> 8u) & 255u) / 255.0;
     let b = f32((px >> 16u) & 255u) / 255.0;
     return vec3(r * tint.x, g * tint.y, b * tint.z);
+}
+
+fn document_face_uv(lp: vec3<f32>, ln: vec3<f32>, bmin: vec3<f32>, bmax: vec3<f32>) -> vec2<f32> {
+    let an = abs(ln);
+    if (an.z < an.x || an.z < an.y) {
+        return vec2<f32>(-1.0, -1.0);
+    }
+    let u = (lp.x - bmin.x) / (bmax.x - bmin.x);
+    let v = 1.0 - (lp.y - bmin.y) / (bmax.y - bmin.y);
+    return vec2(clamp(u, 0.0, 1.0), clamp(v, 0.0, 1.0));
+}
+
+fn sample_document(tex: u32, u: f32, v: f32, tint: vec3<f32>) -> vec3<f32> {
+    if (params.document_loaded == 0u) {
+        return tex_paper(vec3<f32>(u * 10.0, v * 10.0, 0.0), tint);
+    }
+    let slot = tex - TEX_DOCUMENT_BASE;
+    let w = DOCUMENT_TEX_W;
+    let h = DOCUMENT_TEX_H;
+    let xi = min(u32(u * f32(w)), w - 1u);
+    let yi = min(u32(v * f32(h)), h - 1u);
+    let idx = slot * w * h + yi * w + xi;
+    let px = document_pixels[idx];
+    let r = f32(px & 255u) / 255.0;
+    let g = f32((px >> 8u) & 255u) / 255.0;
+    let b = f32((px >> 16u) & 255u) / 255.0;
+    return vec3(r * tint.x, g * tint.y, b * tint.z);
+}
+
+fn texture_eval_document(tex: u32, lp: vec3<f32>, ln: vec3<f32>, bmin: vec3<f32>, bmax: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
+    let uv = document_face_uv(lp, ln, bmin, bmax);
+    if (uv.x < 0.0) {
+        return tex_paper(lp, tint);
+    }
+    let ink = sample_document(tex, uv.x, uv.y, vec3<f32>(1.0, 1.0, 1.0));
+    let grain = tex_paper(lp, vec3<f32>(1.0, 1.0, 1.0));
+    return ink * (0.98 + 0.02 * grain);
 }
 
 fn texture_eval_capture(tex: u32, lp: vec3<f32>, ln: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
@@ -2501,6 +2561,8 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
             }
             if (is_capture(p.info.z) && p.info.x == PRIM_BOX) {
                 alb = texture_eval_capture(p.info.z, tex_p, tex_n, p.albedo.xyz);
+            } else if (is_document(p.info.z) && p.info.x == PRIM_BOX) {
+                alb = texture_eval_document(p.info.z, tex_p, tex_n, p.geo_a.xyz, p.geo_b.xyz, p.albedo.xyz);
             } else {
                 alb = texture_eval(p.info.z, tex_p, tex_n, plane_albedo(p, hp));
             }

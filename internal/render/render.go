@@ -46,6 +46,19 @@ type Renderer interface {
 	Render(buf []byte, cam *camera.Camera, v *View, pixSize int)
 }
 
+// DocumentTexturesInvalidator is optionally implemented by renderers that cache
+// uploaded document text textures and need a nudge after scene reload.
+type DocumentTexturesInvalidator interface {
+	InvalidateDocumentTextures()
+}
+
+// DocumentTexturesSyncer is optionally implemented by renderers that can push
+// document text textures to the GPU immediately (e.g. after scene reload).
+type DocumentTexturesSyncer interface {
+	DocumentTexturesInvalidator
+	SyncDocumentTextures()
+}
+
 // SquareCapturer is optionally implemented by a renderer that can render a
 // square (1:1 aspect) frame for portal capture textures.
 type SquareCapturer interface {

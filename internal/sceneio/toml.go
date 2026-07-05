@@ -537,6 +537,7 @@ type sceneDTO struct {
 	Point            []pointDTO            `toml:"point"`
 	NPC              []npcDTO              `toml:"npc"`
 	Door             []doorDTO             `toml:"door"`
+	Document         []documentDTO         `toml:"document"`
 }
 
 // tintOrWhite returns v as a color, defaulting an omitted (all-zero) vector to
@@ -575,6 +576,9 @@ func LoadDeps(path string) (*scene.Scene, []string, error) {
 	var followPlacements []scene.TerrainFollowPlacement
 	s, err := load(path, nil, map[string]bool{}, &deps, &followPlacements)
 	if err != nil {
+		return nil, deps, err
+	}
+	if err := finalizeDocuments(s); err != nil {
 		return nil, deps, err
 	}
 	s.PrepareTerrains()
@@ -788,7 +792,17 @@ func Decode(data []byte) (*scene.Scene, error) {
 	if err := toml.Unmarshal(data, &dto); err != nil {
 		return nil, fmt.Errorf("decode scene: %w", err)
 	}
-	return dto.build()
+	s, err := dto.build()
+	if err != nil {
+		return nil, err
+	}
+	if err := resolveDocuments(s, dto.Document, "."); err != nil {
+		return nil, err
+	}
+	if err := finalizeDocuments(s); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 func (dto sceneDTO) applyOverrides(s *scene.Scene) error {
@@ -1017,6 +1031,9 @@ func (dto sceneDTO) buildWithIncludes(path string, params map[string]any, seen m
 	if err := resolveDoors(s, dto.Door, filepath.Dir(path), params, seen, deps); err != nil {
 		return nil, err
 	}
+	if err := resolveDocuments(s, dto.Document, filepath.Dir(path)); err != nil {
+		return nil, err
+	}
 	for i, inc := range dto.Include {
 		if err := mergeInclude(s, inc, filepath.Dir(path), i, seen, deps, followPlacements); err != nil {
 			return nil, err
@@ -1236,6 +1253,7 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 		dst.NPCSpawns = append(dst.NPCSpawns, sp.Placed(xf))
 	}
 	mergeDoorSpecs(dst, sub, xf, boxOffset, sphereOffset, cylinderOffset)
+	mergeDocumentSpecs(dst, sub, xf)
 }
 
 // addTerrainPads appends pads to every terrain in dst and re-Prepares the
