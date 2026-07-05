@@ -108,6 +108,17 @@ type Game struct {
 
 	hudSmooth hudSmoother
 
+	// fpsCap throttles how often a new frame is ray-traced (0 = uncapped). The
+	// H key cycles uncapped -> 60 -> 30. Between traces the last frame is
+	// re-presented, so the GPU idles instead of tracing back-to-back (cooler
+	// laptop) without changing what any frame looks like. nextTrace is the
+	// drift-free deadline for the next trace; traceFPS is the measured trace
+	// rate shown on the HUD.
+	fpsCap      int
+	nextTrace   time.Time
+	lastTraceAt time.Time
+	traceFPS    float64
+
 	npcs *npc.Manager
 
 	doors *door.Manager
@@ -137,6 +148,7 @@ func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath s
 		buf:        make([]byte, rw*rh*4),
 		frame:      ebiten.NewImage(rw, rh),
 		pixSize:    1,
+		fpsCap:     60, // default cap: cuts GPU power vs uncapped, still smooth
 		scenePath:  scenePath,
 		playerPath: playerPath,
 	}
@@ -731,6 +743,17 @@ func (g *Game) handleToggles() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyQ) {
 		g.spyglass.Toggle()
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyH) {
+		switch g.fpsCap {
+		case 0:
+			g.fpsCap = 60
+		case 60:
+			g.fpsCap = 30
+		default:
+			g.fpsCap = 0
+		}
+		g.nextTrace = time.Now() // re-arm the schedule so the change takes effect now
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyMinus) || inpututil.IsKeyJustPressed(ebiten.KeyLeftBracket) {
 		if g.pixSize < 8 {
 			g.pixSize++
@@ -743,13 +766,51 @@ func (g *Game) handleToggles() {
 	}
 }
 
+// shouldTrace reports whether this Draw should ray-trace a new frame, honoring
+// the H-key FPS cap. It uses a fixed-step deadline (advanced by the cap
+// interval, not reset to now) so the average trace rate stays exact without
+// drift, and records the measured trace rate for the HUD.
+func (g *Game) shouldTrace() bool {
+	now := time.Now()
+	if g.fpsCap <= 0 {
+		g.recordTrace(now)
+		return true
+	}
+	if g.nextTrace.IsZero() || !now.Before(g.nextTrace) {
+		interval := time.Second / time.Duration(g.fpsCap)
+		g.nextTrace = g.nextTrace.Add(interval)
+		if g.nextTrace.Before(now) {
+			// Fell behind (e.g. a slow frame or a just-changed cap); re-anchor.
+			g.nextTrace = now.Add(interval)
+		}
+		g.recordTrace(now)
+		return true
+	}
+	return false
+}
+
+// recordTrace updates the smoothed trace-rate estimate from the gap between
+// successive traced frames.
+func (g *Game) recordTrace(now time.Time) {
+	if !g.lastTraceAt.IsZero() {
+		if dt := now.Sub(g.lastTraceAt).Seconds(); dt > 0 {
+			g.traceFPS = 1 / dt
+		}
+	}
+	g.lastTraceAt = now
+}
+
 // Draw renders the scene into the framebuffer and blits it with the HUD.
 func (g *Game) Draw(screen *ebiten.Image) {
 	if wl, ok := g.ren.(render.LiveWorkloadController); ok {
 		wl.SetLiveWorkload(!g.hudHidden)
 	}
-	g.ren.Render(g.buf, g.cam, g.view(), g.pixSize)
-	g.frame.WritePixels(g.buf)
+	// Trace a new frame only when uncapped or the cap's deadline has arrived;
+	// otherwise re-present the last traced frame so the GPU rests between traces.
+	if g.shouldTrace() {
+		g.ren.Render(g.buf, g.cam, g.view(), g.pixSize)
+		g.frame.WritePixels(g.buf)
+	}
 	screen.DrawImage(g.frame, nil)
 
 	// "0" hides the dev overlay for a clean view; the reload toast below still
@@ -760,7 +821,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		if prof, ok := g.ren.(render.PhaseTimingsProvider); ok {
 			gpuMS = prof.LastPhaseTimings().GPU
 		}
-		smoothGPU, smoothFPS := g.hudSmooth.sample(gpuMS, ebiten.ActualFPS())
+		smoothGPU, smoothFPS := g.hudSmooth.sample(gpuMS, g.traceFPS)
 		hud := fmt.Sprintf("%s | %s",
 			g.frameBudgetLine(smoothGPU, smoothFPS), g.statusLine())
 		ebitenutil.DebugPrintAt(screen, hud, 4, y)
@@ -789,7 +850,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 }
 
 func (g *Game) frameBudgetLine(gpuMS, fps float64) string {
-	return render.FormatFrameBudget(gpuMS, fps)
+	return render.FormatFrameBudget(gpuMS, fps, g.fpsCap)
 }
 
 func (g *Game) workloadHUD(w render.GPUWorkload) (string, string) {
@@ -806,8 +867,8 @@ func (g *Game) backendName() string {
 
 func (g *Game) statusLine() string {
 	if g.locked {
-		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s npc[6]:%s px[-/+]:%d  HUD[0]  ESC release",
-			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), g.pixSize)
+		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s npc[6]:%s px[-/+]:%d fps[H]:%s  HUD[0]  ESC release",
+			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), g.pixSize, capLabel(g.fpsCap))
 	}
 	return "click to capture mouse"
 }
@@ -834,6 +895,13 @@ func quantLabel(q uint32) string {
 	default:
 		return "?"
 	}
+}
+
+func capLabel(cap int) string {
+	if cap <= 0 {
+		return "off"
+	}
+	return fmt.Sprintf("%d", cap)
 }
 
 // Layout fixes the logical screen to the internal render resolution; Ebiten

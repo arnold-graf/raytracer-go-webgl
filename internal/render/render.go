@@ -140,18 +140,24 @@ type LiveWorkloadController interface {
 }
 
 // FormatFrameBudget renders the primary timing signal: the true GPU compute
-// cost per frame and the actual presented frame rate. With CPU/GPU pipelining
-// the GPU no longer bounds the loop, so fps (real, vsync-limited) and the GPU
-// ms (the GPU-bound ceiling ≈ 1000/gpuMS) are reported separately.
-func FormatFrameBudget(gpuMS, fps float64) string {
+// cost per frame (gpuMS) with the GPU-bound ceiling in parentheses (max fps if
+// the GPU were the only limiter), the measured trace rate (fps), and the active
+// H-key FPS cap (capFPS, 0 = uncapped).
+func FormatFrameBudget(gpuMS, fps float64, capFPS int) string {
 	gpu := "gpu —"
 	if gpuMS > 0 {
-		gpu = fmt.Sprintf("gpu %.1f ms (%.0f fps cap)", gpuMS, 1000.0/gpuMS)
+		gpu = fmt.Sprintf("gpu %.1f ms (max %.0f)", gpuMS, 1000.0/gpuMS)
 	}
+	out := gpu
 	if fps > 0 {
-		return fmt.Sprintf("%s · %.0f fps", gpu, fps)
+		out = fmt.Sprintf("%s · %.0f fps", gpu, fps)
 	}
-	return gpu
+	if capFPS > 0 {
+		out += fmt.Sprintf(" · cap %d", capFPS)
+	} else {
+		out += " · uncapped"
+	}
+	return out
 }
 
 // FormatWorkloadHUD renders a compact two-line workload summary for the HUD.
