@@ -1,6 +1,9 @@
-// instance.wgsl — Instanced geometry (trees, NPCs, …).
+// instance.wesl — Instanced geometry (trees, NPCs, …).
 // Converts ray origins, directions, hit points, and normals between world
 // space and an instance's local template space for TLAS/BLAS traversal.
+
+
+import package::types::{inst_records};
 
 fn inst_local_origin(i: u32, ro: vec3<f32>) -> vec3<f32> {
     let r = inst_records[i];

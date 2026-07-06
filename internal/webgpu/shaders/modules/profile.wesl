@@ -1,6 +1,9 @@
-// profile.wgsl — Optional performance counters.
+// profile.wesl — Optional performance counters.
 // Atomic counters read back by gpuprof and the in-game HUD (~once per second).
 // When params.profile_enabled is 0 the helpers compile to no-ops at runtime.
+
+
+import package::types::{params, profile_counters};
 
 const PROF_PIXELS: u32 = 0u;
 const PROF_PATH_SEGS: u32 = 1u;

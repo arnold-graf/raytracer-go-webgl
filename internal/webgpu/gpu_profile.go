@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// GPU profile counter indices — keep in sync with shaders/modules/profile.wgsl PROF_* constants.
+// GPU profile counter indices — keep in sync with shaders/modules/profile.wesl PROF_* constants.
 const (
 	profPixels = iota
 	profPathSegs

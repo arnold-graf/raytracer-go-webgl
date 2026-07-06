@@ -1,7 +1,14 @@
-// bvh.wgsl — Spatial acceleration and visibility queries.
+// bvh.wesl — Spatial acceleration and visibility queries.
 // Walks the flat BVH (+ instanced TLAS/BLAS) to find the nearest surface along a
 // ray (nearest_hit) or any blocker along a shadow ray (shadowed). Also walks
 // infinite plane index lists that sit outside the BVH.
+
+
+import package::types::{BVH_TAG_TLAS, HIT_NO_INSTANCE, Hit, RAY_EPSILON, T_MISS, blockers, bvh_nodes, inst_records, inst_templates, params, plane_idx};
+import package::profile::{prof_step, prof_tests};
+import package::intersect::{intersect, intersect_blocker, slab_hit};
+import package::terrain::{hit_terrain, hit_water};
+import package::instance::{inst_local_dir, inst_local_origin};
 
 fn bvh_nearest_subtree(root: u32, ro: vec3<f32>, rd: vec3<f32>, best_t: f32, blockers: bool) -> f32 {
     let inv = vec3<f32>(1.0) / rd;

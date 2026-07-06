@@ -1,6 +1,6 @@
 // Package webgpu contains the WebGPU renderer backend, the only renderer in the
 // app. It packs the scene into GPU buffers and runs the path tracer as a compute
-// shader (shaders/modules/*.wgsl, concatenated by shaders.Source).
+// shader (shaders/modules/*.wesl, linked via shaders.Source / go generate).
 package webgpu
 
 import (

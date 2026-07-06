@@ -1,6 +1,9 @@
-// math.wgsl — Small math helpers and procedural noise.
+// math.wesl — Small math helpers and procedural noise.
 // clamp/mix/smoothstep utilities plus Perlin noise, fbm, and turbulence shared
 // by procedural textures, terrain blending, and the cloudy/storm sky.
+
+
+import package::types::{perm};
 
 fn clamp01(x: f32) -> f32 {
     return clamp(x, 0.0, 1.0);

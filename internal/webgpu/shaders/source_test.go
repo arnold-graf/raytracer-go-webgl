@@ -5,31 +5,18 @@ import (
 	"testing"
 )
 
-func TestSourceConcatenatesModulesInOrder(t *testing.T) {
+func TestSourceIsLinkedWGSL(t *testing.T) {
 	src := Source()
-	markers := []string{
-		"// types.wgsl",
-		"// profile.wgsl",
-		"// math.wgsl",
-		"// texture.wgsl",
-		"// sky.wgsl",
-		"// intersect.wgsl",
-		"// terrain.wgsl",
-		"// instance.wgsl",
-		"// bvh.wgsl",
-		"// shade.wgsl",
-		"// trace.wgsl",
-		"@compute @workgroup_size(8, 8, 1)",
-		"fn main(",
+	if !strings.Contains(src, "@compute @workgroup_size(8, 8, 1)") {
+		t.Fatal("missing compute entry point")
 	}
-	for _, m := range markers {
-		if !strings.Contains(src, m) {
-			t.Fatalf("assembled shader missing %q", m)
-		}
+	if !strings.Contains(src, "fn main(") {
+		t.Fatal("missing main")
 	}
-	typesIdx := strings.Index(src, "// types.wgsl")
-	traceIdx := strings.Index(src, "// trace.wgsl")
-	if typesIdx >= traceIdx {
-		t.Fatalf("types module should precede trace module")
+	if !strings.Contains(src, "fn ray_color(") {
+		t.Fatal("missing ray_color")
+	}
+	if strings.Contains(src, "import package::") {
+		t.Fatal("linked WGSL should not contain WESL import statements")
 	}
 }

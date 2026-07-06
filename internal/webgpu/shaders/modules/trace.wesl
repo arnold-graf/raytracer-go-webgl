@@ -1,7 +1,19 @@
-// trace.wgsl — Megakernel: bounce loop and pixel output.
+// trace.wesl — Megakernel: bounce loop and pixel output.
 // The heart of the renderer: ray_color() walks a small stack of reflection and
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
+
+
+import package::types::{HIT_NO_INSTANCE, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_FLAG_TRANSFORMED, SURFACE_EPSILON, params, pixels, prims, waters};
+import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc};
+import package::math::{clamp01};
+import package::texture::{is_capture, is_document, plane_albedo, texture_eval, texture_eval_capture, texture_eval_document};
+import package::sky::{sky};
+import package::intersect::{xf_to_local_point, xf_to_world_normal};
+import package::terrain::{terrain_normal, water_normal};
+import package::instance::{inst_local_point, inst_world_normal};
+import package::bvh::{nearest_hit};
+import package::shade::{jitter_dir, normal_at, shade_diffuse, terrain_albedo};
 
 fn tonemap_channel(x: f32) -> f32 {
     return clamp01((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14));

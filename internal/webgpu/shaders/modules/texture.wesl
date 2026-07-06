@@ -1,6 +1,10 @@
-// texture.wgsl — Surface color and image sampling.
+// texture.wesl — Surface color and image sampling.
 // Procedural materials (wood, brick, wallpaper, grass, …), portal capture
 // textures, and in-world document images. texture_eval() is the main entry.
+
+
+import package::types::{DOCUMENT_TEX_H, DOCUMENT_TEX_W, MAT_CHECKER, Prim, TEX_BRICK, TEX_CAPTURE_BASE, TEX_CAPTURE_COUNT, TEX_CEMENT, TEX_DIRT, TEX_DOCUMENT_BASE, TEX_DOCUMENT_COUNT, TEX_GRASS, TEX_MARBLE, TEX_NONE, TEX_PAPER, TEX_SNOW, TEX_STONE, TEX_STONE_WALL, TEX_WALLPAPER_GREEN, TEX_WALLPAPER_ROSE, TEX_WOOD, capture_pixels, document_pixels, params};
+import package::math::{TEX_PI, cell_rand, fbm, fracf, mix3, perlin, smoothstepf, turbulence};
 
 fn tex_wood(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
     let dist = length(vec2<f32>(p.y, p.z));

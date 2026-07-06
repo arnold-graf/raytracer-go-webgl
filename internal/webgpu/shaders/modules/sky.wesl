@@ -1,6 +1,10 @@
-// sky.wgsl — Background radiance when a ray misses geometry.
+// sky.wesl — Background radiance when a ray misses geometry.
 // Procedural sky variants (clear, cloudy, night stars, storm, sunset) plus the
 // optional sun/moon disc. sky() is called from ray_color on a miss.
+
+
+import package::types::{params};
+import package::math::{clamp01, fbm, mix3, smoothstepf, turbulence};
 
 fn body_or(def: vec3<f32>) -> vec3<f32> {
     if (params.body_enabled != 0u) {

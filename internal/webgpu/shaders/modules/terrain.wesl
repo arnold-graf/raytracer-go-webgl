@@ -1,6 +1,11 @@
-// terrain.wgsl — Heightfield terrain and water surfaces.
+// terrain.wesl — Heightfield terrain and water surfaces.
 // Samples the baked terrain heightmap, ray-marches along it for hits and shadow
 // tests, and intersects flat water discs with ripples.
+
+
+import package::types::{RAY_EPSILON, T_MISS, params, terrain_samples, terrains, waters};
+import package::profile::{PROF_TERRAIN_STEPS, prof_inc};
+import package::math::{mix3, perlin};
 
 fn terrain_height(i: u32, x: f32, z: f32) -> f32 {
     let tr = terrains[i];

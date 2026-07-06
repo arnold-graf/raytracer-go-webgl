@@ -1,4 +1,4 @@
-// types.wgsl — Data layouts and GPU bindings.
+// types.wesl — Data layouts and GPU bindings.
 // Defines the structs the CPU packs (Params, Prim, BVHNode, Light, …), every
 // @group(0) storage/uniform binding, shared constants (primitive kinds, materials,
 // ray epsilons, lighting tuning knobs), and the Hit result returned by tracing.

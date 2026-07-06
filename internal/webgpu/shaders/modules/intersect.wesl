@@ -1,7 +1,10 @@
-// intersect.wgsl — Ray–primitive intersection tests.
+// intersect.wesl — Ray–primitive intersection tests.
 // Analytic hit tests for spheres, boxes, cylinders, lenses, etc., including
 // CSG box holes and local-space transforms. intersect() / intersect_blocker()
 // are the entry points called from BVH leaf nodes.
+
+
+import package::types::{PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, RING_SHELL, T_MISS, blockers, holes, prims};
 
 fn hit_sphere(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
     let center = p.geo_a.xyz;
