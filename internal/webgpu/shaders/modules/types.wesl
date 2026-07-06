@@ -281,10 +281,10 @@ const LIGHT_CULL_EPS: f32 = 0.0025;
 // is below this. The light is added as if unshadowed (no BVH shadow traversal).
 // Main perf win on mirror-heavy scenes; tune if shadows look wrong in reflections.
 //   0.0          → never skip (slowest, most exact)
-//   1/256        → aggressive; may merge multi-light shadows (e.g. campfire)
-//   1/1024       → current default (good speed/look balance)
-//   1/2048 or ↓  → conservative; closer to exact, less perf gain
-const SHADOW_SKIP_EPS: f32 = 0.0009765625; // 1/1024
+//   1/256 = 0.00390625 → aggressive; may merge multi-light shadows (e.g. campfire)
+//   1/1024 = 0.0009765625 → current default (good speed/look balance)
+//   1/2048 = 0.00048828125 or ↓  → conservative; closer to exact, less perf gain
+const SHADOW_SKIP_EPS: f32 = 0.00390625;
 
 // Point-light attenuation: att = 1 / (LIGHT_ATTEN_BASE + LIGHT_ATTEN_QUADRATIC × d²)
 const LIGHT_ATTEN_BASE: f32 = 0.5;        // Floor — stops singularity at d = 0

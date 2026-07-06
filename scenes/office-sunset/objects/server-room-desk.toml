@@ -48,9 +48,9 @@ rotate_x = -90
 rotate_y = 20
 headline = "Server Room Access"
 paragraphs = [
-  "Temporary credentials are valid until end of shift.",
-  "Do not share this memo with unauthorized personnel!",
-  "- Admin"
+  "Temporary credentials are only valid until the end of each session.",
+  "Please don’t share this memo with unauthorized personnel, etc.",
+  "- Hank"
 ]
 font = "../../../assets/M42.ttf"
 font_size_px = 13

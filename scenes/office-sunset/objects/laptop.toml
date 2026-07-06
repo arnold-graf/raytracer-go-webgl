@@ -16,11 +16,23 @@ material = "diffuse"
 albedo = [0.1, 0.1, 0.1]
 rotate_x = -10
 pos_x = 0.0
-pos_y = 0.0
+pos_y = 0.05
 pos_z = -0.06
 width = 0.4
-height = 0.4
+height = 0.34
 depth = 0.04
+
+# hinge
+[[cylinder]]
+material = "diffuse"
+albedo = [0.1, 0.1, 0.1]
+pos_x = 0.19
+pos_y = -0.125
+pos_z = 0.0
+width = 0.02
+height = 0.37
+rotate_z = 90
+
 
 # screen
 [[box]]
