@@ -1,6 +1,7 @@
 {
   "recommendations": [
-    "tombi-toml.tombi"
+    "tombi-toml.tombi",
+    "wgsl-analyzer.wgsl-analyzer"
   ],
   "unwantedRecommendations": [
     "tamasfe.even-better-toml"

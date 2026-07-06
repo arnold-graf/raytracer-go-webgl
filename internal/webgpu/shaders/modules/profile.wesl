@@ -3,6 +3,7 @@
 // When params.profile_enabled is 0 the helpers compile to no-ops at runtime.
 
 
+
 import package::types::{params, profile_counters};
 
 const PROF_PIXELS: u32 = 0u;

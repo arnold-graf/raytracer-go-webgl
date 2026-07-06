@@ -3,6 +3,7 @@
 // space and an instance's local template space for TLAS/BLAS traversal.
 
 
+
 import package::types::{inst_records};
 
 fn inst_local_origin(i: u32, ro: vec3<f32>) -> vec3<f32> {

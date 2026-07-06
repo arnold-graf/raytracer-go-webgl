@@ -1,7 +1,8 @@
-// trace.wgsl — Megakernel: bounce loop and pixel output.
+// trace.wesl — Megakernel: bounce loop and pixel output.
 // The heart of the renderer: ray_color() walks a small stack of reflection and
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
+
 
 
 

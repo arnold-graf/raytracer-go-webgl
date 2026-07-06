@@ -1,3 +1,5 @@
+# Shader linker config (wesl-link / wesl compile run from this directory).
+# IDE / wgsl-analyzer uses the repo-root wesl.toml instead.
 edition = "2026_pre"
-root = "./modules"
-include = ["./modules/**/*.w[eg]sl"]
+root = "./modules/trace.wesl"
+include = ["./modules/**/*.wesl"]

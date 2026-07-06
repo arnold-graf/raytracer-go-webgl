@@ -1,0 +1,7 @@
+# WESL project config for wgsl-analyzer (Cursor/VS Code) and wesl-link / wesl compile.
+# Must live at the workspace root (next to go.mod) so the language server finds it.
+edition = "2026_pre"
+
+# Point at the entry module file (directory roots are not fully supported in wgsl-analyzer yet).
+root = "./internal/webgpu/shaders/modules/trace.wesl"
+include = ["./internal/webgpu/shaders/modules/**/*.wesl"]
