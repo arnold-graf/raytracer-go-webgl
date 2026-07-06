@@ -231,11 +231,32 @@ const PROF_PRI_HIT_INST: u32 = 14u;
 const PROF_PRI_HIT_TERRAIN: u32 = 15u;
 const PROF_PRI_HIT_WATER: u32 = 16u;
 const PROF_PRI_SKY: u32 = 17u;
-const PROF_COUNTER_COUNT: u32 = 18u;
+const PROF_BVH_STEPS: u32 = 18u;
+const PROF_PRIM_TESTS: u32 = 19u;
+const PROF_COUNTER_COUNT: u32 = 20u;
 
 fn prof_inc(idx: u32, delta: u32) {
     if (params.profile_enabled != 0u && idx < PROF_COUNTER_COUNT) {
         atomicAdd(&profile_counters[idx], delta);
+    }
+}
+
+// BVH traversal-quality accumulators (Representative-Ray-Set style): node visits
+// and leaf primitive intersection tests are summed per-invocation in private
+// memory to avoid per-node atomic contention, then flushed once per pixel in
+// main(). Guarded by profile_enabled so normal frames pay nothing.
+var<private> bvh_steps_acc: u32 = 0u;
+var<private> prim_tests_acc: u32 = 0u;
+
+fn prof_step() {
+    if (params.profile_enabled != 0u) {
+        bvh_steps_acc = bvh_steps_acc + 1u;
+    }
+}
+
+fn prof_tests(n: u32) {
+    if (params.profile_enabled != 0u) {
+        prim_tests_acc = prim_tests_acc + n;
     }
 }
 
@@ -287,12 +308,39 @@ const TEX_DOCUMENT_COUNT: u32 = 16u;
 const DOCUMENT_TEX_W: u32 = 512u;
 const DOCUMENT_TEX_H: u32 = 512u;
 
+// ── Ray intersection guards ──────────────────────────────────────────────────
+// Minimum hit distance (avoids self-intersection). Used by all primitive tests.
 const RAY_EPSILON: f32 = 1e-4;
+// Nudge ray origins off surfaces before shadow and bounce rays.
 const SURFACE_EPSILON: f32 = 5e-4;
+// Sentinel "no geometry hit" distance for BVH traversal.
 const T_MISS: f32 = 1e30;
+
+// ── Lighting & shadow tuning knobs ───────────────────────────────────────────
+// Used in add_point_light_raw() and shade_diffuse(). Longer notes:
+// docs/reflection-optimization.md
+//
+// tw_peak(tw) is the brightest channel of the ray's throughput weight. It is
+// < 1 on mirror/glass bounce paths, so bounce shading is where these matter.
+
+// Drop a point light when tw_peak(tw) × att × N·L × light_color is below this.
+// The light is skipped entirely (no shading, no shadow ray).
+//   Higher → faster, fewer lights evaluated.
+//   Lower  → more accurate, especially on dim reflection paths.
 const LIGHT_CULL_EPS: f32 = 0.0025;
-const LIGHT_ATTEN_BASE: f32 = 0.5;
-const LIGHT_ATTEN_QUADRATIC: f32 = 0.08;
+
+// B1 optimization: skip the shadow ray when tw_peak(tw) × unshadowed_brightness
+// is below this. The light is added as if unshadowed (no BVH shadow traversal).
+// Main perf win on mirror-heavy scenes; tune if shadows look wrong in reflections.
+//   0.0          → never skip (slowest, most exact)
+//   1/256        → aggressive; may merge multi-light shadows (e.g. campfire)
+//   1/1024       → current default (good speed/look balance)
+//   1/2048 or ↓  → conservative; closer to exact, less perf gain
+const SHADOW_SKIP_EPS: f32 = 0.0009765625; // 1/1024
+
+// Point-light attenuation: att = 1 / (LIGHT_ATTEN_BASE + LIGHT_ATTEN_QUADRATIC × d²)
+const LIGHT_ATTEN_BASE: f32 = 0.5;        // Floor — stops singularity at d = 0
+const LIGHT_ATTEN_QUADRATIC: f32 = 0.08; // How quickly intensity falls off with distance
 
 struct Hit {
     t: f32,
@@ -1749,11 +1797,13 @@ fn bvh_nearest_subtree(root: u32, ro: vec3<f32>, rd: vec3<f32>, best_t: f32, blo
         }
         sp = sp - 1u;
         let n = bvh_nodes[stack[sp]];
+        prof_step();
         if (!slab_hit(n.min_b.xyz, n.max_b.xyz, ro, inv, t)) {
             continue;
         }
         let count = n.info.w;
         if (count > 0u) {
+            prof_tests(count);
             for (var k = 0u; k < count; k = k + 1u) {
                 let prim_idx = select(n.info.x, n.info.y, k == 1u);
                 let hit_t = select(intersect(prim_idx, ro, rd), intersect_blocker(prim_idx, ro, rd), blockers);
@@ -1787,11 +1837,13 @@ fn bvh_nearest_subtree_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, h: Hit, inst
         }
         sp = sp - 1u;
         let n = bvh_nodes[stack[sp]];
+        prof_step();
         if (!slab_hit(n.min_b.xyz, n.max_b.xyz, ro, inv, best.t)) {
             continue;
         }
         let count = n.info.w;
         if (count > 0u) {
+            prof_tests(count);
             for (var k = 0u; k < count; k = k + 1u) {
                 let prim_idx = select(n.info.x, n.info.y, k == 1u);
                 let t = intersect(prim_idx, ro, rd);
@@ -1828,6 +1880,7 @@ fn inst_bvh_any_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool
         }
         sp = sp - 1u;
         let n = bvh_nodes[stack[sp]];
+        prof_step();
         if (!slab_hit(n.min_b.xyz, n.max_b.xyz, ro, inv, max_t)) {
             continue;
         }
@@ -1852,6 +1905,7 @@ fn inst_bvh_any_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool
         }
         let count = n.info.w;
         if (count > 0u) {
+            prof_tests(count);
             for (var k = 0u; k < count; k = k + 1u) {
                 let prim_idx = select(n.info.x, n.info.y, k == 1u);
                 let t = intersect_blocker(prim_idx, ro, rd);
@@ -1888,6 +1942,7 @@ fn inst_nearest_hit(ro: vec3<f32>, rd: vec3<f32>, h: Hit) -> Hit {
         }
         sp = sp - 1u;
         let n = bvh_nodes[stack[sp]];
+        prof_step();
         if (!slab_hit(n.min_b.xyz, n.max_b.xyz, ro, inv, best.t)) {
             continue;
         }
@@ -1931,11 +1986,13 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
             }
             sp = sp - 1u;
             let n = bvh_nodes[stack[sp]];
+            prof_step();
             if (!slab_hit(n.min_b.xyz, n.max_b.xyz, ro, inv, h.t)) {
                 continue;
             }
             let count = n.info.w;
             if (count > 0u) {
+                prof_tests(count);
                 for (var k = 0u; k < count; k = k + 1u) {
                     let prim_idx = select(n.info.x, n.info.y, k == 1u);
                     let t = intersect(prim_idx, ro, rd);
@@ -2011,11 +2068,13 @@ fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool {
             }
             sp = sp - 1u;
             let n = bvh_nodes[blocker_off + stack[sp]];
+            prof_step();
             if (!slab_hit(n.min_b.xyz, n.max_b.xyz, ro, inv, max_t)) {
                 continue;
             }
             let count = n.info.w;
             if (count > 0u) {
+                prof_tests(count);
                 for (var k = 0u; k < count; k = k + 1u) {
                     let prim_idx = select(n.info.x, n.info.y, k == 1u);
                     let t = intersect_blocker(prim_idx, ro, rd);
@@ -2230,10 +2289,15 @@ fn shadowed(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
     return false;
 }
 
-// add_point_light_raw is the shared core for one point light: distance cull,
-// inverse-square + optional windowed falloff, a brightness cull, and a shadow
-// ray. Static lights and flickering campfire sub-lights both feed through it.
-fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, pos: vec3<f32>, color: vec3<f32>, cull_r2: f32, inv_r2: f32) -> vec3<f32> {
+fn tw_peak(tw: vec3<f32>) -> f32 {
+    return max(tw.x, max(tw.y, tw.z));
+}
+
+// Shared core for one point light (static lights + campfire sub-lights).
+// Tuning knobs at the top of this file: LIGHT_CULL_EPS, SHADOW_SKIP_EPS,
+// LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC. tw is the ray segment throughput.
+fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, pos: vec3<f32>, color: vec3<f32>, cull_r2: f32, inv_r2: f32, tw: vec3<f32>) -> vec3<f32> {
+    let twm = tw_peak(tw);
     let ld = pos - hp;
     let d2 = dot(ld, ld);
     if (d2 > cull_r2) {
@@ -2257,17 +2321,23 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
         }
         att = att * w * w;
     }
-    if (att * ndl * max(color.x, max(color.y, color.z)) < LIGHT_CULL_EPS) {
+    let color_peak = max(color.x, max(color.y, color.z));
+    if (twm * att * ndl * color_peak < LIGHT_CULL_EPS) {
         return lit;
+    }
+    let unshadowed = color * (att * ndl) * albedo;
+    let peak = max(unshadowed.x, max(unshadowed.y, unshadowed.z));
+    if (twm * peak < SHADOW_SKIP_EPS) {
+        return lit + unshadowed;
     }
     if (params.shadows != 0u && shadowed(ep, ln, ldist)) {
         return lit;
     }
-    return lit + color * (att * ndl) * albedo;
+    return lit + unshadowed;
 }
 
-fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, light: Light) -> vec3<f32> {
-    return add_point_light_raw(lit, hp, albedo, n, ep, light.pos.xyz, light.color.xyz, light.falloff.x, light.falloff.y);
+fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, light: Light, tw: vec3<f32>) -> vec3<f32> {
+    return add_point_light_raw(lit, hp, albedo, n, ep, light.pos.xyz, light.color.xyz, light.falloff.x, light.falloff.y, tw);
 }
 
 // ao_sample reproduces aoVolume.sample: nudge off the surface by bias along n,
@@ -2388,14 +2458,12 @@ fn campfire_sublight(cf: CampfireParams, j: u32, ts: f32) -> CampfireSample {
     return CampfireSample(pos, col);
 }
 
-// shade_diffuse computes the diffuse direct lighting at a hit: flat ambient,
-// static point lights and flickering campfires (with the shared core shadow
-// early-out), then scaled by the baked ambient-occlusion volume. Used for
-// scenes without an env sun/hemispheric ambient.
-fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> vec3<f32> {
+// Direct diffuse lighting: ambient + point lights + campfires + baked AO.
+// Campfire core occlusion also uses SHADOW_SKIP_EPS (see loop below).
+fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>) -> vec3<f32> {
     var lit = alb * params.ambient;
     for (var i = 0u; i < params.light_count; i = i + 1u) {
-        lit = add_point_light(lit, hp, alb, n, ep, lights[i]);
+        lit = add_point_light(lit, hp, alb, n, ep, lights[i], tw);
     }
     for (var ci = 0u; ci < params.campfire_count; ci = ci + 1u) {
         let cf = campfires[ci];
@@ -2411,14 +2479,22 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> 
             if (cdist == 0.0) {
                 cdist = 1.0;
             }
-            if (shadowed(ep, cl / cdist, cdist)) {
-                continue;
+            let cdir = cl / cdist;
+            let ndl = dot(n, cdir);
+            if (ndl >= 0.001) {
+                let att = min(1.0, 1.0 / (LIGHT_ATTEN_BASE + cd2 * LIGHT_ATTEN_QUADRATIC));
+                let peak = att * ndl * cf.param.x * max(alb.x, max(alb.y, alb.z));
+                if (tw_peak(tw) * peak >= SHADOW_SKIP_EPS) {
+                    if (shadowed(ep, cdir, cdist)) {
+                        continue;
+                    }
+                }
             }
         }
         let ts = params.time * cf.param.w;
         for (var j = 0u; j < 3u; j = j + 1u) {
             let sl = campfire_sublight(cf, j, ts);
-            lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y);
+            lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw);
         }
     }
     if (params.ao_enabled != 0u) {
@@ -2654,7 +2730,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
 
         // Diffuse / checker, plus mirror/metal/glass falling through here at the
         // depth cap (or when reflections are disabled): shaded as diffuse.
-        let lit = shade_diffuse(hp, alb, n, ep);
+        let lit = shade_diffuse(hp, alb, n, ep, tw);
         let refl = surf.z;
         if (refl > 0.0 && reflective && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) && sp < MAX_SEGS) {
             prof_inc(PROF_DIFFUSE_REFL, 1u);
@@ -2705,6 +2781,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     prof_inc(PROF_PIXELS, 1u);
     var col = ray_color(ro, dir);
     col = tonemap(col);
+
+    // Flush per-invocation BVH traversal-quality accumulators (one atomic pair
+    // per pixel instead of one per node visit).
+    prof_inc(PROF_BVH_STEPS, bvh_steps_acc);
+    prof_inc(PROF_PRIM_TESTS, prim_tests_acc);
 
     var bayer = array<u32, 16>(
         0u, 8u, 2u, 10u,

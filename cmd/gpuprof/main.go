@@ -41,6 +41,7 @@ func main() {
 	frames := flag.Int("frames", 20, "measured frames per configuration")
 	ablate := flag.Bool("ablate", true, "run the feature ablation matrix after the baseline")
 	profile := flag.Bool("profile", false, "collect GPU shader workload counters (one profiled frame)")
+	dump := flag.String("dump", "", "write the final RGBA frame buffer to this file (for A/B pixel diffs)")
 	mountains := flag.Bool("mountains", false, "use mountain-view camera preset (yaw=0°, villa valley view)")
 	flag.Parse()
 
@@ -98,6 +99,14 @@ func main() {
 	// Baseline at the configured camera.
 	base := bench(r, buf, cam, view, *warmup, *frames, false)
 	printTiming("baseline", base)
+
+	if *dump != "" {
+		r.Render(buf, cam, view, 1)
+		if err := os.WriteFile(*dump, buf, 0o644); err != nil {
+			log.Fatalf("dump frame: %v", err)
+		}
+		fmt.Printf("dumped frame to %s (%d bytes)\n", *dump, len(buf))
+	}
 
 	if *profile {
 		fmt.Println()

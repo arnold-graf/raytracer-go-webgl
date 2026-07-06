@@ -26,6 +26,8 @@ const (
 	profPriHitTerrain
 	profPriHitWater
 	profPriSky
+	profBVHSteps
+	profPrimTests
 	profCounterCount
 )
 
@@ -52,6 +54,8 @@ type GPUProfileCounters struct {
 	PriHitTerrain  uint32
 	PriHitWater    uint32
 	PriSky         uint32
+	BVHSteps       uint32
+	PrimTests      uint32
 }
 
 func decodeProfileCounters(raw []byte) GPUProfileCounters {
@@ -81,6 +85,8 @@ func decodeProfileCounters(raw []byte) GPUProfileCounters {
 	c.PriHitTerrain = vals[profPriHitTerrain]
 	c.PriHitWater = vals[profPriHitWater]
 	c.PriSky = vals[profPriSky]
+	c.BVHSteps = vals[profBVHSteps]
+	c.PrimTests = vals[profPrimTests]
 	return c
 }
 
@@ -121,6 +127,11 @@ func FormatGPUProfile(c GPUProfileCounters, gpuMS float64) string {
 	}
 	fmt.Fprintf(&b, "  bounces: mirror %d  glass %d  diffuse_refl %d\n",
 		c.MirrorBounces, c.GlassBounces, c.DiffuseRefl)
+	rays := float64(maxU32(c.PathSegs+c.ShadowRays, 1))
+	fmt.Fprintf(&b, "  bvh quality (RRS): %d steps  %d prim tests  over %d rays\n",
+		c.BVHSteps, c.PrimTests, c.PathSegs+c.ShadowRays)
+	fmt.Fprintf(&b, "    %.1f steps/ray  %.1f prim tests/ray  (lower = better BVH)\n",
+		float64(c.BVHSteps)/rays, float64(c.PrimTests)/rays)
 	return b.String()
 }
 

@@ -49,6 +49,8 @@ func (r *Renderer) absorbWorkloadSample(c GPUProfileCounters) {
 	w.TimeWaterPct = blend(w.TimeWaterPct, snap.TimeWaterPct)
 	w.TimePrimPct = blend(w.TimePrimPct, snap.TimePrimPct)
 	w.ShadowOccPct = blend(w.ShadowOccPct, snap.ShadowOccPct)
+	w.BVHStepsPerRay = blend(w.BVHStepsPerRay, snap.BVHStepsPerRay)
+	w.PrimTestsPerRay = blend(w.PrimTestsPerRay, snap.PrimTestsPerRay)
 }
 
 func workloadFromCounters(c GPUProfileCounters) render.GPUWorkload {
@@ -64,6 +66,7 @@ func workloadFromCounters(c GPUProfileCounters) render.GPUWorkload {
 	if c.ShadowRays > 0 {
 		shadowOcc = 100 * float64(c.ShadowBlock) / float64(c.ShadowRays)
 	}
+	rays := float64(maxU32(c.PathSegs+c.ShadowRays, 1))
 	terrain, inst, water, prim := timeMixFromCounters(c)
 	return render.GPUWorkload{
 		Ready:               true,
@@ -77,5 +80,7 @@ func workloadFromCounters(c GPUProfileCounters) render.GPUWorkload {
 		TimeWaterPct:        water,
 		TimePrimPct:         prim,
 		ShadowOccPct:        shadowOcc,
+		BVHStepsPerRay:      float64(c.BVHSteps) / rays,
+		PrimTestsPerRay:     float64(c.PrimTests) / rays,
 	}
 }
