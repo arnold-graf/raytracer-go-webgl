@@ -1,10 +1,9 @@
 // Package webgpu contains the WebGPU renderer backend, the only renderer in the
 // app. It packs the scene into GPU buffers and runs the path tracer as a compute
-// shader (shaders/trace.wgsl).
+// shader (shaders/modules/*.wgsl, concatenated by shaders.Source).
 package webgpu
 
 import (
-	_ "embed"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -14,12 +13,10 @@ import (
 	"raytracer/internal/render"
 	"raytracer/internal/texture"
 	"raytracer/internal/vec"
+	"raytracer/internal/webgpu/shaders"
 
 	"github.com/rajveermalviya/go-webgpu/wgpu"
 )
-
-//go:embed shaders/trace.wgsl
-var traceWGSL string
 
 const (
 	fovScale    = 0.5773502691896257 // tan(60deg / 2)
@@ -389,7 +386,7 @@ func (r *Renderer) init() error {
 
 	shader, err := r.device.CreateShaderModule(&wgpu.ShaderModuleDescriptor{
 		Label:          "trace shader",
-		WGSLDescriptor: &wgpu.ShaderModuleWGSLDescriptor{Code: traceWGSL},
+		WGSLDescriptor: &wgpu.ShaderModuleWGSLDescriptor{Code: shaders.Source()},
 	})
 	if err != nil {
 		return fmt.Errorf("create shader module: %w", err)
