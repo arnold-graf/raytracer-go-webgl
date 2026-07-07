@@ -471,8 +471,9 @@ rough = 0.01
 # the floor (top y = 0.4), clear of the east/north walls.
 
 [[include]]
-at = [3.7, 0.4, -4.7]
+at = [3.7, 1.935, -4.7]
 file = "tiled-stove-round.toml"
+# migrated-center-at
 rotate_y = -45
 
 # ------------------------------------------------- ceiling pendant lamps ----
@@ -482,11 +483,13 @@ rotate_y = -45
 # Nested includes compose with the building's own placement transform.
 
 [[include]]
-at = [-1.5, 6.2, 2]
+at = [-1.5, 4.681, 2.0]
 file = "otto-wagner-sphere-lamp.toml"
+# migrated-center-at
 params = { stem_len = 2.1, orb_radius = 0.5 }
 
 [[include]]
-at = [1.5, 5.7, 0.0]
+at = [1.5, 4.481, 0.0]
 file = "otto-wagner-sphere-lamp.toml"
+# migrated-center-at
 params = { orb_radius = 0.5 }

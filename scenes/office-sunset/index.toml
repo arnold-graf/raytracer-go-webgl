@@ -13,5 +13,6 @@ pitch = 0.0
 
 [[include]]
 file = "server-room-1.toml"
-at = [0.0, 200, 0.0]
+# migrated-center-at
+at = [20.1, 202.6, 24.75]
 

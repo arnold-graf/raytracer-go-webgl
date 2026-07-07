@@ -302,6 +302,18 @@
       ],
       "additionalProperties": true
     },
+    "transform_origin": {
+      "description": "Rotation anchor in local space. Default \"center\" (geometric center or sub-scene bounds center for includes). Use [x,y,z] for a corner, hinge, or file origin.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["center"]
+        },
+        {
+          "$ref": "#/definitions/vec3"
+        }
+      ]
+    },
     "primitive_transform": {
       "type": "object",
       "description": "Optional per-primitive rotation fields.",
@@ -314,6 +326,9 @@
         },
         "rotate_z": {
           "$ref": "#/definitions/rotate_z"
+        },
+        "transform_origin": {
+          "$ref": "#/definitions/transform_origin"
         }
       },
       "additionalProperties": true
@@ -1464,7 +1479,10 @@
         },
         "at": {
           "$ref": "#/definitions/vec3",
-          "description": "Placement translation. When the parent has terrain, at.y is an offset above ground at (at.x, at.z); 0 snaps the object origin to ground (or a terrain pad at the origin)."
+          "description": "Where transform_origin lands in the parent scene. When the parent has terrain, at.y is an offset above ground at (at.x, at.z); 0 snaps the anchor to ground (or a terrain pad at the anchor)."
+        },
+        "transform_origin": {
+          "$ref": "#/definitions/transform_origin"
         },
         "rotate_x": {
           "type": "number",

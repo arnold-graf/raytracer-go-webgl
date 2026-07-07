@@ -102,17 +102,20 @@ snow_hi = 10.5
 
 [[include]]
 file = "objects/mountains.toml"
-at = [0.0, 0.0, 200.0]
+# migrated-center-at
+at = [59.187, 1.75, 170.601]
 
 # ================================================================ THE VILLA ====
 
 [[include]]
 file = "objects/art-nouveau-villa.toml"
-at = [0.0, 0, -10.0]
+# migrated-center-at
+at = [0.0, 6.5, -8.0]
 
 [[include]]
 file = "objects/art-nouveau-villa.toml"
-at = [50.0, 0.0, -10.0]
+# migrated-center-at
+at = [48.586, 6.5, -8.586]
 rotate_y = -45.0
 
 
@@ -134,7 +137,8 @@ albedo = [0.55, 0.70, 0.85]
 
 [[include]]
 file = "objects/pine-tree-cluster.toml"
-at = [0.0, 0.0, 0.0]
+# migrated-center-at
+at = [-1.331, 6.7, -9.336]
 instance = true
 
 # ----------------------------------------------------------------- campfire ----

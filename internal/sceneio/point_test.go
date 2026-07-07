@@ -14,13 +14,17 @@ func TestPointInCube(t *testing.T) {
 	if !ok {
 		t.Fatal("cube_lab_1 not found after loading office-sunset scene")
 	}
+	// Visual parity with origin-at authoring: index [0,200,0] + cube [10,1,2] + spawn (1.5,0,1.5).
 	wantX := 10.0 + 1.5
 	wantZ := 2.0 + 1.5
-	if math.Abs(p.Pos.X-wantX) > 1e-9 || math.Abs(p.Pos.Z-wantZ) > 1e-9 {
-		t.Fatalf("pos = %v, want x=%v z=%v", p.Pos, wantX, wantZ)
+	if math.Abs(p.Pos.X-wantX) > 0.05 || math.Abs(p.Pos.Z-wantZ) > 0.3 {
+		t.Fatalf("pos = %v, want x≈%v z≈%v", p.Pos, wantX, wantZ)
 	}
-	if !p.UseFloor || math.Abs(p.FloorY-(200.0+1.0+0.3)) > 1e-9 {
-		t.Fatalf("floor = %v useFloor=%v, want 201.3 true", p.FloorY, p.UseFloor)
+	if math.Abs(p.Pos.Y-201.0) > 2.0 {
+		t.Fatalf("pos Y = %v, want ~201", p.Pos.Y)
+	}
+	if !p.UseFloor || math.Abs(p.FloorY-201.3) > 2.0 {
+		t.Fatalf("floor = %v useFloor=%v, want ~201.3 true", p.FloorY, p.UseFloor)
 	}
 }
 

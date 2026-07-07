@@ -131,7 +131,8 @@ Notes:
 ## Per-primitive transforms
 
 Any primitive may be rotated in place by adding rotation fields. Rotation is
-about `pivot` (defaults to the origin `[0,0,0]`), in **degrees**, X→Y→Z order:
+about `transform_origin` (defaults to the geometric **center**), in **degrees**,
+X→Y→Z order:
 
 ```toml
 [[box]]
@@ -140,8 +141,12 @@ max = [ 1.0, 2.0,  1.0]
 material = "diffuse"
 albedo = [0.8, 0.8, 0.8]
 rotate_y = 30.0
-pivot = [0.0, 0.0, 0.0]
+transform_origin = [0.0, 0.0, 0.0]   # optional: rotate about a corner/hinge
 ```
+
+Unified placement rule: `world(p) = R · (p_local − origin) + at`. For
+primitives with only `rotate_*`, `at` is implicit zero and `transform_origin`
+defaults to the shape's center (box midpoint, cylinder axis midpoint, etc.).
 
 Internally the renderer intersects in the primitive's local space and maps the
 normal back to world space, so rotated geometry is exact (no AABB
@@ -401,24 +406,27 @@ put it in a separate file and pull it in via `[[include]]`.
 
 ## Reusable objects: `[[include]]`
 
-An object is just a scene file written in **local coordinates** (origin =
-the object's natural anchor point). You drop it into a parent scene with
-`[[include]]`, which merges all of its primitives after applying an instance
-transform:
+An object is just a scene file written in **local coordinates**. You drop it into
+a parent scene with `[[include]]`, which merges all of its primitives after
+applying an instance transform:
 
 ```toml
 [[include]]
 file = "objects/staircase.toml"  # path relative to the including file
-at = [16.0, 0.0, -2.0]           # translate the whole object here
-rotate_x = 0.0                   # optional rotation (degrees) about the object origin
+at = [16.0, 0.0, -2.0]           # where transform_origin lands in the parent
 rotate_y = 180.0
-rotate_z = 0.0
+transform_origin = [0, 0, 0]     # stairs: pivot at bottom-front corner (file origin)
 ```
+
+By default `transform_origin = "center"` (omitted in files). `at` is where the
+sub-scene bounds center lands. For objects authored at file origin (stairs,
+pine trees), set `transform_origin = [0, 0, 0]` on the `[[include]]`.
 
 How it works:
 - The object's geometry stays in its local space; the include attaches a
-  transform (rotate about the object origin, then translate by `at`). The
-  renderer maps rays into local space and back, so rotated composites are exact.
+  transform: rotate about `transform_origin`, then translate so that anchor
+  lands at `at`. The renderer maps rays into local space and back, so rotated
+  composites are exact.
 - **Includes nest.** An object can itself `[[include]]` other objects; the
   transforms compose. For example `objects/building.toml` includes
   `objects/otto-wagner-sphere-lamp.toml`, and both compose with wherever the

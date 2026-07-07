@@ -301,8 +301,9 @@ texture = "stone"
 # flattens the site to y = 0 in the surrounding height field.
 
 [[include]]
-at = [16.0, 0.0, -2.0]
+at = [16.0, 3.292, -2.0]
 file = "objects/building.toml"
+# migrated-center-at
 
 [[terrain.pad]] # flat building site under the indoor room
 # Covers the room footprint (x in [11.1, 20.9], z in [-7.9, 3.9]) and blends

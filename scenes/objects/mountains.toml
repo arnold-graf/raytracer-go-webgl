@@ -71,31 +71,36 @@ params = { brightness = 2, range = 50.0, flicker = 0.75, speed = 1.0 }
 
 [[include]]
 file = "exit-button.toml"
-at = [60.0, 0.0, -30.0]
+# migrated-center-at
+at = [59.116, 1.75, -29.47]
 rotate_y = -135
 follow_terrain = true
 
 [[include]]
 file ="pine-tree-cluster.toml"
-at = [50.0, 0.0, -80.0]
+# migrated-center-at
+at = [51.331, 6.7, -70.664]
 rotate_y = 180.0
 instance = true
 
 [[include]]
 file ="pine-tree-cluster.toml"
-at = [0.0, 0.0, -80.0]
+# migrated-center-at
+at = [9.228, 6.7, -78.058]
 rotate_y = 250.0
 instance = true
 
 [[include]]
 file ="pine-tree-cluster.toml"
-at = [-20.0, 0.0, -70.0]
+# migrated-center-at
+at = [-21.331, 6.7, -79.336]
 rotate_y = 0
 instance = true
 
 [[include]]
 file ="pine-tree-cluster.toml"
-at = [90.0, 0.0, -70.0]
+# migrated-center-at
+at = [88.669, 6.7, -79.336]
 rotate_y = 0
 instance = true
 

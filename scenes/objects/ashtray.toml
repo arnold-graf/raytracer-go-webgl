@@ -65,4 +65,5 @@ depth = 0.01
 
 [[include]]
 file = "cigarette.toml"
-at = [0.05, -0.025, 0.13]
+# migrated-center-at
+at = [0.055, 0.025, 0.135]

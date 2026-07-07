@@ -80,70 +80,81 @@ depth = 3
 # cube
 [[include]]
 file = "objects/cube.toml"
-at = [10.0, 1, 2.0]
+# migrated-center-at
+at = [11.75, 4.0, 3.5]
 rotate_y = 0.0
 
 # server rack left of the cube
 [[include]]
 file = "objects/server-column.toml"
-at = [3.0, 0.2, 8.0]
+# migrated-center-at
+at = [4.925, 1.5, 7.235]
 rotate_y = 30
 instance = true
 
 # server rack opposite the cube
 [[include]]
 file = "objects/server-column.toml"
-at = [7.0, 0.2, 14.0]
+# migrated-center-at
+at = [8.625, 1.5, 15.285]
 rotate_y = -30
 instance = true
 
 # server racks right of the cube
 [[include]]
 file = "objects/server-column.toml"
-at = [20.0, 0.2, 8.0]
+# migrated-center-at
+at = [20.3, 1.5, 5.95]
 rotate_y = 90
 instance = true
 
 [[include]]
 file = "objects/server-column.toml"
-at = [23.0, 0.2, 8.0]
+# migrated-center-at
+at = [23.3, 1.5, 5.95]
 rotate_y = 90
 instance = true
 
 [[include]]
 file = "objects/server-column.toml"
-at = [26.0, 0.2, 8.0]
+# migrated-center-at
+at = [26.3, 1.5, 5.95]
 rotate_y = 90
 instance = true
 
 [[include]]
 file = "objects/server-column.toml"
-at = [29.0, 0.2, 8.0]
+# migrated-center-at
+at = [29.3, 1.5, 5.95]
 rotate_y = 90
 instance = true
 
 # server racks on the other side of the room
 [[include]]
 file = "objects/server-column.toml"
-at = [20.0, 0.2, 18.0]
+# migrated-center-at
+at = [20.3, 1.5, 15.95]
 rotate_y = 90
 instance = true
 
 [[include]]
 file = "objects/server-column.toml"
-at = [23.0, 0.2, 18.0]
+# migrated-center-at
+at = [23.3, 1.5, 15.95]
 rotate_y = 90
 instance = true
 
 [[include]]
 file = "objects/server-column.toml"
-at = [26.0, 0.2, 18.0]
+# migrated-center-at
+at = [26.3, 1.5, 15.95]
 rotate_y = 90
 instance = true
 
 [[include]]
 file = "objects/server-column.toml"
-at = [29.0, 0.2, 18.0]
+# migrated-center-at
+at = [29.3, 1.5, 15.95]
 rotate_y = 90
 instance = true
 
@@ -151,6 +162,7 @@ instance = true
 # stairs to the cube
 [[include]]
 file = "../objects/staircase.toml"
+transform_origin = [0, 0, 0]
 at = [9.7, 0, 7.5]
 rotate_y = 90
 params = { steps = 5, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.5 }
@@ -159,50 +171,58 @@ params = { steps = 5, run = 0.3, rise = 0.2, width = 4, texture = "marble", refl
 [[include]]
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
-at = [35.0, 8, 16.0]
+# migrated-center-at
+at = [35.0, 6.52, 16.0]
 params = { stem_len = 2.3, brightness = 0.1, range = 10 }
 
 # Lamp 2 (near the door)
 [[include]]
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
-at = [35.0, 8, 3.5]
+# migrated-center-at
+at = [35.0, 6.52, 3.5]
 params = { stem_len = 2.3, brightness = 0.1, range = 20 }
 
 # Lamp 3 (very dim) above the desk
 [[include]]
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
-at = [8.0, 8, 9.0]
+# migrated-center-at
+at = [8.0, 6.17, 9.0]
 params = { stem_len = 3, brightness = 0.02, range = 20 }
 
 # desk to the left of the cube
 [[include]]
 file = "objects/server-room-desk.toml"
-at = [8.0, 0.2, 9.0]
+# migrated-center-at
+at = [8.0, 0.845, 9.498]
 
 # switch cupboard opposite the cube
 [[include]]
 file = "../objects/cupboard-double-door.toml"
-at = [16.0, 0.0, 18.8]
+# migrated-center-at
+at = [17.0, 1.5, 18.998]
 params = { width = 2, height = 3.0, depth = 0.5, shelves = 4, albedo = [0.1, 0.1, 0.2 ], reflect = 0.02, rough = 0.01, handle_radius = 0.1 }
 
 # table to the right of the cube
 [[include]]
 file = "../objects/simple-table.toml"
-at = [14.7, 0.2, 7.0]
+# migrated-center-at
+at = [14.7, 0.65, 7.0]
 rotate_y = -20
 params = { width = 1.5, height = 0.9, texture = "wood" }
 # glass bottle on the table
 [[include]]
 instance = true
 file = "../objects/glass-bottle.toml"
-at = [14, 1.1, 7.3]
+# migrated-center-at
+at = [14.05, 1.25, 7.35]
 # ashtray on the table
 [[include]] 
 instance = true
 file = "../objects/ashtray.toml"
-at = [14.5, 1.1, 7.3]
+# migrated-center-at
+at = [14.478, 1.119, 7.417]
 rotate_y = -50
 
 

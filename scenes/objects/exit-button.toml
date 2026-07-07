@@ -29,5 +29,6 @@ brightness = 0.5
 
 [[include]]
 file = "exit-sign.toml"
-at = [0.25, 2, 0]
+# migrated-center-at
+at = [1.025, 2.34, 0.35]
 rotate_y = 0.0

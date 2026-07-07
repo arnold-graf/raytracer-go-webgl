@@ -5,90 +5,105 @@
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [-18.0, -1.0, -6.0]
 rotate_y = 14.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [-16.5, -0.5, -11.0]
 rotate_y = 52.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [-14.0, -0.2, -15.5]
 rotate_y = 88.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [-20.5, -0.7, -2.5]
 rotate_y = 127.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [17.0, 0.0, -7.5]
 rotate_y = 203.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [19.0, -0.1, -13.0]
 rotate_y = 241.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [15.5, 0.0, -17.5]
 rotate_y = 19.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [13.0, -1, -22.0]
 rotate_y = 66.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [-5.0, 0.0, -23.5]
 rotate_y = 155.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [3.5, 0.0, -25.0]
 rotate_y = 298.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [7.5, 0.0, -21.0]
 rotate_y = 334.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [-22.0, 0.0, 2.0]
 rotate_y = 72.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [11.0, 0.0, 1.5]
 rotate_y = 186.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [-12.0, 0.0, 5.5]
 rotate_y = 260.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [10.5, 0.0, 6.5]
 rotate_y = 112.0
 follow_terrain = true

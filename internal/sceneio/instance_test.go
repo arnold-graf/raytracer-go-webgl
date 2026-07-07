@@ -21,8 +21,8 @@ func TestInstancedPineClusterLoad(t *testing.T) {
 	if len(cat.Templates) != 1 {
 		t.Fatalf("templates = %d, want 1 (pine-tree.toml)", len(cat.Templates))
 	}
-	if len(cat.Placements) != 15 {
-		t.Fatalf("placements = %d, want 15 (one pine cluster)", len(cat.Placements))
+	if len(cat.Placements) != 75 {
+		t.Fatalf("placements = %d, want 75 (villa cluster + mountains clusters)", len(cat.Placements))
 	}
 	if len(sc.Cones) < 15*4 {
 		t.Fatalf("materialized cones = %d, want at least %d", len(sc.Cones), 15*4)

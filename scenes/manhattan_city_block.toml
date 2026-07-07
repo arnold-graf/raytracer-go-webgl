@@ -3272,52 +3272,62 @@ texture = "cement"
 
 [[include]]
 file = "objects/pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [-26.0, 0.0, 12.0]
 rotate_y = 14.0
 
 [[include]]
 file = "objects/pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [-8.5, 0.0, 12.0]
 rotate_y = 14.0
 
 [[include]]
 file = "objects/pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [8.5, 0.0, 12.0]
 rotate_y = 14.0
 
 [[include]]
 file = "objects/pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [26.0, 0.0, 12.0]
 rotate_y = 14.0
 
 [[include]]
 file = "objects/pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [-13.0, 0.0, 9.0]
 rotate_y = 14.0
 
 [[include]]
 file = "objects/pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [13.0, 0.0, 9.0]
 rotate_y = 14.0
 
 [[include]]
 file = "objects/pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [-30.0, 0.0, 0.0]
 rotate_y = 14.0
 
 
 [[include]]
 file = "objects/pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [30.0, 0.0, 0.0]
 rotate_y = 14.0
 
 [[include]]
 file = "objects/pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [-22.0, 0.0, -8.0]
 rotate_y = 14.0
 
 [[include]]
 file = "objects/pine-tree.toml"
+transform_origin = [0, 0, 0]
 at = [22.0, 0.0, -8.0]
 rotate_y = 14.0
 

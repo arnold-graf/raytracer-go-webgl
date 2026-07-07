@@ -95,7 +95,7 @@ func snapPlacementByOrigin(s *Scene, p *InstancePlacement, yOffset float64) {
 	if p == nil || p.Xform == nil {
 		return
 	}
-	anchor := p.Xform.ToWorld(vec.V{})
+	anchor := p.Xform.PlacementAnchor()
 	h, ok := s.TerrainHeightAt(anchor.X, anchor.Z)
 	if !ok {
 		return

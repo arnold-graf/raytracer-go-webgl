@@ -47,6 +47,8 @@ type Transform struct {
 	fwd mat3  // local → world rotation
 	inv mat3  // world → local rotation (= fwd transpose)
 	t   vec.V // translation
+	// anchorLocal is the local transform_origin used by PlacementTransform.
+	anchorLocal vec.V
 }
 
 // rotation builds R = Rz * Ry * Rx from degrees, i.e. it applies the X rotation
@@ -69,9 +71,7 @@ func rotation(degX, degY, degZ float64) mat3 {
 // by the given Euler angles (degrees). The pivot maps to itself, so an object's
 // position is preserved and only its orientation changes.
 func NewTransform(degX, degY, degZ float64, pivot vec.V) *Transform {
-	fwd := rotation(degX, degY, degZ)
-	// world = fwd*(local - pivot) + pivot = fwd*local + (pivot - fwd*pivot).
-	return &Transform{fwd: fwd, inv: fwd.transpose(), t: pivot.Sub(fwd.mul(pivot))}
+	return PlacementTransform(degX, degY, degZ, pivot, pivot)
 }
 
 // RotationAboutAxis builds a rotation (degrees) about pivot on a principal axis.
@@ -113,11 +113,7 @@ func (parent *Transform) ChildAt(jointLocal vec.V, degX, degY, degZ float64) *Tr
 // rotate about the sub-scene origin, then translate by at. It returns nil when
 // the transform is the identity so callers can skip merging work entirely.
 func NewInstanceTransform(degX, degY, degZ float64, at vec.V) *Transform {
-	if degX == 0 && degY == 0 && degZ == 0 && at == (vec.V{}) {
-		return nil
-	}
-	fwd := rotation(degX, degY, degZ)
-	return &Transform{fwd: fwd, inv: fwd.transpose(), t: at}
+	return PlacementTransform(degX, degY, degZ, at, vec.V{})
 }
 
 // LocalRay maps a world-space ray into the primitive's local space. Because the

@@ -23,9 +23,11 @@ depth = 3.0
 
 [[include]]
 file = "../objects/simple-table.toml"
-at = [0.0, 0.0, 0.0]
+# migrated-center-at
+at = [0.0, 0.45, 0.0]
 params = { width = 1.2, height = 0.9, texture = "wood" }
 
 [[include]]
 file = "../objects/desk-anglepoise-lamp.toml"
-at = [0.0, 0.84, 0.0]
+# migrated-center-at
+at = [0.0, 1.094, 0.093]

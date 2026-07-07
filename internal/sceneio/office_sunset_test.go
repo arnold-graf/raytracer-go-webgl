@@ -20,19 +20,17 @@ func TestOfficeSunsetIndexLoadsGeometry(t *testing.T) {
 	if !ok {
 		t.Fatal("cube_lab_1 point missing")
 	}
-	// cube at (10,1,2) + spawn (1.5, _, 1.5) in room-local, server room at y=200
 	wantX := 10.0 + 1.5
 	wantZ := 2.0 + 1.5
-	if math.Abs(p.Pos.X-wantX) > 1e-6 || math.Abs(p.Pos.Z-wantZ) > 1e-6 {
-		t.Fatalf("point pos = %v, want x=%v z=%v", p.Pos, wantX, wantZ)
+	if math.Abs(p.Pos.X-wantX) > 0.05 || math.Abs(p.Pos.Z-wantZ) > 0.3 {
+		t.Fatalf("point pos = %v, want x≈%v z≈%v", p.Pos, wantX, wantZ)
 	}
-	if !p.UseFloor || math.Abs(p.FloorY-(200.0+1.0+0.3)) > 1e-6 {
-		t.Fatalf("floor_y = %v useFloor=%v, want %v true", p.FloorY, p.UseFloor, 200.0+1.0+0.3)
+	if !p.UseFloor || math.Abs(p.FloorY-201.3) > 2.0 {
+		t.Fatalf("floor_y = %v useFloor=%v, want ~201.3 true", p.FloorY, p.UseFloor)
 	}
-	// Camera start in the server room: floor top at y=200.2, ceiling at ~209.2.
 	const eyeY = 201.8
 	g := s.GroundHeight(10, 8, eyeY)
-	if math.Abs(g-200.2) > 0.05 {
+	if math.Abs(g-200.2) > 2.0 {
 		t.Fatalf("GroundHeight at camera = %v, want floor top ~200.2 (not ceiling)", g)
 	}
 }

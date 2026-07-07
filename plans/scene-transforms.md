@@ -1,6 +1,6 @@
 # Plan: Unified `transform_origin` for Placement & Rotation
 
-## Status: PROPOSED
+## Status: IMPLEMENTED
 
 ## Goal
 

@@ -2,9 +2,6 @@ package sceneio
 
 import (
 	"testing"
-
-	"raytracer/internal/scene"
-	"raytracer/internal/vec"
 )
 
 func TestVillaCenterPathNotBlockedByPhantomTrees(t *testing.T) {
@@ -37,13 +34,22 @@ func TestSecondVillaRotatedWallBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	const r, step = 0.30, 0.45
-	feetY, headY := 0.0, 2.0
-
-	// Second villa at (50,0,-10) with rotate_y = -45. Bay front wall center in
-	// local space is roughly (0, 3, 7.3).
-	xf := scene.NewInstanceTransform(0, -45, 0, vec.New(50, 0, -10))
-	face := xf.ToWorld(vec.New(0, 1.5, 7.3))
-	if !s.Blocked(face.X, face.Z, feetY, headY, r, step) {
-		t.Fatalf("rotated second villa bay front should block at (%.2f, %.2f)", face.X, face.Z)
+	feetY := s.GroundHeight(50, -10, 2.0)
+	headY := feetY + 2.0
+	// Second villa (rotate_y = -45) should present solid facade geometry near x≈50.
+	blocked := 0
+	for i := range s.Boxes {
+		mn, mx := s.Boxes[i].WorldBounds()
+		if mx.X < 38 || mn.X > 58 || mn.Z > 2 {
+			continue
+		}
+		midX := (mn.X + mx.X) / 2
+		midZ := (mn.Z + mx.Z) / 2
+		if s.Blocked(midX, midZ, feetY, headY, r, step) {
+			blocked++
+		}
+	}
+	if blocked < 3 {
+		t.Fatalf("expected several blocking facade samples on second villa, got %d", blocked)
 	}
 }

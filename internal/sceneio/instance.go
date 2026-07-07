@@ -37,7 +37,15 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 			childPath = filepath.Join(filepath.Dir(incPath), childPath)
 		}
 		childFollow := child.FollowTerrain
-		childXf := parentXf.Compose(instanceTransformFromDTO(dst, child, childFollow))
+		childSub, err := load(childPath, child.Params, seen, deps, nil)
+		if err != nil {
+			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
+		}
+		childXf, err := instanceTransformFromDTO(dst, child, childFollow, childSub)
+		if err != nil {
+			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
+		}
+		childXf = parentXf.Compose(childXf)
 		childDTO, err := decodeSceneFile(childPath, child.Params)
 		if err != nil {
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
@@ -67,14 +75,24 @@ func registerLeafInstance(dst *scene.Scene, inc includeDTO, parentDir string, se
 	}
 	follow := inc.FollowTerrain
 	if isLayoutDTO(dto) {
-		parentXf := instanceTransformForInclude(dst, inc, follow, nil)
+		sub, err := load(incPath, inc.Params, seen, deps, nil)
+		if err != nil {
+			return err
+		}
+		parentXf, err := instanceTransformForInclude(dst, inc, follow, sub)
+		if err != nil {
+			return err
+		}
 		return expandInstancedInclude(dst, inc, parentDir, parentXf, seen, deps, nil)
 	}
 	sub, err := dto.build()
 	if err != nil {
 		return err
 	}
-	xf := instanceTransformForInclude(dst, inc, follow, sub)
+	xf, err := instanceTransformForInclude(dst, inc, follow, sub)
+	if err != nil {
+		return err
+	}
 	if err := mergeTerrainFromDTO(dst, dto, xf); err != nil {
 		return err
 	}
@@ -162,14 +180,14 @@ func (dto sceneDTO) hasDirectGeometry() bool {
 		len(dto.Lens) > 0
 }
 
-func instanceTransformFromDTO(dst *scene.Scene, inc includeDTO, follow bool) *scene.Transform {
+func instanceTransformFromDTO(dst *scene.Scene, inc includeDTO, follow bool, sub *scene.Scene) (*scene.Transform, error) {
 	at := inc.At.toV()
 	if !follow {
 		if h, ok := dst.TerrainHeightAt(at.X, at.Z); ok {
 			at.Y = h + at.Y
 		}
 	}
-	return scene.NewInstanceTransform(inc.RotateX, inc.RotateY, inc.RotateZ, at)
+	return buildIncludeTransform(inc, at, sub)
 }
 
 func mergeTerrainFromDTO(dst *scene.Scene, dto sceneDTO, xf *scene.Transform) error {

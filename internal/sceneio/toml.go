@@ -43,6 +43,9 @@ type vec3 [3]float64
 
 func (v vec3) toV() vec.V { return vec.New(v[0], v[1], v[2]) }
 
+// AtVec returns the include placement vector.
+func (inc includeDTO) AtVec() vec.V { return inc.At.toV() }
+
 // surfaceDTO holds the shading fields shared by every primitive table.
 type surfaceDTO struct {
 	Material string   `toml:"material"`
@@ -75,20 +78,7 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 	}, nil
 }
 
-// transformDTO holds optional per-primitive rotation (degrees) about the
-// primitive's geometric center. Omitted angles default to zero (no rotation).
-type transformDTO struct {
-	RotateX float64 `toml:"rotate_x"`
-	RotateY float64 `toml:"rotate_y"`
-	RotateZ float64 `toml:"rotate_z"`
-}
-
-func (t transformDTO) buildAbout(center vec.V) *scene.Transform {
-	if t.RotateX == 0 && t.RotateY == 0 && t.RotateZ == 0 {
-		return nil
-	}
-	return scene.NewTransform(t.RotateX, t.RotateY, t.RotateZ, center)
-}
+// transformDTO is defined in transform_origin.go.
 
 func boxCenter(min, max vec.V) vec.V {
 	return vec.V{
@@ -442,7 +432,7 @@ type sunDTO struct {
 
 // includeDTO references another TOML file as a composite object. The included
 // file's primitives are merged into the parent scene after applying the instance
-// transform (rotate about the sub-scene origin, then translate by at).
+// transform (rotate about transform_origin, then translate so origin lands at at).
 //
 // When the parent scene has a terrain height field, at.y is an offset above the
 // ground at (at.x, at.z) — 0 places the object's origin on the ground. If the
@@ -464,14 +454,15 @@ type sunDTO struct {
 // params fall back to the object's own `or .x <default>` defaults. Files
 // with no {{ }} are passed through verbatim, so this is opt-in per object.
 type includeDTO struct {
-	File           string         `toml:"file"`
-	At             vec3           `toml:"at"`
-	RotateX        float64        `toml:"rotate_x"`
-	RotateY        float64        `toml:"rotate_y"`
-	RotateZ        float64        `toml:"rotate_z"`
-	FollowTerrain  bool           `toml:"follow_terrain"`
-	Instance       bool           `toml:"instance"`
-	Params         map[string]any `toml:"params"`
+	File            string              `toml:"file"`
+	At              vec3                `toml:"at"`
+	RotateX         float64             `toml:"rotate_x"`
+	RotateY         float64             `toml:"rotate_y"`
+	RotateZ         float64             `toml:"rotate_z"`
+	TransformOrigin *transformOriginDTO `toml:"transform_origin"`
+	FollowTerrain   bool                `toml:"follow_terrain"`
+	Instance        bool                `toml:"instance"`
+	Params          map[string]any      `toml:"params"`
 }
 
 type interactDTO struct {
@@ -856,7 +847,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			return nil, fmt.Errorf("sphere[%d]: %w", i, err)
 		}
 		center := d.Center.toV()
-		surf.Xform = d.transformDTO.buildAbout(center)
+		surf.Xform = d.transformDTO.buildPlacement(center)
 		s.Spheres = append(s.Spheres, scene.Sphere{Center: center, Radius: d.Radius, Surface: surf})
 	}
 	for i, d := range dto.Plane {
@@ -864,7 +855,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("plane[%d]: %w", i, err)
 		}
-		surf.Xform = d.transformDTO.buildAbout(vec.V{})
+		surf.Xform = d.transformDTO.buildPlacement(vec.V{})
 		s.Planes = append(s.Planes, scene.Plane{N: d.Normal.toV(), D: d.D, Surface: surf, Albedo2: d.Albedo2.toV()})
 	}
 	for i, d := range dto.Box {
@@ -876,7 +867,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("box[%d]: %w", i, err)
 		}
-		surf.Xform = d.transformDTO.buildAbout(boxCenter(min, max))
+		surf.Xform = d.transformDTO.buildPlacement(boxCenter(min, max))
 		var holes []scene.AABB
 		for j, h := range d.Hole {
 			hmin, hmax, err := h.bounds()
@@ -897,7 +888,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			return nil, fmt.Errorf("cylinder[%d]: %w", i, err)
 		}
 		center := vec.New(cx, (ymin+ymax)/2, cz)
-		surf.Xform = d.transformDTO.buildAbout(center)
+		surf.Xform = d.transformDTO.buildPlacement(center)
 		s.Cylinders = append(s.Cylinders, scene.Cylinder{
 			CX: cx, CZ: cz, Radius: radius, RadiusTop: radiusTop,
 			YMin: ymin, YMax: ymax, OpenMin: d.OpenMin, OpenMax: d.OpenMax,
@@ -910,7 +901,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			return nil, fmt.Errorf("cone[%d]: %w", i, err)
 		}
 		center := vec.New(d.CX, (d.YBase+d.YTip)/2, d.CZ)
-		surf.Xform = d.transformDTO.buildAbout(center)
+		surf.Xform = d.transformDTO.buildPlacement(center)
 		s.Cones = append(s.Cones, scene.Cone{CX: d.CX, CZ: d.CZ, YBase: d.YBase, YTip: d.YTip, RBase: d.RBase, Surface: surf})
 	}
 	for i, d := range dto.Torus {
@@ -919,7 +910,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			return nil, fmt.Errorf("torus[%d]: %w", i, err)
 		}
 		center := d.Center.toV()
-		surf.Xform = d.transformDTO.buildAbout(center)
+		surf.Xform = d.transformDTO.buildPlacement(center)
 		s.Tori = append(s.Tori, scene.Torus{Center: center, R: d.Major, Rm: d.Minor, Surface: surf})
 	}
 	for i, d := range dto.Ring {
@@ -931,7 +922,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			return nil, fmt.Errorf("ring[%d]: radius must be > 0", i)
 		}
 		center := vec.New(d.CX, d.CY, d.CZ)
-		surf.Xform = d.transformDTO.buildAbout(center)
+		surf.Xform = d.transformDTO.buildPlacement(center)
 		s.Rings = append(s.Rings, scene.Ring{CX: d.CX, CZ: d.CZ, CY: d.CY, Radius: d.Radius, Height: d.Height, Surface: surf})
 	}
 	for i, d := range dto.Lens {
@@ -943,7 +934,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			return nil, fmt.Errorf("lens[%d]: aperture, r_front, and r_back must be > 0", i)
 		}
 		center := vec.New(d.CX, d.CY, d.CZ)
-		surf.Xform = d.transformDTO.buildAbout(center)
+		surf.Xform = d.transformDTO.buildPlacement(center)
 		s.Lenses = append(s.Lenses, scene.Lens{
 			CX: d.CX, CY: d.CY, CZ: d.CZ,
 			Aperture: d.Aperture, RFront: d.RFront, RBack: d.RBack, Thickness: d.Thickness,
@@ -1074,7 +1065,10 @@ func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int,
 	if err != nil {
 		return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
 	}
-	xf := instanceTransform(dst, sub, inc, follow)
+	xf, err := instanceTransform(dst, sub, inc, follow)
+	if err != nil {
+		return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
+	}
 	before := scene.CountPrimitives(dst)
 	mergeScene(dst, sub, xf)
 	mergeInstancingCatalog(dst, sub, xf)
@@ -1084,7 +1078,7 @@ func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int,
 	if follow {
 		after := scene.CountPrimitives(dst)
 		p := scene.PlacementFromRange(before, after, inc.At.toV().Y)
-		p.Anchor = xf.ToWorld(vec.V{})
+		p.Anchor = xf.PlacementAnchor()
 		*followPlacements = append(*followPlacements, p)
 		return nil
 	}
@@ -1098,7 +1092,7 @@ func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int,
 	return nil
 }
 
-func instanceTransformForInclude(dst *scene.Scene, inc includeDTO, follow bool, sub *scene.Scene) *scene.Transform {
+func instanceTransformForInclude(dst *scene.Scene, inc includeDTO, follow bool, sub *scene.Scene) (*scene.Transform, error) {
 	at := inc.At.toV()
 	if sub != nil {
 		if level, ok := sub.PadLevelAt(0, 0); ok {
@@ -1113,14 +1107,14 @@ func instanceTransformForInclude(dst *scene.Scene, inc includeDTO, follow bool, 
 			at.Y = h + at.Y
 		}
 	}
-	return scene.NewInstanceTransform(inc.RotateX, inc.RotateY, inc.RotateZ, at)
+	return buildIncludeTransform(inc, at, sub)
 }
 
 // instanceTransform builds the world placement for an include. When follow is
 // false, at.y is raised by the pad or terrain height at (at.x, at.z) when
 // available. When follow is true, Y is deferred to ApplyTerrainFollow and at.y
 // is kept as an offset above the sampled ground.
-func instanceTransform(dst *scene.Scene, sub *scene.Scene, inc includeDTO, follow bool) *scene.Transform {
+func instanceTransform(dst *scene.Scene, sub *scene.Scene, inc includeDTO, follow bool) (*scene.Transform, error) {
 	at := inc.At.toV()
 	if level, ok := sub.PadLevelAt(0, 0); ok {
 		at.Y = level + at.Y
@@ -1129,7 +1123,7 @@ func instanceTransform(dst *scene.Scene, sub *scene.Scene, inc includeDTO, follo
 			at.Y = h + at.Y
 		}
 	}
-	return scene.NewInstanceTransform(inc.RotateX, inc.RotateY, inc.RotateZ, at)
+	return buildIncludeTransform(inc, at, sub)
 }
 
 // mergeScene appends every primitive from sub into dst, composing each

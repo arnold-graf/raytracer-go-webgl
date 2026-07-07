@@ -76,6 +76,7 @@ texture = "cement"
 # ================================ ENTRANCE STAIRCASE ====
 [[include]]
 file = "staircase.toml"
+transform_origin = [0, 0, 0]
 at = [-3, 0.0, 10.0]
 rotate_y = 90
 params = { steps = 5, run = 0.5, rise = 0.3, width = 6, texture = "marble" }
@@ -706,6 +707,7 @@ radius = 0.25
 
 [[include]]
 file = "staircase.toml"
+transform_origin = [0, 0, 0]
 at = [-3, 1.25, 2.0]
 rotate_y = 90
 params = { steps = 10, run = 0.5, rise = 0.45, width = 1.8, texture = "marble" }
@@ -808,20 +810,24 @@ texture = "cement"
 # [[light]] # ground floor hall (warm, range-limited)
 [[include]]
 file = "otto-wagner-sphere-lamp.toml"
-at = [0.0, 10, 1.0]
+# migrated-center-at
+at = [0.0, 7.625, 1.0]
 params = { stem_len = 4.0, orb_radius = 0.4, brightness = 0.3, range = 10 }
 
 [[include]]
 file = "otto-wagner-sphere-lamp.toml"
-at = [-0.5, 10, 0]
+# migrated-center-at
+at = [-0.5, 8.125, 0.0]
 params = { stem_len = 3, orb_radius = 0.4, brightness = 0.2, range = 7 }
 
 [[include]]
 file = "otto-wagner-sphere-lamp.toml"
-at = [0.5, 10, -0.5]
+# migrated-center-at
+at = [0.5, 8.275, -0.5]
 params = { stem_len = 2.7, orb_radius = 0.4, brightness = 0.3, range = 7 }
 
 [[include]]
 file = "simple-table.toml"
-at = [0.0, 1.25, 0.0]
+# migrated-center-at
+at = [0.0, 1.7, 0.0]
 params = { width = 1.6, texture = "wood", albedo = [0.15, 0.12, 0.18] }

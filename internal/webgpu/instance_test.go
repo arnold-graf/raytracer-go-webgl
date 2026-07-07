@@ -61,11 +61,11 @@ func TestPackInstancedVillaScene(t *testing.T) {
 	if len(prims) > 200 {
 		t.Fatalf("prims = %d, want static + ~10 template (not full flat ~150 trees)", len(prims))
 	}
-	if len(isp.instances) != 77 {
-		t.Fatalf("instances = %d, want 77 (2 villas + 75 trees)", len(isp.instances))
+	if len(isp.instances) != 75 {
+		t.Fatalf("instances = %d, want 75 (pine clusters)", len(isp.instances))
 	}
-	if len(isp.templates) != 2 {
-		t.Fatalf("templates = %d, want 2", len(isp.templates))
+	if len(isp.templates) != 1 {
+		t.Fatalf("templates = %d, want 1 (pine-tree.toml)", len(isp.templates))
 	}
 	if bvhN == 0 || isp.instNodeCount == 0 {
 		t.Fatalf("static bvh=%d inst section=%d, want both non-zero", bvhN, isp.instNodeCount)

@@ -28,6 +28,7 @@ speed = {{$speed}}
 	parent := filepath.Join(dir, "scene.toml")
 	if err := os.WriteFile(parent, []byte(`
 [[include]]
+transform_origin = [0, 0, 0]
 file = "fire.toml"
 at = [0.0, 0.0, 0.0]
 params = { brightness = 0.5, range = 30.0, flicker = 0.75, speed = 2.0 }
@@ -82,6 +83,7 @@ detail = 0.0
   width = 6.0
 
 [[include]]
+transform_origin = [0, 0, 0]
 file = "fire.toml"
 at = [5.0, 0.0, 0.0]
 follow_terrain = true
