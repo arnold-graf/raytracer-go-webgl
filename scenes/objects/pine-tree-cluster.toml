@@ -41,14 +41,14 @@ follow_terrain = true
 [[include]]
 file = "pine-tree.toml"
 transform_origin = [0, 0, 0]
-at = [19.0, -0.1, -13.0]
+at = [19.0, -1, -13.0]
 rotate_y = 241.0
 follow_terrain = true
 
 [[include]]
 file = "pine-tree.toml"
 transform_origin = [0, 0, 0]
-at = [15.5, 0.0, -17.5]
+at = [15.5, -1.0, -17.5]
 rotate_y = 19.0
 follow_terrain = true
 
