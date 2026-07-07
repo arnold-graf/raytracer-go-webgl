@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	renderW = 512 // internal render resolution (matches the original)
+	renderW = 512 // internal render resolution
 	renderH = renderW * 0.625
 	scale   = 2 // window is scale x the internal resolution
 )
