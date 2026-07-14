@@ -52,11 +52,8 @@ speed = 1.8
 panel_left_file = "cupboard-door-panel-left.toml"
 panel_right_file = "cupboard-door-panel-right.toml"
 panel_closed_angle = [0, {{or .right_door_yaw -2.0}}]
-
-  [door.interact]
-  center = [{{div $width 2}}, {{div $height 2}}, 0.0]
-  use_range = 2.0
-  hint = "press {{use_button}} to open"
+use_range = 2.0
+hint = "door"
 
 [[box]] # left side
 material = "{{$material}}"

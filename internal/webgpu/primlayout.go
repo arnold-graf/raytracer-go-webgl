@@ -114,11 +114,13 @@ func repackGPUPrim(s *scene.Scene, l primLayout, gpuIdx int, dst *GPUPrimitive) 
 
 	if gpuIdx < l.nSphere {
 		sp := &s.Spheres[gpuIdx]
+		alb, alb2 := surfaceColors(sp.Surface)
 		*dst = GPUPrimitive{
-			GeoA:   [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
-			Albedo: albedo(sp.Albedo),
-			Params: surfaceParams(sp.Surface),
-			Meta:   [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
+			GeoA:    [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
+			Albedo:  alb,
+			Albedo2: alb2,
+			Params:  surfaceParams(sp.Surface),
+			Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
 		}
 		setXform(dst, sp.Xform)
 		return

@@ -274,6 +274,7 @@ func maxV(a, b vec.V) vec.V {
 // It mirrors sceneio.mergeScene but lives here so instancing materialization
 // does not import sceneio.
 func mergeSceneInto(dst, sub *Scene, xf *Transform) {
+	boxOffset := len(dst.Boxes)
 	for i := range sub.Spheres {
 		o := sub.Spheres[i]
 		o.Xform = xf.Compose(o.Xform)
@@ -340,13 +341,7 @@ func mergeSceneInto(dst, sub *Scene, xf *Transform) {
 		}
 		dst.Ambiences = append(dst.Ambiences, a)
 	}
-	for i := range sub.Interactables {
-		it := sub.Interactables[i]
-		if xf != nil {
-			it.Center = xf.ToWorld(it.Center)
-		}
-		dst.Interactables = append(dst.Interactables, it)
-	}
+	dst.MergeInteractables(sub, boxOffset)
 }
 
 func planePointFromNormal(n vec.V, d float64) vec.V {

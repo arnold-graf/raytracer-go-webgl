@@ -1,0 +1,222 @@
+# Vintage desktop workstation (Macintosh IIcx-style) in local coordinates.
+#
+# Origin (0, 0, 0) is the centre of the main unit footprint on the desk.
+# +Y is up; +Z points toward the user (keyboard).
+#
+# Place on a tabletop with at.y equal to the desk top height, e.g.:
+#
+#   [[include]]
+#   file = "objects/workstation.toml"
+#   at = [0.0, 0.9, 0.0]
+
+# --- main computer unit (pizza-box case) ---
+[[box]]
+material = "diffuse"
+reflect = 0.005
+albedo = [2.2, 2.2, 2]
+pos_x = -0.25
+pos_y = 0.0
+pos_z = -0.17
+width = 0.50
+height = 0.17
+depth = 0.4
+
+# floppy
+[[box]]
+material = "diffuse"
+albedo = [0.08, 0.08, 0.08]
+pos_x = 0.04
+pos_y = 0.1
+pos_z = 0.15
+width = 0.11
+height = 0.01
+depth = 0.11
+
+# --- CRT monitor housing ---
+[[box]]
+material = "diffuse"
+reflect = 0.005
+albedo = [2.2, 2.2, 2]
+pos_x = -0.19
+pos_y = 0.22
+rotate_x = -8
+pos_z = -0.16
+width = 0.38
+height = 0.32
+depth = 0.36
+
+# monitor screen
+[[screen]]
+id = "workstation_display"
+material = "diffuse"
+reflect = 0.03
+rough = 0.02
+albedo = [0.01, 0.01, 0.01]
+pos_x = -0.15
+pos_y = 0.28
+pos_z = 0.205
+rotate_x = -8
+width = 0.30
+height = 0.25
+depth = 0.001
+hint = "workstation"
+headline = "SERVER ROOM"
+paragraphs = [
+  "Status: ONLINE",
+  "Cube lift: READY",
+  "Auth: session active",
+]
+font = "M42.ttf"
+font_size_px = 14
+font_color = [5.2, 5.2, 5.2]
+
+# monitor stand
+[[sphere]]
+material = "diffuse"
+albedo = [2.2, 2.2, 2]
+center = [0, 0.2, 0]
+radius = 0.1
+
+# screen glow
+[[light]]
+pos = [0, 0.4, 0.4]
+color = [1, 1, 6]
+range = 1
+brightness = 0.2
+
+# side ventilation ribs (monitor)
+[[box]]
+material = "diffuse"
+rotate_x = -8
+albedo = [0.38, 0.36, 0.33]
+pos_x = -0.196
+pos_y = 0.3
+pos_z = -0.06
+width = 0.006
+height = 0.018
+depth = 0.22
+
+[[box]]
+material = "diffuse"
+rotate_x = -8
+albedo = [0.38, 0.36, 0.33]
+pos_x = -0.196
+pos_y = 0.4
+pos_z = -0.06
+width = 0.006
+height = 0.018
+depth = 0.22
+
+[[box]]
+material = "diffuse"
+rotate_x = -8
+albedo = [0.38, 0.36, 0.33]
+pos_x = -0.196
+pos_y = 0.35
+pos_z = -0.06
+width = 0.006
+height = 0.018
+depth = 0.22
+
+[[box]]
+material = "diffuse"
+rotate_x = -8
+albedo = [0.38, 0.36, 0.33]
+pos_x = 0.190
+pos_y = 0.3
+pos_z = -0.02
+width = 0.006
+height = 0.018
+depth = 0.22
+
+[[box]]
+material = "diffuse"
+rotate_x = -8
+albedo = [0.38, 0.36, 0.33]
+pos_x = 0.190
+pos_y = 0.35
+pos_z = -0.02
+width = 0.006
+height = 0.018
+depth = 0.22
+
+[[box]]
+material = "diffuse"
+rotate_x = -8
+albedo = [0.38, 0.36, 0.33]
+pos_x = 0.190
+pos_y = 0.4
+pos_z = -0.02
+width = 0.006
+height = 0.018
+depth = 0.22
+
+# --- keyboard (slight tilt toward user) ---
+[[box]]
+material = "diffuse"
+albedo = [2.2, 2.2, 2]
+reflect = 0.005
+rotate_x = 9
+pos_x = -0.20
+pos_y = 0.012
+pos_z = 0.3
+width = 0.40
+height = 0.018
+depth = 0.16
+
+[[box]]
+material = "diffuse"
+albedo = [0.8, 0.8, 0.8]
+rotate_x = 9
+pos_x = -0.17
+pos_y = 0.04
+pos_z = 0.33
+width = 0.34
+height = 0.012
+depth = 0.02
+
+[[box]]
+material = "diffuse"
+albedo = [0.8, 0.8, 0.8]
+rotate_x = 9
+pos_x = -0.17
+pos_y = 0.032
+pos_z = 0.36
+width = 0.34
+height = 0.012
+depth = 0.02
+
+[[box]]
+material = "diffuse"
+albedo = [0.8, 0.8, 0.8]
+rotate_x = 9
+pos_x = -0.17
+pos_y = 0.028
+pos_z = 0.39
+width = 0.34
+height = 0.012
+depth = 0.02
+
+[[box]]
+material = "diffuse"
+albedo = [0.8, 0.8, 0.8]
+rotate_x = 9
+pos_x = -0.17
+pos_y = 0.023
+pos_z = 0.42
+width = 0.34
+height = 0.012
+depth = 0.02
+
+# space bar
+# [[box]]
+# material = "diffuse"
+# albedo = [1.2, 1.2, 1.4]
+# rotate_x = 9
+# pos_x = -0.14
+# pos_y = 0.028
+# pos_z = 0.305
+# width = 0.20
+# height = 0.014
+# depth = 0.035
+

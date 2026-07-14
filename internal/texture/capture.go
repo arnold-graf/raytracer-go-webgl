@@ -13,14 +13,16 @@ const (
 	CaptureRight   = 52
 	CaptureUp      = 53
 	CaptureDown    = 54
+	CaptureBackward = 55
 
-	CaptureForwardName = "capture_forward"
-	CaptureLeftName    = "capture_left"
-	CaptureRightName   = "capture_right"
-	CaptureUpName      = "capture_up"
-	CaptureDownName    = "capture_down"
+	CaptureForwardName  = "capture_forward"
+	CaptureLeftName     = "capture_left"
+	CaptureRightName    = "capture_right"
+	CaptureUpName       = "capture_up"
+	CaptureDownName     = "capture_down"
+	CaptureBackwardName = "capture_backward"
 
-	captureSlotCount = 5
+	captureSlotCount = 6
 )
 
 func init() {
@@ -29,6 +31,7 @@ func init() {
 	byName[CaptureRightName] = CaptureRight
 	byName[CaptureUpName] = CaptureUp
 	byName[CaptureDownName] = CaptureDown
+	byName[CaptureBackwardName] = CaptureBackward
 }
 
 var (
@@ -37,9 +40,9 @@ var (
 	captureVersion uint64
 )
 
-// CaptureIDs lists portal slots in shader upload order: forward, left, right, up, down.
+// CaptureIDs lists portal slots in shader upload order: forward, left, right, up, down, backward.
 var CaptureIDs = [captureSlotCount]int{
-	CaptureForward, CaptureLeft, CaptureRight, CaptureUp, CaptureDown,
+	CaptureForward, CaptureLeft, CaptureRight, CaptureUp, CaptureDown, CaptureBackward,
 }
 
 // CaptureImage is a CPU-side RGBA8 image uploaded to the GPU when present.
@@ -48,7 +51,7 @@ type CaptureImage struct {
 	RGBA          []byte
 }
 
-// PortalCapture holds the five square screenshots taken before a portal transition.
+// PortalCapture holds the six square screenshots taken before a portal transition.
 type PortalCapture struct {
 	Width, Height int
 	Images        [captureSlotCount][]byte // RGBA8, len = Width*Height*4 each
@@ -56,7 +59,7 @@ type PortalCapture struct {
 
 // IsCapture reports whether id is a runtime capture texture slot.
 func IsCapture(id int) bool {
-	return id >= CaptureForward && id <= CaptureDown
+	return id >= CaptureForward && id <= CaptureBackward
 }
 
 // CommitCaptures stores a full portal capture set and bumps the GPU generation once.
@@ -135,7 +138,7 @@ func clampCapture01(x float64) float64 {
 	return x
 }
 
-// PackCapturesGPU returns five RGBA8 images as u32 pixels (little-endian) for GPU upload.
+// PackCapturesGPU returns six RGBA8 images as u32 pixels (little-endian) for GPU upload.
 func PackCapturesGPU() (w, h int, pixels []uint32, ok bool) {
 	captureMu.RLock()
 	defer captureMu.RUnlock()

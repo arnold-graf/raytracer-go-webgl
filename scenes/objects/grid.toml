@@ -1,0 +1,59 @@
+# Vertical grid panel (lattice wall) in local coordinates.
+#
+# Origin (0,0,0) is the bottom-left-front corner. The panel stands in the
+# +X/+Y plane; depth runs in +Z. Vertical beams are unit_size wide; horizontal
+# beams are unit_size tall; gaps between beams are also unit_size (square holes).
+#
+# Parameterized via [[include]] params (all optional):
+#   width      panel width in X                  (default 4.0)
+#   height     panel height in Y                 (default 4.0)
+#   depth      panel thickness in Z              (default 0.1)
+#   unit_size  beam width/height and gap size    (default 0.5)
+#   albedo     RGB colour                        (default [0.5, 0.5, 0.5])
+#   material   surface type                      (default "diffuse")
+#   reflect    specular reflectance              (default 0.05)
+#
+# Example — metal server-room grille:
+#
+#   [[include]]
+#   file = "objects/grid.toml"
+#   at = [0.0, 0.0, 0.0]
+#   params = { width = 8.0, height = 6.0, depth = 0.15, unit_size = 0.4,
+#              albedo = [0.35, 0.35, 0.38], material = "metal", reflect = 0.45 }
+#
+{{$width := or .width 4.0}}
+{{$height := or .height 4.0}}
+{{$depth := or .depth 0.1}}
+{{$unit := or .unit_size 0.5}}
+{{$period := mul 2 $unit}}
+{{$material := or .material "diffuse"}}
+{{$reflect := or .reflect 0}}
+{{$albedo := orVec3 .albedo 0.5 0.5 0.5}}
+{{$vCount := div (add $width $unit) $period}}
+{{$hCount := div (add $height $unit) $period}}
+{{range $i := seq $vCount}}
+[[box]] # vertical beam {{$i}}
+pos_x = {{mul $i $period}}
+pos_y = 0.0
+pos_z = 0.0
+width = {{$unit}}
+height = {{$height}}
+depth = {{$depth}}
+material = "{{$material}}"
+albedo = {{$albedo}}
+reflect = {{$reflect}}
+
+{{end}}
+{{range $j := seq $hCount}}
+[[box]] # horizontal beam {{$j}}
+pos_x = 0.0
+pos_y = {{mul $j $period}}
+pos_z = 0.0
+width = {{$width}}
+height = {{$unit}}
+depth = {{$depth}}
+material = "{{$material}}"
+albedo = {{$albedo}}
+reflect = {{$reflect}}
+
+{{end}}

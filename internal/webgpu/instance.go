@@ -45,6 +45,12 @@ type instScenePack struct {
 	blockerInstCount    uint32
 }
 
+// PackInstancedScene exports packInstancedScene for tests.
+func PackInstancedScene(s *scene.Scene) (prims []GPUPrimitive, ok bool) {
+	prims, _, _, _, _, _, _, ok = packInstancedScene(s)
+	return prims, ok
+}
+
 func packInstancedScene(s *scene.Scene) (
 	prims, blockers []GPUPrimitive,
 	nodes []GPUBVHNode,

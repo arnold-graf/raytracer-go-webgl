@@ -47,9 +47,9 @@ params = { brightness = 0.06, range = 5 }
 # access memo on the desk (flat, beside the laptop)
 [[document]]
 id = "server_memo"
-pos_x = 0.65
+pos_x = 0.8
 pos_y = 0.9
-pos_z = -0.15
+pos_z = 0.3
 rotate_x = -90
 rotate_y = 20
 headline = "Server Room Access"
@@ -58,6 +58,7 @@ paragraphs = [
   "Please don’t share this memo with unauthorized personnel, etc.",
   "- Hank"
 ]
-font = "../../../assets/M42.ttf"
+font = "M42.ttf"
 font_size_px = 13
 albedo = [1.0, 1.0, 1.0]
+hint = "memo"

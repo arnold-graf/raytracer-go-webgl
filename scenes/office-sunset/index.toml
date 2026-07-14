@@ -5,6 +5,13 @@ ambient_ground = [0.16, 0.11, 0.10]
 sun_dir = [-0.35, -0.22, 0.90]
 sun_color = [1.40, 0.55, 0.22]
 
+# Sun in a low position to the left of the server-room (sunset)
+[[light]]
+pos = [-10.35, 200, 0]
+color = [1.4, 0.55, 0.22]
+brightness = 10.0
+range = 0
+
 [camera]
 # Eye height on the server-room floor (y=200.2 + 1.6), facing the cube (-Z).
 pos = [10.0, 201.8, 8.0]
@@ -13,6 +20,10 @@ pitch = 0.0
 
 [[include]]
 file = "server-room-1.toml"
-# migrated-center-at
-at = [20.1, 202.6, 24.75]
+transform_origin = [0, 0, 0]
+at = [0, 200, 0]
 
+[[include]]
+file = "server-room-front-office.toml"
+transform_origin = [0, 0, 0]
+at = [40, 200, 0]

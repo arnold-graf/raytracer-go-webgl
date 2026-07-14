@@ -19,6 +19,7 @@ import (
 	"raytracer/internal/camera"
 	"raytracer/internal/document"
 	"raytracer/internal/door"
+	"raytracer/internal/screen"
 	"raytracer/internal/npc"
 	"raytracer/internal/probe"
 	"raytracer/internal/render"
@@ -125,6 +126,8 @@ type Game struct {
 
 	documents *document.Manager
 
+	screens *screen.Manager
+
 	// npcDebug draws skeleton/foot overlay segments (key 6).
 	npcDebug bool
 
@@ -199,6 +202,10 @@ func (g *Game) setScene(sc *scene.Scene) {
 	g.documents = document.NewManager()
 	if err := g.documents.Instantiate(sc); err != nil {
 		fmt.Fprintf(os.Stderr, "documents: %v\n", err)
+	}
+	g.screens = screen.NewManager()
+	if err := g.screens.Instantiate(sc); err != nil {
+		fmt.Fprintf(os.Stderr, "screens: %v\n", err)
 	}
 	sc.SetDoorGhost(func(i int) bool {
 		if g.doors != nil && g.doors.GhostBox(i) {
@@ -495,7 +502,9 @@ func (g *Game) Update() error {
 		// Fixed-step dt matching the original (clamped to 0.1 of a 60 Hz frame).
 		const dt = 0.1
 		mv := camera.Move{}
-		if g.documents == nil || !g.documents.Reading() {
+		readingDoc := g.documents != nil && g.documents.Reading()
+		viewingScreen := g.screens != nil && g.screens.Viewing()
+		if !readingDoc && !viewingScreen {
 			mv = camera.Move{
 				Forward: ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyArrowUp),
 				Back:    ebiten.IsKeyPressed(ebiten.KeyS) || ebiten.IsKeyPressed(ebiten.KeyArrowDown),
@@ -505,9 +514,15 @@ func (g *Game) Update() error {
 				Sprint:  ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight),
 				Crouch:  ebiten.IsKeyPressed(ebiten.KeyC),
 			}
-			g.applyGamepad(&mv)
 		}
-		g.cam.Update(mv, dt)
+		if !readingDoc && !viewingScreen {
+			g.applyGamepad(&mv)
+		} else if viewingScreen {
+			g.applyGamepadLook()
+		}
+		if !readingDoc && !viewingScreen {
+			g.cam.Update(mv, dt)
+		}
 
 		// Footsteps, room reverb, and spatial ambients derive from the post-move state.
 		g.updateReverb()
@@ -527,6 +542,10 @@ func (g *Game) Update() error {
 		}
 		if g.documents != nil {
 			g.documents.Update(g.sc, g.cam, 1.0/60.0)
+		}
+		if g.screens != nil {
+			aspect := float64(g.rw) / float64(g.rh)
+			g.screens.Update(g.sc, g.cam, aspect, 1.0/60.0)
 		}
 		g.spyglass.Update(g.sc, g.cam, 1.0/60.0)
 	}
@@ -574,14 +593,7 @@ func (g *Game) applyGamepad(mv *camera.Move) {
 		ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickHorizontal),
 		ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickVertical),
 	)
-	rx, ry := stickDeadzone(
-		ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisRightStickHorizontal),
-		ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisRightStickVertical),
-	)
-
-	// Right stick looks. expo() gives finer control near center; pushing up looks
-	// up (matching the mouse, where moving down looks down).
-	g.cam.Look(expo(rx)*padLookSpeed, expo(ry)*padLookSpeed)
+	g.applyGamepadLook()
 
 	// Left stick walks: right strafes, up (negative axis) is forward.
 	mv.MoveX += lx
@@ -592,6 +604,18 @@ func (g *Game) applyGamepad(mv *camera.Move) {
 	if ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonRightBottom) {
 		mv.Jump = true
 	}
+}
+
+func (g *Game) applyGamepadLook() {
+	id, ok := g.activeGamepad()
+	if !ok {
+		return
+	}
+	rx, ry := stickDeadzone(
+		ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisRightStickHorizontal),
+		ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisRightStickVertical),
+	)
+	g.cam.Look(expo(rx)*padLookSpeed, expo(ry)*padLookSpeed)
 }
 
 // stickDeadzone applies a radial deadzone and rescales the remaining range to
@@ -669,7 +693,14 @@ func (g *Game) reloadScene() bool {
 		g.setReloadMsg("scene reload FAILED: " + err.Error())
 		return false
 	}
+	var doorSnap []door.AgentSnap
+	if g.doors != nil && g.sc != nil {
+		doorSnap = g.doors.Snapshot(g.sc)
+	}
 	g.setScene(sc) // rebuilds the probe, re-bakes AO; pose/toggles unchanged
+	if len(doorSnap) > 0 {
+		g.doors.Restore(sc, doorSnap)
+	}
 	g.sceneDeps = depTimes(deps)
 	g.setupAmbience()
 	g.setReloadMsg("scene reloaded")

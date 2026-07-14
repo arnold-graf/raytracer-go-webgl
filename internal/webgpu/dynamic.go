@@ -52,11 +52,13 @@ func appendDynamicBodyPrimitives(s *scene.Scene, prims []GPUPrimitive) ([]GPUPri
 		}
 		sp := &s.Spheres[i]
 		m.sphere[i] = len(prims)
+		alb, alb2 := surfaceColors(sp.Surface)
 		p := GPUPrimitive{
-			GeoA:   [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
-			Albedo: albedo(sp.Albedo),
-			Params: surfaceParams(sp.Surface),
-			Meta:   [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
+			GeoA:    [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
+			Albedo:  alb,
+			Albedo2: alb2,
+			Params:  surfaceParams(sp.Surface),
+			Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
 		}
 		setXform(&p, sp.Xform)
 		prims = append(prims, p)
@@ -108,11 +110,13 @@ func appendDynamicBodyBlockers(s *scene.Scene, blockers []GPUPrimitive) ([]GPUPr
 			continue
 		}
 		m.sphere[i] = len(blockers)
+		alb, alb2 := surfaceColors(sp.Surface)
 		p := GPUPrimitive{
-			GeoA:   [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
-			Albedo: albedo(sp.Albedo),
-			Params: surfaceParams(sp.Surface),
-			Meta:   [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
+			GeoA:    [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
+			Albedo:  alb,
+			Albedo2: alb2,
+			Params:  surfaceParams(sp.Surface),
+			Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
 		}
 		setXform(&p, sp.Xform)
 		blockers = append(blockers, p)
@@ -189,11 +193,13 @@ func packPrimitivesOmitDynamic(s *scene.Scene, skipFrom *scene.Scene) []GPUPrimi
 			continue
 		}
 		sp := &s.Spheres[i]
+		alb, alb2 := surfaceColors(sp.Surface)
 		p := GPUPrimitive{
-			GeoA:   [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
-			Albedo: albedo(sp.Albedo),
-			Params: surfaceParams(sp.Surface),
-			Meta:   [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
+			GeoA:    [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
+			Albedo:  alb,
+			Albedo2: alb2,
+			Params:  surfaceParams(sp.Surface),
+			Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
 		}
 		setXform(&p, sp.Xform)
 		out = append(out, p)
@@ -259,11 +265,13 @@ func packBlockersOmitDynamic(s *scene.Scene, skipFrom *scene.Scene) []GPUPrimiti
 		if sp.Mat == scene.MatEmit || sp.Mat == scene.MatGlass {
 			continue
 		}
+		alb, alb2 := surfaceColors(sp.Surface)
 		p := GPUPrimitive{
-			GeoA:   [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
-			Albedo: albedo(sp.Albedo),
-			Params: surfaceParams(sp.Surface),
-			Meta:   [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
+			GeoA:    [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
+			Albedo:  alb,
+			Albedo2: alb2,
+			Params:  surfaceParams(sp.Surface),
+			Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
 		}
 		setXform(&p, sp.Xform)
 		out = append(out, p)
@@ -325,11 +333,13 @@ func repackSphere(s *scene.Scene, sceneIdx int, dst *GPUPrimitive) {
 		return
 	}
 	sp := &s.Spheres[sceneIdx]
+	alb, alb2 := surfaceColors(sp.Surface)
 	*dst = GPUPrimitive{
-		GeoA:   [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
-		Albedo: albedo(sp.Albedo),
-		Params: surfaceParams(sp.Surface),
-		Meta:   [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
+		GeoA:    [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
+		Albedo:  alb,
+		Albedo2: alb2,
+		Params:  surfaceParams(sp.Surface),
+		Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
 	}
 	setXform(dst, sp.Xform)
 }

@@ -32,7 +32,24 @@ font_size_px = 16
 	if ds.TexID == 0 {
 		t.Fatal("expected tex id assigned")
 	}
-	if len(got.Interactables) != 1 || got.Interactables[0].Handler != "document" {
-		t.Fatalf("interactables = %+v", got.Interactables)
+	if got.DocumentSpecs[0].Interact == nil || got.DocumentSpecs[0].Interact.Handler != "document" {
+		t.Fatalf("document interact = %+v", got.DocumentSpecs[0].Interact)
+	}
+}
+
+func TestLoadDocumentCustomHint(t *testing.T) {
+	const src = `
+[[document]]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+hint = "read the memo"
+`
+	got, err := Decode([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DocumentSpecs[0].Interact.Hint != "read the memo" {
+		t.Fatalf("hint = %q", got.DocumentSpecs[0].Interact.Hint)
 	}
 }

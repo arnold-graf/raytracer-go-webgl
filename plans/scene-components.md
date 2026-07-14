@@ -136,6 +136,24 @@ func (c *Ctx) UseState[T any](key string, initial T) *Signal[T]
 func (c *Ctx) UseGlobal[T any](key string, default T) *Signal[T]
 func (c *Ctx) OnUse(handler string, fn app.UseHandler)
 func (c *Ctx) EmitDoor(spec scene.DoorSpec)
+func (c *Ctx) EmitLight(key string, props LightProps) *LightBinding
+```
+
+```go
+// LightProps mirrors [[light]] in TOML.
+type LightProps struct {
+    Pos        vec.V
+    Color      vec.V   // RGB; intensity folded into Color or separate Brightness
+    Brightness float64
+    Range      float64
+    Radius     float64
+}
+
+// LightBinding is a stable handle for runtime patches without structural rebuild.
+type LightBinding struct {
+    Key string
+    set func(LightProps)
+}
 ```
 
 | API | Semantics |
@@ -144,6 +162,7 @@ func (c *Ctx) EmitDoor(spec scene.DoorSpec)
 | `UseGlobal` | Shared store (`"server_room.power"`, `"quest.vault_locked"`) |
 | `OnUse` | Register handler once per stable `Interactable` id; wires to `UseHandlers` |
 | `EmitDoor` | Append `DoorSpec`; panels come from child `Group` geometry |
+| `EmitLight` | Append `scene.Light`; returns `LightBinding` for `Set` without re-emit |
 
 Signals record **dependencies** during build; when a signal changes, only
 subtrees that read it re-build.
@@ -280,6 +299,159 @@ func ServerRoomCupboard() Node {
             Albedo: vec.New(0.1, 0.1, 0.2),
         }),
     )
+}
+```
+
+### Example: desk lamp — conditional glow and adjustable light
+
+A **desk anglepoise lamp** on the server-room desk: the shade mesh is always
+present; the **emit sphere** and **point light** appear only when
+`server_room.power` is true. Pressing E on the lamp cycles brightness and nudges
+the bulb upward via an **inline handler** that writes component-local state (no
+separate TOML `on_use` id).
+
+```go
+type LampProps struct {
+    StemLen    float64
+    BaseAt     vec.V // bulb anchor in lamp-local space
+}
+
+type BulbState struct {
+    Pos        vec.V
+    Brightness float64
+    Range      float64
+}
+
+func DeskLamp(props LampProps) Node {
+    return Component("desk_lamp", func(ctx *Ctx) Children {
+        stem := defaultF(props.StemLen, 0.84)
+        base := props.BaseAt
+        if base == (vec.V{}) {
+            base = vec.New(0, stem, 0)
+        }
+
+        // --- global: whole room power (quest, breaker, etc.) ---
+        power := ctx.UseGlobal("server_room.power", true)
+
+        // --- local: bulb pose/intensity owned by this component ---
+        bulb := ctx.UseState("bulb", BulbState{
+            Pos:        base,
+            Brightness: 0.06,
+            Range:      5.0,
+        })
+
+        // Static mesh (always rendered)
+        mesh := Group("mesh",
+            Include("objects/desk-anglepoise-lamp.toml", map[string]any{
+                "stem_len": stem, "brightness": 0, // geometry only; light is separate
+            }),
+        )
+
+        // Conditional primitives: only when power is on
+        var lit Children
+        if power.Get() {
+            b := bulb.Get()
+            glow := vec.New(1.0, 0.92, 0.75).Scale(b.Brightness * 8)
+
+            lit = Children{
+                Sphere("bulb_glow", Surface{Mat: scene.MatEmit, Albedo: glow},
+                    b.Pos, 0.04),
+            }
+
+            // Light emitted from current bulb state; binding survives signal updates
+            binding := ctx.EmitLight(ctx.ID("bulb"), LightProps{
+                Pos:        b.Pos,
+                Color:      vec.New(1.0, 0.92, 0.75),
+                Brightness: b.Brightness,
+                Range:      b.Range,
+                Radius:     0.05,
+            })
+
+            // Keep binding in sync when bulb state changes (handler or hot reload)
+            bulb.OnChange(func(st BulbState) {
+                binding.Set(LightProps{
+                    Pos:        st.Pos,
+                    Color:      vec.New(1.0, 0.92, 0.75),
+                    Brightness: st.Brightness,
+                    Range:      st.Range,
+                    Radius:     0.05,
+                })
+            })
+        }
+
+        // Inline use handler: adjust local light, not a global UseHandlers entry
+        ctx.OnUse("lamp_adjust", func(uc *app.UseContext) error {
+            if !power.Get() {
+                return nil // dead circuit — hint could say "no power"
+            }
+            st := bulb.Get()
+            switch {
+            case st.Brightness < 0.04:
+                st.Brightness = 0.06
+            case st.Brightness < 0.08:
+                st.Brightness = 0.12
+            default:
+                st.Brightness = 0.02
+            }
+            st.Pos.Y += 0.03 // raise bulb each toggle (shade tilt fantasy)
+            bulb.Set(st)    // → re-build lit subtree OR patch via binding.Set
+            return nil
+        })
+
+        ctx.EmitInteract(scene.Interactable{
+            Handler: "lamp_adjust",
+            Center:  base.Add(vec.New(0, 0.1, 0)),
+            Range:   1.5,
+            Hint:    "press {{use_button}} to adjust lamp",
+        })
+
+        return append(Children{mesh}, lit...)
+    })
+}
+```
+
+**Placement in the desk assembly** (shared parent frame — no sibling rotation pain):
+
+```go
+func ServerRoomDesk() Node {
+    return Group("desk",
+        OnFloor(vec.New(0, 0, 0), 20, // desk-local; parent Placed applies world pose
+            Include("objects/simple-table.toml", map[string]any{
+                "width": 2.0, "height": 0.9, "texture": "wood",
+            }),
+        ),
+        Placed(Placement{
+            At: vec.New(-0.38, 0.9, 0), RotateY: 35,
+            TransformOrigin: OriginCenter,
+        }, DeskLamp(LampProps{StemLen: 0.84})),
+    )
+}
+```
+
+**Reconciliation behaviour for this example:**
+
+| Event | What updates |
+| ----- | ------------ |
+| `server_room.power` false → true | **Structural**: add `bulb_glow` sphere + `[[light]]` row |
+| `server_room.power` true → false | **Structural**: remove glow + light |
+| `bulb.Set` (brightness / pos) | **Props**: `LightBinding.Set` patches `scene.Lights[i]` in place; optional glow sphere `Xform`/radius patch |
+| Hot reload `.go` file | Full rebuild; `bulb` local state resets unless serialized |
+
+Global power might be flipped from elsewhere (a breaker switch component):
+
+```go
+func BreakerSwitch(at vec.V) Node {
+    return Component("breaker", func(ctx *Ctx) Children {
+        power := ctx.UseGlobal("server_room.power", true)
+        ctx.OnUse("toggle_power", func(uc *app.UseContext) error {
+            power.Set(!power.Get()) // all DeskLamp instances re-build lit branch
+            return nil
+        })
+        return Children{
+            Include("objects/exit-button.toml", nil), // stand-in mesh
+            // interact omitted for brevity
+        }
+    })
 }
 ```
 
@@ -447,6 +619,8 @@ required for v1.
 | Reconcile: add shelf → structural rebuild; door panels rebind | Unit |
 | Hot reload `.go` edit → scene updates; player pose preserved | Integration |
 | `UseGlobal` flip → light appears; BLAS untouched | Unit |
+| `DeskLamp` power off → no emit sphere/light; on → both present | Unit |
+| Inline `bulb.Set` → `LightBinding` patches pos/brightness without box rebuild | Unit |
 | Static TOML scene load path unchanged | Regression |
 
 ---

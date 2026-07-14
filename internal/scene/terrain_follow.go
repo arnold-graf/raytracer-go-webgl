@@ -5,7 +5,7 @@ import "raytracer/internal/vec"
 // PrimitiveCounts tracks how many of each primitive type are in a scene.
 type PrimitiveCounts struct {
 	Spheres, Boxes, Cylinders, Cones, Tori, Rings, Lenses int
-	Lights, Campfires, Ambiences, Interacts int
+	Lights, Campfires, Ambiences int
 }
 
 // CountPrimitives returns current primitive slice lengths in s.
@@ -18,7 +18,7 @@ func CountPrimitives(s *Scene) PrimitiveCounts {
 		Cylinders: len(s.Cylinders), Cones: len(s.Cones), Tori: len(s.Tori), Rings: len(s.Rings),
 		Lenses: len(s.Lenses),
 		Lights: len(s.Lights), Campfires: len(s.Campfires),
-		Ambiences: len(s.Ambiences), Interacts: len(s.Interactables),
+		Ambiences: len(s.Ambiences),
 	}
 }
 
@@ -39,7 +39,6 @@ type TerrainFollowPlacement struct {
 	LightStart, LightEnd         int
 	CampfireStart, CampfireEnd   int
 	AmbienceStart, AmbienceEnd   int
-	InteractStart, InteractEnd   int
 }
 
 // PlacementFromRange builds a follow record for primitives appended to dst
@@ -56,7 +55,6 @@ func PlacementFromRange(before, after PrimitiveCounts, yOffset float64) TerrainF
 		LightStart: before.Lights, LightEnd: after.Lights,
 		CampfireStart: before.Campfires, CampfireEnd: after.Campfires,
 		AmbienceStart: before.Ambiences, AmbienceEnd: after.Ambiences,
-		InteractStart: before.Interacts, InteractEnd: after.Interacts,
 	}
 }
 
@@ -83,8 +81,6 @@ func OffsetPlacements(placements []TerrainFollowPlacement, off PrimitiveCounts) 
 		p.CampfireEnd += off.Campfires
 		p.AmbienceStart += off.Ambiences
 		p.AmbienceEnd += off.Ambiences
-		p.InteractStart += off.Interacts
-		p.InteractEnd += off.Interacts
 	}
 }
 
@@ -136,8 +132,5 @@ func (p TerrainFollowPlacement) snapEach(s *Scene) {
 	}
 	for i := p.AmbienceStart; i < p.AmbienceEnd; i++ {
 		s.Ambiences[i].Pos.Y += dy
-	}
-	for i := p.InteractStart; i < p.InteractEnd; i++ {
-		s.Interactables[i].Center.Y += dy
 	}
 }

@@ -2,6 +2,7 @@ package door
 
 import (
 	"math"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -27,6 +28,12 @@ func testDoorScene(t *testing.T) (*scene.Scene, *Manager) {
 			OpenSign:  1,
 			Speed:     3,
 			Panels:    []scene.DoorPanelGeom{{Boxes: [2]int{1, 2}}},
+			Interact: &scene.Interactable{
+				Hint:    "press E",
+				Handler: "door",
+				DoorID:  "test",
+				Range:   2.5,
+			},
 		}},
 	}
 	mgr := NewManager()
@@ -207,5 +214,212 @@ func TestBothWaySwingPicksPlayerSide(t *testing.T) {
 	angle := mgr.agents[0].Panels[0].Angle
 	if math.Abs(angle) < 0.1 {
 		t.Fatalf("both-way door should swing open, angle=%v", angle)
+	}
+}
+
+func testSlidingDoorScene(t *testing.T, dir vec.V) (*scene.Scene, *Manager) {
+	t.Helper()
+	sc := &scene.Scene{
+		Boxes: []scene.Box{
+			{Min: vec.New(0, 0, 0), Max: vec.New(2, 0.2, 1)},
+			{Min: vec.New(1, 0, 0), Max: vec.New(2, 2.5, 0.08)},
+		},
+		DoorSpecs: []scene.DoorSpec{{
+			ID:           "slide",
+			Kind:         "sliding",
+			OpenDistance: 2.0,
+			SlideDir:     dir,
+			Speed:        4,
+			Panels:       []scene.DoorPanelGeom{{Boxes: [2]int{1, 2}}},
+		}},
+	}
+	mgr := NewManager()
+	if err := mgr.Instantiate(sc); err != nil {
+		t.Fatalf("instantiate: %v", err)
+	}
+	return sc, mgr
+}
+
+func TestSlidingDoorMovesUp(t *testing.T) {
+	sc, mgr := testSlidingDoorScene(t, vec.V{Y: 1})
+	mgr.Toggle(sc, "slide", vec.New(1.5, 1, 0.5))
+	for i := 0; i < 120; i++ {
+		mgr.Update(sc, vec.New(1.5, 1.6, 0.5), 0, 1.75, 1.0/60.0)
+	}
+	y := sc.Boxes[1].Xform.ToWorld(vec.New(1.5, 0, 0.04)).Y
+	if y < 1.9 {
+		t.Fatalf("panel should slide up ~2 m, got y=%.3f", y)
+	}
+}
+
+func TestSlidingDoorIgnoresStaticObstacle(t *testing.T) {
+	sc := &scene.Scene{
+		Boxes: []scene.Box{
+			{Min: vec.New(0, 0, 0), Max: vec.New(2, 0.2, 1)},
+			{Min: vec.New(1, 0, 0), Max: vec.New(2, 2.5, 0.08)},
+			{Min: vec.New(1.05, 1.0, 0), Max: vec.New(1.95, 1.2, 0.5)},
+		},
+		DoorSpecs: []scene.DoorSpec{{
+			ID:           "slide",
+			Kind:         "sliding",
+			OpenDistance: 2.0,
+			SlideDir:     vec.V{Y: 1},
+			Speed:        4,
+			Panels:       []scene.DoorPanelGeom{{Boxes: [2]int{1, 2}}},
+		}},
+	}
+	mgr := NewManager()
+	if err := mgr.Instantiate(sc); err != nil {
+		t.Fatal(err)
+	}
+	mgr.Toggle(sc, "slide", vec.New(1.5, 0.5, 0.5))
+	for i := 0; i < 120; i++ {
+		mgr.Update(sc, vec.New(1.5, 0.5, 0.5), 0, 1.75, 1.0/60.0)
+	}
+	if mgr.agents[0].Panels[0].Angle < 1.9 {
+		t.Fatalf("sliding door should not be clamped by static geometry, offset=%.3f", mgr.agents[0].Panels[0].Angle)
+	}
+}
+
+func TestSlidingDoorTOML(t *testing.T) {
+	dir := t.TempDir()
+	panel := filepath.Join(dir, "panel.toml")
+	if err := os.WriteFile(panel, []byte(`
+[[box]]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 1
+height = 2
+depth = 0.1
+material = "diffuse"
+albedo = [0.5, 0.5, 0.5]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scenePath := filepath.Join(dir, "room.toml")
+	if err := os.WriteFile(scenePath, []byte(`
+[[door]]
+id = "lift"
+kind = "sliding"
+direction = "right"
+open_distance = 1.5
+speed = 3
+panel_file = "panel.toml"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := sceneio.Load(scenePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sc.DoorSpecs) != 1 || sc.DoorSpecs[0].Kind != "sliding" {
+		t.Fatalf("door spec: %+v", sc.DoorSpecs)
+	}
+	mgr := NewManager()
+	if err := mgr.Instantiate(sc); err != nil {
+		t.Fatal(err)
+	}
+	mgr.Toggle(sc, "lift", vec.New(0.5, 1, 0))
+	for i := 0; i < 90; i++ {
+		mgr.Update(sc, vec.New(0.5, 1, 0), 0, 1.75, 1.0/60.0)
+	}
+	x := sc.Boxes[0].Xform.ToWorld(vec.New(0, 0, 0)).X
+	if x < 1.4 {
+		t.Fatalf("panel should slide right ~1.5 m, got x=%.3f", x)
+	}
+}
+
+func TestCanCloseFalse(t *testing.T) {
+	sc, mgr := testDoorScene(t)
+	mgr.agents[0].CanClose = false
+	ia := &scene.Interactable{DoorID: "test", BoxIndex: 1}
+	if !mgr.CanUseInteract(ia, vec.New(1.5, 1, -1)) {
+		t.Fatal("closed non-closable door should still be openable")
+	}
+	mgr.Toggle(sc, "test", vec.New(1.5, 1, -1))
+	for i := 0; i < 120; i++ {
+		mgr.Update(sc, vec.New(1.5, 1.6, 0.04), 0, 1.75, 1.0/60.0)
+	}
+	if mgr.agents[0].State != stateOpen {
+		t.Fatalf("door should be open, state=%s", mgr.agents[0].State)
+	}
+	mgr.Toggle(sc, "test", vec.New(1.5, 1.6, 0.04))
+	for i := 0; i < 30; i++ {
+		mgr.Update(sc, vec.New(1.5, 1.6, 0.04), 0, 1.75, 1.0/60.0)
+	}
+	if mgr.agents[0].State != stateOpen {
+		t.Fatalf("can_close=false should ignore close toggle, state=%s", mgr.agents[0].State)
+	}
+	if mgr.CanUseInteract(ia, vec.New(1.5, 1.6, 0.04)) {
+		t.Fatal("open non-closable door should not be interactable")
+	}
+}
+
+func TestAutocloseTimeout(t *testing.T) {
+	sc, mgr := testDoorScene(t)
+	mgr.agents[0].AutocloseTimeout = 1.0
+	mgr.Toggle(sc, "test", vec.New(1.5, 1, -1))
+	for i := 0; i < 120; i++ {
+		mgr.Update(sc, vec.New(1.5, 1.6, 0.04), 0, 1.75, 1.0/60.0)
+		if mgr.agents[0].State == stateOpen {
+			break
+		}
+	}
+	if mgr.agents[0].State != stateOpen {
+		t.Fatalf("door should finish opening, state=%s", mgr.agents[0].State)
+	}
+	for i := 0; i < 10; i++ {
+		mgr.Update(sc, vec.New(1.5, 1.6, 0.04), 0, 1.75, 1.0/60.0)
+	}
+	if mgr.agents[0].State != stateOpen {
+		t.Fatal("door should stay open before timeout elapses")
+	}
+	for i := 0; i < 90; i++ {
+		mgr.Update(sc, vec.New(1.5, 1.6, 0.04), 0, 1.75, 1.0/60.0)
+	}
+	if mgr.agents[0].State == stateOpen {
+		t.Fatal("door should autoclose after timeout")
+	}
+}
+
+func TestDoorPropsTOML(t *testing.T) {
+	dir := t.TempDir()
+	panel := filepath.Join(dir, "panel.toml")
+	if err := os.WriteFile(panel, []byte(`
+[[box]]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 1
+height = 2
+depth = 0.1
+material = "diffuse"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scenePath := filepath.Join(dir, "room.toml")
+	if err := os.WriteFile(scenePath, []byte(`
+[[door]]
+id = "trap"
+kind = "single"
+hinge = [0, 0, 0]
+axis = "y"
+panel_file = "panel.toml"
+can_close = false
+autoclose_timeout = 3.0
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := sceneio.Load(scenePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds := sc.DoorSpecs[0]
+	if ds.CanClose {
+		t.Fatal("expected can_close=false")
+	}
+	if ds.AutocloseTimeout != 3.0 {
+		t.Fatalf("autoclose_timeout=%v, want 3", ds.AutocloseTimeout)
 	}
 }

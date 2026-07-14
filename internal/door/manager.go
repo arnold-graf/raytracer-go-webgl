@@ -72,10 +72,24 @@ func (m *Manager) Instantiate(sc *scene.Scene) error {
 			if j < len(spec.PanelClosedAngles) {
 				closedOffset = spec.PanelClosedAngles[j]
 			}
-			p.closed = snapshotPanelXforms(sc, p.Geom, a.Axis, closedOffset, p.Hinge)
+			axis := a.Axis
+			hinge := p.Hinge
+			if a.isSliding() {
+				axis = ""
+				hinge = vec.V{}
+			}
+			p.closed = snapshotPanelXforms(sc, p.Geom, axis, closedOffset, hinge)
 		}
 		sc.DynamicBodies = append(sc.DynamicBodies, doorDynamicBody(a))
-		a.Interact = spec.Interact
+		if spec.Interact != nil {
+			iaIdx := sc.RegisterInteractable(*spec.Interact)
+			for j := range a.Panels {
+				for bi := a.Panels[j].Geom.Boxes[0]; bi < a.Panels[j].Geom.Boxes[1]; bi++ {
+					sc.SetBoxInteract(bi, iaIdx)
+				}
+			}
+			a.Interact = &sc.Interactables[iaIdx]
+		}
 		m.agents = append(m.agents, *a)
 	}
 	if len(m.agents) > 0 {
@@ -135,37 +149,48 @@ func (m *Manager) GhostBox(boxIndex int) bool {
 	return false
 }
 
+// CanUseInteract reports whether the player can use this door interactable now.
+func (m *Manager) CanUseInteract(ia *scene.Interactable, playerPos vec.V) bool {
+	a := m.agentForInteract(ia, playerPos)
+	if a == nil {
+		return true
+	}
+	return a.isInteractable()
+}
+
+func (m *Manager) agentForInteract(ia *scene.Interactable, playerPos vec.V) *Agent {
+	if ia == nil {
+		return nil
+	}
+	if ia.BoxIndex >= 0 {
+		for i := range m.agents {
+			a := &m.agents[i]
+			for _, p := range a.Panels {
+				for bi := p.Geom.Boxes[0]; bi < p.Geom.Boxes[1]; bi++ {
+					if bi == ia.BoxIndex {
+						return a
+					}
+				}
+			}
+		}
+	}
+	if ia.DoorID != "" {
+		for i := range m.agents {
+			if m.agents[i].ID == ia.DoorID {
+				return &m.agents[i]
+			}
+		}
+	}
+	return nil
+}
+
 // ToggleInteract opens or closes the door matching the activated interactable.
 // Needed when the same door id appears multiple times (repeated [[include]]).
 func (m *Manager) ToggleInteract(ia *scene.Interactable, playerPos vec.V) bool {
 	if ia == nil {
 		return false
 	}
-	var best *Agent
-	bestD2 := math.Inf(1)
-	for i := range m.agents {
-		a := &m.agents[i]
-		if a.Interact == nil {
-			continue
-		}
-		if ia.DoorID != "" && a.ID != ia.DoorID {
-			continue
-		}
-		dx := ia.Center.X - a.Interact.Center.X
-		dy := ia.Center.Y - a.Interact.Center.Y
-		dz := ia.Center.Z - a.Interact.Center.Z
-		if dx*dx+dy*dy+dz*dz > 1e-8 {
-			continue
-		}
-		dx = playerPos.X - a.Interact.Center.X
-		dy = playerPos.Y - a.Interact.Center.Y
-		dz = playerPos.Z - a.Interact.Center.Z
-		d2 := dx*dx + dy*dy + dz*dz
-		if d2 < bestD2 {
-			best = a
-			bestD2 = d2
-		}
-	}
+	best := m.agentForInteract(ia, playerPos)
 	if best == nil {
 		if ia.DoorID != "" {
 			return m.Toggle(nil, ia.DoorID, playerPos)
@@ -187,23 +212,23 @@ func (m *Manager) Toggle(sc *scene.Scene, id string, playerPos vec.V) bool {
 	return false
 }
 
-// ToggleNearest toggles the in-range door closest to pos.
+// ToggleNearest toggles the door whose panel is closest to pos (fallback when no ray hit).
 func (m *Manager) ToggleNearest(sc *scene.Scene, pos vec.V) bool {
 	var best *Agent
 	bestD2 := math.Inf(1)
 	for i := range m.agents {
 		a := &m.agents[i]
-		if a.Interact == nil {
+		if len(a.Panels) == 0 {
 			continue
 		}
-		ia := a.Interact
-		r := ia.Range
-		if r <= 0 {
-			r = 2.0
+		center := panelWorldCenter(sc, a.Panels[0].Geom)
+		r := 2.0
+		if a.Interact != nil && a.Interact.Range > 0 {
+			r = a.Interact.Range
 		}
-		dx := pos.X - ia.Center.X
-		dy := pos.Y - ia.Center.Y
-		dz := pos.Z - ia.Center.Z
+		dx := pos.X - center.X
+		dy := pos.Y - center.Y
+		dz := pos.Z - center.Z
 		d2 := dx*dx + dy*dy + dz*dz
 		if d2 <= r*r && d2 < bestD2 {
 			best = a
@@ -215,6 +240,23 @@ func (m *Manager) ToggleNearest(sc *scene.Scene, pos vec.V) bool {
 	}
 	best.toggle(pos)
 	return true
+}
+
+func panelWorldCenter(sc *scene.Scene, g scene.DoorPanelGeom) vec.V {
+	idx := g.PrimaryBox()
+	if sc == nil || idx < 0 || idx >= len(sc.Boxes) {
+		return vec.V{}
+	}
+	b := &sc.Boxes[idx]
+	local := vec.New(
+		(b.Min.X+b.Max.X)/2,
+		(b.Min.Y+b.Max.Y)/2,
+		(b.Min.Z+b.Max.Z)/2,
+	)
+	if b.Xform != nil {
+		return b.Xform.ToWorld(local)
+	}
+	return local
 }
 
 // Update advances door animation and updates panel collision flags.
@@ -252,7 +294,7 @@ func (m *Manager) stepAgent(sc *scene.Scene, a *Agent, playerPos vec.V, feetY, h
 		for pi := range a.Panels {
 			p := &a.Panels[pi]
 			proposed := util.StepToward(p.Angle, p.Target, step)
-			if proposed != p.Angle && proposed != p.Target {
+			if !a.isSliding() && proposed != p.Angle && proposed != p.Target {
 				proposed = clampAngle(sc, a, p, proposed, skip)
 			}
 			if math.Abs(proposed-p.Angle) > 1e-9 {
@@ -271,9 +313,17 @@ func (m *Manager) stepAgent(sc *scene.Scene, a *Agent, playerPos vec.V, feetY, h
 		if allDone {
 			if a.State == stateOpening {
 				a.State = stateOpen
+				a.OpenElapsed = 0
 			} else if a.State == stateClosing {
 				a.State = stateClosed
+				a.OpenElapsed = 0
 			}
+		}
+	} else if a.State == stateOpen && a.AutocloseTimeout > 0 {
+		a.OpenElapsed += dt
+		if a.OpenElapsed >= a.AutocloseTimeout {
+			a.beginClose()
+			changed = true
 		}
 	}
 	m.updateCollision(a, sc, playerPos, feetY, headY)

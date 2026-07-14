@@ -27,8 +27,8 @@ func TestLoadVillaDoor(t *testing.T) {
 		t.Fatal("villa_front_door not found in merged scene")
 	}
 	var interact bool
-	for _, ia := range sc.Interactables {
-		if ia.Handler == "door" && ia.DoorID == "villa_front_door" {
+	for _, ds := range sc.DoorSpecs {
+		if ds.ID == "villa_front_door" && ds.Interact != nil && ds.Interact.Handler == "door" {
 			interact = true
 		}
 	}
@@ -54,10 +54,7 @@ albedo = [0.5, 0.5, 0.5]
 id = "d1"
 panel_file = "panel.toml"
 hinge = [0.0, 0.0, 0.0]
-
-  [door.interact]
-  center = [0.5, 1.0, 0.04]
-  use_range = 2.0
+use_range = 2.0
 `
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "panel.toml"), []byte(panelBody), 0o644); err != nil {
@@ -76,5 +73,8 @@ hinge = [0.0, 0.0, 0.0]
 	}
 	if len(sc.Boxes) != 1 {
 		t.Fatalf("boxes = %d, want 1 panel box merged", len(sc.Boxes))
+	}
+	if sc.DoorSpecs[0].Interact == nil || sc.DoorSpecs[0].Interact.Range != 2 {
+		t.Fatalf("door interact = %+v", sc.DoorSpecs[0].Interact)
 	}
 }

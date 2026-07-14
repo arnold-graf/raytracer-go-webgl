@@ -87,17 +87,18 @@ func spawnAgent(sc *scene.Scene, spec scene.DocumentSpec) (agent, error) {
 		Boxes: [2]int{boxStart, len(sc.Boxes)},
 	})
 
-	ia := spec.Interact
-	if ia != nil {
-		dup := *ia
-		ia = &dup
+	var interact *scene.Interactable
+	if spec.Interact != nil {
+		iaIdx := sc.RegisterInteractable(*spec.Interact)
+		sc.SetBoxInteract(boxStart, iaIdx)
+		interact = &sc.Interactables[iaIdx]
 	}
 	return agent{
 		spec:     spec,
 		boxIndex: boxStart,
 		rest:     rest,
 		present:  anim.Channel{Duration: animSec},
-		interact: ia,
+		interact: interact,
 	}, nil
 }
 
@@ -136,7 +137,7 @@ func (m *Manager) ToggleInteract(sc *scene.Scene, ia *scene.Interactable) (opene
 		if ia.DocumentID != "" && a.spec.ID != ia.DocumentID {
 			continue
 		}
-		if ia.DocumentID == "" && ia.Center != a.interact.Center {
+		if ia.BoxIndex >= 0 && a.boxIndex != ia.BoxIndex {
 			continue
 		}
 		wasOpen := a.present.Engaged()

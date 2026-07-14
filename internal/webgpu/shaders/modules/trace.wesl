@@ -5,10 +5,14 @@
 
 
 
+
+
+
+
 import package::types::{HIT_NO_INSTANCE, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_FLAG_TRANSFORMED, SURFACE_EPSILON, params, pixels, prims, waters};
 import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc};
 import package::math::{clamp01};
-import package::texture::{is_capture, is_document, plane_albedo, texture_eval, texture_eval_capture, texture_eval_document};
+import package::texture::{plane_albedo, texture_eval, texture_eval_box};
 import package::sky::{sky};
 import package::intersect::{xf_to_local_point, xf_to_world_normal};
 import package::terrain::{terrain_normal, water_normal};
@@ -143,10 +147,12 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
                     n = inst_world_normal(hit.inst_idx, n);
                 }
             }
-            if (is_capture(p.info.z) && p.info.x == PRIM_BOX) {
-                alb = texture_eval_capture(p.info.z, tex_p, tex_n, p.albedo.xyz);
-            } else if (is_document(p.info.z) && p.info.x == PRIM_BOX) {
-                alb = texture_eval_document(p.info.z, tex_p, tex_n, p.geo_a.xyz, p.geo_b.xyz, p.albedo.xyz);
+            if (dot(n, rd) > 0.0) {
+                n = -n;
+                tex_n = -tex_n;
+            }
+            if (p.info.x == PRIM_BOX) {
+                alb = texture_eval_box(hit.idx, tex_p, tex_n, p.geo_a.xyz, p.geo_b.xyz, p.info.z, p.albedo.xyz);
             } else {
                 alb = texture_eval(p.info.z, tex_p, tex_n, plane_albedo(p, hp));
             }
@@ -162,7 +168,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
             alb = texture_eval(wp.info.y, hp, n, wp.albedo.xyz);
         }
 
-        if (dot(n, rd) > 0.0) {
+        if (hit.kind != 0u && dot(n, rd) > 0.0) {
             n = -n;
         }
 

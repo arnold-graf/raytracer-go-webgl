@@ -4,7 +4,11 @@
 
 
 
-import package::types::{DOCUMENT_TEX_H, DOCUMENT_TEX_W, MAT_CHECKER, Prim, TEX_BRICK, TEX_CAPTURE_BASE, TEX_CAPTURE_COUNT, TEX_CEMENT, TEX_DIRT, TEX_DOCUMENT_BASE, TEX_DOCUMENT_COUNT, TEX_GRASS, TEX_MARBLE, TEX_NONE, TEX_PAPER, TEX_SNOW, TEX_STONE, TEX_STONE_WALL, TEX_WALLPAPER_GREEN, TEX_WALLPAPER_ROSE, TEX_WOOD, capture_pixels, document_pixels, params};
+
+
+
+
+import package::types::{DOCUMENT_TEX_H, DOCUMENT_TEX_W, MAT_CHECKER, Prim, TEX_BRICK, TEX_CAPTURE_BASE, TEX_CAPTURE_COUNT, TEX_CEMENT, TEX_DIRT, TEX_DOCUMENT_BASE, TEX_DOCUMENT_COUNT, TEX_GRASS, TEX_MARBLE, TEX_NONE, TEX_PAPER, TEX_SNOW, TEX_STONE, TEX_STONE_WALL, TEX_WALLPAPER_GREEN, TEX_WALLPAPER_ROSE, TEX_WOOD, box_face_textures, capture_pixels, document_pixels, params};
 import package::math::{TEX_PI, cell_rand, fbm, fracf, mix3, perlin, smoothstepf, turbulence};
 
 fn tex_wood(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
@@ -324,43 +328,61 @@ fn is_capture(tex: u32) -> bool {
     return tex >= TEX_CAPTURE_BASE && tex < TEX_CAPTURE_BASE + TEX_CAPTURE_COUNT;
 }
 
-// Cube interior bounds — keep in sync with texture.Cube* in cube_uv.go.
-const CUBE_X0: f32 = -1.0;
-const CUBE_X1: f32 = 4.0;
-const CUBE_Y0: f32 = -1.0;
-const CUBE_Y1: f32 = 4.0;
-const CUBE_Z0: f32 = -1.0;
-const CUBE_Z1: f32 = 4.0;
-
-fn capture_room_uv(p: vec3<f32>, n: vec3<f32>) -> vec2<f32> {
+// Box face indices match texture.BoxFace* (+X, -X, +Y, -Y, +Z, -Z).
+fn box_face_index(n: vec3<f32>) -> i32 {
     let an = abs(n);
+    if (an.z >= an.x && an.z >= an.y) {
+        if (n.z >= 0.0) { return 4; }
+        return 5;
+    }
+    if (an.x >= an.y) {
+        if (n.x >= 0.0) { return 0; }
+        return 1;
+    }
+    if (n.y >= 0.0) { return 2; }
+    return 3;
+}
+
+fn box_face_uv(lp: vec3<f32>, ln: vec3<f32>, bmin: vec3<f32>, bmax: vec3<f32>) -> vec2<f32> {
+    let face = box_face_index(ln);
+    let dx = bmax.x - bmin.x;
+    let dy = bmax.y - bmin.y;
+    let dz = bmax.z - bmin.z;
+    if (dx <= 0.0 || dy <= 0.0 || dz <= 0.0) {
+        return vec2<f32>(-1.0, -1.0);
+    }
     var u = 0.0;
     var v = 0.0;
-    if (an.z >= an.x && an.z >= an.y) {
-        // Front (+Z) / back (−Z) walls: u = X, v = Y
-        u = (p.x - CUBE_X0) / (CUBE_X1 - CUBE_X0);
-        v = (p.y - CUBE_Y0) / (CUBE_Y1 - CUBE_Y0);
-        // +Z interior faces the viewer (−Z); image u follows +X to the right.
-    } else if (an.x >= an.y) {
-        // Left (+X) / right (−X) walls: u = Z, v = Y
-        u = (p.z - CUBE_Z0) / (CUBE_Z1 - CUBE_Z0);
-        v = (p.y - CUBE_Y0) / (CUBE_Y1 - CUBE_Y0);
-        if (n.x > 0.0) {
-            // Left wall: −Z (forward) is to the viewer's right → flip u.
-            u = 1.0 - u;
-        }
-        // Right wall (−X): +Z is to the viewer's right, u increases with z.
+    if (face == 4) {
+        u = (lp.x - bmin.x) / dx;
+        v = 1.0 - (lp.y - bmin.y) / dy;
+    } else if (face == 5) {
+        u = 1.0 - (lp.x - bmin.x) / dx;
+        v = 1.0 - (lp.y - bmin.y) / dy;
+    } else if (face == 0) {
+        u = 1.0 - (lp.z - bmin.z) / dz;
+        v = 1.0 - (lp.y - bmin.y) / dy;
+    } else if (face == 1) {
+        u = (lp.z - bmin.z) / dz;
+        v = 1.0 - (lp.y - bmin.y) / dy;
+    } else if (face == 2) {
+        u = (lp.x - bmin.x) / dx;
+        v = 1.0 - (lp.z - bmin.z) / dz;
+    } else if (face == 3) {
+        u = (lp.x - bmin.x) / dx;
+        v = 1.0 - (lp.z - bmin.z) / dz;
     } else {
-        // Floor (+Y) / ceiling (−Y): u = X, v = Z
-        u = (p.x - CUBE_X0) / (CUBE_X1 - CUBE_X0);
-        v = (p.z - CUBE_Z0) / (CUBE_Z1 - CUBE_Z0);
-        if (n.y > 0.0) {
-            // Floor: v increases with +Z (matches right wall and capture_down).
-            return vec2(clamp(u, 0.0, 1.0), clamp(v, 0.0, 1.0));
-        }
-        // Ceiling: v=0 at +Z (same convention as wall v from Y).
+        return vec2<f32>(-1.0, -1.0);
     }
-    return vec2(clamp(u, 0.0, 1.0), clamp(1.0 - v, 0.0, 1.0));
+    return vec2(clamp(u, 0.0, 1.0), clamp(v, 0.0, 1.0));
+}
+
+fn box_face_texture(prim_idx: u32, ln: vec3<f32>) -> u32 {
+    let face = box_face_index(ln);
+    if (face < 0) {
+        return TEX_NONE;
+    }
+    return box_face_textures[prim_idx * 6u + u32(face)];
 }
 
 fn sample_capture(tex: u32, u: f32, v: f32, tint: vec3<f32>) -> vec3<f32> {
@@ -420,9 +442,28 @@ fn texture_eval_document(tex: u32, lp: vec3<f32>, ln: vec3<f32>, bmin: vec3<f32>
     return ink * (0.98 + 0.02 * grain);
 }
 
-fn texture_eval_capture(tex: u32, lp: vec3<f32>, ln: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
-    let uv = capture_room_uv(lp, ln);
-    return sample_capture(tex, uv.x, uv.y, tint);
+fn texture_eval_box(prim_idx: u32, lp: vec3<f32>, ln: vec3<f32>, bmin: vec3<f32>, bmax: vec3<f32>, fallback_tex: u32, tint: vec3<f32>) -> vec3<f32> {
+    var tex = box_face_texture(prim_idx, ln);
+    if (tex == TEX_NONE) {
+        tex = fallback_tex;
+    }
+    if (tex == TEX_NONE) {
+        return tint;
+    }
+    let uv = box_face_uv(lp, ln, bmin, bmax);
+    if (uv.x < 0.0) {
+        return tint;
+    }
+    if (is_capture(tex)) {
+        if (params.capture_loaded == 0u) {
+            return tint;
+        }
+        return sample_capture(tex, uv.x, uv.y, vec3<f32>(1.0, 1.0, 1.0));
+    }
+    if (is_document(tex)) {
+        return texture_eval_document(tex, lp, ln, bmin, bmax, tint);
+    }
+    return texture_eval(tex, lp, ln, tint);
 }
 
 // plane_albedo applies the analytic checker pattern (matching Plane.AlbedoAt)

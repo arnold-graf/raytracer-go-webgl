@@ -19,23 +19,27 @@ func (g DoorPanelGeom) PrimaryBox() int {
 	return -1
 }
 
-// DoorSpec is a declarative swinging door loaded from [[door]] in scene TOML.
+// DoorSpec is a declarative door loaded from [[door]] in scene TOML.
 // Runtime state lives in door.Manager agents.
 type DoorSpec struct {
 	ID         string
-	Kind       string // "single" or "double"
+	Kind       string // "single", "double", or "sliding"
 	Hinge      vec.V  // hinge edge in scene/object space (single / left panel)
 	HingeRight vec.V  // right panel hinge for double doors
-	Axis       string // "x", "y", or "z"
+	Axis       string // "x", "y", or "z" (swing doors)
 	ClosedAngle float64 // radians
 	OpenAngle   float64 // radians (max swing)
+	OpenDistance float64 // metres (sliding doors)
+	SlideDir    vec.V    // unit slide axis in object space (sliding doors)
 	Swing       string  // "one_way" or "both"
 	OpenSign    float64 // +1 / -1 for one_way
-	Speed       float64 // rad/s
+	Speed       float64 // rad/s (swing) or m/s (slide)
 	Panels      []DoorPanelGeom
 	// PanelClosedAngles are per-panel offsets from the closed pose (radians),
 	// applied about each panel's hinge. Optional; length may be less than panels.
 	PanelClosedAngles []float64
+	CanClose          bool    // player may close via interact (default true)
+	AutocloseTimeout  float64 // seconds open before auto-close; 0 = disabled
 	Interact    *Interactable
 }
 

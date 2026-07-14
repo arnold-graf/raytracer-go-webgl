@@ -11,9 +11,10 @@ var Inf = math.Inf(1)
 
 // Surface bundles the shading attributes shared by every primitive.
 type Surface struct {
-	Mat    int
-	Albedo vec.V
-	Rough  float64
+	Mat     int
+	Albedo  vec.V
+	Albedo2 vec.V // second checker color; ignored for other materials
+	Rough   float64
 	IOR    float64
 	Tex    int // procedural texture id (0 = none); see package texture
 	// Reflect (0..1) adds a mirror reflection on top of a diffuse/checker
@@ -63,13 +64,11 @@ func (s *Sphere) Normal(p vec.V) vec.V {
 	return p.Sub(s.Center).Scale(1 / s.Radius)
 }
 
-// Plane is an infinite plane defined by n·x + D = 0. For checker materials a
-// second albedo is used on alternating unit cells.
+// Plane is an infinite plane defined by n·x + D = 0.
 type Plane struct {
 	N vec.V
 	D float64
 	Surface
-	Albedo2 vec.V
 }
 
 // Intersect returns the nearest positive hit distance, or Inf on a miss.
@@ -114,6 +113,9 @@ type Box struct {
 	Max   vec.V
 	Holes []AABB
 	Surface
+	// FaceTex holds optional per-face texture ids (+X, -X, +Y, -Y, +Z, -Z).
+	// Zero means no texture on that face.
+	FaceTex [6]int
 }
 
 // expandXformBounds maps a local AABB through xf and returns its world-space

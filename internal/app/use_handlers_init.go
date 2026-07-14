@@ -11,6 +11,7 @@ func init() {
 		"exit_portal": handleExitPortal,
 		"door":        handleDoor,
 		"document":    handleDocument,
+		"screen":      handleScreen,
 	}
 	invokeHandler = func(name string, ctx *UseContext) error {
 		if name == "" {

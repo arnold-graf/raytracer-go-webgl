@@ -1,0 +1,13 @@
+# Back-wall sliding panel for cube.toml (covers the -Z opening when closed).
+[[box]]
+material = "diffuse"
+reflect = 0.1
+rough = 0.01
+albedo = [0.01, 0.01, 0.01]
+texture_back = "capture_backward"
+pos_x = -1
+pos_y = -1
+pos_z = 4
+width = 5.5
+height = 5.5
+depth = 0.5

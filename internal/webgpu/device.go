@@ -22,8 +22,8 @@ const (
 	fovScale    = 0.5773502691896257 // tan(60deg / 2)
 	paramsSize  = 288
 	workgroupXY = 8
-	// Five square portal captures at the renderer's max dimension (512×512 each).
-	maxCaptureDim = 512
+	// Six square portal captures (see texture.MaxCaptureDim).
+	maxCaptureDim = texture.MaxCaptureDim
 
 	// ambientFlat is the CPU shade()'s flat-ambient term used when a scene has
 	// no hemispheric sky/ground ambient: lit = albedo * 0.04.
@@ -37,7 +37,7 @@ func maxCapturePixels(maxDim int) int {
 	if maxDim > maxCaptureDim {
 		maxDim = maxCaptureDim
 	}
-	return maxDim * maxDim * 5
+	return maxDim * maxDim * 6
 }
 
 // Renderer is the early WebGPU backend: it dispatches a compute shader into a
@@ -69,6 +69,7 @@ type Renderer struct {
 	holes     *wgpu.Buffer
 	captures  *wgpu.Buffer
 	documents *wgpu.Buffer
+	boxFaces  *wgpu.Buffer
 	instTmpl  *wgpu.Buffer
 	instRecs  *wgpu.Buffer
 	planeIdx  *wgpu.Buffer
@@ -118,7 +119,7 @@ type Renderer struct {
 	captureW       int
 	captureH       int
 	captureLoaded  bool
-	captureBytes   uint64 // GPU buffer size for five square captures
+	captureBytes   uint64 // GPU buffer size for six square captures
 	documentVer    uint64
 	documentLoaded bool
 	documentBytes  uint64
@@ -353,6 +354,14 @@ func (r *Renderer) init() error {
 	if err != nil {
 		return fmt.Errorf("create documents buffer: %w", err)
 	}
+	r.boxFaces, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "box face textures",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  maxPrims * boxFacesPerPrim * 4,
+	})
+	if err != nil {
+		return fmt.Errorf("create box face textures buffer: %w", err)
+	}
 	// The permutation table is constant, so upload it once up front.
 	if err := r.queue.WriteBuffer(r.perm, 0, u32Bytes(PackPerm())); err != nil {
 		return fmt.Errorf("upload perm table: %w", err)
@@ -458,6 +467,7 @@ func (r *Renderer) init() error {
 			{Binding: 17, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 			{Binding: 18, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 			{Binding: 19, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
+			{Binding: 20, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 		},
 	})
 	if err != nil {
@@ -510,6 +520,7 @@ func (r *Renderer) init() error {
 			{Binding: 17, Buffer: r.planeIdx, Size: maxPrims * 4},
 			{Binding: 18, Buffer: r.blkPlane, Size: maxPrims * 4},
 			{Binding: 19, Buffer: r.documents, Size: r.documentBytes},
+			{Binding: 20, Buffer: r.boxFaces, Size: maxPrims * boxFacesPerPrim * 4},
 		},
 	})
 	if err != nil {
@@ -642,7 +653,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		blockerSecStart: c.blockerSecStart, blockerInstBase: c.blockerInstBase,
 		blockerInstCount: c.blockerInstCount,
 		terrains:         c.terrains, samples: c.samples, waters: c.waters,
-		campfireParams: c.campfireParams, holes: c.holes, ao: c.ao, aoOK: c.aoOK && aoEnabled,
+		campfireParams: c.campfireParams, holes: c.holes, boxFaceTex: c.boxFaceTex, ao: c.ao, aoOK: c.aoOK && aoEnabled,
 		shadows: shadows, mirror: mirror, timeSec: timeSec, sky: sky,
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
 		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
@@ -698,6 +709,7 @@ type renderParams struct {
 	waters           []GPUWater
 	campfireParams   []CampfireParams
 	holes            []GPUHole
+	boxFaceTex       []uint32
 	ao               AOVolume
 	aoOK             bool
 	shadows          bool
@@ -795,6 +807,11 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 		}
 		if len(p.instPlacements) > 0 {
 			if err := r.queue.WriteBuffer(r.instRecs, 0, instanceBytes(p.instPlacements)); err != nil {
+				return err
+			}
+		}
+		if len(p.boxFaceTex) > 0 {
+			if err := r.queue.WriteBuffer(r.boxFaces, 0, u32Bytes(p.boxFaceTex)); err != nil {
 				return err
 			}
 		}
@@ -1219,6 +1236,9 @@ func (r *Renderer) Release() {
 	}
 	if r.documents != nil {
 		r.documents.Release()
+	}
+	if r.boxFaces != nil {
+		r.boxFaces.Release()
 	}
 	if r.campfires != nil {
 		r.campfires.Release()

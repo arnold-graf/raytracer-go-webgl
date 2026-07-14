@@ -231,6 +231,75 @@ func TestArtDecoRingLampShape(t *testing.T) {
 
 // TestStaircaseSeqTemplate checks the real staircase object: default 8 steps
 // without params, and a custom step count via seq/range.
+func TestWorkstationObjectLoads(t *testing.T) {
+	path := repoFile("scenes/office-sunset/objects/workstation.toml")
+	parent := filepath.Join(t.TempDir(), "scene.toml")
+	if err := os.WriteFile(parent, []byte(
+		"[[include]]\nfile = "+strconv.Quote(path)+"\nat = [0.0, 0.9, 0.0]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Boxes) < 15 {
+		t.Fatalf("boxes = %d, want at least 15", len(s.Boxes))
+	}
+	if len(s.Cylinders) != 1 {
+		t.Fatalf("cylinders = %d, want 1 mouse cable", len(s.Cylinders))
+	}
+	if len(s.ScreenSpecs) != 1 {
+		t.Fatalf("screens = %d, want 1", len(s.ScreenSpecs))
+	}
+	if s.ScreenSpecs[0].Headline != "SERVER ROOM" {
+		t.Fatalf("headline = %q", s.ScreenSpecs[0].Headline)
+	}
+}
+
+func TestSimpleTableDepthParam(t *testing.T) {
+	tablePath := repoFile("scenes/objects/simple-table.toml")
+	dir := t.TempDir()
+
+	t.Run("square default", func(t *testing.T) {
+		parent := filepath.Join(dir, "square.toml")
+		if err := os.WriteFile(parent, []byte(
+			"[[include]]\nfile = "+strconv.Quote(tablePath)+"\nat = [0.0, 0.0, 0.0]\nparams = { width = 2.0 }\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s, err := Load(parent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(s.Boxes) != 1 {
+			t.Fatalf("got %d boxes, want 1 tabletop", len(s.Boxes))
+		}
+		top := s.Boxes[0]
+		if math.Abs(top.Max.X-top.Min.X-2.0) > 1e-9 || math.Abs(top.Max.Z-top.Min.Z-2.0) > 1e-9 {
+			t.Fatalf("top size = (%v, %v), want 2×2", top.Max.X-top.Min.X, top.Max.Z-top.Min.Z)
+		}
+	})
+
+	t.Run("rectangular", func(t *testing.T) {
+		parent := filepath.Join(dir, "rect.toml")
+		if err := os.WriteFile(parent, []byte(
+			"[[include]]\nfile = "+strconv.Quote(tablePath)+"\nat = [0.0, 0.0, 0.0]\nparams = { width = 2.0, depth = 1.0 }\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s, err := Load(parent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		top := s.Boxes[0]
+		if math.Abs(top.Max.X-top.Min.X-2.0) > 1e-9 || math.Abs(top.Max.Z-top.Min.Z-1.0) > 1e-9 {
+			t.Fatalf("top size = (%v, %v), want 2×1", top.Max.X-top.Min.X, top.Max.Z-top.Min.Z)
+		}
+		legZ := s.Cylinders[0].CZ
+		if math.Abs(math.Abs(legZ)-0.4) > 1e-9 {
+			t.Fatalf("leg z offset = %v, want ±0.4 (depth 1.0, inset 0.1)", legZ)
+		}
+	})
+}
+
 func TestStaircaseSeqTemplate(t *testing.T) {
 	stairPath := repoFile("scenes/objects/staircase.toml")
 

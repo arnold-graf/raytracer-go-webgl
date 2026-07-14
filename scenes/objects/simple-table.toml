@@ -4,8 +4,9 @@
 # sits at y = height; four tapered legs sit inset from each corner.
 #
 # Parameterized via [[include]] params (all optional):
-#   width      table size in X and Z              (default 1.6)
-#   height     top-surface height above the floor (default 0.75)
+#   width      table size in X                      (default 1.6)
+#   depth      table size in Z                      (default: same as width)
+#   height     top-surface height above the floor   (default 0.75)
 #   top        tabletop thickness                 (default 0.06)
 #   leg_radius leg thickness at the floor         (default 0.05)
 #   leg_radius_top  leg thickness under the top   (default 0.035)
@@ -15,15 +16,18 @@
 #   [[include]]
 #   file = "objects/simple-table.toml"
 #   at = [0.0, 0.0, 0.0]
-#   params = { width = 1.6, height = 0.75, texture = "wood" }
+#   params = { width = 1.6, depth = 0.8, height = 0.75, texture = "wood" }
 
 {{$width := or .width 1.6}}
+{{$depth := or .depth $width}}
 {{$height := or .height 0.9}}
 {{$top := or .top 0.06}}
 {{$legR := or .leg_radius 0.05}}
 {{$inset := or .inset 0.1}}
 {{$half := div $width 2}}
+{{$halfD := div $depth 2}}
 {{$off := sub $half $inset}}
+{{$offZ := sub $halfD $inset}}
 {{$legH := sub $height $top}}
 {{$texture := or .texture "wood"}}
 {{$albedo := orVec3 .albedo 0.55 0.42 0.28}}
@@ -33,10 +37,10 @@
 [[box]] # tabletop
 pos_x = {{neg $half}}
 pos_y = {{$legH}}
-pos_z = {{neg $half}}
+pos_z = {{neg $halfD}}
 width = {{$width}}
 height = {{$top}}
-depth = {{$width}}
+depth = {{$depth}}
 material = "diffuse"
 albedo = {{$albedo}}
 texture = "{{$texture}}"
@@ -47,7 +51,7 @@ rough = {{$rough}}
   [[cylinder]] # leg {{$i}}
   pos_x = {{if lt $i 2}}{{sub $off $legR}}{{else}}{{sub (neg $off) $legR}}{{end}}
   pos_y = 0.0
-  pos_z = {{if or (eq $i 0) (eq $i 2)}}{{sub $off $legR}}{{else}}{{sub (neg $off) $legR}}{{end}}
+  pos_z = {{if or (eq $i 0) (eq $i 2)}}{{sub $offZ $legR}}{{else}}{{sub (neg $offZ) $legR}}{{end}}
   width = {{mul $legR 2}}
   height = {{$legH}}
   material = "diffuse"

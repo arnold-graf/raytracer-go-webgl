@@ -35,9 +35,10 @@ rotate_z = 90
 
 
 # screen
-[[box]]
+[[screen]]
+id = "laptop_display"
 material = "emit"
-albedo = [0.5, 0.5, 1]
+albedo = [0.5, 0.5, 1.0]
 reflect = 0.1
 rough = 0.02
 rotate_x = -10
@@ -47,6 +48,16 @@ pos_z = -0.02
 width = 0.28
 height = 0.23
 depth = 0.001
+hint = "workstation"
+headline = "SERVER ROOM"
+paragraphs = [
+  "Status: ONLINE",
+  "Cube lift: READY",
+  "Auth: session active",
+]
+font = "M42.ttf"
+font_size_px = 14
+font_color = [0.1, 0.1, 0.2]
 
 # trackball
 [[sphere]]

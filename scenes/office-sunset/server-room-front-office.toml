@@ -1,0 +1,49 @@
+# floor
+[[box]]
+material = "diffuse"
+texture = "cement"
+pos_x = 0
+pos_y = -0.2
+pos_z = 0
+width = 10
+height = 0.2
+depth = 20
+albedo = [6,6,5]
+
+# north wall (grid)
+[[include]]
+file = "../objects/grid.toml"
+transform_origin = [0, 0, 0]
+at = [0.0, 0.0, 0.0]
+rotate_y = 0
+params = { width = 10.0, height = 4.5, depth = 0.2, unit_size = 0.7, albedo = [3, 3, 3], material = "diffuse"}
+
+
+# east wall (grid)
+[[include]]
+file = "../objects/grid.toml"
+transform_origin = [0, 0, 0]
+at = [10.0, 0.0, 0.0]
+rotate_y = -90
+params = { width = 20.0, height = 4.5, depth = 0.2, unit_size = 0.7, albedo = [3, 3, 3], material = "diffuse"}
+
+# ceiling
+[[box]]
+material = "checker"
+albedo = [2,2,2]
+albedo2 = [1.5,1.5,1.5]
+pos_x = 1
+pos_y = 4.5
+pos_z = 0
+width = 10
+depth = 20
+height = 0.2
+
+
+# desk in the corner
+[[include]]
+file = "objects/front-office-desk.toml"
+transform_origin = [0, 0, 0]
+at = [2.0, 0.0, 3.0]
+rotate_y = -95
+

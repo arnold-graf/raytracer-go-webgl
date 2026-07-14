@@ -6,25 +6,45 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+
+	"raytracer/internal/camera"
+	"raytracer/internal/scene"
 )
+
+func (g *Game) pickInteractable() *scene.Interactable {
+	if g.sc == nil {
+		return nil
+	}
+	fwd, right, up := g.cam.Basis()
+	aspect := float64(g.rw) / float64(g.rh)
+	ray := g.cam.Ray(fwd, right, up, 0, 0, aspect, camera.FOVScale)
+	return g.sc.PickInteractable(ray)
+}
 
 func (g *Game) handleInteract() {
 	if g.sc == nil || g.transitionActive {
 		return
 	}
 	if g.documents != nil && g.documents.Reading() {
-		g.activeHint = "press E to put away"
+		g.activeHint = "put away"
 		if inpututil.IsKeyJustPressed(ebiten.KeyE) {
 			g.documents.Dismiss(g.sc)
 		}
 		return
 	}
-	ia := g.sc.NearestInteractable(g.cam.Pos)
+	if g.screens != nil && g.screens.Viewing() {
+		g.activeHint = "step back"
+		if inpututil.IsKeyJustPressed(ebiten.KeyE) {
+			g.screens.Dismiss(g.sc, g.cam)
+		}
+		return
+	}
+	ia := g.pickInteractable()
 	g.activeHint = ""
-	if ia != nil {
+	if ia != nil && g.canUseInteract(ia) {
 		g.activeHint = ia.Hint
 	}
-	if ia == nil || !inpututil.IsKeyJustPressed(ebiten.KeyE) {
+	if ia == nil || !g.canUseInteract(ia) || !inpututil.IsKeyJustPressed(ebiten.KeyE) {
 		return
 	}
 	h := UseHandlers[ia.Handler]
@@ -55,4 +75,14 @@ func (g *Game) drawInteractHint(screen *ebiten.Image) {
 	}
 	y := sh - margin - 14
 	ebitenutil.DebugPrintAt(screen, g.activeHint, x, y)
+}
+
+func (g *Game) canUseInteract(ia *scene.Interactable) bool {
+	if ia == nil {
+		return false
+	}
+	if ia.Handler == "door" && g.doors != nil {
+		return g.doors.CanUseInteract(ia, g.cam.Pos)
+	}
+	return true
 }

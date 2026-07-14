@@ -45,10 +45,10 @@ func TestToggleInteractPicksIncludedInstance(t *testing.T) {
 		DoorSpecs: []scene.DoorSpec{
 			{ID: "d", Kind: "single", Hinge: vec.New(0, 0, 0), OpenAngle: math.Pi / 2, Speed: 10,
 				Panels: []scene.DoorPanelGeom{{Boxes: [2]int{0, 1}}},
-				Interact: &scene.Interactable{Center: vec.New(0, 1, 0), DoorID: "d"}},
+				Interact: &scene.Interactable{DoorID: "d"}},
 			{ID: "d", Kind: "single", Hinge: vec.New(10, 0, 0), OpenAngle: math.Pi / 2, Speed: 10,
 				Panels: []scene.DoorPanelGeom{{Boxes: [2]int{1, 2}}},
-				Interact: &scene.Interactable{Center: vec.New(10, 1, 0), DoorID: "d"}},
+				Interact: &scene.Interactable{DoorID: "d"}},
 		},
 		Boxes: []scene.Box{
 			{Min: vec.New(0, 0, 0), Max: vec.New(0.08, 2, 1)},
@@ -59,7 +59,7 @@ func TestToggleInteractPicksIncludedInstance(t *testing.T) {
 	if err := mgr.Instantiate(sc); err != nil {
 		t.Fatal(err)
 	}
-	ia := &scene.Interactable{Center: vec.New(10, 1, 0), DoorID: "d"}
+	ia := &scene.Interactable{DoorID: "d", BoxIndex: 1}
 	mgr.ToggleInteract(ia, vec.New(10, 1.6, 1))
 	if mgr.agents[0].State == stateOpening {
 		t.Fatal("first door should stay closed")

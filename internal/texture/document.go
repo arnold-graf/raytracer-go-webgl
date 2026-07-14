@@ -6,7 +6,7 @@ import (
 
 // Dynamic document texture ids (see WGSL TEX_DOCUMENT_*).
 const (
-	DocumentBase  = 55
+	DocumentBase  = 56
 	DocumentCount = 16
 	DocumentTexW  = 512
 	DocumentTexH  = 512

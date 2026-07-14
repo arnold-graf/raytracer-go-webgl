@@ -9,28 +9,26 @@ import (
 	"raytracer/internal/vec"
 )
 
-type doorInteractDTO struct {
-	Hint   string  `toml:"hint"`
-	Range  float64 `toml:"use_range"`
-	Center vec3    `toml:"center"`
-}
-
 type doorDTO struct {
-	ID               string           `toml:"id"`
-	Kind             string           `toml:"kind"`
-	Hinge            vec3             `toml:"hinge"`
-	HingeLeft        vec3             `toml:"hinge_left"`
-	HingeRight       vec3             `toml:"hinge_right"`
-	Axis             string           `toml:"axis"`
-	OpenAngle        float64          `toml:"open_angle"`
-	Swing            string           `toml:"swing"`
-	OpenSign         float64          `toml:"open_sign"`
-	Speed            float64          `toml:"speed"`
-	PanelFile        string           `toml:"panel_file"`
-	PanelLeftFile    string           `toml:"panel_left_file"`
-	PanelRightFile   string           `toml:"panel_right_file"`
-	PanelClosedAngle []float64        `toml:"panel_closed_angle"`
-	Interact         *doorInteractDTO `toml:"interact"`
+	ID               string    `toml:"id"`
+	Kind             string    `toml:"kind"`
+	Hinge            vec3      `toml:"hinge"`
+	HingeLeft        vec3      `toml:"hinge_left"`
+	HingeRight       vec3      `toml:"hinge_right"`
+	Axis             string    `toml:"axis"`
+	Direction        string    `toml:"direction"`
+	OpenAngle        float64   `toml:"open_angle"`
+	OpenDistance     float64   `toml:"open_distance"`
+	Swing            string    `toml:"swing"`
+	OpenSign         float64   `toml:"open_sign"`
+	Speed            float64   `toml:"speed"`
+	PanelFile        string    `toml:"panel_file"`
+	PanelLeftFile    string    `toml:"panel_left_file"`
+	PanelRightFile   string    `toml:"panel_right_file"`
+	PanelClosedAngle []float64 `toml:"panel_closed_angle"`
+	CanClose         *bool     `toml:"can_close"`
+	AutocloseTimeout *float64  `toml:"autoclose_timeout"`
+	interactPropsDTO
 }
 
 func (d doorDTO) baseSpec() scene.DoorSpec {
@@ -51,17 +49,30 @@ func (d doorDTO) baseSpec() scene.DoorSpec {
 	if openAngle <= 0 {
 		openAngle = 90
 	}
+	openDistance := d.OpenDistance
+	if openDistance <= 0 {
+		openDistance = 2.0
+	}
 	spec := scene.DoorSpec{
-		ID:          d.ID,
-		Kind:        kind,
-		Hinge:       hinge,
-		HingeRight:  hingeRight,
-		Axis:        d.Axis,
-		ClosedAngle: 0,
-		OpenAngle:   openAngle * math.Pi / 180,
-		Swing:       d.Swing,
-		OpenSign:    d.OpenSign,
-		Speed:       d.Speed,
+		ID:           d.ID,
+		Kind:         kind,
+		Hinge:        hinge,
+		HingeRight:   hingeRight,
+		Axis:         d.Axis,
+		ClosedAngle:  0,
+		OpenAngle:    openAngle * math.Pi / 180,
+		OpenDistance: openDistance,
+		SlideDir:     slideDirFromString(d.Direction),
+		Swing:        d.Swing,
+		OpenSign:     d.OpenSign,
+		Speed:        d.Speed,
+		CanClose:     true,
+	}
+	if d.CanClose != nil {
+		spec.CanClose = *d.CanClose
+	}
+	if d.AutocloseTimeout != nil && *d.AutocloseTimeout > 0 {
+		spec.AutocloseTimeout = *d.AutocloseTimeout
 	}
 	if len(d.PanelClosedAngle) > 0 {
 		spec.PanelClosedAngles = make([]float64, len(d.PanelClosedAngle))
@@ -69,19 +80,17 @@ func (d doorDTO) baseSpec() scene.DoorSpec {
 			spec.PanelClosedAngles[i] = deg * math.Pi / 180
 		}
 	}
-	if d.Interact != nil {
-		ia := scene.Interactable{
-			Hint:    d.Interact.Hint,
-			Handler: "door",
-			Range:   d.Interact.Range,
-			Center:  d.Interact.Center.toV(),
-			DoorID:  d.ID,
-		}
-		if ia.Hint == "" {
-			ia.Hint = "press {{use_button}} to open"
-		}
-		spec.Interact = &ia
+	hint := d.Hint
+	if hint == "" {
+		hint = "door"
 	}
+	ia := scene.Interactable{
+		Hint:    hint,
+		Handler: "door",
+		Range:   d.Range,
+		DoorID:  d.ID,
+	}
+	spec.Interact = &ia
 	return spec
 }
 
@@ -91,6 +100,18 @@ func (d doorDTO) resolve(s *scene.Scene, parentDir string, params map[string]any
 	}
 	spec := d.baseSpec()
 	switch spec.Kind {
+	case "sliding":
+		if d.PanelFile == "" {
+			return scene.DoorSpec{}, fmt.Errorf("sliding door requires panel_file")
+		}
+		if d.Direction == "" {
+			return scene.DoorSpec{}, fmt.Errorf("sliding door requires direction (up, down, left, right)")
+		}
+		one, err := mergeDoorPanel(s, parentDir, d.PanelFile, params, seen, deps)
+		if err != nil {
+			return scene.DoorSpec{}, fmt.Errorf("panel_file: %w", err)
+		}
+		spec.Panels = []scene.DoorPanelGeom{one}
 	case "double":
 		if d.PanelLeftFile == "" || d.PanelRightFile == "" {
 			return scene.DoorSpec{}, fmt.Errorf("double door requires panel_left_file and panel_right_file")
@@ -124,12 +145,19 @@ func (d doorDTO) resolve(s *scene.Scene, parentDir string, params map[string]any
 }
 
 func validateDoorPanels(spec scene.DoorSpec) error {
-	want := 1
-	if spec.Kind == "double" {
-		want = 2
-	}
-	if len(spec.Panels) < want {
-		return fmt.Errorf("kind %q wants %d panel(s)", spec.Kind, want)
+	switch spec.Kind {
+	case "double":
+		if len(spec.Panels) < 2 {
+			return fmt.Errorf("kind %q wants 2 panel(s)", spec.Kind)
+		}
+	case "sliding":
+		if len(spec.Panels) < 1 {
+			return fmt.Errorf("kind %q wants 1 panel", spec.Kind)
+		}
+	default:
+		if len(spec.Panels) < 1 {
+			return fmt.Errorf("kind %q wants 1 panel", spec.Kind)
+		}
 	}
 	for i, p := range spec.Panels {
 		if p.PrimaryBox() < 0 {
@@ -137,6 +165,21 @@ func validateDoorPanels(spec scene.DoorSpec) error {
 		}
 	}
 	return nil
+}
+
+func slideDirFromString(dir string) vec.V {
+	switch dir {
+	case "up":
+		return vec.V{Y: 1}
+	case "down":
+		return vec.V{Y: -1}
+	case "left":
+		return vec.V{X: -1}
+	case "right":
+		return vec.V{X: 1}
+	default:
+		return vec.V{}
+	}
 }
 
 func mergeDoorPanel(dst *scene.Scene, parentDir, relPath string, params map[string]any, seen map[string]bool, deps *[]string) (scene.DoorPanelGeom, error) {
@@ -181,10 +224,8 @@ func mergeDoorSpecs(dst *scene.Scene, sub *scene.Scene, xf *scene.Transform, box
 		if xf != nil {
 			spec.Hinge = xf.ToWorld(spec.Hinge)
 			spec.HingeRight = xf.ToWorld(spec.HingeRight)
-			if spec.Interact != nil {
-				ia := *spec.Interact
-				ia.Center = xf.ToWorld(ia.Center)
-				spec.Interact = &ia
+			if spec.SlideDir.LenSq() > 0 {
+				spec.SlideDir = xf.RotateDir(spec.SlideDir).Normalize()
 			}
 		}
 		dst.DoorSpecs = append(dst.DoorSpecs, spec)

@@ -12,7 +12,7 @@ floor_y = 0.3
 yaw = 0.0
 pitch = 0.0
 
-# Front wall (interior face +Z at z = -0.5)
+# Front wall (interior face +Z)
 [[box]]
 material = "diffuse"
 pos_x = -1
@@ -21,20 +21,20 @@ pos_z = -1
 width = 5
 height = 5
 depth = 0.5
-albedo = [1, 1, 1]
-texture = "capture_forward"
+albedo = [0.01, 0.01, 0.01]
+texture_front = "capture_forward"
 
 # Light
 [[campfire]]
 center = [2.5, 2.5, 1]
 color = [0.1, 0.1, 0.2]
-brightness = 1.8
-range = 50
+brightness = 5
+range = 20
 flicker = 0.5
 speed = 0.5
 seed = 0
 
-# Left wall (interior face +X at x = -0.5)
+# Left wall (interior face +X)
 [[box]]
 material = "diffuse"
 pos_x = -1
@@ -43,13 +43,12 @@ pos_z = -1
 width = 0.5
 height = 5
 depth = 5
-albedo = [1, 1, 1]
-texture = "capture_left"
+albedo = [0.01, 0.01, 0.01]
+texture_right = "capture_left"
 
 # Left wall metal cover
 [[box]]
 material = "diffuse"
-reflect = 0.2
 pos_x = -1.1
 pos_y = -1
 pos_z = -1
@@ -57,9 +56,9 @@ width = 0.1
 height = 5.5
 depth = 5
 rough = 0.01
-albedo = [0.5, 0.5, 0.5]
+albedo = [0.1, 0.1, 0.1]
 
-# Right wall (interior face -X at x = 3.5)
+# Right wall (interior face -X)
 [[box]]
 material = "diffuse"
 pos_x = 4
@@ -68,13 +67,12 @@ pos_z = -1
 width = 0.5
 height = 5.5
 depth = 5
-albedo = [1, 1, 1]
-texture = "capture_right"
+albedo = [0.01, 0.01, 0.01]
+texture_left = "capture_right"
 
 # Right wall metal cover
 [[box]]
 material = "diffuse"
-reflect = 0.6
 pos_x = 4.5
 pos_y = -1
 pos_z = -1
@@ -82,9 +80,9 @@ width = 0.1
 height = 5.5
 depth = 5
 rough = 0.01
-albedo = [0.5, 0.5, 0.5]
+albedo = [0.1, 0.1, 0.1]
 
-# Roof (interior face -Y at y = 3.5)
+# Roof (interior face -Y)
 [[box]]
 material = "diffuse"
 pos_x = -1
@@ -93,13 +91,12 @@ pos_z = -1
 width = 5.5
 height = 0.5
 depth = 5
-albedo = [1, 1, 1]
-texture = "capture_up"
+albedo = [0.01, 0.01, 0.01]
+texture_bottom = "capture_up"
 
 # Roof metal cover
 [[box]]
 material = "diffuse"
-reflect = 0.6
 pos_x = -1.1
 pos_y = 4.5
 pos_z = -1
@@ -107,7 +104,7 @@ width = 5.7
 height = 0.1
 depth = 5
 rough = 0.01
-albedo = [0.5, 0.5, 0.5]
+albedo = [0.1, 0.1, 0.1]
 
 # Pipes from the cube to the ceiling
 [[cylinder]]
@@ -143,9 +140,8 @@ pos_z = 3
 width = 0.2
 height = 2
 
-# Floor (interior face +Y at y = 0.25)
+# Floor (interior face +Y)
 [[box]]
-reflect = 0.1
 material = "diffuse"
 pos_x = -1
 pos_y = 0
@@ -153,5 +149,17 @@ pos_z = -1
 width = 5
 height = 0.25
 depth = 5
-albedo = [0.25, 0.25, 0.25]
-texture = "capture_down"
+albedo = [0.01, 0.01, 0.01]
+texture_top = "capture_down"
+
+# Back opening — sliding panel (closed covers -Z side; opens downward)
+[[door]]
+id = "cube_lift"
+kind = "sliding"
+can_close = false
+direction = "down"
+open_distance = 5.0
+speed = 1.2
+panel_file = "cube-door-panel.toml"
+use_range = 2.5
+hint = "door"

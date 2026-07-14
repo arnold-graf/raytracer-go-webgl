@@ -191,6 +191,9 @@ var<storage, read> capture_pixels: array<u32>;
 @group(0) @binding(19)
 var<storage, read> document_pixels: array<u32>;
 
+@group(0) @binding(20)
+var<storage, read> box_face_textures: array<u32>;
+
 @group(0) @binding(14)
 var<storage, read> inst_templates: array<TemplateRecord>;
 
@@ -250,8 +253,8 @@ const TEX_WALLPAPER_ROSE: u32 = 11u;
 const TEX_STONE_WALL: u32 = 12u;
 const TEX_PAPER: u32 = 13u;
 const TEX_CAPTURE_BASE: u32 = 50u;
-const TEX_CAPTURE_COUNT: u32 = 5u;
-const TEX_DOCUMENT_BASE: u32 = 55u;
+const TEX_CAPTURE_COUNT: u32 = 6u;
+const TEX_DOCUMENT_BASE: u32 = 56u;
 const TEX_DOCUMENT_COUNT: u32 = 16u;
 const DOCUMENT_TEX_W: u32 = 512u;
 const DOCUMENT_TEX_H: u32 = 512u;

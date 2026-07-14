@@ -9,12 +9,12 @@ import (
 )
 
 // portalShot describes a yaw/pitch offset (degrees) from the player's view when
-// taking one of the five cube-wall captures.
+// taking one of the six cube-wall captures.
 type portalShot struct {
 	yawDeg, pitchDeg float64
 }
 
-// portalShots order matches texture.CaptureIDs: forward, left, right, up, down.
+// portalShots order matches texture.CaptureIDs: forward, left, right, up, down, backward.
 // Yaw offsets follow the engine convention (+yaw looks toward +X).
 var portalShots = []portalShot{
 	{0, 0},
@@ -22,10 +22,11 @@ var portalShots = []portalShot{
 	{-60, 0},
 	{0, 60},
 	{0, -60},
+	{180, 0},
 }
 
 // portalCapturePullback shifts the shared capture origin backward along the
-// player's view at exit time. All five shots rotate in place from that point so
+// player's view at exit time. All six shots rotate in place from that point so
 // the cube-wall projections stay aligned.
 const portalCapturePullback = 1.25
 
@@ -45,6 +46,9 @@ func (g *Game) capturePortalViews() texture.PortalCapture {
 	size := g.rw
 	if g.rh > size {
 		size = g.rh
+	}
+	if size > texture.MaxCaptureDim {
+		size = texture.MaxCaptureDim
 	}
 	cap := texture.PortalCapture{Width: size, Height: size}
 	buf := make([]byte, size*size*4)

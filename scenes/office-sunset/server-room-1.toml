@@ -9,24 +9,25 @@ pos_z = 0.0
 width = 40.0
 height = 0.2
 depth = 20.0
-reflect = 0.05
+reflect = 0.02
 rough = 0.007
 
 # ceiling
 [[box]]
 material = "diffuse"
 texture = "cement"
-albedo = [0.3, 0.3, 0.3]
+albedo = [0.1, 0.1, 0.1]
 pos_x = 0.0
 pos_y = 8.0
 pos_z = 0.0
 width = 40.0
 height = 0.2
-depth = 40.0
+depth = 20.0
 
 # north wall
 [[box]]
 material = "diffuse"
+texture = "cement"
 albedo = [0.3, 0.3, 0.3]
 pos_x = 0.0
 pos_y = 0.0
@@ -35,20 +36,29 @@ width = 40.0
 height = 8.0
 depth = 0.2
 
-# west wall
+# west wall (ventilation grille)
+[[include]]
+file = "../objects/grid.toml"
+transform_origin = [0, 0, 0]
+at = [0.0, 0.0, 20.0]
+rotate_y = 90
+params = { width = 20.0, height = 8.0, depth = 0.2, unit_size = 1, albedo = [0.5, 0.5, 0.5], material = "diffuse"}
+
+# west wall (solid top)
 [[box]]
 material = "diffuse"
 albedo = [0.3, 0.3, 0.3]
 pos_x = 0.0
-pos_y = 0.0
+pos_y = 4.2
 pos_z = 0.0
 width = 0.2
-height = 8.0
-depth = 50.0
+height = 4
+depth = 40.0
 
 # south wall
 [[box]]
 material = "diffuse"
+texture = "cement"
 albedo = [0.3, 0.3, 0.3]
 pos_x = 0.0
 pos_y = 0.0
@@ -57,25 +67,133 @@ width = 40.0
 height = 8.0
 depth = 0.2
 
-# east wall
+# east wall (glass bottom)
 [[box]]
-material = "diffuse"
-albedo = [0.3, 0.3, 0.3]
+material = "glass"
+reflect = 2
+rough = 0.005
+albedo = [0.7, 0.7, 0.7]
 pos_x = 40
 pos_y = 0.0
 pos_z = 0.0
-width = 0.2
-height = 8.0
-depth = 40.8
+width = 1
+height = 4.5
+depth = 20
 
-# Door
+# Door in glass wall
 [[box.hole]]
 pos_x = 40
 pos_y = 0
-pos_z = 2
-width = 3
-height = 5.0
-depth = 3
+pos_z = 8
+width = 4
+height = 4.0
+depth = 5
+
+# Door frame
+[[box]]
+material = "glass"
+reflect = 2
+rough = 0.005
+albedo = [0.1, 0.1, 0.1]
+pos_x = 40
+pos_y = 0
+pos_z = 8
+width = 1
+height = 4
+depth = 0.5
+
+[[box]]
+material = "glass"
+reflect = 2
+rough = 0.005
+albedo = [0.1, 0.1, 0.1]
+pos_x = 40
+pos_y = 3.5
+pos_z = 8
+width = 1
+height = 0.5
+depth = 5
+
+[[box]]
+material = "glass"
+reflect = 2
+rough = 0.005
+albedo = [0.1, 0.1, 0.1]
+pos_x = 40
+pos_y = 0
+pos_z = 12.5
+width = 1
+height = 4
+depth = 0.5
+
+# east wall (top cover)
+[[box]]
+material = "diffuse"
+reflect = 0.3
+rough = 0.005
+albedo = [0.01, 0.01, 0.01]
+pos_x = 40
+pos_y = 4.5
+pos_z = 0.0
+width = 1
+height = 4.5
+depth = 20.0
+
+# left column (door side)
+[[cylinder]]
+reflect = 0.02
+rough = 0.005
+material = "diffuse"
+texture = "marble"
+albedo = [0.2, 0.2, 0.2]
+pos_x = 38
+pos_y = 0
+pos_z = 3
+width = 1
+height = 8.0
+depth = 1.0
+
+# right column (door side)
+[[cylinder]]
+reflect = 0.02
+rough = 0.005
+material = "diffuse"
+texture = "marble"
+albedo = [0.2, 0.2, 0.2]
+pos_x = 38
+pos_y = 0
+pos_z = 17
+width = 1
+height = 8.0
+depth = 1.0
+
+# right column (cube side)
+[[cylinder]]
+reflect = 0.02
+rough = 0.005
+material = "diffuse"
+texture = "marble"
+albedo = [0.2, 0.2, 0.2]
+pos_x = 3
+pos_y = 0
+pos_z = 3
+width = 1
+height = 8.0
+depth = 1.0
+
+# left column (cube side)
+[[cylinder]]
+reflect = 0.02
+rough = 0.005
+material = "diffuse"
+texture = "marble"
+albedo = [0.2, 0.2, 0.2]
+pos_x = 3
+pos_y = 0
+pos_z = 17
+width = 1
+height = 8.0
+depth = 1.0
 
 # cube
 [[include]]
@@ -165,31 +283,39 @@ file = "../objects/staircase.toml"
 transform_origin = [0, 0, 0]
 at = [9.7, 0, 7.5]
 rotate_y = 90
-params = { steps = 5, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.5 }
+params = { steps = 6, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.5 }
 
 # Lamp 1 (in the middle of the room)
 [[include]]
 instance = true
-file = "../objects/art-deco-ring-lamp.toml"
+file = "../objects/otto-wagner-sphere-lamp.toml"
 # migrated-center-at
-at = [35.0, 6.52, 16.0]
-params = { stem_len = 2.3, brightness = 0.1, range = 10 }
+at = [25.0, 6.52, 16.0]
+params = { stem_len = 2.3, brightness = 0.05, range = 10, orb_radius = 0.5 }
 
-# Lamp 2 (near the door)
+# Lamp 2 (middle of the room)
 [[include]]
 instance = true
-file = "../objects/art-deco-ring-lamp.toml"
+file = "../objects/otto-wagner-sphere-lamp.toml"
 # migrated-center-at
-at = [35.0, 6.52, 3.5]
-params = { stem_len = 2.3, brightness = 0.1, range = 20 }
+at = [25.0, 6.52, 3.5]
+params = { stem_len = 2.3, brightness = 0.05, range = 20, orb_radius = 0.5 }
 
 # Lamp 3 (very dim) above the desk
 [[include]]
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
-# migrated-center-at
 at = [8.0, 6.17, 9.0]
-params = { stem_len = 3, brightness = 0.02, range = 20 }
+params = { stem_len = 3, brightness = 0.05, range = 20 }
+
+# Lamp 4 (above the door)
+[[include]]
+instance = true
+file = "../objects/art-deco-ring-lamp.toml"
+# migrated-center-at
+at = [35.0, 6.52, 10.5]
+params = { stem_len = 3, brightness = 0.2, range = 20, top_radius = 1.5, bottom_radius = 0.5, rings = 7 }
+
 
 # desk to the left of the cube
 [[include]]
@@ -200,9 +326,8 @@ at = [8.0, 0.845, 9.498]
 # switch cupboard opposite the cube
 [[include]]
 file = "../objects/cupboard-double-door.toml"
-# migrated-center-at
-at = [17.0, 1.5, 18.998]
-params = { width = 2, height = 3.0, depth = 0.5, shelves = 4, albedo = [0.1, 0.1, 0.2 ], reflect = 0.02, rough = 0.01, handle_radius = 0.1 }
+at = [15.0, 1.5, 19]
+params = { width = 2, height = 3.0, depth = 0.5, shelves = 4, albedo = [0.5, 0.5, 0.7 ], reflect = 0.1, rough = 0.01, handle_radius = 0.1 }
 
 # table to the right of the cube
 [[include]]

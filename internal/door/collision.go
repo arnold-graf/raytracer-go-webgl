@@ -70,8 +70,12 @@ func PanelHitsStaticAt(sc *scene.Scene, a *Agent, p *Panel, angle float64, skipB
 	return hit
 }
 
-func applyPanelXform(sc *scene.Scene, a *Agent, p *Panel, angle float64) {
-	rot := scene.RotationAboutAxis(a.Axis, angle*180/math.Pi, p.Hinge)
+func applyPanelXform(sc *scene.Scene, a *Agent, p *Panel, offset float64) {
+	if a.isSliding() {
+		applySlidePanelXform(sc, a, p, offset)
+		return
+	}
+	rot := scene.RotationAboutAxis(a.Axis, offset*180/math.Pi, p.Hinge)
 	for i, base := range p.closed.boxes {
 		if i < 0 || i >= len(sc.Boxes) {
 			continue
@@ -89,5 +93,40 @@ func applyPanelXform(sc *scene.Scene, a *Agent, p *Panel, angle float64) {
 			continue
 		}
 		sc.Cylinders[i].Xform = rot.Compose(base)
+	}
+}
+
+func applySlidePanelXform(sc *scene.Scene, a *Agent, p *Panel, offset float64) {
+	delta := a.SlideDir.Scale(offset)
+	slide := scene.Translation(delta)
+	for i, base := range p.closed.boxes {
+		if i < 0 || i >= len(sc.Boxes) {
+			continue
+		}
+		if slide == nil {
+			sc.Boxes[i].Xform = base
+			continue
+		}
+		sc.Boxes[i].Xform = slide.Compose(base)
+	}
+	for i, base := range p.closed.spheres {
+		if i < 0 || i >= len(sc.Spheres) {
+			continue
+		}
+		if slide == nil {
+			sc.Spheres[i].Xform = base
+			continue
+		}
+		sc.Spheres[i].Xform = slide.Compose(base)
+	}
+	for i, base := range p.closed.cylinders {
+		if i < 0 || i >= len(sc.Cylinders) {
+			continue
+		}
+		if slide == nil {
+			sc.Cylinders[i].Xform = base
+			continue
+		}
+		sc.Cylinders[i].Xform = slide.Compose(base)
 	}
 }

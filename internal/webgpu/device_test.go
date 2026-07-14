@@ -8,6 +8,7 @@ import (
 	"raytracer/internal/probe"
 	"raytracer/internal/render"
 	"raytracer/internal/scene"
+	"raytracer/internal/texture"
 	"raytracer/internal/vec"
 )
 
@@ -116,6 +117,23 @@ func TestPackPrimitivesKinds(t *testing.T) {
 	}
 	if prims[2].Meta[0] != primBox || prims[2].GeoB != [4]float32{1, 2, 1, 0} {
 		t.Fatalf("box packed wrong: %+v", prims[2])
+	}
+}
+
+func TestPackBoxFaceTextures(t *testing.T) {
+	sc := &scene.Scene{
+		Spheres: []scene.Sphere{{Center: vec.New(0, 0, 0), Radius: 1}},
+		Boxes: []scene.Box{{
+			Min: vec.New(0, 0, 0), Max: vec.New(1, 1, 1),
+			FaceTex: [6]int{0, 0, 0, 0, texture.CaptureForward, 0},
+		}},
+	}
+	faces := PackBoxFaceTextures(sc)
+	if len(faces) != 2*boxFacesPerPrim {
+		t.Fatalf("len = %d, want %d", len(faces), 2*boxFacesPerPrim)
+	}
+	if faces[boxFacesPerPrim+texture.BoxFacePosZ] != uint32(texture.CaptureForward) {
+		t.Fatalf("front face tex = %d", faces[boxFacesPerPrim+texture.BoxFacePosZ])
 	}
 }
 

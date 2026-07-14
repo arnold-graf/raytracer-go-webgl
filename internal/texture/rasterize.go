@@ -7,6 +7,7 @@ import (
 	"image/png"
 
 	"raytracer/internal/textlayout"
+	"raytracer/internal/vec"
 )
 
 // RasterizeDocument renders headline and paragraphs into a fixed-size RGBA8
@@ -21,7 +22,48 @@ func RasterizeDocument(headline string, paragraphs []string, fontPath string, fo
 	return BitmapFromLayout(bmp), nil
 }
 
-// RasterizeText renders arbitrary text into a bitmap with a custom layout style.
+// RasterizeScreen renders UI text onto a dark display surface.
+func RasterizeScreen(headline string, paragraphs []string, fontPath string, fontSizePx int, bg, fontColor vec.V) (*CaptureImage, error) {
+	style := ScreenStyle(DocumentTexW, DocumentTexH, fontSizePx, bg, fontColor)
+	bmp, err := textlayout.Rasterize(headline, paragraphs, fontPath, style)
+	if err != nil {
+		return nil, err
+	}
+	return BitmapFromLayout(bmp), nil
+}
+
+// ScreenStyle returns layout defaults for an emissive display panel.
+func ScreenStyle(width, height, bodySizePx int, bg, fontColor vec.V) textlayout.Style {
+	style := textlayout.PaperStyle(width, height, bodySizePx)
+	style.Background = vecToRGBA(bg, 14, 16, 22)
+	style.HeadlineColor = vecToRGBA(fontColor, 210, 235, 255)
+	style.BodyColor = vecToRGBA(fontColor, 210, 235, 255)
+	style.PostFill = nil
+	return style
+}
+
+func vecToRGBA(v vec.V, dr, dg, db uint8) color.Color {
+	if v == (vec.V{}) {
+		return color.RGBA{dr, dg, db, 255}
+	}
+	return color.RGBA{
+		R: uint8(mathClamp01(v.X) * 255),
+		G: uint8(mathClamp01(v.Y) * 255),
+		B: uint8(mathClamp01(v.Z) * 255),
+		A: 255,
+	}
+}
+
+func mathClamp01(x float64) float64 {
+	if x < 0 {
+		return 0
+	}
+	if x > 1 {
+		return 1
+	}
+	return x
+}
+
 // Use this for signs, labels, screens, or other non-document surfaces.
 func RasterizeText(headline string, paragraphs []string, fontPath string, style textlayout.Style) (*CaptureImage, error) {
 	bmp, err := textlayout.Rasterize(headline, paragraphs, fontPath, style)

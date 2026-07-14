@@ -58,7 +58,7 @@ const (
 //	GeoB: box -> (max.xyz, _); cylinder -> (ymax, radius_top,..); cone -> (ytip,..);
 //	      torus -> (minorR,..); unused otherwise
 //	Albedo: linear rgb in xyz
-//	Albedo2: checker second color (planes with MatChecker)
+//	Albedo2: checker second color (MatChecker)
 //	Params: (rough, ior, reflect, transmit)
 //	Meta: (kind, material, texture, flags); flags bit0 = transformed
 //	Xf0/Xf1/Xf2: world->local rotation rows (xyz) + translation t in .w, valid
@@ -146,11 +146,13 @@ func PackPrimitives(s *scene.Scene) []GPUPrimitive {
 
 	for i := range s.Spheres {
 		sp := &s.Spheres[i]
+		alb, alb2 := surfaceColors(sp.Surface)
 		p := GPUPrimitive{
-			GeoA:   [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
-			Albedo: albedo(sp.Albedo),
-			Params: surfaceParams(sp.Surface),
-			Meta:   [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
+			GeoA:    [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
+			Albedo:  alb,
+			Albedo2: alb2,
+			Params:  surfaceParams(sp.Surface),
+			Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
 		}
 		setXform(&p, sp.Xform)
 		out = append(out, p)
@@ -207,12 +209,14 @@ func setXform(p *GPUPrimitive, x *scene.Transform) {
 
 func boxPrim(bx *scene.Box, holeStart uint32) GPUPrimitive {
 	holeCount := uint32(len(bx.Holes))
+	alb, alb2 := surfaceColors(bx.Surface)
 	p := GPUPrimitive{
-		GeoA:   [4]float32{f(bx.Min.X), f(bx.Min.Y), f(bx.Min.Z), f32u(holeStart)},
-		GeoB:   [4]float32{f(bx.Max.X), f(bx.Max.Y), f(bx.Max.Z), f32u(holeCount)},
-		Albedo: albedo(bx.Albedo),
-		Params: surfaceParams(bx.Surface),
-		Meta:   [4]uint32{primBox, uint32(bx.Mat), uint32(bx.Tex), 0},
+		GeoA:    [4]float32{f(bx.Min.X), f(bx.Min.Y), f(bx.Min.Z), f32u(holeStart)},
+		GeoB:    [4]float32{f(bx.Max.X), f(bx.Max.Y), f(bx.Max.Z), f32u(holeCount)},
+		Albedo:  alb,
+		Albedo2: alb2,
+		Params:  surfaceParams(bx.Surface),
+		Meta:    [4]uint32{primBox, uint32(bx.Mat), uint32(bx.Tex), 0},
 	}
 	setXform(&p, bx.Xform)
 	return p
@@ -223,36 +227,42 @@ func cylinderPrim(c *scene.Cylinder) GPUPrimitive {
 	if rt == 0 {
 		rt = c.Radius
 	}
+	alb, alb2 := surfaceColors(c.Surface)
 	p := GPUPrimitive{
-		GeoA:   [4]float32{f(c.CX), f(c.CZ), f(c.Radius), f(c.YMin)},
-		GeoB:   [4]float32{f(c.YMax), f(rt), openCap(c.OpenMin), openCap(c.OpenMax)},
-		Albedo: albedo(c.Albedo),
-		Params: surfaceParams(c.Surface),
-		Meta:   [4]uint32{primCylinder, uint32(c.Mat), uint32(c.Tex), 0},
+		GeoA:    [4]float32{f(c.CX), f(c.CZ), f(c.Radius), f(c.YMin)},
+		GeoB:    [4]float32{f(c.YMax), f(rt), openCap(c.OpenMin), openCap(c.OpenMax)},
+		Albedo:  alb,
+		Albedo2: alb2,
+		Params:  surfaceParams(c.Surface),
+		Meta:    [4]uint32{primCylinder, uint32(c.Mat), uint32(c.Tex), 0},
 	}
 	setXform(&p, c.Xform)
 	return p
 }
 
 func conePrim(c *scene.Cone) GPUPrimitive {
+	alb, alb2 := surfaceColors(c.Surface)
 	p := GPUPrimitive{
-		GeoA:   [4]float32{f(c.CX), f(c.CZ), f(c.RBase), f(c.YBase)},
-		GeoB:   [4]float32{f(c.YTip), 0, 0, 0},
-		Albedo: albedo(c.Albedo),
-		Params: surfaceParams(c.Surface),
-		Meta:   [4]uint32{primCone, uint32(c.Mat), uint32(c.Tex), 0},
+		GeoA:    [4]float32{f(c.CX), f(c.CZ), f(c.RBase), f(c.YBase)},
+		GeoB:    [4]float32{f(c.YTip), 0, 0, 0},
+		Albedo:  alb,
+		Albedo2: alb2,
+		Params:  surfaceParams(c.Surface),
+		Meta:    [4]uint32{primCone, uint32(c.Mat), uint32(c.Tex), 0},
 	}
 	setXform(&p, c.Xform)
 	return p
 }
 
 func torusPrim(t *scene.Torus) GPUPrimitive {
+	alb, alb2 := surfaceColors(t.Surface)
 	p := GPUPrimitive{
-		GeoA:   [4]float32{f(t.Center.X), f(t.Center.Y), f(t.Center.Z), f(t.R)},
-		GeoB:   [4]float32{f(t.Rm), 0, 0, 0},
-		Albedo: albedo(t.Albedo),
-		Params: surfaceParams(t.Surface),
-		Meta:   [4]uint32{primTorus, uint32(t.Mat), uint32(t.Tex), 0},
+		GeoA:    [4]float32{f(t.Center.X), f(t.Center.Y), f(t.Center.Z), f(t.R)},
+		GeoB:    [4]float32{f(t.Rm), 0, 0, 0},
+		Albedo:  alb,
+		Albedo2: alb2,
+		Params:  surfaceParams(t.Surface),
+		Meta:    [4]uint32{primTorus, uint32(t.Mat), uint32(t.Tex), 0},
 	}
 	setXform(&p, t.Xform)
 	return p
@@ -263,12 +273,14 @@ func ringPrim(r *scene.Ring) GPUPrimitive {
 	if h <= 0 {
 		h = scene.DefaultRingHeight
 	}
+	alb, alb2 := surfaceColors(r.Surface)
 	p := GPUPrimitive{
-		GeoA:   [4]float32{f(r.CX), f(r.CZ), f(r.Radius), f(r.CY)},
-		GeoB:   [4]float32{f(h), 0, 0, 0},
-		Albedo: albedo(r.Albedo),
-		Params: surfaceParams(r.Surface),
-		Meta:   [4]uint32{primRing, uint32(r.Mat), uint32(r.Tex), 0},
+		GeoA:    [4]float32{f(r.CX), f(r.CZ), f(r.Radius), f(r.CY)},
+		GeoB:    [4]float32{f(h), 0, 0, 0},
+		Albedo:  alb,
+		Albedo2: alb2,
+		Params:  surfaceParams(r.Surface),
+		Meta:    [4]uint32{primRing, uint32(r.Mat), uint32(r.Tex), 0},
 	}
 	setXform(&p, r.Xform)
 	return p
@@ -279,12 +291,14 @@ func lensPrim(l *scene.Lens) GPUPrimitive {
 	if th <= 0 {
 		th = scene.DefaultLensThickness
 	}
+	alb, alb2 := surfaceColors(l.Surface)
 	p := GPUPrimitive{
-		GeoA:   [4]float32{f(l.CX), f(l.CY), f(l.CZ), f(l.Aperture)},
-		GeoB:   [4]float32{f(l.RFront), f(l.RBack), f(th), 0},
-		Albedo: albedo(l.Albedo),
-		Params: surfaceParams(l.Surface),
-		Meta:   [4]uint32{primLens, uint32(l.Mat), uint32(l.Tex), 0},
+		GeoA:    [4]float32{f(l.CX), f(l.CY), f(l.CZ), f(l.Aperture)},
+		GeoB:    [4]float32{f(l.RFront), f(l.RBack), f(th), 0},
+		Albedo:  alb,
+		Albedo2: alb2,
+		Params:  surfaceParams(l.Surface),
+		Meta:    [4]uint32{primLens, uint32(l.Mat), uint32(l.Tex), 0},
 	}
 	setXform(&p, l.Xform)
 	return p
@@ -327,11 +341,13 @@ func PackBlockers(s *scene.Scene) []GPUPrimitive {
 		if sp.Mat == scene.MatEmit || sp.Mat == scene.MatGlass {
 			continue
 		}
+		alb, alb2 := surfaceColors(sp.Surface)
 		p := GPUPrimitive{
-			GeoA:   [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
-			Albedo: albedo(sp.Albedo),
-			Params: surfaceParams(sp.Surface),
-			Meta:   [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
+			GeoA:    [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
+			Albedo:  alb,
+			Albedo2: alb2,
+			Params:  surfaceParams(sp.Surface),
+			Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
 		}
 		setXform(&p, sp.Xform)
 		out = append(out, p)
@@ -621,6 +637,10 @@ func surfaceParams(s scene.Surface) [4]float32 {
 
 func albedo(v vec.V) [4]float32 { return [4]float32{f(v.X), f(v.Y), f(v.Z), 0} }
 
+func surfaceColors(s scene.Surface) (alb, alb2 [4]float32) {
+	return albedo(s.Albedo), albedo(s.Albedo2)
+}
+
 func f(x float64) float32 { return float32(x) }
 
 func openCap(open bool) float32 {
@@ -632,6 +652,169 @@ func openCap(open bool) float32 {
 
 // f32u stores a small unsigned count in an f32 lane; exact for v < 2^24.
 func f32u(v uint32) float32 { return float32(v) }
+
+// BoxFacesPerPrim is the number of per-face texture slots per GPU primitive.
+const BoxFacesPerPrim = 6
+
+// boxFacesPerPrim is an alias for internal use.
+const boxFacesPerPrim = BoxFacesPerPrim
+
+func appendFaceSlots(out []uint32, bx *scene.Box) []uint32 {
+	slots := make([]uint32, boxFacesPerPrim)
+	for f := range bx.FaceTex {
+		slots[f] = uint32(bx.FaceTex[f])
+	}
+	return append(out, slots...)
+}
+
+func appendZeroFaceSlots(out []uint32) []uint32 {
+	return append(out, make([]uint32, boxFacesPerPrim)...)
+}
+
+// PackBoxFaceTextures returns per-face texture ids for PackPrimitives order.
+func PackBoxFaceTextures(s *scene.Scene) []uint32 {
+	return packFaceTextures(s, false, nil)
+}
+
+// PackBoxFaceTexturesOmitDynamic matches packPrimitivesOmitDynamic ordering.
+func PackBoxFaceTexturesOmitDynamic(s, skipFrom *scene.Scene) []uint32 {
+	return packFaceTextures(s, true, skipFrom)
+}
+
+func packFaceTextures(s *scene.Scene, omitDynamic bool, skipFrom *scene.Scene) []uint32 {
+	if s == nil {
+		return nil
+	}
+	var sph, box, cyl, lens map[int]struct{}
+	if omitDynamic {
+		sph, box, cyl, lens = dynamicIndexSets(skipFrom)
+	}
+	var out []uint32
+	for i := range s.Spheres {
+		if omitDynamic {
+			if _, skip := sph[i]; skip {
+				continue
+			}
+		}
+		out = appendZeroFaceSlots(out)
+	}
+	for range s.Planes {
+		out = appendZeroFaceSlots(out)
+	}
+	holeStart := uint32(0)
+	for i := range s.Boxes {
+		if omitDynamic {
+			if _, skip := box[i]; skip {
+				holeStart += uint32(len(s.Boxes[i].Holes))
+				continue
+			}
+		}
+		out = appendFaceSlots(out, &s.Boxes[i])
+		holeStart += uint32(len(s.Boxes[i].Holes))
+	}
+	for i := range s.Cylinders {
+		if omitDynamic {
+			if _, skip := cyl[i]; skip {
+				continue
+			}
+		}
+		out = appendZeroFaceSlots(out)
+	}
+	for range s.Cones {
+		out = appendZeroFaceSlots(out)
+	}
+	for range s.Tori {
+		out = appendZeroFaceSlots(out)
+	}
+	for range s.Rings {
+		out = appendZeroFaceSlots(out)
+	}
+	for i := range s.Lenses {
+		if omitDynamic {
+			if _, skip := lens[i]; skip {
+				continue
+			}
+		}
+		out = appendZeroFaceSlots(out)
+	}
+	return out
+}
+
+func appendDynamicBodyFaceTextures(s *scene.Scene, faces []uint32) []uint32 {
+	if s == nil {
+		return faces
+	}
+	sph, box, cyl, lens := dynamicIndexSets(s)
+	for i := range s.Spheres {
+		if _, ok := sph[i]; !ok {
+			continue
+		}
+		faces = appendZeroFaceSlots(faces)
+	}
+	for i := range s.Boxes {
+		if _, ok := box[i]; !ok {
+			continue
+		}
+		faces = appendFaceSlots(faces, &s.Boxes[i])
+	}
+	for i := range s.Cylinders {
+		if _, ok := cyl[i]; !ok {
+			continue
+		}
+		faces = appendZeroFaceSlots(faces)
+	}
+	for i := range s.Lenses {
+		if _, ok := lens[i]; !ok {
+			continue
+		}
+		faces = appendZeroFaceSlots(faces)
+	}
+	return faces
+}
+
+// PackPrimitivesOmitDynamic is exported for tests.
+func PackPrimitivesOmitDynamic(s, skipFrom *scene.Scene) []GPUPrimitive {
+	return packPrimitivesOmitDynamic(s, skipFrom)
+}
+
+func PackSceneFaceTextures(s *scene.Scene, prims []GPUPrimitive) []uint32 {
+	return packSceneFaceTextures(s, prims)
+}
+
+func packSceneFaceTextures(s *scene.Scene, prims []GPUPrimitive) []uint32 {
+	if s == nil {
+		return nil
+	}
+	var faces []uint32
+	if s.HasInstancing() {
+		static, ok := s.StaticPrimitiveCounts()
+		if ok {
+			staticScene := sliceStaticScene(s, static)
+			faces = PackBoxFaceTexturesOmitDynamic(staticScene, s)
+			faces = appendDynamicBodyFaceTextures(s, faces)
+			if cat := s.Instancing(); cat != nil {
+				for _, t := range cat.Templates {
+					if t.Scene != nil {
+						faces = append(faces, PackBoxFaceTextures(t.Scene)...)
+					}
+				}
+			}
+		}
+	} else if len(s.DynamicBodies) > 0 {
+		faces = PackBoxFaceTexturesOmitDynamic(s, s)
+		faces = appendDynamicBodyFaceTextures(s, faces)
+	} else {
+		faces = PackBoxFaceTextures(s)
+	}
+	want := len(prims) * BoxFacesPerPrim
+	if len(faces) < want {
+		pad := make([]uint32, want-len(faces))
+		faces = append(faces, pad...)
+	} else if len(faces) > want {
+		faces = faces[:want]
+	}
+	return faces
+}
 
 func holeBytes(holes []GPUHole) []byte {
 	if len(holes) == 0 {

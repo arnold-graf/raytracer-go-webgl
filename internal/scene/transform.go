@@ -74,6 +74,18 @@ func NewTransform(degX, degY, degZ float64, pivot vec.V) *Transform {
 	return PlacementTransform(degX, degY, degZ, pivot, pivot)
 }
 
+// Translation builds a pure translation transform (no rotation).
+func Translation(delta vec.V) *Transform {
+	if delta == (vec.V{}) {
+		return nil
+	}
+	return &Transform{
+		fwd: mat3{1, 0, 0, 0, 1, 0, 0, 0, 1},
+		inv: mat3{1, 0, 0, 0, 1, 0, 0, 0, 1},
+		t:   delta,
+	}
+}
+
 // RotationAboutAxis builds a rotation (degrees) about pivot on a principal axis.
 func RotationAboutAxis(axis string, deg float64, pivot vec.V) *Transform {
 	switch axis {

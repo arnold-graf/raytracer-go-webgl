@@ -40,6 +40,7 @@ type sceneCache struct {
 	waters           []GPUWater
 	campfireParams   []CampfireParams
 	holes            []GPUHole
+	boxFaceTex       []uint32
 	ao               AOVolume
 	aoOK             bool
 	aoVersion        uint64
@@ -103,6 +104,7 @@ afterPack:
 	c.waters = PackWaters(v.Scene)
 	c.campfireParams = PackCampfireParams(v.Scene)
 	c.holes = PackHoles(v.Scene)
+	c.boxFaceTex = PackSceneFaceTextures(v.Scene, c.prims)
 	c.ao, c.aoOK = PackAOVolume(v)
 	c.aoVersion = v.AOVersion
 

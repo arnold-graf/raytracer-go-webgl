@@ -33,7 +33,7 @@ After installing, open a scene file: you should get diagnostics (squiggles), hov
 
 **Tombi style lints:** `tombi.toml` disables `tables-out-of-order` and `dotted-keys-out-of-order` so scene files can group primitives however you like (e.g. interleaving `[[box]]` and `[[cylinder]]`).
 
-**Tombi strict mode:** Primitives use `allOf` to compose geometry fields with `primitive_transform` and `primitive_surface`. Tombi validates each `allOf` branch separately, so partial subschemas set `"additionalProperties": true` to avoid false positives on valid keys like `pos_z`. The root schema still uses `"additionalProperties": false` to reject unknown top-level tables.
+**Tombi strict mode:** Primitives use `allOf` to compose geometry fields with `primitive_transform`, `primitive_surface`, and optional `interact_props`. Tombi validates each `allOf` branch separately, so partial subschemas set `"additionalProperties": true` to avoid false positives on valid keys like `material` or `pos_z`. The root schema still uses `"additionalProperties": false` to reject unknown top-level tables.
 
 IDE validation is best-effort; the Go validator below is the authoritative check.
 
@@ -71,6 +71,6 @@ npx pajv validate -s schemas/player.schema.json -d player.toml
 ## Authoring notes
 
 - **Float literals:** Prefer `0.0` over `0` for `vec3` arrays (`[x, y, z]`). The Go decoder uses fixed `[3]float64` arrays; integer literals in vectors can fail to decode.
-- **Table names:** Primitives use array-of-tables (`[[box]]`, `[[sphere]]`, …). Singleton config uses `[camera]`, `[environment]`, `[interact]`. Nested terrain and box tables use dotted names (`[[terrain.feature]]`, `[[terrain.pad]]`, `[[box.hole]]`).
+- **Table names:** Primitives use array-of-tables (`[[box]]`, `[[sphere]]`, …). Singleton config uses `[camera]`, `[environment]`. Nested terrain and box tables use dotted names (`[[terrain.feature]]`, `[[terrain.pad]]`, `[[box.hole]]`). Interaction fields (`hint`, `on_use`, `use_range`) are optional flat keys on `[[box]]`, `[[door]]`, and `[[document]]`.
 - **Templates:** Object files may contain Go `text/template` actions (`{{ }}`). Validation runs on the rendered result when templates are used; static files validate as-is.
 - **Runtime textures:** `capture_forward`, `capture_left`, etc. are assigned by the portal system at runtime and are listed in the schema for completeness, not for ordinary scene authoring.

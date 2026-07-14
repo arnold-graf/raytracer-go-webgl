@@ -37,13 +37,22 @@ type Agent struct {
 	Axis           string
 	ClosedAngle    float64
 	OpenAngle      float64
+	OpenDistance   float64
+	SlideDir       vec.V
 	Swing          string
 	OpenSign       float64
 	Speed          float64
+	CanClose       bool
+	AutocloseTimeout float64
+	OpenElapsed    float64
 	Panels         []Panel
 	State          string
 	PanelCollision bool
 	Interact       *scene.Interactable
+}
+
+func (a *Agent) isSliding() bool {
+	return a.Kind == "sliding"
 }
 
 func newAgent(spec scene.DoorSpec) *Agent {
@@ -53,9 +62,13 @@ func newAgent(spec scene.DoorSpec) *Agent {
 		Axis:           spec.Axis,
 		ClosedAngle:    spec.ClosedAngle,
 		OpenAngle:      spec.OpenAngle,
+		OpenDistance:   spec.OpenDistance,
+		SlideDir:       spec.SlideDir,
 		Swing:          spec.Swing,
 		OpenSign:       spec.OpenSign,
 		Speed:          spec.Speed,
+		CanClose:       spec.CanClose,
+		AutocloseTimeout: spec.AutocloseTimeout,
 		State:          stateClosed,
 		PanelCollision: true,
 		Interact:       spec.Interact,
@@ -66,9 +79,6 @@ func newAgent(spec scene.DoorSpec) *Agent {
 	if a.Speed <= 0 {
 		a.Speed = 1.5
 	}
-	if a.OpenAngle <= 0 {
-		a.OpenAngle = math.Pi / 2
-	}
 	if a.OpenSign == 0 {
 		a.OpenSign = 1
 	}
@@ -78,8 +88,27 @@ func newAgent(spec scene.DoorSpec) *Agent {
 	if a.Swing == "" {
 		a.Swing = "one_way"
 	}
+	if a.isSliding() {
+		if a.OpenDistance <= 0 {
+			a.OpenDistance = 2.0
+		}
+		if a.SlideDir.LenSq() < 1e-12 {
+			a.SlideDir = vec.V{X: 1}
+		} else {
+			a.SlideDir = a.SlideDir.Normalize()
+		}
+	} else if a.OpenAngle <= 0 {
+		a.OpenAngle = math.Pi / 2
+	}
 
 	switch a.Kind {
+	case "sliding":
+		if len(spec.Panels) < 1 {
+			return nil
+		}
+		a.Panels = []Panel{
+			{Geom: spec.Panels[0], OpenSign: a.OpenSign},
+		}
 	case "double":
 		if len(spec.Panels) < 2 {
 			return nil
@@ -99,12 +128,31 @@ func newAgent(spec scene.DoorSpec) *Agent {
 	return a
 }
 
-func (a *Agent) panelMaxAngle() float64 {
+func (a *Agent) panelMaxTravel() float64 {
+	if a.isSliding() {
+		return a.OpenDistance
+	}
 	return a.OpenAngle
 }
 
 func (a *Agent) isAnimating() bool {
 	return a.State == stateOpening || a.State == stateClosing
+}
+
+func (a *Agent) isInteractable() bool {
+	if a.CanClose {
+		return true
+	}
+	return a.State == stateClosed || a.State == stateClosing
+}
+
+func (a *Agent) beginClose() {
+	for i := range a.Panels {
+		a.Panels[i].Target = a.ClosedAngle
+	}
+	a.State = stateClosing
+	a.PanelCollision = false
+	a.OpenElapsed = 0
 }
 
 func (a *Agent) toggle(playerPos vec.V) {
@@ -121,16 +169,16 @@ func (a *Agent) toggle(playerPos vec.V) {
 				os = sign * panelSideSign(i)
 			}
 			a.Panels[i].OpenSign = os
-			a.Panels[i].Target = a.ClosedAngle + os*a.panelMaxAngle()
+			a.Panels[i].Target = a.ClosedAngle + os*a.panelMaxTravel()
 		}
 		a.State = stateOpening
 		a.PanelCollision = false
+		a.OpenElapsed = 0
 	case stateOpen, stateOpening:
-		for i := range a.Panels {
-			a.Panels[i].Target = a.ClosedAngle
+		if !a.CanClose {
+			return
 		}
-		a.State = stateClosing
-		a.PanelCollision = false
+		a.beginClose()
 	}
 }
 

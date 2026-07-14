@@ -19,10 +19,6 @@
       "$ref": "#/definitions/environment",
       "description": "TOML table [environment]. Sky gradient, ambient light, and directional sun."
     },
-    "interact": {
-      "$ref": "#/definitions/interact",
-      "description": "TOML table [interact]. One use-target for the player (E key). Typically on small object files, not full scenes."
-    },
     "include": {
       "type": "array",
       "description": "TOML array-of-tables [[include]]. Instantiates another TOML file with a placement transform.",
@@ -148,6 +144,13 @@
       "items": {
         "$ref": "#/definitions/document"
       }
+    },
+    "screen": {
+      "type": "array",
+      "description": "TOML [[screen]]. Interactable display with rasterized UI text. The camera animates to a head-on view when used.",
+      "items": {
+        "$ref": "#/definitions/screen"
+      }
     }
   },
   "definitions": {
@@ -205,7 +208,8 @@
         "capture_left",
         "capture_right",
         "capture_up",
-        "capture_down"
+        "capture_down",
+        "capture_backward"
       ],
       "description": "Procedural world-space texture id. Omitted or \"none\" leaves the surface untextured (albedo only). Capture_* slots are filled at runtime by the portal system."
     },
@@ -280,6 +284,10 @@
         },
         "albedo": {
           "$ref": "#/definitions/surface_albedo"
+        },
+        "albedo2": {
+          "$ref": "#/definitions/rgb",
+          "description": "Second color for checker material; ignored for other materials."
         },
         "rough": {
           "$ref": "#/definitions/surface_rough"
@@ -447,10 +455,6 @@
             "d": {
               "type": "number",
               "description": "Plane equation n\u00b7p = d (signed distance along normal)."
-            },
-            "albedo2": {
-              "$ref": "#/definitions/rgb",
-              "description": "Second color for checker material; ignored for other materials."
             }
           },
           "required": [
@@ -516,6 +520,30 @@
               "items": {
                 "$ref": "#/definitions/box_hole"
               }
+            },
+            "texture_right": {
+              "$ref": "#/definitions/texture",
+              "description": "Texture on the +X face only."
+            },
+            "texture_left": {
+              "$ref": "#/definitions/texture",
+              "description": "Texture on the -X face only."
+            },
+            "texture_top": {
+              "$ref": "#/definitions/texture",
+              "description": "Texture on the +Y face only."
+            },
+            "texture_bottom": {
+              "$ref": "#/definitions/texture",
+              "description": "Texture on the -Y face only."
+            },
+            "texture_front": {
+              "$ref": "#/definitions/texture",
+              "description": "Texture on the +Z face only."
+            },
+            "texture_back": {
+              "$ref": "#/definitions/texture",
+              "description": "Texture on the -Z face only."
             }
           },
           "oneOf": [
@@ -540,6 +568,9 @@
         },
         {
           "$ref": "#/definitions/primitive_surface"
+        },
+        {
+          "$ref": "#/definitions/interact_props"
         }
       ]
     },
@@ -1168,12 +1199,13 @@
       },
       "additionalProperties": false
     },
-    "interact": {
+    "interact_props": {
       "type": "object",
+      "description": "Optional E-key interaction on this primitive. The player must look at the geometry (ray hit) within use_range metres.",
       "properties": {
         "hint": {
           "type": "string",
-          "description": "HUD prompt shown when the player is in range (e.g. \"Exit\")."
+          "description": "HUD prompt shown when the crosshair hits this object (e.g. \"door\")."
         },
         "on_use": {
           "$ref": "#/definitions/on_use"
@@ -1182,18 +1214,10 @@
           "type": "number",
           "minimum": 0,
           "exclusiveMinimum": true,
-          "description": "Maximum distance from the player to the interact center."
-        },
-        "center": {
-          "$ref": "#/definitions/vec3",
-          "description": "World-space point for range tests (often the object origin)."
+          "description": "Maximum ray distance from the camera to the hit point."
         }
       },
-      "required": [
-        "on_use",
-        "center"
-      ],
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "point": {
       "type": "object",
@@ -1278,7 +1302,7 @@
     },
     "door": {
       "type": "object",
-      "description": "TOML [[door]]. Swinging door with dynamic panel box(es) and optional nested [door.interact].",
+      "description": "TOML [[door]]. Swinging or sliding door with dynamic panel box(es). Optional hint and use_range set the E-key prompt and max look distance.",
       "properties": {
         "id": {
           "type": "string",
@@ -1287,8 +1311,8 @@
         },
         "kind": {
           "type": "string",
-          "enum": ["single", "double"],
-          "description": "Single panel or paired double doors. Default: single."
+          "enum": ["single", "double", "sliding"],
+          "description": "Single panel, paired double doors, or sliding panel. Default: single."
         },
         "hinge": {
           "$ref": "#/definitions/vec3",
@@ -1305,12 +1329,22 @@
         "axis": {
           "type": "string",
           "enum": ["x", "y", "z"],
-          "description": "Rotation axis through the hinge. Default: y."
+          "description": "Rotation axis through the hinge (swing doors). Default: y."
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["up", "down", "left", "right"],
+          "description": "Slide direction for sliding doors (object-local axes)."
         },
         "open_angle": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "Maximum swing in degrees. Default: 90."
+          "description": "Maximum swing in degrees (swing doors). Default: 90."
+        },
+        "open_distance": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Travel distance in metres (sliding doors). Default: 2.0."
         },
         "swing": {
           "type": "string",
@@ -1324,7 +1358,16 @@
         "speed": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "Swing speed in rad/s. Default: 1.5."
+          "description": "Swing speed in rad/s or slide speed in m/s. Default: 1.5."
+        },
+        "can_close": {
+          "type": "boolean",
+          "description": "When false the player can open but not close the door. Default: true."
+        },
+        "autoclose_timeout": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Seconds the door stays fully open before closing automatically. Omitted = disabled."
         },
         "panel_file": {
           "type": "string",
@@ -1348,22 +1391,14 @@
             "type": "number"
           }
         },
-        "interact": {
-          "type": "object",
-          "properties": {
-            "hint": {
-              "type": "string"
-            },
-            "use_range": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "center": {
-              "$ref": "#/definitions/vec3"
-            }
-          },
-          "required": ["center"],
-          "additionalProperties": false
+        "hint": {
+          "type": "string",
+          "description": "HUD prompt when looking at the door panel. Default: door."
+        },
+        "use_range": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Max camera-to-hit distance for interaction. Default: 3.0."
         }
       },
       "required": ["id"],
@@ -1426,7 +1461,7 @@
         },
         "font": {
           "type": "string",
-          "description": "Path to a TTF/OTF file (relative to this TOML file). Default: assets/PixelOperator.ttf."
+          "description": "Font file name in assets/ (e.g. M42.ttf). Default: PixelOperator.ttf."
         },
         "font_size_px": {
           "type": "integer",
@@ -1439,27 +1474,16 @@
         },
         "on_use": {
           "type": "string",
-          "description": "Optional handler id invoked when the player opens the document (after the read animation starts). Overrides top-level on_use when [document.interact] is present."
+          "description": "Optional handler id invoked when the player opens the document (after the read animation starts)."
         },
-        "interact": {
-          "type": "object",
-          "description": "Optional overrides for the auto-registered read interactable.",
-          "properties": {
-            "hint": {
-              "type": "string",
-              "description": "HUD prompt when in range. Default: press {{use_button}} to read."
-            },
-            "use_range": {
-              "type": "number",
-              "exclusiveMinimum": 0,
-              "description": "Maximum distance from the player to the document center. Default: 1.2."
-            },
-            "on_use": {
-              "type": "string",
-              "description": "Handler id invoked when the document is opened."
-            }
-          },
-          "additionalProperties": false
+        "hint": {
+          "type": "string",
+          "description": "HUD prompt when looking at the paper. Default: press {{use_button}} to read."
+        },
+        "use_range": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Max camera-to-hit distance for interaction. Default: 1.2."
         }
       },
       "required": [
@@ -1467,6 +1491,76 @@
         "pos_y",
         "pos_z"
       ],
+      "additionalProperties": false
+    },
+    "screen": {
+      "type": "object",
+      "description": "TOML [[screen]]. Display surface with dynamic text rasterized at load time. Text appears on the +Z face. Using it animates the camera to a head-on view.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique screen name. Default: screen_N."
+        },
+        "pos_x": { "type": "number" },
+        "pos_y": { "type": "number" },
+        "pos_z": { "type": "number" },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Panel width in meters. Default: 0.28."
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Panel height in meters. Default: 0.23."
+        },
+        "depth": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Panel thickness in meters. Default: 0.002."
+        },
+        "rotate_x": { "$ref": "#/definitions/rotate_x" },
+        "rotate_y": { "$ref": "#/definitions/rotate_y" },
+        "rotate_z": { "$ref": "#/definitions/rotate_z" },
+        "headline": { "type": "string" },
+        "paragraphs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "font": {
+          "type": "string",
+          "description": "Font file name in assets/ (e.g. M42.ttf). Default: PixelOperator.ttf."
+        },
+        "font_size_px": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "font_color": {
+          "$ref": "#/definitions/surface_albedo",
+          "description": "Rasterized text color. Default: pale cyan."
+        },
+        "material": {
+          "$ref": "#/definitions/material",
+          "description": "Surface material for the display panel. Default: emit."
+        },
+        "albedo": {
+          "$ref": "#/definitions/surface_albedo",
+          "description": "Surface tint and raster background color. Default: dark blue-gray."
+        },
+        "rough": { "$ref": "#/definitions/surface_rough" },
+        "reflect": { "$ref": "#/definitions/surface_reflect" },
+        "on_use": { "type": "string" },
+        "hint": {
+          "type": "string",
+          "description": "HUD prompt when looking at the screen. Default: computer screen."
+        },
+        "use_range": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Max camera-to-hit distance for interaction. Default: 1.5."
+        }
+      },
+      "required": ["pos_x", "pos_y", "pos_z"],
       "additionalProperties": false
     },
     "include": {

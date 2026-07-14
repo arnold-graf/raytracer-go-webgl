@@ -8,12 +8,9 @@ height = 3.5
 depth = 0.3
 albedo = [1, 1, 1]
 texture = "cement"
-
-[interact]
-hint = "press {{use_button}} to exit"
+hint = "exit"
 use_range = 2.5
 on_use = "exit_portal"
-center = [1.0, 1.25, 0.15]
 
 [[sphere]]
 material = "mirror"
@@ -29,6 +26,5 @@ brightness = 0.5
 
 [[include]]
 file = "exit-sign.toml"
-# migrated-center-at
 at = [1.025, 2.34, 0.35]
 rotate_y = 0.0

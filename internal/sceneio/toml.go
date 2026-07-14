@@ -50,6 +50,7 @@ func (inc includeDTO) AtVec() vec.V { return inc.At.toV() }
 type surfaceDTO struct {
 	Material string   `toml:"material"`
 	Albedo   vec3     `toml:"albedo"`
+	Albedo2  vec3     `toml:"albedo2"`
 	Rough    float64  `toml:"rough"`
 	IOR      *float64 `toml:"ior"`
 	Texture  string   `toml:"texture"`
@@ -73,7 +74,7 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 		ior = *s.IOR
 	}
 	return scene.Surface{
-		Mat: mat, Albedo: s.Albedo.toV(), Rough: s.Rough, IOR: ior, Tex: tex,
+		Mat: mat, Albedo: s.Albedo.toV(), Albedo2: s.Albedo2.toV(), Rough: s.Rough, IOR: ior, Tex: tex,
 		Reflect: s.Reflect, Transmit: s.Transmit,
 	}, nil
 }
@@ -96,9 +97,8 @@ type sphereDTO struct {
 }
 
 type planeDTO struct {
-	Normal  vec3    `toml:"normal"`
-	D       float64 `toml:"d"`
-	Albedo2 vec3    `toml:"albedo2"`
+	Normal vec3    `toml:"normal"`
+	D      float64 `toml:"d"`
 	transformDTO
 	surfaceDTO
 }
@@ -116,6 +116,8 @@ type boxDTO struct {
 	Hole []holeDTO `toml:"hole"`
 	transformDTO
 	surfaceDTO
+	faceTextureDTO
+	interactPropsDTO
 }
 
 // boxExtentDTO accepts either a min corner + size (pos_x, pos_y, pos_z,
@@ -465,21 +467,6 @@ type includeDTO struct {
 	Params          map[string]any      `toml:"params"`
 }
 
-type interactDTO struct {
-	Hint    string  `toml:"hint"`
-	OnUse   string  `toml:"on_use"`
-	Range   float64 `toml:"use_range"`
-	Center  vec3    `toml:"center"`
-}
-
-func (d interactDTO) build() scene.Interactable {
-	return scene.Interactable{
-		Hint:    d.Hint,
-		Handler: d.OnUse,
-		Range:   d.Range,
-		Center:  d.Center.toV(),
-	}
-}
 
 type pointDTO struct {
 	ID      string   `toml:"id"`
@@ -510,7 +497,6 @@ type sceneDTO struct {
 	Extends     string          `toml:"extends"`
 	Camera      *cameraDTO      `toml:"camera"`
 	Environment *environmentDTO `toml:"environment"`
-	Interact    *interactDTO    `toml:"interact"`
 	Include     []includeDTO    `toml:"include"`
 	Sphere      []sphereDTO     `toml:"sphere"`
 	Plane       []planeDTO      `toml:"plane"`
@@ -529,6 +515,7 @@ type sceneDTO struct {
 	NPC              []npcDTO              `toml:"npc"`
 	Door             []doorDTO             `toml:"door"`
 	Document         []documentDTO         `toml:"document"`
+	Screen           []screenDTO           `toml:"screen"`
 }
 
 // tintOrWhite returns v as a color, defaulting an omitted (all-zero) vector to
@@ -635,7 +622,6 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		if err := resolveDoors(base, dto.Door, filepath.Dir(path), params, seen, deps); err != nil {
 			return nil, err
 		}
-		appendDoorInteractables(base)
 		base.PrepareTerrains()
 		base.ApplyTerrainFollow(extendPlacements)
 		base.ApplyInstanceTerrainFollow()
@@ -790,6 +776,9 @@ func Decode(data []byte) (*scene.Scene, error) {
 	if err := resolveDocuments(s, dto.Document, "."); err != nil {
 		return nil, err
 	}
+	if err := resolveScreens(s, dto.Screen, "."); err != nil {
+		return nil, err
+	}
 	if err := finalizeDocuments(s); err != nil {
 		return nil, err
 	}
@@ -856,7 +845,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			return nil, fmt.Errorf("plane[%d]: %w", i, err)
 		}
 		surf.Xform = d.transformDTO.buildPlacement(vec.V{})
-		s.Planes = append(s.Planes, scene.Plane{N: d.Normal.toV(), D: d.D, Surface: surf, Albedo2: d.Albedo2.toV()})
+		s.Planes = append(s.Planes, scene.Plane{N: d.Normal.toV(), D: d.D, Surface: surf})
 	}
 	for i, d := range dto.Box {
 		surf, err := d.toSurface()
@@ -868,6 +857,10 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			return nil, fmt.Errorf("box[%d]: %w", i, err)
 		}
 		surf.Xform = d.transformDTO.buildPlacement(boxCenter(min, max))
+		faceTex, err := d.faceTextureDTO.resolve()
+		if err != nil {
+			return nil, fmt.Errorf("box[%d]: %w", i, err)
+		}
 		var holes []scene.AABB
 		for j, h := range d.Hole {
 			hmin, hmax, err := h.bounds()
@@ -876,7 +869,11 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			}
 			holes = append(holes, scene.AABB{Min: hmin, Max: hmax})
 		}
-		s.Boxes = append(s.Boxes, scene.Box{Min: min, Max: max, Holes: holes, Surface: surf})
+		s.Boxes = append(s.Boxes, scene.Box{Min: min, Max: max, Holes: holes, Surface: surf, FaceTex: faceTex})
+		if d.OnUse != "" {
+			iaIdx := s.RegisterInteractable(d.interactPropsDTO.build())
+			s.SetBoxInteract(len(s.Boxes)-1, iaIdx)
+		}
 	}
 	for i, d := range dto.Cylinder {
 		surf, err := d.toSurface()
@@ -985,9 +982,6 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		}
 		s.Env = env
 	}
-	if dto.Interact != nil {
-		s.Interactables = append(s.Interactables, dto.Interact.build())
-	}
 	seenPoint := map[string]bool{}
 	for i, d := range dto.Point {
 		p, err := d.build()
@@ -1025,21 +1019,15 @@ func (dto sceneDTO) buildWithIncludes(path string, params map[string]any, seen m
 	if err := resolveDocuments(s, dto.Document, filepath.Dir(path)); err != nil {
 		return nil, err
 	}
+	if err := resolveScreens(s, dto.Screen, filepath.Dir(path)); err != nil {
+		return nil, err
+	}
 	for i, inc := range dto.Include {
 		if err := mergeInclude(s, inc, filepath.Dir(path), i, seen, deps, followPlacements); err != nil {
 			return nil, err
 		}
 	}
-	appendDoorInteractables(s)
 	return s, nil
-}
-
-func appendDoorInteractables(s *scene.Scene) {
-	for _, ds := range s.DoorSpecs {
-		if ds.Interact != nil {
-			s.Interactables = append(s.Interactables, *ds.Interact)
-		}
-	}
 }
 
 func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) error {
@@ -1234,12 +1222,7 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 	}
 	addTerrainPads(dst, pads)
 	addTerrainFeatures(dst, features)
-	for _, ia := range sub.Interactables {
-		if xf != nil {
-			ia.Center = xf.ToWorld(ia.Center)
-		}
-		dst.Interactables = append(dst.Interactables, ia)
-	}
+	dst.MergeInteractables(sub, boxOffset)
 	for _, p := range sub.Points {
 		dst.Points = append(dst.Points, p.Placed(xf))
 	}
@@ -1248,6 +1231,7 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 	}
 	mergeDoorSpecs(dst, sub, xf, boxOffset, sphereOffset, cylinderOffset)
 	mergeDocumentSpecs(dst, sub, xf)
+	mergeScreenSpecs(dst, sub, xf)
 }
 
 // addTerrainPads appends pads to every terrain in dst and re-Prepares the
