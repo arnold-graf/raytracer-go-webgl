@@ -9,9 +9,13 @@ import (
 
 const defaultFontFile = "PixelOperator.ttf"
 
-// resolveFontPath maps a TOML font name to an absolute path under the repo's
+// ResolveFontPath maps a font file name to an absolute path under the repo's
 // assets/ directory. Accepts "M42.ttf", "assets/M42.ttf", or legacy relative
 // paths that end in assets/<file>. Absolute paths are returned unchanged.
+func ResolveFontPath(name string) (string, error) {
+	return resolveFontPath(name)
+}
+
 func resolveFontPath(name string) (string, error) {
 	if name == "" {
 		name = defaultFontFile

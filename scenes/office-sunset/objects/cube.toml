@@ -162,4 +162,4 @@ open_distance = 5.0
 speed = 1.2
 panel_file = "cube-door-panel.toml"
 use_range = 2.5
-hint = "door"
+hint = "DOOR"

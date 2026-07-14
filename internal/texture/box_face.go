@@ -38,7 +38,7 @@ func BoxFaceIndex(n vec.V) int {
 }
 
 // BoxFaceUV maps a hit on one box face to texture coordinates in [0,1].
-// v=0 is the top of the image (high Y on vertical faces, low Z on top face).
+// v=0 is the top of the image (high Y on vertical faces, low Z on +Y floor face).
 // Returns u,v < 0 when the face is degenerate.
 func BoxFaceUV(p, n, bmin, bmax vec.V) (u, v float64) {
 	face := BoxFaceIndex(n)
@@ -62,7 +62,7 @@ func BoxFaceUV(p, n, bmin, bmax vec.V) (u, v float64) {
 		u = (p.Z - bmin.Z) / dz
 		v = 1 - (p.Y-bmin.Y)/dy
 	case BoxFacePosY:
-		u = (p.X - bmin.X) / dx
+		u = 1 - (p.X-bmin.X)/dx
 		v = 1 - (p.Z-bmin.Z)/dz
 	case BoxFaceNegY:
 		u = (p.X - bmin.X) / dx

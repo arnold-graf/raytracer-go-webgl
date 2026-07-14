@@ -82,7 +82,7 @@ func (d doorDTO) baseSpec() scene.DoorSpec {
 	}
 	hint := d.Hint
 	if hint == "" {
-		hint = "door"
+		hint = "DOOR"
 	}
 	ia := scene.Interactable{
 		Hint:    hint,

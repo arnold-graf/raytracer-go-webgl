@@ -61,4 +61,4 @@ paragraphs = [
 font = "M42.ttf"
 font_size_px = 13
 albedo = [1.0, 1.0, 1.0]
-hint = "memo"
+hint = "MEMO"

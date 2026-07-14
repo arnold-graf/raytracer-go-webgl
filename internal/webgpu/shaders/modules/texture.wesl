@@ -8,6 +8,8 @@
 
 
 
+
+
 import package::types::{DOCUMENT_TEX_H, DOCUMENT_TEX_W, MAT_CHECKER, Prim, TEX_BRICK, TEX_CAPTURE_BASE, TEX_CAPTURE_COUNT, TEX_CEMENT, TEX_DIRT, TEX_DOCUMENT_BASE, TEX_DOCUMENT_COUNT, TEX_GRASS, TEX_MARBLE, TEX_NONE, TEX_PAPER, TEX_SNOW, TEX_STONE, TEX_STONE_WALL, TEX_WALLPAPER_GREEN, TEX_WALLPAPER_ROSE, TEX_WOOD, box_face_textures, capture_pixels, document_pixels, params};
 import package::math::{TEX_PI, cell_rand, fbm, fracf, mix3, perlin, smoothstepf, turbulence};
 
@@ -366,7 +368,7 @@ fn box_face_uv(lp: vec3<f32>, ln: vec3<f32>, bmin: vec3<f32>, bmax: vec3<f32>) -
         u = (lp.z - bmin.z) / dz;
         v = 1.0 - (lp.y - bmin.y) / dy;
     } else if (face == 2) {
-        u = (lp.x - bmin.x) / dx;
+        u = 1.0 - (lp.x - bmin.x) / dx;
         v = 1.0 - (lp.z - bmin.z) / dz;
     } else if (face == 3) {
         u = (lp.x - bmin.x) / dx;

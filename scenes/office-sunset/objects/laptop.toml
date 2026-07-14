@@ -48,7 +48,7 @@ pos_z = -0.02
 width = 0.28
 height = 0.23
 depth = 0.001
-hint = "workstation"
+hint = "WORKSTATION"
 headline = "SERVER ROOM"
 paragraphs = [
   "Status: ONLINE",

@@ -11,7 +11,7 @@ func TestResolveFontPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := resolveFontPath("M42.ttf")
+	got, err := ResolveFontPath("M42.ttf")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func TestResolveFontPath(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 
-	got, err = resolveFontPath("assets/PixelOperator.ttf")
+	got, err = ResolveFontPath("assets/PixelOperator.ttf")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestResolveFontPath(t *testing.T) {
 		t.Fatalf("assets/ prefix: got %q want %q", got, want)
 	}
 
-	got, err = resolveFontPath("../../../assets/M42.ttf")
+	got, err = ResolveFontPath("../../../assets/M42.ttf")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestResolveFontPath(t *testing.T) {
 		t.Fatalf("legacy path: got %q", got)
 	}
 
-	got, err = resolveFontPath("")
+	got, err = ResolveFontPath("")
 	if err != nil {
 		t.Fatal(err)
 	}

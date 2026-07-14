@@ -14,6 +14,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"golang.org/x/image/font"
 
 	"raytracer/internal/audio"
 	"raytracer/internal/camera"
@@ -100,7 +101,12 @@ type Game struct {
 	reverbDamp float64
 
 	// Interaction hint shown when near an interactable object.
-	activeHint string
+	activeHint    string
+	hintFont      font.Face
+	hintCached    string
+	hintCachedImg *ebiten.Image
+	hintCachedW   int
+	hintCachedH   int
 	// Screen fade during portal transitions (0 = clear, 1 = black).
 	fadeAlpha        float64
 	fadeTarget       float64

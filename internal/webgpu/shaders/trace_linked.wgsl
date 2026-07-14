@@ -1117,7 +1117,7 @@ fn box_face_uv(lp: vec3<f32>, ln: vec3<f32>, bmin: vec3<f32>, bmax: vec3<f32>) -
     u = (lp.z - bmin.z) / dz;
     v = 1.0 - (lp.y - bmin.y) / dy;
   } else if (face == 2) {
-    u = (lp.x - bmin.x) / dx;
+    u = 1.0 - (lp.x - bmin.x) / dx;
     v = 1.0 - (lp.z - bmin.z) / dz;
   } else if (face == 3) {
     u = (lp.x - bmin.x) / dx;

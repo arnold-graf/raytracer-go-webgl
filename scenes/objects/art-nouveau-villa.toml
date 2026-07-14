@@ -233,7 +233,7 @@ open_sign = 1.0
 speed = 1.5
 panel_file = "villa-front-door-panel.toml"
 use_range = 2.5
-hint = "door"
+hint = "DOOR"
 
 [[box]] # projecting bay side (left)
 albedo = [0.94, 0.93, 0.90]

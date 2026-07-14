@@ -67,6 +67,22 @@ func TestBoxFaceUVCenter(t *testing.T) {
 	}
 }
 
+func TestBoxFaceUVFloorCorner(t *testing.T) {
+	// Cube floor slab: interior +Y face uses texture_top (capture_down).
+	bmin := vec.New(-1, 0, -1)
+	bmax := vec.New(4, 0.25, 4)
+	pt := vec.New(-1, 0.25, -1) // min X, max Y, min Z corner
+	u, v := texture.BoxFaceUV(pt, vec.New(0, 1, 0), bmin, bmax)
+	if math.Abs(u-1) > 1e-9 || math.Abs(v-1) > 1e-9 {
+		t.Fatalf("floor corner uv = (%v,%v), want (1,1)", u, v)
+	}
+	pt = vec.New(4, 0.25, 4)
+	u, v = texture.BoxFaceUV(pt, vec.New(0, 1, 0), bmin, bmax)
+	if math.Abs(u) > 1e-9 || math.Abs(v) > 1e-9 {
+		t.Fatalf("floor opposite corner uv = (%v,%v), want (0,0)", u, v)
+	}
+}
+
 func TestBoxFaceUVScalesWithBounds(t *testing.T) {
 	bmin := vec.New(0, 0, 0)
 	bmax := vec.New(10, 4, 8)
