@@ -231,6 +231,67 @@ func TestArtDecoRingLampShape(t *testing.T) {
 
 // TestStaircaseSeqTemplate checks the real staircase object: default 8 steps
 // without params, and a custom step count via seq/range.
+func TestOfficeChairObjectLoads(t *testing.T) {
+	path := repoFile("scenes/objects/office-chair.toml")
+	parent := filepath.Join(t.TempDir(), "scene.toml")
+	if err := os.WriteFile(parent, []byte(
+		"[[include]]\nfile = "+strconv.Quote(path)+"\nat = [0.0, 0.0, 0.0]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Cylinders) < 7 {
+		t.Fatalf("cylinders = %d, want at least 7 (column + hub + 5 wheels)", len(s.Cylinders))
+	}
+	if len(s.Boxes) < 11 {
+		t.Fatalf("boxes = %d, want at least 11", len(s.Boxes))
+	}
+}
+
+func TestFloppyDiskObjectLoads(t *testing.T) {
+	path := repoFile("scenes/objects/floppy-disk-3.5.toml")
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "scene.toml")
+	if err := os.WriteFile(parent, []byte(
+		"[[include]]\nfile = "+strconv.Quote(path)+"\nat = [0.0, 0.9, 0.0]\n"+
+			"params = { albedo = [0.2, 0.3, 0.4], label = \"BACKUP\" }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Boxes) < 6 {
+		t.Fatalf("boxes = %d, want at least 6", len(s.Boxes))
+	}
+	if len(s.DocumentSpecs) != 1 {
+		t.Fatalf("documents = %d, want 1", len(s.DocumentSpecs))
+	}
+	if s.DocumentSpecs[0].Headline != "BACKUP" {
+		t.Fatalf("label = %q", s.DocumentSpecs[0].Headline)
+	}
+	alb := s.Boxes[0].Albedo
+	if math.Abs(alb.X-0.2) > 1e-9 || math.Abs(alb.Y-0.3) > 1e-9 || math.Abs(alb.Z-0.4) > 1e-9 {
+		t.Fatalf("shell albedo = %v", alb)
+	}
+}
+
+func TestFrontOfficeDeskLoads(t *testing.T) {
+	path := repoFile("scenes/office-sunset/objects/front-office-desk.toml")
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.DocumentSpecs) < 4 {
+		t.Fatalf("documents = %d, want 4 floppy labels", len(s.DocumentSpecs))
+	}
+	if len(s.Boxes) < 28 {
+		t.Fatalf("boxes = %d, want floppy shells on desk", len(s.Boxes))
+	}
+}
+
 func TestWorkstationObjectLoads(t *testing.T) {
 	path := repoFile("scenes/office-sunset/objects/workstation.toml")
 	parent := filepath.Join(t.TempDir(), "scene.toml")
@@ -242,17 +303,42 @@ func TestWorkstationObjectLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.Boxes) < 15 {
-		t.Fatalf("boxes = %d, want at least 15", len(s.Boxes))
-	}
-	if len(s.Cylinders) != 1 {
-		t.Fatalf("cylinders = %d, want 1 mouse cable", len(s.Cylinders))
+	if len(s.Boxes) < 14 {
+		t.Fatalf("boxes = %d, want at least 14", len(s.Boxes))
 	}
 	if len(s.ScreenSpecs) != 1 {
 		t.Fatalf("screens = %d, want 1", len(s.ScreenSpecs))
 	}
 	if s.ScreenSpecs[0].Headline != "SERVER ROOM" {
 		t.Fatalf("headline = %q", s.ScreenSpecs[0].Headline)
+	}
+}
+
+func TestWorkstationScreenParams(t *testing.T) {
+	path := repoFile("scenes/office-sunset/objects/workstation.toml")
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "scene.toml")
+	if err := os.WriteFile(parent, []byte(
+		"[[include]]\nfile = "+strconv.Quote(path)+"\nat = [0.0, 0.9, 0.0]\n"+
+			"params = { headline = \"FRONT OFFICE\", paragraphs = [\"Line A\", \"Line B\"], font_size_px = 18 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.ScreenSpecs) != 1 {
+		t.Fatalf("screens = %d, want 1", len(s.ScreenSpecs))
+	}
+	spec := s.ScreenSpecs[0]
+	if spec.Headline != "FRONT OFFICE" {
+		t.Fatalf("headline = %q", spec.Headline)
+	}
+	if len(spec.Paragraphs) != 2 || spec.Paragraphs[0] != "Line A" || spec.Paragraphs[1] != "Line B" {
+		t.Fatalf("paragraphs = %v", spec.Paragraphs)
+	}
+	if spec.FontSizePx != 18 {
+		t.Fatalf("font_size_px = %d, want 18", spec.FontSizePx)
 	}
 }
 

@@ -1,0 +1,37 @@
+# Floppy disk preview on a desk corner.
+[environment]
+sky = "sunset"
+ambient_sky = [0.55, 0.45, 0.42]
+ambient_ground = [0.22, 0.18, 0.16]
+sun_dir = [-0.35, -0.50, 0.75]
+sun_color = [1.4, 0.65, 0.28]
+
+[[box]]
+material = "diffuse"
+albedo = [0.22, 0.21, 0.23]
+pos_x = -1.0
+pos_y = 0.0
+pos_z = -0.8
+width = 2.0
+height = 0.02
+depth = 1.6
+
+[[include]]
+file = "../objects/simple-table.toml"
+at = [0.0, 0.0, 0.0]
+params = { width = 1.2, depth = 0.8, height = 0.9, texture = "wood" }
+
+[[include]]
+file = "../objects/floppy-disk-3.5.toml"
+at = [0.0, 0.9, 0.0]
+
+[[include]]
+file = "../objects/floppy-disk-3.5.toml"
+at = [0.03, 0.9033, 0.02]
+rotate_y = -18
+
+[[include]]
+file = "../objects/floppy-disk-3.5.toml"
+at = [-0.22, 0.9, 0.18]
+rotate_y = 64
+params = { albedo = [0.12, 0.12, 0.13] }

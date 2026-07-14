@@ -39,7 +39,6 @@ width = 10
 depth = 20
 height = 0.2
 
-
 # desk in the corner
 [[include]]
 file = "objects/front-office-desk.toml"
@@ -47,3 +46,9 @@ transform_origin = [0, 0, 0]
 at = [2.0, 0.0, 3.0]
 rotate_y = -95
 
+# office chair
+[[include]]
+file = "../objects/office-chair.toml"
+transform_origin = [0, 0, 0]
+at = [4.0, 0.0, 3.0]
+rotate_y = 120

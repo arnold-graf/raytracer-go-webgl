@@ -10,10 +10,15 @@
 # aligns with each segment; centres sit on the segment midpoints.
 #
 # Params (optional):
+#   albedo       chrome body colour rgb           (default [0.6, 0.6, 0.6])
+#   chrome_albedo  alias for albedo
+#   reflect, chrome_rough  surface tuning
 #   brightness   point-light intensity (default 0.08)
 #   range        light reach in metres (default 4)
 
-{{$chrome := orVec3 .chrome_albedo 0.6 0.6 0.6}}
+{{$albedoPick := .albedo}}
+{{if not $albedoPick}}{{$albedoPick = .chrome_albedo}}{{end}}
+{{$chrome := orVec3 $albedoPick 0.6 0.6 0.6}}
 {{$reflect := or .reflect 0.1}}
 {{$rough := or .chrome_rough 0.1}}
 {{$brightness := or .brightness 0.08}}

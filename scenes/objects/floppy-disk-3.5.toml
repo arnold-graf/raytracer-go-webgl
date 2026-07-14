@@ -1,0 +1,116 @@
+# 3.5-inch floppy disk in local coordinates.
+#
+# Origin (0, 0, 0) is the centre of the footprint on the resting surface.
+# The disk lies flat on the XZ plane; +Y is the label side; +Z is the shutter edge.
+#
+#   [[include]]
+#   file = "objects/floppy-disk-3.5.toml"
+#   at = [0.0, 0.9, 0.0]
+#   rotate_y = 15
+#
+# Params (optional):
+#   albedo         plastic shell colour rgb     (default cobalt blue)
+#   shutter_albedo metal shutter colour         (default chrome grey)
+#   label          headline on the paper label  (default "OBSOLETE")
+
+{{$w := 0.094}}
+{{$d := 0.090}}
+{{$h := 0.0033}}
+{{$hw := div $w 2}}
+{{$hd := div $d 2}}
+{{$chamfer := 0.008}}
+{{$albedo := orVec3 .albedo 0.14 0.24 0.78}}
+{{$shutter := orVec3 .shutter_albedo 0.52 0.52 0.55}}
+
+{{$reflect := or .reflect 0.04}}
+{{$rough := or .rough 0.35}}
+
+# shell (L-shaped footprint for the clipped top-right corner)
+[[box]]
+material = "diffuse"
+albedo = {{$albedo}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = {{neg $hw}}
+pos_y = 0.0
+pos_z = {{neg $hd}}
+width = {{sub $w $chamfer}}
+height = {{$h}}
+depth = {{$d}}
+
+[[box]]
+material = "diffuse"
+albedo = {{$albedo}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = {{sub $hw $chamfer}}
+pos_y = 0.0
+pos_z = {{neg $hd}}
+width = {{$chamfer}}
+height = {{$h}}
+depth = {{sub $d $chamfer}}
+
+# metal shutter (top edge, +Z)
+[[box]]
+material = "metal"
+albedo = {{$shutter}}
+reflect = 0.45
+rough = 0.08
+pos_x = -0.038
+pos_y = {{$h}}
+pos_z = 0.032
+width = 0.076
+height = 0.0012
+depth = 0.014
+
+# media window under the shutter
+[[box]]
+material = "diffuse"
+albedo = [0.12, 0.10, 0.08]
+reflect = 0.01
+rough = 0.9
+pos_x = -0.022
+pos_y = {{sub $h 0.0002}}
+pos_z = 0.036
+width = 0.036
+height = 0.0002
+depth = 0.008
+
+# paper label
+[[box]]
+material = "diffuse"
+albedo = [0.93, 0.93, 0.90]
+reflect = 0.01
+rough = 0.85
+pos_x = -0.036
+pos_y = {{$h}}
+pos_z = -0.038
+width = 0.072
+height = 0.0003
+depth = 0.058
+
+# hub ring (centre hole)
+[[box]]
+material = "diffuse"
+albedo = [0.08, 0.08, 0.09]
+reflect = 0.02
+rough = 0.7
+pos_x = -0.008
+pos_y = {{$h}}
+pos_z = -0.012
+width = 0.016
+height = 0.0002
+depth = 0.016
+
+# write-protect notch
+[[box]]
+material = "diffuse"
+albedo = [0.04, 0.04, 0.05]
+reflect = 0.01
+rough = 0.9
+pos_x = {{sub (neg $hw) 0.001}}
+pos_y = {{$h}}
+pos_z = {{sub (neg $hd) 0.001}}
+width = 0.004
+height = 0.0004
+depth = 0.004

@@ -8,6 +8,45 @@
 #   [[include]]
 #   file = "objects/workstation.toml"
 #   at = [0.0, 0.9, 0.0]
+#
+# Optional [[include]] params (monitor screen / text):
+#   screen_id        screen element id              (default "workstation_display")
+#   screen_pos_x/y/z screen placement               (default -0.15, 0.28, 0.205)
+#   screen_width     screen panel width             (default 0.30)
+#   screen_height    screen panel height            (default 0.25)
+#   screen_depth     screen panel thickness         (default 0.001)
+#   screen_rotate_x/y/z                          (default -8, 0, 0)
+#   material         screen surface material        (default "diffuse")
+#   albedo           screen background rgb          (default [0.01, 0.01, 0.01])
+#   reflect, rough   screen surface                 (default 0.03, 0.02)
+#   hint             interact hint                  (default "workstation")
+#   use_range        interact range in metres       (default 1.5)
+#   headline         screen headline text
+#   paragraphs       array of body lines
+#   font             font file under assets/fonts   (default "M42.ttf")
+#   font_size_px     text size in pixels            (default 14)
+#   font_color       text rgb                       (default [5.2, 5.2, 5.2])
+
+{{$screenID := or .screen_id "workstation_display"}}
+{{$screenX := or .screen_pos_x -0.15}}
+{{$screenY := or .screen_pos_y 0.28}}
+{{$screenZ := or .screen_pos_z 0.205}}
+{{$screenW := or .screen_width 0.30}}
+{{$screenH := or .screen_height 0.25}}
+{{$screenD := or .screen_depth 0.001}}
+{{$screenRotX := or .screen_rotate_x -8}}
+{{$screenRotY := or .screen_rotate_y 0}}
+{{$screenRotZ := or .screen_rotate_z 0}}
+{{$material := or .material "diffuse"}}
+{{$albedo := orVec3 .albedo 0.01 0.01 0.01}}
+{{$reflect := or .reflect 0.03}}
+{{$rough := or .rough 0.02}}
+{{$hint := or .hint "workstation"}}
+{{$useRange := or .use_range 1.5}}
+{{$headline := or .headline "SERVER ROOM"}}
+{{$font := or .font "M42.ttf"}}
+{{$fontSize := or .font_size_px 14}}
+{{$fontColor := orVec3 .font_color 5.2 5.2 5.2}}
 
 # --- main computer unit (pizza-box case) ---
 [[box]]
@@ -20,6 +59,28 @@ pos_z = -0.17
 width = 0.50
 height = 0.17
 depth = 0.4
+
+# buttons
+[[box]]
+material = "diffuse"
+albedo = [2.2, 2.2, 2]
+pos_x = -0.22
+pos_y = 0.1
+pos_z = 0.14
+width = 0.05
+height = 0.05
+depth = 0.11
+
+# buttons
+[[box]]
+material = "diffuse"
+albedo = [2.2, 2.2, 2]
+pos_x = -0.22
+pos_y = 0.04
+pos_z = 0.14
+width = 0.05
+height = 0.05
+depth = 0.11
 
 # floppy
 [[box]]
@@ -47,28 +108,34 @@ depth = 0.36
 
 # monitor screen
 [[screen]]
-id = "workstation_display"
-material = "diffuse"
-reflect = 0.03
-rough = 0.02
-albedo = [0.01, 0.01, 0.01]
-pos_x = -0.15
-pos_y = 0.28
-pos_z = 0.205
-rotate_x = -8
-width = 0.30
-height = 0.25
-depth = 0.001
-hint = "workstation"
-headline = "SERVER ROOM"
+id = "{{$screenID}}"
+material = "{{$material}}"
+reflect = {{$reflect}}
+rough = {{$rough}}
+albedo = {{$albedo}}
+pos_x = {{$screenX}}
+pos_y = {{$screenY}}
+pos_z = {{$screenZ}}
+rotate_x = {{$screenRotX}}
+rotate_y = {{$screenRotY}}
+rotate_z = {{$screenRotZ}}
+width = {{$screenW}}
+height = {{$screenH}}
+depth = {{$screenD}}
+hint = "{{$hint}}"
+use_range = {{$useRange}}
+headline = "{{$headline}}"
 paragraphs = [
+{{if .paragraphs}}{{range .paragraphs}}
+  {{printf "%q" .}},
+{{end}}{{else}}
   "Status: ONLINE",
   "Cube lift: READY",
   "Auth: session active",
-]
-font = "M42.ttf"
-font_size_px = 14
-font_color = [5.2, 5.2, 5.2]
+{{end}}]
+font = "{{$font}}"
+font_size_px = {{$fontSize}}
+font_color = {{$fontColor}}
 
 # monitor stand
 [[sphere]]

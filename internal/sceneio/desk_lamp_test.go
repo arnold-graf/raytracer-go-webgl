@@ -2,7 +2,9 @@ package sceneio_test
 
 import (
 	"math"
+	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"raytracer/internal/scene"
@@ -41,6 +43,32 @@ func TestDeskLampHingeAlignment(t *testing.T) {
 	lo, hi = cylEnds(sc.Cylinders[3])
 	if !near(lo, p1c, eps) || !near(hi, p2, eps) {
 		t.Fatalf("upper arm: got %v→%v want %v→%v", lo, hi, p1, p2)
+	}
+}
+
+func TestDeskLampAlbedoParam(t *testing.T) {
+	path := filepath.Join("..", "..", "scenes", "objects", "desk-anglepoise-lamp.toml")
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "scene.toml")
+	if err := os.WriteFile(parent, []byte(
+		"[[include]]\nfile = "+strconv.Quote(abs)+"\nat = [0.0, 0.9, 0.0]\n"+
+			"params = { albedo = [0.2, 0.3, 0.4] }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := sceneio.Load(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sc.Boxes) < 1 {
+		t.Fatal("expected lamp boxes")
+	}
+	alb := sc.Boxes[0].Albedo
+	if math.Abs(alb.X-0.2) > 1e-9 || math.Abs(alb.Y-0.3) > 1e-9 || math.Abs(alb.Z-0.4) > 1e-9 {
+		t.Fatalf("base albedo = %v, want [0.2, 0.3, 0.4]", alb)
 	}
 }
 

@@ -1,0 +1,276 @@
+# Chunky Eames-style office chair in local coordinates.
+#
+# Origin (0, 0, 0) is the centre of the base footprint on the floor.
+# The sitter faces -Z (toward the desk in front).
+#
+#   [[include]]
+#   file = "objects/office-chair.toml"
+#   at = [0.0, 0.0, 0.0]
+#   rotate_y = 180
+
+{{$leather := orVec3 .leather_albedo 0.10 0.10 0.11}}
+{{$chrome := orVec3 .chrome_albedo 0.52 0.52 0.55}}
+{{$reflect := or .reflect 0.35}}
+{{$rough := or .rough 0.06}}
+{{$legLen := 0.28}}
+{{$hubY := 0.05}}
+{{$legW := 0.035}}
+{{$legR := div $legW 2}}
+{{$wheel := 0.07}}
+{{$wh := div $wheel 2}}
+
+# seat cushion
+[[box]]
+material = "diffuse"
+albedo = {{$leather}}
+reflect = 0.01
+rough = 0.08
+pos_x = -0.24
+pos_y = 0.46
+pos_z = -0.22
+width = 0.48
+height = 0.07
+depth = 0.44
+
+# backrest (tilted away from sitter)
+[[box]]
+material = "diffuse"
+albedo = {{$leather}}
+reflect = 0.01
+rough = 0.08
+rotate_x = 18
+pos_x = -0.24
+pos_y = 0.52
+pos_z = 0.28
+width = 0.48
+height = 0.36
+depth = 0.07
+
+# seat mechanism block
+[[box]]
+material = "diffuse"
+albedo = [0.05, 0.05, 0.06]
+pos_x = -0.07
+pos_y = 0.42
+pos_z = -0.07
+width = 0.14
+height = 0.05
+depth = 0.14
+
+# gas lift column
+[[cylinder]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = -0.03
+pos_y = 0.08
+pos_z = -0.03
+width = 0.05
+height = 0.34
+
+# base hub
+[[cylinder]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = -0.045
+pos_y = 0.04
+pos_z = -0.045
+width = 0.09
+height = 0.05
+
+# five-star base legs (boxes from hub to each wheel)
+[[box]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+transform_origin = [0, {{$hubY}}, 0]
+pos_x = {{neg $legR}}
+pos_y = {{sub $hubY 0.015}}
+pos_z = 0.0
+width = {{$legW}}
+height = 0.03
+depth = {{$legLen}}
+
+[[box]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+transform_origin = [0, {{$hubY}}, 0]
+pos_x = {{neg $legR}}
+pos_y = {{sub $hubY 0.015}}
+pos_z = 0.0
+width = {{$legW}}
+height = 0.03
+depth = {{$legLen}}
+rotate_y = 72
+
+[[box]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+transform_origin = [0, {{$hubY}}, 0]
+pos_x = {{neg $legR}}
+pos_y = {{sub $hubY 0.015}}
+pos_z = 0.0
+width = {{$legW}}
+height = 0.03
+depth = {{$legLen}}
+rotate_y = 144
+
+[[box]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+transform_origin = [0, {{$hubY}}, 0]
+pos_x = {{neg $legR}}
+pos_y = {{sub $hubY 0.015}}
+pos_z = 0.0
+width = {{$legW}}
+height = 0.03
+depth = {{$legLen}}
+rotate_y = 216
+
+[[box]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+transform_origin = [0, {{$hubY}}, 0]
+pos_x = {{neg $legR}}
+pos_y = {{sub $hubY 0.015}}
+pos_z = 0.0
+width = {{$legW}}
+height = 0.03
+depth = {{$legLen}}
+rotate_y = 288
+
+# casters (cylinders on their sides at leg tips)
+[[cylinder]]
+material = "diffuse"
+albedo = [0.08, 0.08, 0.09]
+pos_x = {{sub 0.0 $wh}}
+pos_y = 0.0
+pos_z = {{sub $legLen $wh}}
+width = {{$wheel}}
+height = 0.05
+rotate_x = 90
+
+[[cylinder]]
+material = "diffuse"
+albedo = [0.08, 0.08, 0.09]
+pos_x = {{sub 0.266 $wh}}
+pos_y = 0.0
+pos_z = {{sub 0.086 $wh}}
+width = {{$wheel}}
+height = 0.05
+rotate_x = 90
+
+[[cylinder]]
+material = "diffuse"
+albedo = [0.08, 0.08, 0.09]
+pos_x = {{sub 0.165 $wh}}
+pos_y = 0.0
+pos_z = {{sub -0.227 $wh}}
+width = {{$wheel}}
+height = 0.05
+rotate_x = 90
+
+[[cylinder]]
+material = "diffuse"
+albedo = [0.08, 0.08, 0.09]
+pos_x = {{sub -0.165 $wh}}
+pos_y = 0.0
+pos_z = {{sub -0.227 $wh}}
+width = {{$wheel}}
+height = 0.05
+rotate_x = 90
+
+[[cylinder]]
+material = "diffuse"
+albedo = [0.08, 0.08, 0.09]
+pos_x = {{sub -0.266 $wh}}
+pos_y = 0.0
+pos_z = {{sub 0.086 $wh}}
+width = {{$wheel}}
+height = 0.05
+rotate_x = 90
+
+# armrests — front + rear posts into seat, full-length pads
+[[box]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = -0.28
+pos_y = 0.46
+pos_z = 0.10
+width = 0.05
+height = 0.12
+depth = 0.05
+
+[[box]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = -0.28
+pos_y = 0.46
+pos_z = -0.16
+width = 0.05
+height = 0.12
+depth = 0.05
+
+[[box]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = -0.30
+pos_y = 0.54
+pos_z = -0.18
+width = 0.05
+height = 0.05
+depth = 0.42
+
+[[box]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = 0.23
+pos_y = 0.46
+pos_z = 0.10
+width = 0.05
+height = 0.12
+depth = 0.05
+
+[[box]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = 0.23
+pos_y = 0.46
+pos_z = -0.16
+width = 0.05
+height = 0.12
+depth = 0.05
+
+[[box]]
+material = "metal"
+albedo = {{$chrome}}
+reflect = {{$reflect}}
+rough = {{$rough}}
+pos_x = 0.25
+pos_y = 0.54
+pos_z = -0.18
+width = 0.05
+height = 0.05
+depth = 0.42
