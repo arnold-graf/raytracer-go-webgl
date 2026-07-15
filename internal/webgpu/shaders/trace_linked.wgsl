@@ -348,7 +348,7 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
     }
   }
   for (var i = 0u; i < params.terrain_count; i = i + 1u) {
-    let t = hit_terrain(i, ro, rd, h.t, true);
+    let t = hit_terrain(i, ro, rd, h.t, true, false);
     if (t < h.t) {
       h.t = t;
       h.idx = i;
@@ -1642,32 +1642,14 @@ fn terrain_albedo(i: u32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
 @group(0) @binding(6) var<storage, read> terrains: array<Terrain>;
 
 fn terrain_height(i: u32, x: f32, z: f32) -> f32 {
-  let tr = terrains[i];
-  if (tr.island1.z < 0.5) {
-    return terrain_height_baked(i, x, z);
-  }
-  let baked = terrain_height_baked(i, x, z);
-  let cam = params.cam_pos.xz;
-  let dist = length(vec2<f32>(x, z) - cam);
-  let nearStart = tr.analytic.w;
-  let nearEnd = tr.island1.y;
-  if (dist >= nearEnd) {
-    return baked;
-  }
-  let detailW = 1.0 - smoothstepf(nearStart, nearEnd, dist);
-  let analytic = terrain_height_analytic(i, x, z, detailW);
-  if (dist <= nearStart) {
-    return analytic;
-  }
-  let t = smoothstepf(nearStart, nearEnd, dist);
-  return mix(analytic, baked, t);
+  return terrain_height_sample(i, x, z, false);
 }
 
 fn terrain_normal_baked(i: u32, p: vec3<f32>) -> vec3<f32> {
   let tr = terrains[i];
   let gnx = tr.grid.x;
   let gnz = tr.grid.y;
-  let off = tr.grid.z;
+  let off = tr.grid.w;
   let fx0 = clamp((p.x - tr.bounds0.x) / tr.bounds0.z * f32(gnx - 1u), 0.0, f32(gnx - 1u));
   let fz0 = clamp((p.z - tr.bounds0.y) / tr.bounds0.w * f32(gnz - 1u), 0.0, f32(gnz - 1u));
   var ix = u32(floor(fx0));
@@ -1680,15 +1662,21 @@ fn terrain_normal_baked(i: u32, p: vec3<f32>) -> vec3<f32> {
   }
   let tx = fx0 - f32(ix);
   let tz = fz0 - f32(iz);
-  let base = off + iz * gnx + ix;
-  let n00 = terrain_samples[base].xyz;
-  let n10 = terrain_samples[base + 1u].xyz;
-  let n01 = terrain_samples[base + gnx].xyz;
-  let n11 = terrain_samples[base + gnx + 1u].xyz;
+  let base = off + 3u * (iz * gnx + ix);
+  let n00 = terrain_sample_normal(base);
+  let n10 = terrain_sample_normal(base + 3u);
+  let n01 = terrain_sample_normal(base + 3u * gnx);
+  let n11 = terrain_sample_normal(base + 3u * gnx + 3u);
   return normalize(mix3(mix3(n00, n10, tx), mix3(n01, n11, tx), tz));
 }
 
-@group(0) @binding(7) var<storage, read> terrain_samples: array<vec4<f32>>;
+fn terrain_sample_normal(idx: u32) -> vec3<f32> {
+  return vec3<f32>(terrain_samples[idx], terrain_samples[idx + 1u], terrain_samples[idx + 2u]);
+}
+
+// Terrain bake: per terrain a heights region (1 f32 per cell, Grid[2]) then a
+// normals region (3 f32 per cell, Grid[3]) — flat so height taps read 4 bytes.
+@group(0) @binding(7) var<storage, read> terrain_samples: array<f32>;
 
 struct Terrain {
   bounds0: vec4<f32>, // originX, originZ, sizeX, sizeZ
@@ -1707,6 +1695,30 @@ struct Terrain {
   coarse: vec4<f32>, // cwx, cwz, cInvDx, cInvDz
 }
 
+
+fn terrain_height_sample(i: u32, x: f32, z: f32, baked_only: bool) -> f32 {
+  if (baked_only) {
+    return terrain_height_baked(i, x, z);
+  }
+  let tr = terrains[i];
+  if (tr.island1.z < 0.5) {
+    return terrain_height_baked(i, x, z);
+  }
+  let cam = params.cam_pos.xz;
+  let dist = length(vec2<f32>(x, z) - cam);
+  let nearStart = tr.analytic.w;
+  let nearEnd = tr.island1.y;
+  if (dist >= nearEnd) {
+    return terrain_height_baked(i, x, z);
+  }
+  let detailW = 1.0 - smoothstepf(nearStart, nearEnd, dist);
+  let analytic = terrain_height_analytic(i, x, z, detailW);
+  if (dist <= nearStart) {
+    return analytic;
+  }
+  let t = smoothstepf(nearStart, nearEnd, dist);
+  return mix(analytic, terrain_height_baked(i, x, z), t);
+}
 
 fn terrain_height_analytic(i: u32, x: f32, z: f32, detail_w: f32) -> f32 {
   return terrain_apply_pads(i, x, z, terrain_natural_analytic(i, x, z, detail_w));
@@ -1730,10 +1742,10 @@ fn terrain_height_baked(i: u32, x: f32, z: f32) -> f32 {
   let tx = fx0 - f32(ix);
   let tz = fz0 - f32(iz);
   let base = off + iz * gnx + ix;
-  let h00 = terrain_samples[base].w;
-  let h10 = terrain_samples[base + 1u].w;
-  let h01 = terrain_samples[base + gnx].w;
-  let h11 = terrain_samples[base + gnx + 1u].w;
+  let h00 = terrain_samples[base];
+  let h10 = terrain_samples[base + 1u];
+  let h01 = terrain_samples[base + gnx];
+  let h11 = terrain_samples[base + gnx + 1u];
   return mix(mix(h00, h10, tx), mix(h01, h11, tx), tz);
 }
 
@@ -1784,6 +1796,9 @@ fn terrain_natural_analytic(i: u32, x: f32, z: f32, detail_w: f32) -> f32 {
     let f = terrain_features[featBase + fi];
     var dx = x - f.pos.x;
     var dz = z - f.pos.y;
+    if (dx * dx + dz * dz > f.cull.x) {
+      continue;
+    }
     if (f.shape.w != 0.0) {
       let c = cos(f.shape.w);
       let s = sin(f.shape.w);
@@ -1815,7 +1830,7 @@ fn terrain_natural_analytic(i: u32, x: f32, z: f32, detail_w: f32) -> f32 {
   }
   if (detail_w > 0.0 && tr.analytic.y != 0.0) {
     let scale = tr.analytic.z;
-    h = h + tr.analytic.y * detail_w * fbm(x * scale, 0.0, z * scale, 4u);
+    h = h + tr.analytic.y * detail_w * fbm_xz(x * scale, z * scale, 4u);
   }
   let isl = tr.island0;
   if (isl.z > 0.0) {
@@ -1843,8 +1858,43 @@ struct TerrainPad {
 struct TerrainFeature {
   pos: vec4<f32>, // x, z, height, width
   shape: vec4<f32>, // steepness, extendX, extendZ, angle
+  cull: vec4<f32>, // cullR2 (world XZ dist² beyond which |contribution| < 1e-5 m), _, _, _
 }
 
+
+fn fbm_xz(x: f32, z: f32, octaves: u32) -> f32 {
+  var sum = 0.0;
+  var amp = 1.0;
+  var freq = 1.0;
+  var norm = 0.0;
+  for (var i = 0u; i < octaves; i = i + 1u) {
+    sum = sum + amp * perlin_xz(x * freq, z * freq);
+    norm = norm + amp;
+    amp = amp * 0.5;
+    freq = freq * 2.0;
+  }
+  if (norm == 0.0) {
+    return 0.0;
+  }
+  return sum / norm;
+}
+
+// perlin restricted to the y=0 plane (terrain fBm, water ripples). With py=0
+// the fade weight v is exactly 0, so the four y=1 corner gradients drop out
+// algebraically: same result as perlin(px, 0, pz) with half the table fetches.
+fn perlin_xz(px: f32, pz: f32) -> f32 {
+  let xi = i32(floor(px)) & 255;
+  let zi = i32(floor(pz)) & 255;
+  let x = px - floor(px);
+  let z = pz - floor(pz);
+  let u = p_fade(x);
+  let w = p_fade(z);
+  let a = i32(perm[u32(xi)]);
+  let aa = i32(perm[u32(a)]) + zi;
+  let b = i32(perm[u32(xi + 1)]);
+  let ba = i32(perm[u32(b)]) + zi;
+  return p_lerp(w, p_lerp(u, p_grad(i32(perm[u32(aa)]), x, 0.0, z), p_grad(i32(perm[u32(ba)]), x - 1.0, 0.0, z)), p_lerp(u, p_grad(i32(perm[u32(aa + 1)]), x, 0.0, z - 1.0), p_grad(i32(perm[u32(ba + 1)]), x - 1.0, 0.0, z - 1.0)));
+}
 
 @group(0) @binding(8) var<storage, read> waters: array<Water>;
 
@@ -1856,7 +1906,7 @@ fn water_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
   let phase = params.time * w.params.y;
   let dx = phase * w.params.z;
   let dz = phase * w.params.w;
-  return normalize(vec3<f32>(w.params.x * perlin(p.x * 2.5 + dx, 0.0, p.z * 2.5 + dz), 1.0, w.params.x * perlin(p.x * 2.5 + dx + 7.0, 0.0, p.z * 2.5 + dz + 3.0)));
+  return normalize(vec3<f32>(w.params.x * perlin_xz(p.x * 2.5 + dx, p.z * 2.5 + dz), 1.0, w.params.x * perlin_xz(p.x * 2.5 + dx + 7.0, p.z * 2.5 + dz + 3.0)));
 }
 
 struct Water {
@@ -2482,7 +2532,7 @@ var<private> bvh_steps_acc: u32 = 0u;
 // scanning every primitive each ray we walk these short lists.
 @group(0) @binding(17) var<storage, read> plane_idx: array<u32>;
 
-fn hit_terrain(i: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32, refine: bool) -> f32 {
+fn hit_terrain(i: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32, refine: bool, shadow_ray: bool) -> f32 {
   let te = terrain_slab(i, ro, rd);
   var t_exit = min(te.y, max_t);
   if (te.x >= t_exit || te.x >= T_MISS) {
@@ -2490,9 +2540,9 @@ fn hit_terrain(i: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32, refine: bool) -
   }
   let tr = terrains[i];
   if (tr.mip.w > 0u) {
-    return hit_terrain_mip(i, ro, rd, te.x, t_exit, refine);
+    return hit_terrain_mip(i, ro, rd, te.x, t_exit, refine, shadow_ray);
   }
-  return hit_terrain_fine(i, ro, rd, te.x, t_exit, refine);
+  return hit_terrain_fine(i, ro, rd, te.x, t_exit, refine, shadow_ray);
 }
 
 fn terrain_slab(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> vec2<f32> {
@@ -2512,7 +2562,7 @@ fn terrain_slab(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> vec2<f32> {
   return vec2<f32>(max(enter, RAY_EPSILON), exit);
 }
 
-fn hit_terrain_mip(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f32, refine: bool) -> f32 {
+fn hit_terrain_mip(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f32, refine: bool, shadow_ray: bool) -> f32 {
   let tr = terrains[i];
   var stk_level: array<u32, 12>;
   var stk_t_exit: array<f32, 12>;
@@ -2570,7 +2620,7 @@ fn hit_terrain_mip(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f
         need_init = false;
         continue;
       }
-      let hit = hit_terrain_fine(i, ro, rd, tc, seg_exit, refine);
+      let hit = hit_terrain_fine(i, ro, rd, tc, seg_exit, refine, shadow_ray);
       if (hit < T_MISS) {
         return hit;
       }
@@ -2660,7 +2710,17 @@ fn hit_terrain_mip(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f
     let y1 = ro.y + rd.y * tn;
     let seg_min = min(y0, y1);
     let seg_max = max(y0, y1);
-    if (seg_max >= mm.x && seg_min <= mm.y && tn > tc + 1e-4) {
+    // Hybrid near-band heights can exceed the baked mip bounds by the fBm
+    // amplitude; only borderline cells whose segment passes near the
+    // camera need that padding (far cells march baked, bounded by mm).
+    var overlap = seg_max >= mm.x && seg_min <= mm.y;
+    if (!overlap && tr.island1.z >= 0.5) {
+      let mm_pad = tr.analytic.y * 0.5;
+      if (seg_max >= mm.x - mm_pad && seg_min <= mm.y + mm_pad && terrain_seg_near(ro, rd, tc, tn, tr.island1.y)) {
+        overlap = true;
+      }
+    }
+    if (overlap && tn > tc + 1e-4) {
       if (sp >= 12u) {
         return T_MISS;
       }
@@ -2733,12 +2793,19 @@ fn mip_cell_minmax(i: u32, level: u32, cell: vec2<u32>) -> vec2<f32> {
   return terrain_mip[off + cell.y * dims.x + cell.x];
 }
 
-fn hit_terrain_fine(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f32, refine: bool) -> f32 {
+fn hit_terrain_fine(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f32, refine: bool, shadow_ray: bool) -> f32 {
   let tr = terrains[i];
   let base = tr.bounds1.z;
+  // Hoisted per-segment: only segments passing through the near band ever
+  // see hybrid heights, so far segments march (and refine) baked-only.
+  var seg_hybrid = false;
+  if (tr.island1.z >= 0.5) {
+    seg_hybrid = terrain_seg_near(ro, rd, t_enter, t_exit, tr.island1.y);
+  }
+  let march_hybrid = seg_hybrid && !shadow_ray;
   var tc = t_enter;
   var p = ro + rd * tc;
-  var fc = p.y - terrain_height(i, p.x, p.z);
+  var fc = p.y - terrain_height_march(i, p.x, p.z, march_hybrid);
   for (var iter = 0u; iter < 256u; iter = iter + 1u) {
     prof_inc(PROF_TERRAIN_STEPS, 1u);
     if (tc >= t_exit) {
@@ -2751,7 +2818,7 @@ fn hit_terrain_fine(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: 
     }
     var tn = min(tc + step, t_exit);
     let pn = ro + rd * tn;
-    let f_next = pn.y - terrain_height(i, pn.x, pn.z);
+    let f_next = pn.y - terrain_height_march(i, pn.x, pn.z, march_hybrid);
     if (f_next <= 0.0 && fc > 0.0) {
       if (!refine) {
         return tn;
@@ -2761,19 +2828,48 @@ fn hit_terrain_fine(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: 
       for (var j = 0u; j < 10u; j = j + 1u) {
         let m = (lo + hi) * 0.5;
         let pm = ro + rd * m;
-        if (pm.y - terrain_height(i, pm.x, pm.z) <= 0.0) {
+        if (pm.y - terrain_height_march(i, pm.x, pm.z, seg_hybrid) <= 0.0) {
           hi = m;
         } else {
           lo = m;
         }
       }
-      return (lo + hi) * 0.5;
+      let th = (lo + hi) * 0.5;
+      let ph = ro + rd * th;
+      if (ph.y - terrain_height_march(i, ph.x, ph.z, seg_hybrid) > 0.02) {
+        tc = th;
+        fc = ph.y - terrain_height_march(i, ph.x, ph.z, march_hybrid);
+      } else {
+        return th;
+      }
+    } else {
+      tc = tn;
+      p = pn;
+      fc = f_next;
     }
-    tc = tn;
-    p = pn;
-    fc = f_next;
   }
   return T_MISS;
+}
+
+// Height used while marching toward an intersection. Primary rays use the full
+// hybrid height within the near band; shadow rays march baked then refine.
+fn terrain_height_march(i: u32, x: f32, z: f32, hybrid: bool) -> f32 {
+  if (hybrid) {
+    return terrain_height(i, x, z);
+  }
+  return terrain_height_baked(i, x, z);
+}
+
+// terrain_seg_near reports whether any point of the ray segment [t0,t1] passes
+// within nearEnd of the camera in XZ — i.e. whether hybrid heights can differ
+// from the baked grid anywhere on the segment.
+fn terrain_seg_near(ro: vec3<f32>, rd: vec3<f32>, t0: f32, t1: f32, near_end: f32) -> bool {
+  let a = ro.xz + rd.xz * t0;
+  let ab = rd.xz * (t1 - t0);
+  let toc = params.cam_pos.xz - a;
+  let tt = clamp(dot(toc, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
+  let d = a + ab * tt - params.cam_pos.xz;
+  return dot(d, d) < near_end * near_end;
 }
 
 const PROF_TERRAIN_STEPS: u32 = 9u;
@@ -3038,7 +3134,7 @@ fn shadowed(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
     if (terrain_shadow_skip(i, origin, dir, max_t)) {
       continue;
     }
-    let t = hit_terrain(i, origin, dir, max_t, false);
+    let t = hit_terrain(i, origin, dir, max_t, true, true);
     if (t > RAY_EPSILON && t < limit) {
       prof_inc(PROF_SHADOW_BLOCK, 1u);
       return true;

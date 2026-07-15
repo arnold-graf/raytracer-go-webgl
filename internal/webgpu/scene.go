@@ -1,6 +1,7 @@
 package webgpu
 
 import (
+	"math"
 	"unsafe"
 
 	"raytracer/internal/gpuscene"
@@ -136,9 +137,10 @@ const terrainStride = 224
 type GPUTerrainFeature struct {
 	Pos   [4]float32 // x, z, height, width
 	Shape [4]float32 // steepness, extendX, extendZ, angle
+	Cull  [4]float32 // cullR2 (world XZ dist² beyond which |contribution| < featureCullEps), _, _, _
 }
 
-const terrainFeatureStride = 32
+const terrainFeatureStride = 48
 
 // GPUTerrainPad mirrors a flattened building pad for WGSL heightAnalytic.
 type GPUTerrainPad struct {
@@ -467,10 +469,16 @@ func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature,
 	for i := range s.Terrains {
 		t := &s.Terrains[i]
 		snap := t.CacheSnapshot()
-		off := len(samples) / 4
-		for i, h := range snap.Height {
-			n := snap.Normal[i]
-			samples = append(samples, f(n.X), f(n.Y), f(n.Z), f(h))
+		// Heights and normals live in separate regions (float offsets in
+		// Grid[2]/Grid[3]) so the march loop's bilinear height fetch touches
+		// 4 bytes per tap instead of a full vec4.
+		hOff := len(samples)
+		for _, h := range snap.Height {
+			samples = append(samples, f(h))
+		}
+		nOff := len(samples)
+		for _, n := range snap.Normal {
+			samples = append(samples, f(n.X), f(n.Y), f(n.Z))
 		}
 		mipLevels, cwx, cwz, cInvDx, cInvDz := t.MipSnapshot()
 		mipBase := uint32(len(mips) / 2)
@@ -499,9 +507,20 @@ func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature,
 			if st == 0 {
 				st = 2
 			}
+			// Conservative cull radius: the feature adds height·exp(-d^st)
+			// with d ≥ worldDist/(w·max(ex,ez)), so beyond dCut the
+			// contribution is under featureCullEps and the GPU skips it.
+			const featureCullEps = 1e-5
+			cullR2 := 0.0
+			if ah := math.Abs(feat.Height); ah > featureCullEps {
+				dCut := math.Pow(math.Log(ah/featureCullEps), 1/st)
+				r := dCut * w * math.Max(ex, ez)
+				cullR2 = r * r
+			}
 			features = append(features, GPUTerrainFeature{
 				Pos:   [4]float32{f(feat.PosX), f(feat.PosZ), f(feat.Height), f(w)},
 				Shape: [4]float32{f(st), f(ex), f(ez), f(feat.Angle)},
+				Cull:  [4]float32{f(cullR2), 0, 0, 0},
 			})
 		}
 		padBase := uint32(len(pads))
@@ -520,7 +539,7 @@ func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature,
 		terrains = append(terrains, GPUTerrain{
 			Bounds0:  [4]float32{f(t.OriginX), f(t.OriginZ), f(t.SizeX), f(t.SizeZ)},
 			Bounds1:  [4]float32{f(t.MinY), f(t.MaxY), f(t.Step), 0},
-			Grid:     [4]uint32{uint32(snap.GNX), uint32(snap.GNZ), uint32(off), 0},
+			Grid:     [4]uint32{uint32(snap.GNX), uint32(snap.GNZ), uint32(hOff), uint32(nOff)},
 			Material: [4]uint32{uint32(t.Grass), uint32(t.Rock), uint32(t.Snow), 0},
 			Color0:   albedo(t.GrassCol),
 			Color1:   albedo(t.RockCol),

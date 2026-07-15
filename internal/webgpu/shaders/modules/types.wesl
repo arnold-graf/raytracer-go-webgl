@@ -147,6 +147,7 @@ struct Terrain {
 struct TerrainFeature {
     pos: vec4<f32>,   // x, z, height, width
     shape: vec4<f32>, // steepness, extendX, extendZ, angle
+    cull: vec4<f32>,  // cullR2 (world XZ dist² beyond which |contribution| < 1e-5 m), _, _, _
 };
 
 struct TerrainPad {
@@ -183,8 +184,10 @@ var<storage, read> bvh_nodes: array<BVHNode>;
 @group(0) @binding(6)
 var<storage, read> terrains: array<Terrain>;
 
+// Terrain bake: per terrain a heights region (1 f32 per cell, Grid[2]) then a
+// normals region (3 f32 per cell, Grid[3]) — flat so height taps read 4 bytes.
 @group(0) @binding(7)
-var<storage, read> terrain_samples: array<vec4<f32>>;
+var<storage, read> terrain_samples: array<f32>;
 
 @group(0) @binding(8)
 var<storage, read> waters: array<Water>;

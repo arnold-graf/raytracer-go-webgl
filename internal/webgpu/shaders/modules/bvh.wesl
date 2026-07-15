@@ -17,6 +17,20 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import package::types::{BVH_TAG_TLAS, HIT_NO_INSTANCE, Hit, RAY_EPSILON, T_MISS, blockers, bvh_nodes, inst_records, inst_templates, params, plane_idx};
 import package::profile::{prof_step, prof_tests};
 import package::intersect::{intersect, intersect_blocker, slab_hit};
@@ -269,7 +283,7 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
     }
 
     for (var i = 0u; i < params.terrain_count; i = i + 1u) {
-        let t = hit_terrain(i, ro, rd, h.t, true);
+        let t = hit_terrain(i, ro, rd, h.t, true, false);
         if (t < h.t) {
             h.t = t;
             h.idx = i;

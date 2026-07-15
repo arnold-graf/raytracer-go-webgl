@@ -20,6 +20,20 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import package::types::{CampfireParams, LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_SKIP_EPS, ao_volume, blocker_plane_idx, campfires, holes, lights, params, terrains};
 import package::profile::{PROF_SHADOW_BLOCK, PROF_SHADOW_RAYS, prof_inc};
 import package::math::{mix3, perlin, smoothstepf};
@@ -208,7 +222,7 @@ fn shadowed(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
         if (terrain_shadow_skip(i, origin, dir, max_t)) {
             continue;
         }
-        let t = hit_terrain(i, origin, dir, max_t, false);
+        let t = hit_terrain(i, origin, dir, max_t, true, true);
         if (t > RAY_EPSILON && t < limit) {
             prof_inc(PROF_SHADOW_BLOCK, 1u);
             return true;

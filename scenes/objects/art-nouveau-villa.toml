@@ -685,6 +685,8 @@ texture = "stone_wall"
 brightness = 0.35
 center = [-6.35, 1.55, 2.35]
 color = [5.0, 2.2, 0.8]
+lights = 3
+speed = 0.5
 flicker = 0.6
 range = 14.0
 

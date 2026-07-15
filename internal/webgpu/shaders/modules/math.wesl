@@ -17,6 +17,19 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 import package::types::{perm};
 
 fn clamp01(x: f32) -> f32 {
@@ -89,6 +102,42 @@ fn perlin(px: f32, py: f32, pz: f32) -> f32 {
         p_lerp(v,
             p_lerp(u, p_grad(i32(perm[u32(aa + 1)]), x, y, z - 1.0), p_grad(i32(perm[u32(ba + 1)]), x - 1.0, y, z - 1.0)),
             p_lerp(u, p_grad(i32(perm[u32(ab + 1)]), x, y - 1.0, z - 1.0), p_grad(i32(perm[u32(bb + 1)]), x - 1.0, y - 1.0, z - 1.0))));
+}
+
+// perlin restricted to the y=0 plane (terrain fBm, water ripples). With py=0
+// the fade weight v is exactly 0, so the four y=1 corner gradients drop out
+// algebraically: same result as perlin(px, 0, pz) with half the table fetches.
+fn perlin_xz(px: f32, pz: f32) -> f32 {
+    let xi = i32(floor(px)) & 255;
+    let zi = i32(floor(pz)) & 255;
+    let x = px - floor(px);
+    let z = pz - floor(pz);
+    let u = p_fade(x);
+    let w = p_fade(z);
+
+    let a = i32(perm[u32(xi)]);
+    let aa = i32(perm[u32(a)]) + zi;
+    let b = i32(perm[u32(xi + 1)]);
+    let ba = i32(perm[u32(b)]) + zi;
+
+    return p_lerp(w,
+        p_lerp(u, p_grad(i32(perm[u32(aa)]), x, 0.0, z), p_grad(i32(perm[u32(ba)]), x - 1.0, 0.0, z)),
+        p_lerp(u, p_grad(i32(perm[u32(aa + 1)]), x, 0.0, z - 1.0), p_grad(i32(perm[u32(ba + 1)]), x - 1.0, 0.0, z - 1.0)));
+}
+
+fn fbm_xz(x: f32, z: f32, octaves: u32) -> f32 {
+    var sum = 0.0;
+    var amp = 1.0;
+    var freq = 1.0;
+    var norm = 0.0;
+    for (var i = 0u; i < octaves; i = i + 1u) {
+        sum = sum + amp * perlin_xz(x * freq, z * freq);
+        norm = norm + amp;
+        amp = amp * 0.5;
+        freq = freq * 2.0;
+    }
+    if (norm == 0.0) { return 0.0; }
+    return sum / norm;
 }
 
 fn fbm(x: f32, y: f32, z: f32, octaves: u32) -> f32 {

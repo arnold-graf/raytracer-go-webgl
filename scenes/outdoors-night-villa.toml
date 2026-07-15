@@ -43,6 +43,8 @@ range = 0
 [[terrain]]
 origin = [-40.0, 0.0, -40.0]
 size = [400, 400]
+# No coarse_cell / hybrid_near here — at 400×400 m the legacy ~0.25 m full bake is
+# faster than hybrid LOD (the whole scene sits inside the analytic near band).
 base = 0.0
 detail = 0.35           # fine fBm relief
 detail_scale = 0.12

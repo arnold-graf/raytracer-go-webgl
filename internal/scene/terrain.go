@@ -345,8 +345,9 @@ func (t *Terrain) MipSnapshot() (levels []TerrainMipLevel, cwx, cwz, cInvDx, cIn
 	return levels, t.cwx, t.cwz, t.cInvDx, t.cInvDz
 }
 
-// buildCoarse builds a coarse grid holding the maximum terrain height in each
-// coarse cell, used to skip empty space while marching.
+// buildCoarse builds a coarse grid holding conservative min/max terrain height
+// in each cell for GPU empty-space skipping. Hybrid terrains widen the margin
+// by the fBm detail amplitude so analytic near-field peaks stay enclosed.
 func (t *Terrain) buildCoarse() {
 	const coarse = 4.0 // target world size per coarse cell
 	t.cgnx = int(math.Ceil(t.SizeX / coarse))
@@ -364,38 +365,56 @@ func (t *Terrain) buildCoarse() {
 	t.cmin = make([]float64, t.cgnx*t.cgnz)
 	t.cmax = make([]float64, t.cgnx*t.cgnz)
 
+	margin := 1e-3
+	if t.hybridLOD && t.Detail > 0 {
+		margin += t.Detail
+	}
+
 	fnx := float64(t.gnx - 1)
 	fnz := float64(t.gnz - 1)
-	for cz := 0; cz < t.cgnz; cz++ {
-		j0 := int(float64(cz) * fnz / float64(t.cgnz))
-		j1 := int(math.Ceil(float64(cz+1)*fnz/float64(t.cgnz))) + 1
-		if j1 > t.gnz-1 {
-			j1 = t.gnz - 1
-		}
-		for cx := 0; cx < t.cgnx; cx++ {
-			i0 := int(float64(cx) * fnx / float64(t.cgnx))
-			i1 := int(math.Ceil(float64(cx+1)*fnx/float64(t.cgnx))) + 1
-			if i1 > t.gnx-1 {
-				i1 = t.gnx - 1
+	parallelRows(t.cgnz, func(cz0, cz1 int) {
+		for cz := cz0; cz < cz1; cz++ {
+			j0 := int(float64(cz) * fnz / float64(t.cgnz))
+			j1 := int(math.Ceil(float64(cz+1)*fnz/float64(t.cgnz))) + 1
+			if j1 > t.gnz-1 {
+				j1 = t.gnz - 1
 			}
-			lo := math.Inf(1)
-			hi := math.Inf(-1)
-			for j := j0; j <= j1; j++ {
-				row := j * t.gnx
-				for i := i0; i <= i1; i++ {
-					if h := t.hgrid[row+i]; h < lo {
-						lo = h
-					}
-					if h := t.hgrid[row+i]; h > hi {
-						hi = h
+			for cx := 0; cx < t.cgnx; cx++ {
+				i0 := int(float64(cx) * fnx / float64(t.cgnx))
+				i1 := int(math.Ceil(float64(cx+1)*fnx/float64(t.cgnx))) + 1
+				if i1 > t.gnx-1 {
+					i1 = t.gnx - 1
+				}
+				lo := math.Inf(1)
+				hi := math.Inf(-1)
+				for j := j0; j <= j1; j++ {
+					row := j * t.gnx
+					for i := i0; i <= i1; i++ {
+						if h := t.hgrid[row+i]; h < lo {
+							lo = h
+						}
+						if h := t.hgrid[row+i]; h > hi {
+							hi = h
+						}
 					}
 				}
+				idx := cz*t.cgnx + cx
+				if t.hybridLOD {
+					for _, o := range [][2]float64{{0, 0}, {1, 0}, {0, 1}, {1, 1}, {0.5, 0.5}} {
+						x := t.OriginX + (float64(cx)+o[0])*t.cwx
+						z := t.OriginZ + (float64(cz)+o[1])*t.cwz
+						if h := t.heightAnalytic(x, z); h > hi {
+							hi = h
+						} else if h < lo {
+							lo = h
+						}
+					}
+				}
+				t.cmin[idx] = lo - margin
+				t.cmax[idx] = hi + margin
 			}
-			idx := cz*t.cgnx + cx
-			t.cmin[idx] = lo - 1e-3
-			t.cmax[idx] = hi + 1e-3
 		}
-	}
+	})
 }
 
 // HeightAnalytic returns the full terrain height at (x,z) including fBm detail

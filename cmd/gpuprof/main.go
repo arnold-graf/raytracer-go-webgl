@@ -37,6 +37,9 @@ func main() {
 	height := flag.Int("h", defaultRenderH, "render height")
 	yawDeg := flag.Float64("yaw-deg", 0, "override camera yaw in degrees")
 	pitchDeg := flag.Float64("pitch-deg", 0, "override camera pitch in degrees")
+	camX := flag.Float64("cam-x", 0, "override camera X (0 = scene default)")
+	camY := flag.Float64("cam-y", 0, "override camera Y (0 = scene default)")
+	camZ := flag.Float64("cam-z", 0, "override camera Z (0 = scene default)")
 	warmup := flag.Int("warmup", 3, "frames to discard before measuring")
 	frames := flag.Int("frames", 20, "measured frames per configuration")
 	ablate := flag.Bool("ablate", true, "run the feature ablation matrix after the baseline")
@@ -70,6 +73,19 @@ func main() {
 	}
 	if flagPassed("pitch-deg") {
 		cam.Pitch = *pitchDeg * math.Pi / 180
+	}
+	if flagPassed("cam-x") || flagPassed("cam-y") || flagPassed("cam-z") {
+		if flagPassed("cam-x") {
+			cam.Pos.X = *camX
+		}
+		if flagPassed("cam-y") {
+			cam.Pos.Y = *camY
+		}
+		if flagPassed("cam-z") {
+			cam.Pos.Z = *camZ
+		}
+		camLabel = fmt.Sprintf("pos=[%.1f,%.1f,%.1f] yaw=%.0f° pitch=%.1f°",
+			cam.Pos.X, cam.Pos.Y, cam.Pos.Z, cam.Yaw*180/math.Pi, cam.Pitch*180/math.Pi)
 	}
 	if flagPassed("yaw-deg") || flagPassed("pitch-deg") {
 		camLabel = fmt.Sprintf("yaw=%.0f° pitch=%.1f°", cam.Yaw*180/math.Pi, cam.Pitch*180/math.Pi)
