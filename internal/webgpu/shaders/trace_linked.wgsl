@@ -1612,6 +1612,59 @@ const MAT_CHECKER: u32 = 6u;
 
 fn terrain_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
   let tr = terrains[i];
+  if (tr.island1.z < 0.5) {
+    return terrain_normal_baked(i, p);
+  }
+  let e = 0.05;
+  let hl = terrain_height(i, p.x - e, p.z);
+  let hr = terrain_height(i, p.x + e, p.z);
+  let hd = terrain_height(i, p.x, p.z - e);
+  let hu = terrain_height(i, p.x, p.z + e);
+  return normalize(vec3<f32>(hl - hr, 2.0 * e, hd - hu));
+}
+
+fn terrain_albedo(i: u32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+  let tr = terrains[i];
+  let slope = 1.0 - n.y;
+  let j = 0.08 * perlin(p.x * 0.7, 0.0, p.z * 0.7);
+  let rock_w = smoothstepf(tr.blend.x, tr.blend.y, slope + j);
+  let snow_w = smoothstepf(tr.blend.z, tr.blend.w, p.y + 2.0 * j);
+  var c = texture_eval(tr.material.x, p, n, tr.color0.xyz);
+  if (rock_w > 0.001) {
+    c = mix3(c, texture_eval(tr.material.y, p, n, tr.color1.xyz), rock_w);
+  }
+  if (snow_w > 0.001) {
+    c = mix3(c, texture_eval(tr.material.z, p, n, tr.color2.xyz), snow_w);
+  }
+  return c;
+}
+
+@group(0) @binding(6) var<storage, read> terrains: array<Terrain>;
+
+fn terrain_height(i: u32, x: f32, z: f32) -> f32 {
+  let tr = terrains[i];
+  if (tr.island1.z < 0.5) {
+    return terrain_height_baked(i, x, z);
+  }
+  let baked = terrain_height_baked(i, x, z);
+  let cam = params.cam_pos.xz;
+  let dist = length(vec2<f32>(x, z) - cam);
+  let nearStart = tr.analytic.w;
+  let nearEnd = tr.island1.y;
+  if (dist >= nearEnd) {
+    return baked;
+  }
+  let detailW = 1.0 - smoothstepf(nearStart, nearEnd, dist);
+  let analytic = terrain_height_analytic(i, x, z, detailW);
+  if (dist <= nearStart) {
+    return analytic;
+  }
+  let t = smoothstepf(nearStart, nearEnd, dist);
+  return mix(analytic, baked, t);
+}
+
+fn terrain_normal_baked(i: u32, p: vec3<f32>) -> vec3<f32> {
+  let tr = terrains[i];
   let gnx = tr.grid.x;
   let gnz = tr.grid.y;
   let off = tr.grid.z;
@@ -1635,24 +1688,6 @@ fn terrain_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
   return normalize(mix3(mix3(n00, n10, tx), mix3(n01, n11, tx), tz));
 }
 
-fn terrain_albedo(i: u32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
-  let tr = terrains[i];
-  let slope = 1.0 - n.y;
-  let j = 0.08 * perlin(p.x * 0.7, 0.0, p.z * 0.7);
-  let rock_w = smoothstepf(tr.blend.x, tr.blend.y, slope + j);
-  let snow_w = smoothstepf(tr.blend.z, tr.blend.w, p.y + 2.0 * j);
-  var c = texture_eval(tr.material.x, p, n, tr.color0.xyz);
-  if (rock_w > 0.001) {
-    c = mix3(c, texture_eval(tr.material.y, p, n, tr.color1.xyz), rock_w);
-  }
-  if (snow_w > 0.001) {
-    c = mix3(c, texture_eval(tr.material.z, p, n, tr.color2.xyz), snow_w);
-  }
-  return c;
-}
-
-@group(0) @binding(6) var<storage, read> terrains: array<Terrain>;
-
 @group(0) @binding(7) var<storage, read> terrain_samples: array<vec4<f32>>;
 
 struct Terrain {
@@ -1664,6 +1699,148 @@ struct Terrain {
   color1: vec4<f32>,
   color2: vec4<f32>,
   blend: vec4<f32>, // slopeLo, slopeHi, snowLo, snowHi
+  analytic: vec4<f32>, // base, detail, detailScale, nearStart
+  island0: vec4<f32>, // centerX, centerZ, radius, margin
+  island1: vec4<f32>, // floor, nearEnd, hybrid (1/0), _
+  offsets: vec4<u32>, // featureBase, padBase, featureCount, padCount
+}
+
+
+fn terrain_height_analytic(i: u32, x: f32, z: f32, detail_w: f32) -> f32 {
+  return terrain_apply_pads(i, x, z, terrain_natural_analytic(i, x, z, detail_w));
+}
+
+fn terrain_height_baked(i: u32, x: f32, z: f32) -> f32 {
+  let tr = terrains[i];
+  let gnx = tr.grid.x;
+  let gnz = tr.grid.y;
+  let off = tr.grid.z;
+  let fx0 = clamp((x - tr.bounds0.x) / tr.bounds0.z * f32(gnx - 1u), 0.0, f32(gnx - 1u));
+  let fz0 = clamp((z - tr.bounds0.y) / tr.bounds0.w * f32(gnz - 1u), 0.0, f32(gnz - 1u));
+  var ix = u32(floor(fx0));
+  var iz = u32(floor(fz0));
+  if (ix >= gnx - 1u) {
+    ix = gnx - 2u;
+  }
+  if (iz >= gnz - 1u) {
+    iz = gnz - 2u;
+  }
+  let tx = fx0 - f32(ix);
+  let tz = fz0 - f32(iz);
+  let base = off + iz * gnx + ix;
+  let h00 = terrain_samples[base].w;
+  let h10 = terrain_samples[base + 1u].w;
+  let h01 = terrain_samples[base + gnx].w;
+  let h11 = terrain_samples[base + gnx + 1u].w;
+  return mix(mix(h00, h10, tx), mix(h01, h11, tx), tz);
+}
+
+fn terrain_apply_pads(i: u32, x: f32, z: f32, h: f32) -> f32 {
+  let tr = terrains[i];
+  let padBase = tr.offsets.y;
+  let padCount = tr.offsets.w;
+  var out = h;
+  for (var pi = 0u; pi < padCount; pi = pi + 1u) {
+    let p = terrain_pads[padBase + pi];
+    var dx = x - p.center.x;
+    var dz = z - p.center.y;
+    if (p.params.z != 0.0) {
+      let c = cos(p.params.z);
+      let s = sin(p.params.z);
+      let rdx = dx * c + dz * s;
+      let rdz = -dx * s + dz * c;
+      dx = rdx;
+      dz = rdz;
+    }
+    var lx = abs(dx) - p.center.z;
+    var lz = abs(dz) - p.center.w;
+    if (lx < 0.0) {
+      lx = 0.0;
+    }
+    if (lz < 0.0) {
+      lz = 0.0;
+    }
+    var w = 0.0;
+    if (p.params.y <= 0.0) {
+      if (lx == 0.0 && lz == 0.0) {
+        w = 1.0;
+      }
+    } else {
+      w = 1.0 - smoothstepf(0.0, p.params.y, length(vec2<f32>(lx, lz)));
+    }
+    out = out + (p.params.x - out) * w;
+  }
+  return out;
+}
+
+fn terrain_natural_analytic(i: u32, x: f32, z: f32, detail_w: f32) -> f32 {
+  let tr = terrains[i];
+  var h = tr.analytic.x;
+  let featBase = tr.offsets.x;
+  let featCount = tr.offsets.z;
+  for (var fi = 0u; fi < featCount; fi = fi + 1u) {
+    let f = terrain_features[featBase + fi];
+    var dx = x - f.pos.x;
+    var dz = z - f.pos.y;
+    if (f.shape.w != 0.0) {
+      let c = cos(f.shape.w);
+      let s = sin(f.shape.w);
+      let rdx = dx * c + dz * s;
+      let rdz = -dx * s + dz * c;
+      dx = rdx;
+      dz = rdz;
+    }
+    var ex = f.shape.y;
+    var ez = f.shape.z;
+    var w = f.pos.w;
+    if (ex == 0.0) {
+      ex = 1.0;
+    }
+    if (ez == 0.0) {
+      ez = 1.0;
+    }
+    if (w == 0.0) {
+      w = 1.0;
+    }
+    var st = f.shape.x;
+    if (st == 0.0) {
+      st = 2.0;
+    }
+    let ax = dx / (w * ex);
+    let az = dz / (w * ez);
+    let d = length(vec2<f32>(ax, az));
+    h = h + f.pos.z * exp(-pow(d, st));
+  }
+  if (detail_w > 0.0 && tr.analytic.y != 0.0) {
+    let scale = tr.analytic.z;
+    h = h + tr.analytic.y * detail_w * fbm(x * scale, 0.0, z * scale, 4u);
+  }
+  let isl = tr.island0;
+  if (isl.z > 0.0) {
+    let dist = length(vec2<f32>(x - isl.x, z - isl.y));
+    var margin = isl.w;
+    if (margin <= 0.0) {
+      margin = isl.z * 0.5;
+    }
+    let land = 1.0 - smoothstepf(isl.z, isl.z + margin, dist);
+    h = tr.island1.x + (h - tr.island1.x) * land;
+  }
+  return h;
+}
+
+@group(0) @binding(22) var<storage, read> terrain_pads: array<TerrainPad>;
+
+struct TerrainPad {
+  center: vec4<f32>, // cx, cz, halfX, halfZ
+  params: vec4<f32>, // level, margin, angle, _
+}
+
+
+@group(0) @binding(21) var<storage, read> terrain_features: array<TerrainFeature>;
+
+struct TerrainFeature {
+  pos: vec4<f32>, // x, z, height, width
+  shape: vec4<f32>, // steepness, extendX, extendZ, angle
 }
 
 
@@ -1685,7 +1862,7 @@ struct Water {
   params: vec4<f32>, // ripple, rippleSpeed, dirX, dirZ
   albedo: vec4<f32>,
   surf: vec4<f32>,
-  info: vec4<u32>, // material, texture, mask_shoreline, _
+  info: vec4<u32>, // material, texture, _, _
 }
 
 
@@ -2366,31 +2543,6 @@ fn terrain_slab(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> vec2<f32> {
     return vec2<f32>(T_MISS, T_MISS);
   }
   return vec2<f32>(max(enter, RAY_EPSILON), exit);
-}
-
-fn terrain_height(i: u32, x: f32, z: f32) -> f32 {
-  let tr = terrains[i];
-  let gnx = tr.grid.x;
-  let gnz = tr.grid.y;
-  let off = tr.grid.z;
-  let fx0 = clamp((x - tr.bounds0.x) / tr.bounds0.z * f32(gnx - 1u), 0.0, f32(gnx - 1u));
-  let fz0 = clamp((z - tr.bounds0.y) / tr.bounds0.w * f32(gnz - 1u), 0.0, f32(gnz - 1u));
-  var ix = u32(floor(fx0));
-  var iz = u32(floor(fz0));
-  if (ix >= gnx - 1u) {
-    ix = gnx - 2u;
-  }
-  if (iz >= gnz - 1u) {
-    iz = gnz - 2u;
-  }
-  let tx = fx0 - f32(ix);
-  let tz = fz0 - f32(iz);
-  let base = off + iz * gnx + ix;
-  let h00 = terrain_samples[base].w;
-  let h10 = terrain_samples[base + 1u].w;
-  let h01 = terrain_samples[base + gnx].w;
-  let h11 = terrain_samples[base + gnx + 1u].w;
-  return mix(mix(h00, h10, tx), mix(h01, h11, tx), tz);
 }
 
 const PROF_TERRAIN_STEPS: u32 = 9u;

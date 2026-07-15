@@ -1,20 +1,15 @@
 // terrain.wesl — Heightfield terrain and water surfaces.
-// Samples the baked terrain heightmap, ray-marches along it for hits and shadow
-// tests, and intersects flat water discs with ripples.
+// Hybrid LOD: coarse baked grid for the mid field, full analytic height (with
+// fBm) in the near band keyed on camera distance. Ray marching samples
+// terrain_height, which blends the two over the configured fade band.
 
 
 
-
-
-
-
-
-
-import package::types::{RAY_EPSILON, T_MISS, params, terrain_samples, terrains, waters};
+import package::types::{RAY_EPSILON, T_MISS, params, terrain_features, terrain_pads, terrain_samples, terrains, waters};
 import package::profile::{PROF_TERRAIN_STEPS, prof_inc};
-import package::math::{mix3, perlin};
+import package::math::{fbm, mix3, perlin, smoothstepf};
 
-fn terrain_height(i: u32, x: f32, z: f32) -> f32 {
+fn terrain_height_baked(i: u32, x: f32, z: f32) -> f32 {
     let tr = terrains[i];
     let gnx = tr.grid.x;
     let gnz = tr.grid.y;
@@ -35,7 +30,114 @@ fn terrain_height(i: u32, x: f32, z: f32) -> f32 {
     return mix(mix(h00, h10, tx), mix(h01, h11, tx), tz);
 }
 
-fn terrain_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
+fn terrain_apply_pads(i: u32, x: f32, z: f32, h: f32) -> f32 {
+    let tr = terrains[i];
+    let padBase = tr.offsets.y;
+    let padCount = tr.offsets.w;
+    var out = h;
+    for (var pi = 0u; pi < padCount; pi = pi + 1u) {
+        let p = terrain_pads[padBase + pi];
+        var dx = x - p.center.x;
+        var dz = z - p.center.y;
+        if (p.params.z != 0.0) {
+            let c = cos(p.params.z);
+            let s = sin(p.params.z);
+            let rdx = dx * c + dz * s;
+            let rdz = -dx * s + dz * c;
+            dx = rdx;
+            dz = rdz;
+        }
+        var lx = abs(dx) - p.center.z;
+        var lz = abs(dz) - p.center.w;
+        if (lx < 0.0) { lx = 0.0; }
+        if (lz < 0.0) { lz = 0.0; }
+        var w = 0.0;
+        if (p.params.y <= 0.0) {
+            if (lx == 0.0 && lz == 0.0) {
+                w = 1.0;
+            }
+        } else {
+            w = 1.0 - smoothstepf(0.0, p.params.y, length(vec2<f32>(lx, lz)));
+        }
+        out = out + (p.params.x - out) * w;
+    }
+    return out;
+}
+
+fn terrain_natural_analytic(i: u32, x: f32, z: f32, detail_w: f32) -> f32 {
+    let tr = terrains[i];
+    var h = tr.analytic.x;
+    let featBase = tr.offsets.x;
+    let featCount = tr.offsets.z;
+    for (var fi = 0u; fi < featCount; fi = fi + 1u) {
+        let f = terrain_features[featBase + fi];
+        var dx = x - f.pos.x;
+        var dz = z - f.pos.y;
+        if (f.shape.w != 0.0) {
+            let c = cos(f.shape.w);
+            let s = sin(f.shape.w);
+            let rdx = dx * c + dz * s;
+            let rdz = -dx * s + dz * c;
+            dx = rdx;
+            dz = rdz;
+        }
+        var ex = f.shape.y;
+        var ez = f.shape.z;
+        var w = f.pos.w;
+        if (ex == 0.0) { ex = 1.0; }
+        if (ez == 0.0) { ez = 1.0; }
+        if (w == 0.0) { w = 1.0; }
+        var st = f.shape.x;
+        if (st == 0.0) { st = 2.0; }
+        let ax = dx / (w * ex);
+        let az = dz / (w * ez);
+        let d = length(vec2<f32>(ax, az));
+        h = h + f.pos.z * exp(-pow(d, st));
+    }
+    if (detail_w > 0.0 && tr.analytic.y != 0.0) {
+        let scale = tr.analytic.z;
+        h = h + tr.analytic.y * detail_w * fbm(x * scale, 0.0, z * scale, 4u);
+    }
+    let isl = tr.island0;
+    if (isl.z > 0.0) {
+        let dist = length(vec2<f32>(x - isl.x, z - isl.y));
+        var margin = isl.w;
+        if (margin <= 0.0) {
+            margin = isl.z * 0.5;
+        }
+        let land = 1.0 - smoothstepf(isl.z, isl.z + margin, dist);
+        h = tr.island1.x + (h - tr.island1.x) * land;
+    }
+    return h;
+}
+
+fn terrain_height_analytic(i: u32, x: f32, z: f32, detail_w: f32) -> f32 {
+    return terrain_apply_pads(i, x, z, terrain_natural_analytic(i, x, z, detail_w));
+}
+
+fn terrain_height(i: u32, x: f32, z: f32) -> f32 {
+    let tr = terrains[i];
+    if (tr.island1.z < 0.5) {
+        return terrain_height_baked(i, x, z);
+    }
+    let baked = terrain_height_baked(i, x, z);
+    let cam = params.cam_pos.xz;
+    let dist = length(vec2<f32>(x, z) - cam);
+    let nearStart = tr.analytic.w;
+    let nearEnd = tr.island1.y;
+    if (dist >= nearEnd) {
+        return baked;
+    }
+    let detailW = 1.0 - smoothstepf(nearStart, nearEnd, dist);
+    let analytic = terrain_height_analytic(i, x, z, detailW);
+    if (dist <= nearStart) {
+        return analytic;
+    }
+    let t = smoothstepf(nearStart, nearEnd, dist);
+    return mix(analytic, baked, t);
+}
+
+fn terrain_normal_baked(i: u32, p: vec3<f32>) -> vec3<f32> {
     let tr = terrains[i];
     let gnx = tr.grid.x;
     let gnz = tr.grid.y;
@@ -54,6 +156,19 @@ fn terrain_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
     let n01 = terrain_samples[base + gnx].xyz;
     let n11 = terrain_samples[base + gnx + 1u].xyz;
     return normalize(mix3(mix3(n00, n10, tx), mix3(n01, n11, tx), tz));
+}
+
+fn terrain_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
+    let tr = terrains[i];
+    if (tr.island1.z < 0.5) {
+        return terrain_normal_baked(i, p);
+    }
+    let e = 0.05;
+    let hl = terrain_height(i, p.x - e, p.z);
+    let hr = terrain_height(i, p.x + e, p.z);
+    let hd = terrain_height(i, p.x, p.z - e);
+    let hu = terrain_height(i, p.x, p.z + e);
+    return normalize(vec3<f32>(hl - hr, 2.0 * e, hd - hu));
 }
 
 fn terrain_slab(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> vec2<f32> {
@@ -131,9 +246,20 @@ fn hit_water(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
         return T_MISS;
     }
     let p = ro + rd * t;
-    let d = p.xz - w.geom.xy;
-    if (dot(d, d) > w.geom.z * w.geom.z) {
-        return T_MISS;
+    if (w.geom.z > 0.0) {
+        let d = p.xz - w.geom.xy;
+        if (dot(d, d) > w.geom.z * w.geom.z) {
+            return T_MISS;
+        }
+    }
+    if (w.info.z != 0u) {
+        var th = -1e10;
+        for (var ti = 0u; ti < params.terrain_count; ti = ti + 1u) {
+            th = max(th, terrain_height(ti, p.x, p.z));
+        }
+        if (th >= w.geom.w) {
+            return T_MISS;
+        }
     }
     return t;
 }
@@ -152,4 +278,3 @@ fn water_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
         w.params.x * perlin(p.x * 2.5 + dx + 7.0, 0.0, p.z * 2.5 + dz + 3.0),
     ));
 }
-

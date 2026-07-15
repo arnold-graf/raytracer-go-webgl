@@ -96,7 +96,13 @@ type Terrain struct {
 
 	Step       float64 // base marching step
 	GridCell   float64 // world units per cache cell (0 = auto)
-	MinY, MaxY float64 // precomputed vertical band (set by Prepare)
+	// CoarseCell enables hybrid LOD: bake a coarse height grid (no fBm) for the
+	// mid/far field while Height/Normal and the GPU near band evaluate the full
+	// analytic field. 0 keeps the legacy full-detail bake at GridCell.
+	CoarseCell      float64
+	HybridNearStart float64 // camera distance for full analytic (default 40 m)
+	HybridNearEnd   float64 // camera distance where coarse bake takes over (default 60 m)
+	MinY, MaxY      float64 // precomputed vertical band (set by Prepare)
 
 	// Precomputed height/normal cache, built by Prepare. Height and Normal read
 	// from these via bilinear interpolation instead of re-evaluating the (very
@@ -112,7 +118,8 @@ type Terrain struct {
 	cInvDx, cInvDz float64
 	cmin, cmax     []float64
 
-	stale bool // height/normal cache is out of date (pads/features changed)
+	stale     bool // height/normal cache is out of date (pads/features changed)
+	hybridLOD bool // coarse bake + analytic queries (CoarseCell > 0)
 }
 
 // TerrainCacheSnapshot is a read-only copy of the prepared terrain grids for
@@ -190,7 +197,14 @@ func (t *Terrain) Prepare() {
 // per-vertex normals from finite differences, so rendering only does cheap
 // bilinear lookups.
 func (t *Terrain) buildCache() {
+	sample := t.heightAnalytic
 	cell := fitTerrainGridCell(t.SizeX, t.SizeZ, t.GridCell)
+	t.hybridLOD = false
+	if t.CoarseCell > 0 {
+		t.hybridLOD = true
+		cell = fitTerrainGridCell(t.SizeX, t.SizeZ, t.CoarseCell)
+		sample = t.heightCoarseAnalytic
+	}
 	t.gnx = int(math.Ceil(t.SizeX/cell)) + 1
 	t.gnz = int(math.Ceil(t.SizeZ/cell)) + 1
 	if t.gnx < 2 {
@@ -210,7 +224,7 @@ func (t *Terrain) buildCache() {
 			z := t.OriginZ + float64(j)*dz
 			row := j * t.gnx
 			for i := 0; i < t.gnx; i++ {
-				t.hgrid[row+i] = t.heightAnalytic(t.OriginX+float64(i)*dx, z)
+				t.hgrid[row+i] = sample(t.OriginX+float64(i)*dx, z)
 			}
 		}
 	})
@@ -301,10 +315,46 @@ func (t *Terrain) buildCoarse() {
 	}
 }
 
+// HeightAnalytic returns the full terrain height at (x,z) including fBm detail
+// and pads. Used for physics queries in hybrid mode and GPU parity tests.
+func (t *Terrain) HeightAnalytic(x, z float64) float64 {
+	return t.heightAnalytic(x, z)
+}
+
+// HybridLOD reports whether this terrain uses a coarse baked grid plus an
+// analytic near band (CoarseCell > 0).
+func (t *Terrain) HybridLOD() bool {
+	return t.hybridLOD
+}
+
+// HybridNearDistances returns the camera-distance band for the analytic near
+// field. Zero values are replaced with defaults (40 m / 60 m).
+func (t *Terrain) HybridNearDistances() (start, end float64) {
+	start, end = t.HybridNearStart, t.HybridNearEnd
+	if start <= 0 {
+		start = 40
+	}
+	if end <= 0 {
+		end = 60
+	}
+	if end < start {
+		end = start
+	}
+	return start, end
+}
+
 // heightAnalytic evaluates the exact (expensive) terrain height at world (x,z).
-// Used only when building the cache.
 func (t *Terrain) heightAnalytic(x, z float64) float64 {
-	h := t.naturalHeightAnalytic(x, z)
+	return t.applyPads(x, z, t.naturalHeightAt(x, z, true))
+}
+
+// heightCoarseAnalytic is the mid-field height: features, island falloff, and
+// pads, but no fBm detail. Matches the coarse bake grid.
+func (t *Terrain) heightCoarseAnalytic(x, z float64) float64 {
+	return t.applyPads(x, z, t.naturalHeightAt(x, z, false))
+}
+
+func (t *Terrain) applyPads(x, z, h float64) float64 {
 	for i := range t.Pads {
 		p := &t.Pads[i]
 		dx, dz := x-p.CenterX, z-p.CenterZ
@@ -335,6 +385,10 @@ func (t *Terrain) heightAnalytic(x, z float64) float64 {
 
 // naturalHeightAnalytic is the terrain height before building pads are applied.
 func (t *Terrain) naturalHeightAnalytic(x, z float64) float64 {
+	return t.naturalHeightAt(x, z, true)
+}
+
+func (t *Terrain) naturalHeightAt(x, z float64, detail bool) float64 {
 	h := t.Base
 	for i := range t.Features {
 		f := &t.Features[i]
@@ -361,7 +415,7 @@ func (t *Terrain) naturalHeightAnalytic(x, z float64) float64 {
 		}
 		h += f.Height * math.Exp(-math.Pow(d, st))
 	}
-	if t.Detail != 0 {
+	if detail && t.Detail != 0 {
 		h += t.Detail * texture.FBM(x*t.DetailScale, 0, z*t.DetailScale, 4)
 	}
 	if isl := t.Island; isl.Radius > 0 {
@@ -435,6 +489,9 @@ func (t *Terrain) ensureFeatureFootprint() {
 // interpolation (clamped to the footprint).
 func (t *Terrain) Height(x, z float64) float64 {
 	t.ensurePrepared()
+	if t.hybridLOD {
+		return t.heightAnalytic(x, z)
+	}
 	fx := (x - t.OriginX) * t.invDx
 	fz := (z - t.OriginZ) * t.invDz
 	maxX := float64(t.gnx - 1)
@@ -486,6 +543,29 @@ func (s *Scene) PadGradeAt(localX, localZ float64, parent *Scene, worldX, worldZ
 				if h, ok := parent.NaturalTerrainHeightAt(worldX, worldZ); ok {
 					return h + p.Level, true
 				}
+			}
+			return p.Level, true
+		}
+	}
+	return 0, false
+}
+
+// TerrainPadGradeAt returns the placement grade for a world-space pad covering
+// (x,z) on any terrain in s. Relative pads add their level to natural height
+// at (x,z). Used when parent scenes declare [[terrain.pad]] for includes that
+// no longer carry pads on the object file.
+func (s *Scene) TerrainPadGradeAt(x, z float64) (float64, bool) {
+	for i := range s.Terrains {
+		for j := range s.Terrains[i].Pads {
+			p := &s.Terrains[i].Pads[j]
+			if !padCovers(p, x, z) {
+				continue
+			}
+			if p.Absolute {
+				return p.Level, true
+			}
+			if h, ok := s.NaturalTerrainHeightAt(x, z); ok {
+				return h + p.Level, true
 			}
 			return p.Level, true
 		}
@@ -808,6 +888,14 @@ func (t *Terrain) marchFine(r vec.Ray, tEnter, tExit float64, refine bool) float
 // interpolated for smooth shading).
 func (t *Terrain) Normal(p vec.V) vec.V {
 	t.ensurePrepared()
+	if t.hybridLOD {
+		const e = 0.05
+		hl := t.heightAnalytic(p.X-e, p.Z)
+		hr := t.heightAnalytic(p.X+e, p.Z)
+		hd := t.heightAnalytic(p.X, p.Z-e)
+		hu := t.heightAnalytic(p.X, p.Z+e)
+		return vec.New(hl-hr, 2*e, hd-hu).Normalize()
+	}
 	if t.ngrid == nil {
 		const e = 0.05
 		hl := t.Height(p.X-e, p.Z)

@@ -394,6 +394,8 @@ type terrainDTO struct {
 	DetailScale float64    `toml:"detail_scale"`
 	Step        float64    `toml:"step"`
 	GridCell    float64    `toml:"grid_cell"`
+	CoarseCell  float64    `toml:"coarse_cell"`
+	HybridNear  [2]float64 `toml:"hybrid_near"` // [start, end] camera distance band (m)
 
 	Grass    string  `toml:"grass"`
 	Rock     string  `toml:"rock"`
@@ -1029,6 +1031,8 @@ func includePlacementAt(dst, sub *scene.Scene, inc includeDTO, follow bool) (vec
 	grade := probe.ToWorld(vec.V{})
 	if g, ok := sub.PadGradeAt(0, 0, dst, grade.X, grade.Z); ok {
 		at.Y = g + at.Y
+	} else if g, ok := dst.TerrainPadGradeAt(grade.X, grade.Z); ok {
+		at.Y = g + at.Y
 	} else if !follow {
 		if h, ok := dst.TerrainHeightAt(grade.X, grade.Z); ok {
 			at.Y = h + at.Y
@@ -1260,7 +1264,8 @@ func (d terrainDTO) build() (scene.Terrain, error) {
 	ter := scene.Terrain{
 		OriginX: d.Origin[0], OriginZ: d.Origin[2],
 		SizeX: d.Size[0], SizeZ: d.Size[1],
-		Base: d.Base, Detail: d.Detail, DetailScale: d.DetailScale, Step: d.Step, GridCell: d.GridCell,
+		Base: d.Base, Detail: d.Detail, DetailScale: d.DetailScale, Step: d.Step,
+		GridCell: d.GridCell, CoarseCell: d.CoarseCell,
 		Grass: grass, Rock: rock, Snow: snow,
 		GrassCol: tintOrWhite(d.GrassCol), RockCol: tintOrWhite(d.RockCol), SnowCol: tintOrWhite(d.SnowCol),
 		SlopeLo: d.SlopeLo, SlopeHi: d.SlopeHi, SnowLo: d.SnowLo, SnowHi: d.SnowHi,
@@ -1301,6 +1306,12 @@ func (d terrainDTO) build() (scene.Terrain, error) {
 			CenterX: d.Island.Center[0], CenterZ: d.Island.Center[1],
 			Radius: d.Island.Radius, Margin: d.Island.Margin, Floor: d.Island.Floor,
 		}
+	}
+	if len(d.HybridNear) > 0 {
+		ter.HybridNearStart = d.HybridNear[0]
+	}
+	if len(d.HybridNear) > 1 {
+		ter.HybridNearEnd = d.HybridNear[1]
 	}
 	return ter, nil
 }

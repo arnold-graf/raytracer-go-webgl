@@ -136,6 +136,20 @@ struct Terrain {
     color1: vec4<f32>,
     color2: vec4<f32>,
     blend: vec4<f32>,    // slopeLo, slopeHi, snowLo, snowHi
+    analytic: vec4<f32>,   // base, detail, detailScale, nearStart
+    island0: vec4<f32>,    // centerX, centerZ, radius, margin
+    island1: vec4<f32>,    // floor, nearEnd, hybrid (1/0), _
+    offsets: vec4<u32>,    // featureBase, padBase, featureCount, padCount
+};
+
+struct TerrainFeature {
+    pos: vec4<f32>,   // x, z, height, width
+    shape: vec4<f32>, // steepness, extendX, extendZ, angle
+};
+
+struct TerrainPad {
+    center: vec4<f32>, // cx, cz, halfX, halfZ
+    params: vec4<f32>, // level, margin, angle, _
 };
 
 struct Water {
@@ -193,6 +207,12 @@ var<storage, read> document_pixels: array<u32>;
 
 @group(0) @binding(20)
 var<storage, read> box_face_textures: array<u32>;
+
+@group(0) @binding(21)
+var<storage, read> terrain_features: array<TerrainFeature>;
+
+@group(0) @binding(22)
+var<storage, read> terrain_pads: array<TerrainPad>;
 
 @group(0) @binding(14)
 var<storage, read> inst_templates: array<TemplateRecord>;

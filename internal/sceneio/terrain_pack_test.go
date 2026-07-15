@@ -22,7 +22,7 @@ func TestVilla400TerrainPacksForGPU(t *testing.T) {
 	ter.Prepare()
 	gnx, gnz := ter.GridDimensions()
 
-	terrains, samples := webgpu.PackTerrains(s)
+	terrains, samples, _, _ := webgpu.PackTerrains(s)
 	if len(terrains) != 1 {
 		t.Fatalf("got %d terrains, want 1", len(terrains))
 	}
@@ -32,5 +32,30 @@ func TestVilla400TerrainPacksForGPU(t *testing.T) {
 	}
 	if want > scene.MaxTerrainGridCells {
 		t.Fatalf("grid %d×%d exceeds GPU cap", gnx, gnz)
+	}
+}
+
+func TestIslandSceneHybridFootprint(t *testing.T) {
+	s, err := Load(repoFile("scenes/island.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Terrains) == 0 {
+		t.Fatal("expected terrain")
+	}
+	ter := &s.Terrains[0]
+	if !ter.HybridLOD() {
+		t.Fatal("island terrain should use hybrid LOD")
+	}
+	gnx, gnz := ter.GridDimensions()
+	if gnx*gnz > scene.MaxTerrainGridCells {
+		t.Fatalf("grid %d×%d = %d exceeds GPU cap", gnx, gnz, gnx*gnz)
+	}
+	if ter.SizeX < 1500 || ter.SizeZ < 1500 {
+		t.Fatalf("footprint = %.0f×%.0f, want ~2 km", ter.SizeX, ter.SizeZ)
+	}
+	_, _, feats, _ := webgpu.PackTerrains(s)
+	if len(feats) == 0 {
+		t.Fatal("expected terrain features packed for analytic near band")
 	}
 }

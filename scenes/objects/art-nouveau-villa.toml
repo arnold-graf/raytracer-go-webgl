@@ -17,18 +17,11 @@
 #
 # Plaster ~ cream, stone base, dark tile roofs, dark wood window frames.
 
-# Flatten the ground under the house. The stub [[terrain]] only exists so the
-# [[terrain.pad]] below decodes; an object never carries its own height field,
-# so the pad is merged into whatever terrain the parent scene defines. level is
-# an offset above natural ground at the include anchor (set absolute = true for
-# a fixed world elevation). The pad moves with the include's at / rotation.
+# Flatten the ground under the house. Parent scenes declare [[terrain.pad]] on
+# their [[terrain]] table (absolute fixed elevation for valley sites, relative
+# level for raised sites on hills). The stub [[terrain]] header exists only so
+# TOML decodes; pads are not authored on the object file.
 [[terrain]]
-
-[[terrain.pad]] # flat site under the villa (footprint ~15 × 13 m + margin)
-center = [0.0, 0.0]
-half = [8.5, 8.0]
-level = 3.0
-margin = 5.0
 
 # ============================================================ STONE PLINTH ====
 
@@ -694,7 +687,6 @@ center = [-6.35, 1.55, 2.35]
 color = [5.0, 2.2, 0.8]
 flicker = 0.6
 range = 14.0
-lights = 3
 
 [[sphere]] # fire glow (visible embers)
 albedo = [4.0, 1.6, 0.5]

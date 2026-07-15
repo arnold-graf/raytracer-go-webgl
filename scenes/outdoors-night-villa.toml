@@ -98,6 +98,22 @@ snow_hi = 10.5
   width = 6.0
   steepness = 3.0
 
+  # Villa building pads (absolute grade — the valley floor is ~3 m).
+  [[terrain.pad]]
+  center = [0.0, -8.0]
+  half = [8.5, 8.0]
+  level = 3.0
+  absolute = true
+  margin = 5.0
+
+  [[terrain.pad]]
+  center = [48.586, -8.586]
+  half = [8.5, 8.0]
+  level = 3.0
+  absolute = true
+  margin = 5.0
+  angle = -0.78539816339 # -45°
+
 # ================================================================ MOUNTAINS AT THE OTHER END OF THE VALLEY ====
 
 [[include]]
@@ -109,14 +125,14 @@ at = [59.187, 1.75, 170.601]
 
 [[include]]
 file = "objects/art-nouveau-villa.toml"
-# migrated-center-at
-at = [0.0, 6.5, -8.0]
+at = [0.0, 0.0, -8.0]
+transform_origin = [0.0, 0.0, 0.0]
 
 [[include]]
 file = "objects/art-nouveau-villa.toml"
-# migrated-center-at
-at = [48.586, 6.5, -8.586]
+at = [48.586, 0.0, -8.586]
 rotate_y = -45.0
+transform_origin = [0.0, 0.0, 0.0]
 
 
 # ----------------------------------------------------------------- water ----

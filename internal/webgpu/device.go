@@ -62,6 +62,8 @@ type Renderer struct {
 	bvhNodes  *wgpu.Buffer
 	terrains  *wgpu.Buffer
 	samples   *wgpu.Buffer
+	terrFeat  *wgpu.Buffer
+	terrPads  *wgpu.Buffer
 	waters    *wgpu.Buffer
 	perm      *wgpu.Buffer
 	aoVolume  *wgpu.Buffer
@@ -249,6 +251,22 @@ func (r *Renderer) init() error {
 	})
 	if err != nil {
 		return fmt.Errorf("create terrain samples buffer: %w", err)
+	}
+	r.terrFeat, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "terrain features",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  maxTerrainFeatures * terrainFeatureStride,
+	})
+	if err != nil {
+		return fmt.Errorf("create terrain features buffer: %w", err)
+	}
+	r.terrPads, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "terrain pads",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  maxTerrainPads * terrainPadStride,
+	})
+	if err != nil {
+		return fmt.Errorf("create terrain pads buffer: %w", err)
 	}
 	r.waters, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "waters",
@@ -468,6 +486,8 @@ func (r *Renderer) init() error {
 			{Binding: 18, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 			{Binding: 19, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 			{Binding: 20, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
+			{Binding: 21, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainFeatureStride}},
+			{Binding: 22, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainPadStride}},
 		},
 	})
 	if err != nil {
@@ -521,6 +541,8 @@ func (r *Renderer) init() error {
 			{Binding: 18, Buffer: r.blkPlane, Size: maxPrims * 4},
 			{Binding: 19, Buffer: r.documents, Size: r.documentBytes},
 			{Binding: 20, Buffer: r.boxFaces, Size: maxPrims * boxFacesPerPrim * 4},
+			{Binding: 21, Buffer: r.terrFeat, Size: maxTerrainFeatures * terrainFeatureStride},
+			{Binding: 22, Buffer: r.terrPads, Size: maxTerrainPads * terrainPadStride},
 		},
 	})
 	if err != nil {
@@ -652,7 +674,9 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		instNodeBase: c.instNodeBase, instNodeCount: c.instNodeCount,
 		blockerSecStart: c.blockerSecStart, blockerInstBase: c.blockerInstBase,
 		blockerInstCount: c.blockerInstCount,
-		terrains:         c.terrains, samples: c.samples, waters: c.waters,
+	terrains: c.terrains, samples: c.samples,
+		terrainFeatures: c.terrainFeatures, terrainPads: c.terrainPads,
+		waters: c.waters,
 		campfireParams: c.campfireParams, holes: c.holes, boxFaceTex: c.boxFaceTex, ao: c.ao, aoOK: c.aoOK && aoEnabled,
 		shadows: shadows, mirror: mirror, timeSec: timeSec, sky: sky,
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
@@ -706,6 +730,8 @@ type renderParams struct {
 	blockerInstCount uint32
 	terrains         []GPUTerrain
 	samples          []float32
+	terrainFeatures  []GPUTerrainFeature
+	terrainPads      []GPUTerrainPad
 	waters           []GPUWater
 	campfireParams   []CampfireParams
 	holes            []GPUHole
@@ -782,6 +808,16 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 		}
 		if len(p.samples) > 0 {
 			if err := r.queue.WriteBuffer(r.samples, 0, floatBytes(p.samples)); err != nil {
+				return err
+			}
+		}
+		if len(p.terrainFeatures) > 0 {
+			if err := r.queue.WriteBuffer(r.terrFeat, 0, terrainFeatureBytes(p.terrainFeatures)); err != nil {
+				return err
+			}
+		}
+		if len(p.terrainPads) > 0 {
+			if err := r.queue.WriteBuffer(r.terrPads, 0, terrainPadBytes(p.terrainPads)); err != nil {
 				return err
 			}
 		}
@@ -1254,6 +1290,12 @@ func (r *Renderer) Release() {
 	}
 	if r.samples != nil {
 		r.samples.Release()
+	}
+	if r.terrFeat != nil {
+		r.terrFeat.Release()
+	}
+	if r.terrPads != nil {
+		r.terrPads.Release()
 	}
 	if r.terrains != nil {
 		r.terrains.Release()

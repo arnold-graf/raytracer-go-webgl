@@ -603,24 +603,20 @@ func TestStormVillaSceneLoads(t *testing.T) {
 	if len(s.Terrains) == 0 {
 		t.Fatal("expected scene terrain")
 	}
-	var padCenterX, padCenterZ, padLevel float64
+	var padLevel float64
 	var found bool
 	for _, p := range s.Terrains[0].Pads {
-		if math.Abs(p.CenterX) < 0.01 && math.Abs(p.Angle) < 0.01 {
-			padCenterX, padCenterZ, padLevel = p.CenterX, p.CenterZ, p.Level
+		if math.Abs(p.CenterX) < 0.01 && math.Abs(p.CenterZ+8) < 0.01 && math.Abs(p.Angle) < 0.01 {
+			padLevel = p.Level
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected first villa pad, pads=%+v", s.Terrains[0].Pads)
+		t.Fatalf("expected villa pad at (0,-8), pads=%+v", s.Terrains[0].Pads)
 	}
-	natural, ok := s.NaturalTerrainHeightAt(padCenterX, padCenterZ)
-	if !ok {
-		t.Fatal("expected natural terrain under villa pad")
-	}
-	if padLevel < natural+2.5 || padLevel > natural+3.5 {
-		t.Fatalf("pad level = %v, want natural(%v)+3", padLevel, natural)
+	if padLevel < 2.5 || padLevel > 3.5 {
+		t.Fatalf("pad level = %v, want absolute ~3", padLevel)
 	}
 	if len(s.Boxes) < 20 {
 		t.Fatalf("expected villa geometry from include, got %d boxes", len(s.Boxes))

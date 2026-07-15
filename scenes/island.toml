@@ -1,5 +1,5 @@
-# Moonlit island — large volcanic landmass in an infinite ocean.
-# Terrain is 500×500 m at 0.25 m cells (GPU height-grid budget limit).
+# Moonlit island — volcanic landmass in an infinite ocean on a 2 km terrain footprint.
+# Hybrid LOD: 3 m coarse global bake + full analytic height within ~40 m of camera.
 #
 # Run with:
 #   go run . -scene scenes/island.toml
@@ -32,12 +32,14 @@ brightness = 30.0
 range = 0
 
 # --------------------------------------------------------------- terrain ----
-# 500×500 m height field (max footprint at full 0.25 m grid resolution).
+# 2000×2000 m height field with a 3 m coarse bake (hybrid LOD: analytic near band).
 # Island falloff: ~260 m land diameter, ~390 m shore shelf to the seabed.
 
 [[terrain]]
-origin = [-250.0, 0.0, -250.0]
-size = [500.0, 500.0]
+origin = [-1000.0, 0.0, -1000.0]
+size = [2000.0, 2000.0]
+coarse_cell = 3.0
+hybrid_near = [40.0, 60.0]
 base = 1.2
 detail = 0.26
 detail_scale = 0.12
@@ -244,6 +246,13 @@ snow_hi = 27.0
   height = 3.0
   width = 20.0
   steepness = 2.0
+
+  # Villa site — raised 3 m above the ridge (relative pad).
+  [[terrain.pad]]
+  center = [18.0, -32.0]
+  half = [8.5, 8.0]
+  level = 3.0
+  margin = 5.0
 
 # ----------------------------------------------------------------- ocean ----
 

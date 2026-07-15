@@ -32,8 +32,10 @@ const maxPrims = 4096
 const maxLights = 256
 
 const (
-	maxTerrains    = 8
-	maxTerrainVals = scene.MaxTerrainGridCells
+	maxTerrains        = 8
+	maxTerrainVals     = scene.MaxTerrainGridCells
+	maxTerrainFeatures = 256
+	maxTerrainPads     = 64
 	maxWaters      = 64
 )
 
@@ -119,9 +121,29 @@ type GPUTerrain struct {
 	Color1   [4]float32 // rock tint
 	Color2   [4]float32 // snow tint
 	Blend    [4]float32 // slopeLo, slopeHi, snowLo, snowHi
+	Analytic [4]float32 // base, detail, detailScale, nearStart
+	Island0  [4]float32 // centerX, centerZ, radius, margin
+	Island1  [4]float32 // floor, nearEnd, hybrid (1/0), _
+	Offsets  [4]uint32  // featureBase, padBase, featureCount, padCount
 }
 
-const terrainStride = 128
+const terrainStride = 192
+
+// GPUTerrainFeature mirrors a sculpted peak/valley for WGSL heightAnalytic.
+type GPUTerrainFeature struct {
+	Pos   [4]float32 // x, z, height, width
+	Shape [4]float32 // steepness, extendX, extendZ, angle
+}
+
+const terrainFeatureStride = 32
+
+// GPUTerrainPad mirrors a flattened building pad for WGSL heightAnalytic.
+type GPUTerrainPad struct {
+	Center [4]float32 // cx, cz, halfX, halfZ
+	Params [4]float32 // level, margin, angle, _
+}
+
+const terrainPadStride = 32
 
 type GPUWater struct {
 	Geom   [4]float32 // cx, cz, radius, level
@@ -430,12 +452,14 @@ func PackLights(s *scene.Scene) []GPULight {
 	return out
 }
 
-func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32) {
+func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature, []GPUTerrainPad) {
 	if s == nil {
-		return nil, nil
+		return nil, nil, nil, nil
 	}
 	terrains := make([]GPUTerrain, 0, len(s.Terrains))
 	samples := make([]float32, 0)
+	features := make([]GPUTerrainFeature, 0)
+	pads := make([]GPUTerrainPad, 0)
 	for i := range s.Terrains {
 		t := &s.Terrains[i]
 		snap := t.CacheSnapshot()
@@ -443,6 +467,41 @@ func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32) {
 		for i, h := range snap.Height {
 			n := snap.Normal[i]
 			samples = append(samples, f(n.X), f(n.Y), f(n.Z), f(h))
+		}
+		featBase := uint32(len(features))
+		for _, feat := range t.Features {
+			ex, ez := feat.ExtendX, feat.ExtendZ
+			if ex == 0 {
+				ex = 1
+			}
+			if ez == 0 {
+				ez = 1
+			}
+			w := feat.Width
+			if w == 0 {
+				w = 1
+			}
+			st := feat.Steepness
+			if st == 0 {
+				st = 2
+			}
+			features = append(features, GPUTerrainFeature{
+				Pos:   [4]float32{f(feat.PosX), f(feat.PosZ), f(feat.Height), f(w)},
+				Shape: [4]float32{f(st), f(ex), f(ez), f(feat.Angle)},
+			})
+		}
+		padBase := uint32(len(pads))
+		for _, p := range t.Pads {
+			pads = append(pads, GPUTerrainPad{
+				Center: [4]float32{f(p.CenterX), f(p.CenterZ), f(p.HalfX), f(p.HalfZ)},
+				Params: [4]float32{f(p.Level), f(p.Margin), f(p.Angle), 0},
+			})
+		}
+		nearStart, nearEnd := t.HybridNearDistances()
+		isl := t.Island
+		hybrid := float32(0)
+		if t.HybridLOD() {
+			hybrid = 1
 		}
 		terrains = append(terrains, GPUTerrain{
 			Bounds0:  [4]float32{f(t.OriginX), f(t.OriginZ), f(t.SizeX), f(t.SizeZ)},
@@ -453,12 +512,17 @@ func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32) {
 			Color1:   albedo(t.RockCol),
 			Color2:   albedo(t.SnowCol),
 			Blend:    [4]float32{f(t.SlopeLo), f(t.SlopeHi), f(t.SnowLo), f(t.SnowHi)},
+			Analytic: [4]float32{f(t.Base), f(t.Detail), f(t.DetailScale), f(nearStart)},
+			Island0:  [4]float32{f(isl.CenterX), f(isl.CenterZ), f(isl.Radius), f(isl.Margin)},
+			Island1:  [4]float32{f(isl.Floor), f(nearEnd), hybrid, 0},
+			Offsets:  [4]uint32{featBase, padBase, uint32(len(t.Features)), uint32(len(t.Pads))},
 		})
-		if len(terrains) >= maxTerrains || len(samples)/4 >= maxTerrainVals {
+		if len(terrains) >= maxTerrains || len(samples)/4 >= maxTerrainVals ||
+			len(features) > maxTerrainFeatures || len(pads) > maxTerrainPads {
 			break
 		}
 	}
-	return terrains, samples
+	return terrains, samples, features, pads
 }
 
 func PackWaters(s *scene.Scene) []GPUWater {
@@ -622,6 +686,20 @@ func terrainBytes(terrains []GPUTerrain) []byte {
 		return nil
 	}
 	return unsafe.Slice((*byte)(unsafe.Pointer(&terrains[0])), len(terrains)*terrainStride)
+}
+
+func terrainFeatureBytes(features []GPUTerrainFeature) []byte {
+	if len(features) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(&features[0])), len(features)*terrainFeatureStride)
+}
+
+func terrainPadBytes(pads []GPUTerrainPad) []byte {
+	if len(pads) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(&pads[0])), len(pads)*terrainPadStride)
 }
 
 func floatBytes(values []float32) []byte {
