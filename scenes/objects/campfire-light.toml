@@ -15,16 +15,17 @@
 #   follow_terrain = true
 #   params = { brightness = 0.5, range = 50.0, flicker = 0.75, speed = 1.0 }
 
-{{$brightness := or .brightness 10.0}}
-{{$range := or .range 50.0}}
-{{$flicker := or .flicker 0.45}}
-{{$speed := or .speed 1.0}}
+[props]
+brightness = 10.0
+range = 50.0
+flicker = 0.45
+speed = 1.0
 
 [[campfire]]
 center = [0.0, 0.0, 0.0]
 color = [3.6, 1.7, 0.55]
-brightness = {{$brightness}}
-range = {{$range}}
+brightness = 'brightness'
+range = 'range'
 jitter = 0.4
-flicker = {{$flicker}}
-speed = {{$speed}}
+flicker = 'flicker'
+speed = 'speed'

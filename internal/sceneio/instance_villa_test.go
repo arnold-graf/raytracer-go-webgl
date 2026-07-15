@@ -1,6 +1,7 @@
 package sceneio_test
 
 import (
+	"math"
 	"path/filepath"
 	"testing"
 
@@ -14,13 +15,20 @@ func TestInstancedVillaUsesPadLevel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const padLevel = 3.0
-	// Villas are merged (not instanced); materialized CPU geometry should sit on pads.
-	for i := range sc.Boxes {
-		mn, mx := sc.Boxes[i].WorldBounds()
-		if mn.Y >= padLevel-0.05 && mn.Y <= padLevel+0.05 && mx.Y >= padLevel+1.0 {
-			return // stone plinth base at pad grade
+	var padLevel float64
+	var padX, padZ float64
+	for _, p := range sc.Terrains[0].Pads {
+		if math.Abs(p.CenterX) < 0.01 && math.Abs(p.Angle) < 0.01 {
+			padLevel = p.Level
+			padX, padZ = p.CenterX, p.CenterZ
+			break
 		}
 	}
-	t.Fatal("expected materialized villa plinth base near pad level y=3")
+	natural, ok := sc.NaturalTerrainHeightAt(padX, padZ)
+	if !ok {
+		t.Fatal("expected natural terrain under villa pad")
+	}
+	if padLevel < natural+2.5 || padLevel > natural+3.5 {
+		t.Fatalf("pad level = %v, want natural(%v)+3", padLevel, natural)
+	}
 }

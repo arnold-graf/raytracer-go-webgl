@@ -72,5 +72,6 @@ npx pajv validate -s schemas/player.schema.json -d player.toml
 
 - **Float literals:** Prefer `0.0` over `0` for `vec3` arrays (`[x, y, z]`). The Go decoder uses fixed `[3]float64` arrays; integer literals in vectors can fail to decode.
 - **Table names:** Primitives use array-of-tables (`[[box]]`, `[[sphere]]`, …). Singleton config uses `[camera]`, `[environment]`. Nested terrain and box tables use dotted names (`[[terrain.feature]]`, `[[terrain.pad]]`, `[[box.hole]]`). Interaction fields (`hint`, `on_use`, `use_range`) are optional flat keys on `[[box]]`, `[[door]]`, and `[[document]]`.
-- **Templates:** Object files may contain Go `text/template` actions (`{{ }}`). Validation runs on the rendered result when templates are used; static files validate as-is.
+- **Templates:** Object files may use `[props]` / `[const]` and comment directives; validation runs on the **source** file (expressions allowed as strings). The Go validator validates expanded output separately when needed.
+- **Sceneparam types:** Numeric fields accept `number_or_expr` (float or single-quoted expression). `[props]` and `[const]` are `meta_table` objects. `material` / `texture` / `albedo` / `paragraphs` have `_or_expr` variants where needed.
 - **Runtime textures:** `capture_forward`, `capture_left`, etc. are assigned by the portal system at runtime and are listed in the schema for completeness, not for ordinary scene authoring.

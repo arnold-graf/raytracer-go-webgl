@@ -4,11 +4,6 @@
 # +Z points toward the user side of the desk. Place on a tabletop with
 # at.y equal to the desk top height (e.g. 0.84 for simple-table height 0.9).
 #
-# Hinge chain (metres): pivot (0, 0.07, 0) → elbow (0, 0.30, -0.14) →
-# shade knuckle (0, 0.46, 0.22). Lower arm rises toward -Z (back); upper arm
-# reaches up and over the desk toward +Z. Arm cylinders use rotate_x so local +Y
-# aligns with each segment; centres sit on the segment midpoints.
-#
 # Params (optional):
 #   albedo       chrome body colour rgb           (default [0.6, 0.6, 0.6])
 #   chrome_albedo  alias for albedo
@@ -16,32 +11,31 @@
 #   brightness   point-light intensity (default 0.08)
 #   range        light reach in metres (default 4)
 
-{{$albedoPick := .albedo}}
-{{if not $albedoPick}}{{$albedoPick = .chrome_albedo}}{{end}}
-{{$chrome := orVec3 $albedoPick 0.6 0.6 0.6}}
-{{$reflect := or .reflect 0.1}}
-{{$rough := or .chrome_rough 0.1}}
-{{$brightness := or .brightness 0.08}}
-{{$range := or .range 4}}
+[props]
+albedo = [0.6, 0.6, 0.6]
+reflect = 0.1
+chrome_rough = 0.1
+brightness = 0.08
+range = 4.0
 
 # --- weighted base ---
-[[box]]
+[[cylinder]]
 material = "diffuse"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
-pos_x = -0.1
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'chrome_rough'
+pos_x = -0.15
 pos_y = 0.0
-pos_z = -0.1
-width = 0.2
+pos_z = -0.15
+width = 0.3
 height = 0.018
 depth = 0.2
 
-[[box]]
+[[cylinder]]
 material = "diffuse"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'chrome_rough'
 pos_x = -0.055
 pos_y = 0.018
 pos_z = -0.055
@@ -51,9 +45,9 @@ depth = 0.11
 
 [[cylinder]] # centre pivot post
 material = "diffuse"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'chrome_rough'
 pos_x = -0.04
 pos_y = 0.04
 pos_z = -0.04
@@ -63,9 +57,9 @@ height = 0.03
 # --- lower arm (twin rods, pivot → elbow, 20 mm diameter) ---
 [[cylinder]]
 material = "diffuse"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'chrome_rough'
 pos_x = -0.026
 pos_y = 0.0505
 pos_z = -0.080
@@ -75,9 +69,9 @@ rotate_x = -31.3
 
 [[cylinder]]
 material = "diffuse"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'chrome_rough'
 pos_x = 0.006
 pos_y = 0.0505
 pos_z = -0.080
@@ -87,18 +81,18 @@ rotate_x = -31.3
 
 [[sphere]] # elbow joint
 material = "diffuse"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'chrome_rough'
 center = [0.0, 0.30, -0.14]
 radius = 0.03
 
 # --- upper arm (elbow → shade knuckle, 20 mm diameter) ---
 [[cylinder]]
 material = "diffuse"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'chrome_rough'
 pos_x = -0.010
 pos_y = 0.1830
 pos_z = 0.030
@@ -108,18 +102,31 @@ rotate_x = 66.0
 
 [[sphere]] # shade knuckle
 material = "diffuse"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'chrome_rough'
 center = [0.0, 0.46, 0.22]
 radius = 0.016
 
 # --- shade (flared cone, hangs below the knuckle, opening down) ---
+
+[[cylinder]]
+material = "diffuse"
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'chrome_rough'
+pos_x = -0.04
+pos_y = 0.42
+pos_z = 0.18
+width = 0.08
+height = 0.08
+rotate_x = -22
+
 [[cone]]
 material = "diffuse"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'chrome_rough'
 cx = 0.0
 cz = 0.24
 ybase = 0.350
@@ -134,8 +141,8 @@ center = [0.0, 0.37, 0.235]
 radius = 0.018
 
 [[light]]
-brightness = {{$brightness}}
+brightness = 'brightness'
 color = [2.8, 2.6, 2.0]
 pos = [0.0, 0.410, 0.235]
 radius = 0.12
-range = {{$range}}
+range = 'range'

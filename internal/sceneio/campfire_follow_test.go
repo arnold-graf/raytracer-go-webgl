@@ -11,17 +11,19 @@ func TestCampfireLightParams(t *testing.T) {
 	dir := t.TempDir()
 	fire := filepath.Join(dir, "fire.toml")
 	if err := os.WriteFile(fire, []byte(`
-{{$brightness := or .brightness 10.0}}
-{{$range := or .range 50.0}}
-{{$flicker := or .flicker 0.45}}
-{{$speed := or .speed 1.0}}
+[props]
+brightness = 10.0
+range = 50.0
+flicker = 0.45
+speed = 1.0
+
 [[campfire]]
 center = [0.0, 0.0, 0.0]
 color = [3.6, 1.7, 0.55]
-brightness = {{$brightness}}
-range = {{$range}}
-flicker = {{$flicker}}
-speed = {{$speed}}
+brightness = 'brightness'
+range = 'range'
+flicker = 'flicker'
+speed = 'speed'
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}

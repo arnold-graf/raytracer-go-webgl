@@ -11,17 +11,15 @@
 package sceneio
 
 import (
-	"bytes"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
-	"strconv"
-	"text/template"
 
 	"github.com/BurntSushi/toml"
 
 	"raytracer/internal/scene"
+	"raytracer/internal/sceneparam"
 	"raytracer/internal/texture"
 	"raytracer/internal/vec"
 )
@@ -359,10 +357,18 @@ type waterDTO struct {
 	Pos         [2]float64 `toml:"pos"`
 	Radius      float64    `toml:"radius"`
 	Level       float64    `toml:"level"`
+	Mask        *bool      `toml:"mask"`
 	Ripple      float64    `toml:"ripple"`
 	RippleSpeed float64    `toml:"ripple_animation_speed"`
 	RippleDir   [2]float64 `toml:"ripple_direction"`
 	surfaceDTO
+}
+
+type terrainIslandDTO struct {
+	Center [2]float64 `toml:"center"`
+	Radius float64    `toml:"radius"`
+	Margin float64    `toml:"margin"`
+	Floor  float64    `toml:"floor"`
 }
 
 type terrainFeatureDTO struct {
@@ -395,6 +401,7 @@ type terrainDTO struct {
 	SnowLo   float64 `toml:"snow_lo"`
 	SnowHi   float64 `toml:"snow_hi"`
 
+	Island  *terrainIslandDTO   `toml:"island"`
 	Feature []terrainFeatureDTO `toml:"feature"`
 	Pad     []terrainPadDTO     `toml:"pad"`
 }
@@ -403,10 +410,19 @@ type terrainDTO struct {
 // inner flat rectangle (X/Z); level is the flattened height; margin is the
 // width of the smooth blend ring around it.
 type terrainPadDTO struct {
-	Center [2]float64 `toml:"center"`
-	Half   [2]float64 `toml:"half"`
-	Level  float64    `toml:"level"`
-	Margin float64    `toml:"margin"`
+	Center   [2]float64 `toml:"center"`
+	Half     [2]float64 `toml:"half"`
+	Level    float64    `toml:"level"`
+	Margin   float64    `toml:"margin"`
+	Absolute bool       `toml:"absolute"`
+}
+
+func (p terrainPadDTO) buildPad() scene.TerrainPad {
+	return scene.TerrainPad{
+		CenterX: p.Center[0], CenterZ: p.Center[1],
+		HalfX: p.Half[0], HalfZ: p.Half[1],
+		Level: p.Level, Margin: p.Margin, Absolute: p.Absolute,
+	}
 }
 
 type cameraDTO struct {
@@ -439,8 +455,9 @@ type sunDTO struct {
 // When the parent scene has a terrain height field, at.y is an offset above the
 // ground at (at.x, at.z) — 0 places the object's origin on the ground. If the
 // included object declares a [[terrain.pad]] covering its origin, the pad's
-// level is used instead of the wild terrain height (the pad is merged after
-// placement and defines the object's grade). Object files that only carry pad
+// grade is used instead of the wild terrain height (relative pads add their
+// level offset to natural terrain at the anchor). The pad is merged after
+// placement and defines the object's grade. Object files that only carry pad
 // stubs without a footprint do not count as height fields for nested includes.
 //
 // follow_terrain defers Y placement to a post-pass after all terrain (including
@@ -449,12 +466,12 @@ type sunDTO struct {
 // move rigidly with the parent assembly. For scattered props (e.g. a tree row),
 // set follow_terrain on each child include, not on the layout file.
 //
-// Params are passed to the included file as Go text/template data, so an object
-// can be parameterized (e.g. params = { stem_len = 2.0 }). The object reads them
-// as {{.stem_len}} and can derive geometry with the add/sub/mul/div/neg helpers;
-// rgb arrays use orVec3/vec3 (templates cannot write […] literals). Missing
-// params fall back to the object's own `or .x <default>` defaults. Files
-// with no {{ }} are passed through verbatim, so this is opt-in per object.
+// Params are merged into an object's [props] table (see internal/sceneparam).
+// Resolved [props] from the included file are forwarded to nested [[include]]
+// tables (merged with each child's explicit params; explicit keys win).
+// Object files use valid TOML with [props], [const], single-quoted expressions,
+// and comment directives (# for, # if, # let). Files without [props]/[const] are
+// passed through verbatim.
 type includeDTO struct {
 	File            string              `toml:"file"`
 	At              vec3                `toml:"at"`
@@ -583,7 +600,8 @@ func recordDep(deps *[]string, path string) {
 	*deps = append(*deps, abs)
 }
 
-// load reads, templates and decodes the scene at path. params is the template
+// load reads, expands parameterized objects when needed, and decodes the scene
+// at path. params are merged into the included object's [props] table.
 // data supplied by a parent [[include]] (nil for the top-level file and for
 // "extends" bases, which take no parameters).
 func load(path string, params map[string]any, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
@@ -597,7 +615,7 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		defer delete(seen, abs)
 	}
 
-	dto, err := decodeSceneFile(path, params)
+	dto, resolved, err := decodeSceneFile(path, params)
 	if err != nil {
 		return nil, err
 	}
@@ -615,7 +633,7 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		}
 		var extendPlacements []scene.TerrainFollowPlacement
 		for i, inc := range dto.Include {
-			if err := mergeInclude(base, inc, filepath.Dir(path), i, seen, deps, &extendPlacements); err != nil {
+			if err := mergeInclude(base, inc, filepath.Dir(path), i, resolved, seen, deps, &extendPlacements); err != nil {
 				return nil, err
 			}
 		}
@@ -628,138 +646,42 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		base.FinalizeInstancing()
 		return base, nil
 	}
-	return dto.buildWithIncludes(path, params, seen, deps, followPlacements)
+	return dto.buildWithIncludes(path, resolved, seen, deps, followPlacements)
 }
 
-// decodeSceneFile reads the file at path, runs it through the object template
-// engine with params (a no-op for files that contain no {{ }} actions) and
-// decodes the resulting TOML into a sceneDTO.
-func decodeSceneFile(path string, params map[string]any) (sceneDTO, error) {
+// decodeSceneFile reads the file at path, expands parameterized object syntax
+// when present, and decodes the resulting TOML into a sceneDTO. resolved holds
+// merged [props] values for forwarding to nested [[include]] tables.
+func decodeSceneFile(path string, params map[string]any) (sceneDTO, map[string]any, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return sceneDTO{}, fmt.Errorf("read scene %q: %w", path, err)
+		return sceneDTO{}, nil, fmt.Errorf("read scene %q: %w", path, err)
 	}
-	rendered, err := renderObjectTemplate(path, raw, params)
+	rendered, resolved, err := sceneparam.ExpandWithResolved(path, raw, params)
 	if err != nil {
-		return sceneDTO{}, err
+		return sceneDTO{}, nil, err
 	}
 	var dto sceneDTO
 	if _, err := toml.Decode(string(rendered), &dto); err != nil {
-		return sceneDTO{}, fmt.Errorf("load scene %q: %w", path, err)
+		return sceneDTO{}, nil, fmt.Errorf("load scene %q: %w", path, err)
 	}
-	return dto, nil
+	return dto, resolved, nil
 }
 
-// renderObjectTemplate expands {{ }} template actions in an object file using
-// params as the data. Files without any "{{" are returned verbatim so ordinary
-// scenes never pay the templating cost (and can't trip over a stray brace).
-func renderObjectTemplate(path string, raw []byte, params map[string]any) ([]byte, error) {
-	if !bytes.Contains(raw, []byte("{{")) {
-		return raw, nil
+// mergeIncludeParams combines parent resolved props with explicit include params;
+// explicit keys win.
+func mergeIncludeParams(parent, explicit map[string]any) map[string]any {
+	if len(parent) == 0 && len(explicit) == 0 {
+		return nil
 	}
-	t, err := template.New(filepath.Base(path)).Funcs(objectTemplateFuncs).Option("missingkey=zero").Parse(string(raw))
-	if err != nil {
-		return nil, fmt.Errorf("parse object template %q: %w", path, err)
+	out := make(map[string]any, len(parent)+len(explicit))
+	for k, v := range parent {
+		out[k] = v
 	}
-	if params == nil {
-		params = map[string]any{}
+	for k, v := range explicit {
+		out[k] = v
 	}
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, params); err != nil {
-		return nil, fmt.Errorf("render object template %q: %w", path, err)
-	}
-	return buf.Bytes(), nil
-}
-
-// objectTemplateFuncs are the arithmetic helpers available to parameterized
-// object files. They coerce ints/floats/strings to float64 so derived geometry
-// (e.g. an orb that hangs below a variable-length stem) can be computed inline.
-var objectTemplateFuncs = template.FuncMap{
-	"add": func(xs ...any) float64 {
-		var s float64
-		for _, x := range xs {
-			s += toFloat(x)
-		}
-		return s
-	},
-	"sub": func(a, b any) float64 { return toFloat(a) - toFloat(b) },
-	"mul": func(xs ...any) float64 {
-		p := 1.0
-		for _, x := range xs {
-			p *= toFloat(x)
-		}
-		return p
-	},
-	"div": func(a, b any) float64 { return toFloat(a) / toFloat(b) },
-	"neg": func(a any) float64 { return -toFloat(a) },
-	// seq returns [0, 1, …, n-1] for use with {{range}} in parameterized objects
-	// (e.g. generating staircase steps from params.steps).
-	"seq": func(n any) []int {
-		count := int(toFloat(n))
-		if count <= 0 {
-			return nil
-		}
-		out := make([]int, count)
-		for i := range out {
-			out[i] = i
-		}
-		return out
-	},
-	// vec3 formats three components as a TOML rgb array, e.g. [0.5, 0.49, 0.47].
-	"vec3": func(r, g, b any) string {
-		return formatVec3(toFloat(r), toFloat(g), toFloat(b))
-	},
-	// orVec3 uses v when it is a three-element array (from params.albedo = […]);
-	// otherwise falls back to defR, defG, defB. Go templates cannot write […]
-	// literals, so defaults must be passed as separate scalars.
-	"orVec3": func(v, defR, defG, defB any) string {
-		if xs, ok := vec3Values(v); ok {
-			return formatVec3(xs[0], xs[1], xs[2])
-		}
-		return formatVec3(toFloat(defR), toFloat(defG), toFloat(defB))
-	},
-	"use_button": func() string { return "E" },
-}
-
-// toFloat coerces a template value (TOML decodes numbers as int64/float64) to a
-// float64; unparseable values become 0.
-func toFloat(v any) float64 {
-	switch n := v.(type) {
-	case float64:
-		return n
-	case int64:
-		return float64(n)
-	case int:
-		return float64(n)
-	case string:
-		f, _ := strconv.ParseFloat(n, 64)
-		return f
-	default:
-		return 0
-	}
-}
-
-func formatVec3(r, g, b float64) string {
-	return fmt.Sprintf("[%g, %g, %g]", r, g, b)
-}
-
-func vec3Values(v any) ([3]float64, bool) {
-	switch xs := v.(type) {
-	case []any:
-		if len(xs) < 3 {
-			return [3]float64{}, false
-		}
-		return [3]float64{toFloat(xs[0]), toFloat(xs[1]), toFloat(xs[2])}, true
-	case []float64:
-		if len(xs) < 3 {
-			return [3]float64{}, false
-		}
-		return [3]float64{xs[0], xs[1], xs[2]}, true
-	case [3]float64:
-		return xs, true
-	default:
-		return [3]float64{}, false
-	}
+	return out
 }
 
 // Decode decodes a TOML scene from an in-memory byte slice (used for the
@@ -813,11 +735,7 @@ func (dto sceneDTO) applyOverrides(s *scene.Scene) error {
 	var pads []scene.TerrainPad
 	for _, td := range dto.Terrain {
 		for _, p := range td.Pad {
-			pads = append(pads, scene.TerrainPad{
-				CenterX: p.Center[0], CenterZ: p.Center[1],
-				HalfX: p.Half[0], HalfZ: p.Half[1],
-				Level: p.Level, Margin: p.Margin,
-			})
+			pads = append(pads, p.buildPad())
 		}
 	}
 	if len(pads) > 0 && len(s.Terrains) == 0 {
@@ -954,9 +872,13 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if d.RippleSpeed != 0 && dirX == 0 && dirZ == 0 {
 			dirX, dirZ = 1, 0.4 // default wind drift when a speed is set
 		}
+		mask := d.Radius <= 0
+		if d.Mask != nil {
+			mask = *d.Mask
+		}
 		s.Waters = append(s.Waters, scene.WaterPool{
-			CX: d.Pos[0], CZ: d.Pos[1], Radius: d.Radius, Level: d.Level, Ripple: d.Ripple,
-			RippleSpeed: d.RippleSpeed, RippleDirX: dirX, RippleDirZ: dirZ, Surface: surf,
+			CX: d.Pos[0], CZ: d.Pos[1], Radius: d.Radius, Level: d.Level, MaskShoreline: mask,
+			Ripple: d.Ripple, RippleSpeed: d.RippleSpeed, RippleDirX: dirX, RippleDirZ: dirZ, Surface: surf,
 		})
 	}
 	for _, d := range dto.Light {
@@ -1008,12 +930,12 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 	return s, nil
 }
 
-func (dto sceneDTO) buildWithIncludes(path string, params map[string]any, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
+func (dto sceneDTO) buildWithIncludes(path string, parentResolved map[string]any, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
 	s, err := dto.build()
 	if err != nil {
 		return nil, err
 	}
-	if err := resolveDoors(s, dto.Door, filepath.Dir(path), params, seen, deps); err != nil {
+	if err := resolveDoors(s, dto.Door, filepath.Dir(path), parentResolved, seen, deps); err != nil {
 		return nil, err
 	}
 	if err := resolveDocuments(s, dto.Document, filepath.Dir(path)); err != nil {
@@ -1023,14 +945,14 @@ func (dto sceneDTO) buildWithIncludes(path string, params map[string]any, seen m
 		return nil, err
 	}
 	for i, inc := range dto.Include {
-		if err := mergeInclude(s, inc, filepath.Dir(path), i, seen, deps, followPlacements); err != nil {
+		if err := mergeInclude(s, inc, filepath.Dir(path), i, parentResolved, seen, deps, followPlacements); err != nil {
 			return nil, err
 		}
 	}
 	return s, nil
 }
 
-func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) error {
+func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int, parentResolved map[string]any, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) error {
 	incPath := inc.File
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
@@ -1049,7 +971,7 @@ func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int,
 	if follow {
 		fp = nil
 	}
-	sub, err := load(incPath, inc.Params, seen, deps, fp)
+	sub, err := load(incPath, mergeIncludeParams(parentResolved, inc.Params), seen, deps, fp)
 	if err != nil {
 		return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
 	}
@@ -1080,20 +1002,40 @@ func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int,
 	return nil
 }
 
-func instanceTransformForInclude(dst *scene.Scene, inc includeDTO, follow bool, sub *scene.Scene) (*scene.Transform, error) {
+// includePlacementAt resolves the world-space include anchor (at). at.x/at.z place
+// transform_origin; at.y is adjusted so local (0,0,0) — the object's grade —
+// sits on a pad or terrain. Sampling uses the grade footprint in XZ, not the
+// pivot anchor, so center-pivot objects still flatten under the building.
+func includePlacementAt(dst, sub *scene.Scene, inc includeDTO, follow bool) (vec.V, error) {
 	at := inc.At.toV()
-	if sub != nil {
-		if level, ok := sub.PadLevelAt(0, 0); ok {
-			at.Y = level + at.Y
-		} else if !follow {
+	if sub == nil {
+		if !follow {
 			if h, ok := dst.TerrainHeightAt(at.X, at.Z); ok {
 				at.Y = h + at.Y
 			}
 		}
+		return at, nil
+	}
+	origin, err := inc.resolvedOrigin(sub)
+	if err != nil {
+		return vec.V{}, err
+	}
+	probe := scene.PlacementTransform(inc.RotateX, inc.RotateY, inc.RotateZ, at, origin)
+	grade := probe.ToWorld(vec.V{})
+	if g, ok := sub.PadGradeAt(0, 0, dst, grade.X, grade.Z); ok {
+		at.Y = g + at.Y
 	} else if !follow {
-		if h, ok := dst.TerrainHeightAt(at.X, at.Z); ok {
+		if h, ok := dst.TerrainHeightAt(grade.X, grade.Z); ok {
 			at.Y = h + at.Y
 		}
+	}
+	return at, nil
+}
+
+func instanceTransformForInclude(dst *scene.Scene, inc includeDTO, follow bool, sub *scene.Scene) (*scene.Transform, error) {
+	at, err := includePlacementAt(dst, sub, inc, follow)
+	if err != nil {
+		return nil, err
 	}
 	return buildIncludeTransform(inc, at, sub)
 }
@@ -1103,13 +1045,9 @@ func instanceTransformForInclude(dst *scene.Scene, inc includeDTO, follow bool, 
 // available. When follow is true, Y is deferred to ApplyTerrainFollow and at.y
 // is kept as an offset above the sampled ground.
 func instanceTransform(dst *scene.Scene, sub *scene.Scene, inc includeDTO, follow bool) (*scene.Transform, error) {
-	at := inc.At.toV()
-	if level, ok := sub.PadLevelAt(0, 0); ok {
-		at.Y = level + at.Y
-	} else if !follow {
-		if h, ok := dst.TerrainHeightAt(at.X, at.Z); ok {
-			at.Y = h + at.Y
-		}
+	at, err := includePlacementAt(dst, sub, inc, follow)
+	if err != nil {
+		return nil, err
 	}
 	return buildIncludeTransform(inc, at, sub)
 }
@@ -1351,11 +1289,13 @@ func (d terrainDTO) build() (scene.Terrain, error) {
 		})
 	}
 	for _, p := range d.Pad {
-		ter.Pads = append(ter.Pads, scene.TerrainPad{
-			CenterX: p.Center[0], CenterZ: p.Center[1],
-			HalfX: p.Half[0], HalfZ: p.Half[1],
-			Level: p.Level, Margin: p.Margin,
-		})
+		ter.Pads = append(ter.Pads, p.buildPad())
+	}
+	if d.Island != nil {
+		ter.Island = scene.TerrainIsland{
+			CenterX: d.Island.Center[0], CenterZ: d.Island.Center[1],
+			Radius: d.Island.Radius, Margin: d.Island.Margin, Floor: d.Island.Floor,
+		}
 	}
 	return ter, nil
 }

@@ -329,23 +329,38 @@ angle = 0.0            # optional: rotate the feature
 [[terrain.pad]]        # flatten a building site into the terrain
 center = [16.0, -2.0]  # X,Z
 half = [4.9, 5.9]      # inner flat half-extent
-level = 0.0            # flattened height
+level = 0.0            # height offset above natural ground (default)
+absolute = true        # set for a fixed world elevation instead
 margin = 4.0           # smooth blend ring around the pad
 ```
 Use `[[terrain.pad]]` to give buildings a flat footprint so floors don't poke
-through uneven ground.
+through uneven ground. By default `level` is added to the natural terrain height
+at the pad center (ideal for reusable object files). Set `absolute = true` when
+authoring a scene pad at a specific world elevation.
 
-### Water (circular pool)
+### Water (circular pool or infinite ocean)
 ```toml
 [[water]]
-pos = [0.0, 8.0]       # X,Z center
-radius = 5.5
+pos = [0.0, 8.0]       # X,Z center (ignored for infinite ocean)
+radius = 5.5           # disk radius; 0 = infinite ocean to the horizon
 level = -1.2           # water surface height
+mask = true            # clip water over dry land (default true when radius <= 0)
 material = "mirror"
 albedo = [0.55, 0.70, 0.85]
 ripple = 0.05
 ripple_animation_speed = 0.6
 ripple_direction = [1.0, 0.4]
+```
+
+Island landmasses use `[terrain.island]` to fade height to a seabed `floor`
+outside `radius` over a smooth `margin`:
+
+```toml
+[terrain.island]
+center = [0.0, 0.0]
+radius = 70.0
+margin = 45.0
+floor = -12.0
 ```
 
 ---
@@ -439,13 +454,13 @@ Real objects live in `scenes/objects/` — `building.toml`, `staircase.toml`,
 
 ---
 
-## Parameterized objects (templating)
+## Parameterized objects
 
-Objects can be parameterized so one file produces variants. This is layered on
-top of the include system using Go's `text/template`: before a file is parsed
-as TOML, it is rendered as a template with the include's `params` as data.
+Objects can be parameterized so one file produces variants. Files remain **valid
+TOML**; expansion is handled by `internal/sceneparam` before decode.
 
-Pass parameters from the include with an inline `params` table:
+Pass parameters from the include with an inline `params` table (merged into
+`[props]`):
 
 ```toml
 [[include]]
@@ -454,97 +469,61 @@ at = [14.5, 5.7, -2.0]
 params = { stem_len = 2.0, orb_radius = 0.5 }
 ```
 
-Read them in the object with `{{.name}}`, declare defaults with `or`, and
-derive geometry with the math helpers:
+In the object file:
 
 ```toml
-{{$stem := or .stem_len 1.5}}
-{{$orb := or .orb_radius 0.4}}
-{{$orbY := neg (add $stem (mul $orb 0.875))}}
+[props]
+stem_len = 1.5
+orb_radius = 0.4
+
+[const]
+orb_y = '-(stem_len + orb_radius * 0.875)'
 
 [[cylinder]] # stem
 pos_x = -0.045
-pos_y = {{neg $stem}}
+pos_y = '-stem_len'
 pos_z = -0.045
 width = 0.09
-height = {{$stem}}
+height = 'stem_len'
 
-[[sphere]]   # orb hangs just below the stem end
-center = [0.0, {{$orbY}}, 0.0]
-radius = {{$orb}}
+[[sphere]]
+center = [0.0, 'orb_y', 0.0]
+radius = 'orb_radius'
 ```
 
-Rules and helpers:
-- **Opt-in:** files that contain no `{{` are passed through verbatim, so
-  ordinary scenes pay no cost and can't trip on a stray brace.
-- **Defaults:** use `{{$x := or .x <default>}}`. A missing/zero param falls back
-  to the default, so an include without `params` renders the object's defaults.
-- **Math helpers:** `add`, `sub`, `mul`, `div`, `neg` (e.g. `{{add $a $b}}`,
-  `{{neg $x}}`). `add`/`mul` are variadic. Inputs are coerced to float64.
-- **Loops:** use `seq` with `{{range}}` to generate repeated primitives:
-  `{{range $i := seq (or .steps 8)}}` yields `$i` = 0, 1, …, steps−1.
-- **Derived geometry:** because you can compute fields, dependent parts (an orb
-  that hangs below a variable-length stem, a light at the orb center) follow the
-  parameters automatically.
+Syntax:
+- **`[props]`** — overridable defaults; `params` from `[[include]]` shallow-merge on top.
+- **`[const]`** — derived values (`half = 'width / 2'`); evaluated after merge.
+- **Single-quoted strings** at use sites — expressions (`pos_x = '-half'`,
+  `albedo = 'albedo'`). Double-quoted strings and bare numbers are literals.
+- **Comment directives** — `# for i in range(steps)` … `# endfor`, `# let n = i + 1`,
+  `# if texture` … `# endif`.
+- **Helpers** — `leg_x(i, off, r)`, `leg_z(i, off, r)`, `ring_lerp(i, n, top, bot)`,
+  `floor(x)`.
 
-Example — parameterized staircase (`objects/staircase.toml`):
+Example — staircase steps:
 
 ```toml
-{{$steps := or .steps 8}}
-{{$run := or .run 0.5}}
-{{$rise := or .rise 0.375}}
-{{$width := or .width 1.6}}
-{{range $i := seq $steps}}
+[props]
+steps = 8
+run = 0.5
+rise = 0.375
+width = 1.6
+
+# for i in range(steps)
 [[box]]
-min = [{{mul $i $run}}, 0.0, 0.0]
-max = [{{mul (add $i 1) $run}}, {{mul (add $i 1) $rise}}, {{$width}}]
-material = "diffuse"
-...
-{{end}}
-```
-  that hangs below a variable-length stem, a light at the orb center) follow the
-  parameters automatically.
-
-Example — parameterized staircase (`objects/staircase.toml`):
-
-```toml
-{{$steps := or .steps 8}}
-{{$run := or .run 0.5}}
-{{$rise := or .rise 0.375}}
-{{range $i := seq $steps}}
-[[box]]
-min = [{{mul $i $run}}, 0.0, 0.0]
-max = [{{mul (add $i 1) $run}}, {{mul (add $i 1) $rise}}, {{$width}}]
-material = "diffuse"
-...
-{{end}}
-```
-  that hangs below a variable-length stem, a light at the orb center) follow the
-  parameters automatically.
-
-Example — parameterized staircase (`objects/staircase.toml`):
-
-```toml
-{{$steps := or .steps 8}}
-{{$run := or .run 0.5}}
-{{$rise := or .rise 0.375}}
-{{range $i := seq $steps}}
-[[box]]
-min = [{{mul $i $run}}, 0.0, 0.0]
-max = [{{mul (add $i 1) $run}}, {{mul (add $i 1) $rise}}, {{$width}}]
-material = "diffuse"
-...
-{{end}}
+pos_x = 'i * run'
+height = '(i + 1) * rise'
+width = 'run'
+depth = 'width'
+# endfor
 ```
 
-**Tradeoff:** a templated object file is no longer plain TOML, so:
-- A generic TOML validator / editor tooling may flag the `{{ }}`.
-- You can't `cmd/preview` a templated object **directly** (its placeholders
-  won't parse standalone) — preview it through a parent scene that includes it.
-- Bad numeric params coerce to `0` rather than erroring, so a typo can produce
-  wrong geometry instead of a clean failure.
+Files without `[props]`, `[const]`, or `# for` pass through unchanged. Parameterized
+files must not contain `{{` (legacy Go templates are removed).
 
-See `scenes/objects/otto-wagner-sphere-lamp.toml` for a complete example.
+See `plans/scene-templating-v2.md` and `scenes/objects/staircase.toml`.
+
 - On reload the WebGPU scene buffers rebuild on the swap.
 
 ## Hot reload

@@ -20,41 +20,46 @@
 #   at = [0.0, 0.0, 0.0]
 #   params = { width = 8.0, height = 6.0, depth = 0.15, unit_size = 0.4,
 #              albedo = [0.35, 0.35, 0.38], material = "metal", reflect = 0.45 }
-#
-{{$width := or .width 4.0}}
-{{$height := or .height 4.0}}
-{{$depth := or .depth 0.1}}
-{{$unit := or .unit_size 0.5}}
-{{$period := mul 2 $unit}}
-{{$material := or .material "diffuse"}}
-{{$texture := or .texture "none"}}
-{{$reflect := or .reflect 0}}
-{{$albedo := orVec3 .albedo 0.5 0.5 0.5}}
-{{$vCount := div (add $width $unit) $period}}
-{{$hCount := div (add $height $unit) $period}}
-{{range $i := seq $vCount}}
-[[box]] # vertical beam {{$i}}
-pos_x = {{mul $i $period}}
+
+[props]
+width = 4.0
+height = 4.0
+depth = 0.1
+unit_size = 0.5
+material = "diffuse"
+texture = "none"
+reflect = 0.0
+albedo = [0.5, 0.5, 0.5]
+
+[const]
+period = 'unit_size * 2'
+v_count = 'floor((width + unit_size) / period)'
+h_count = 'floor((height + unit_size) / period)'
+
+# for i in range(v_count)
+[[box]] # vertical beam
+pos_x = 'i * period'
 pos_y = 0.0
 pos_z = 0.0
-width = {{$unit}}
-height = {{$height}}
-depth = {{$depth}}
-material = "{{$material}}"
-albedo = {{$albedo}}
-reflect = {{$reflect}}
-texture = "{{$texture}}"
-{{end}}
-{{range $j := seq $hCount}}
-[[box]] # horizontal beam {{$j}}
+width = 'unit_size'
+height = 'height'
+depth = 'depth'
+material = 'material'
+albedo = 'albedo'
+reflect = 'reflect'
+texture = 'texture'
+# endfor
+
+# for j in range(h_count)
+[[box]] # horizontal beam
 pos_x = 0.0
-pos_y = {{mul $j $period}}
+pos_y = 'j * period'
 pos_z = 0.0
-width = {{$width}}
-height = {{$unit}}
-depth = {{$depth}}
-material = "{{$material}}"
-albedo = {{$albedo}}
-reflect = {{$reflect}}
-texture = "{{$texture}}"
-{{end}}
+width = 'width'
+height = 'unit_size'
+depth = 'depth'
+material = 'material'
+albedo = 'albedo'
+reflect = 'reflect'
+texture = 'texture'
+# endfor

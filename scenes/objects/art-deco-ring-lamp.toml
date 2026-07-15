@@ -18,16 +18,21 @@
 #   file = "objects/art-deco-ring-lamp.toml"
 #   at = [26.0, 8.0, 15.0]
 #   params = { stem_len = 2.1, brightness = 0.1, range = 20 }
-{{$stem := or .stem_len 2.1}}
-{{$top := or .top_radius 1}}
-{{$bot := or .bottom_radius 0.22}}
-{{$rings := or .rings 5}}
-{{$spacing := or .ring_spacing 0.11}}
-{{$ringH := or .ring_height 0.2}}
-{{$brightness := or .brightness 0.1}}
-{{$range := or .range 20}}
-{{$copper := orVec3 .copper 0.82 0.52 0.30}}
-{{$bulbY := neg (add $stem (mul $spacing (div (add $rings 1) 2)))}}
+
+[props]
+stem_len = 2.1
+top_radius = 1.0
+bottom_radius = 0.22
+rings = 5
+ring_spacing = 0.11
+ring_height = 0.2
+brightness = 0.1
+range = 20.0
+copper = [0.82, 0.52, 0.30]
+
+[const]
+bulb_y = '-(stem_len + ring_spacing * (rings + 1) / 2)'
+bulb_y_hi = 'bulb_y + 1'
 
 [[cylinder]] # ceiling canopy (copper)
 pos_x = -0.18
@@ -35,49 +40,48 @@ pos_y = -0.08
 pos_z = -0.18
 width = 0.36
 height = 0.08
-albedo = {{$copper}}
+albedo = 'copper'
 material = "metal"
 rough = 0.16
 
 [[cylinder]] # stem / suspension rod (copper)
 pos_x = -0.045
-pos_y = {{neg $stem}}
+pos_y = '-stem_len'
 pos_z = -0.045
 width = 0.09
-height = {{$stem}}
-albedo = {{$copper}}
+height = 'stem_len'
+albedo = 'copper'
 material = "metal"
 rough = 0.16
 
-{{range $i := seq $rings}}
-[[ring]] # shade ring {{$i}}
+# for i in range(rings)
+[[ring]] # shade ring
 cx = 0.0
 cz = 0.0
-cy = {{neg (add $stem (mul (add $i 1) $spacing))}}
-radius = {{if eq $rings 1}}{{$top}}{{else}}{{sub $top (mul (sub $top $bot) (div $i (sub $rings 1)))}}{{end}}
-height = {{$ringH}}
-albedo = {{$copper}}
+cy = '-(stem_len + (i + 1) * ring_spacing)'
+radius = 'ring_lerp(i, rings, top_radius, bottom_radius)'
+height = 'ring_height'
+albedo = 'copper'
 material = "diffuse"
 reflect = 0.7
+# endfor
 
-{{end}}
 [[sphere]] # filament (warm emitter inside the shade)
 albedo = [9.0, 5.4, 2.2]
-center = [0.0, {{$bulbY}}, 0.0]
+center = [0.0, 'bulb_y', 0.0]
 material = "emit"
 radius = 0.06
 
 [[light]]
-brightness = {{$brightness}}
+brightness = 'brightness'
 color = [3.5, 3.5, 2.4]
-pos = [0.0, {{$bulbY}}, 0.0]
+pos = [0.0, 'bulb_y', 0.0]
 radius = 0.5
-range = {{$range}}
+range = 'range'
 
 [[light]]
-brightness = {{$brightness}}
+brightness = 'brightness'
 color = [3.5, 3.5, 2.4]
-pos = [0.0, {{add $bulbY 1}}, 0.0]
+pos = [0.0, 'bulb_y_hi', 0.0]
 radius = 0.5
-range = {{$range}}
-
+range = 'range'

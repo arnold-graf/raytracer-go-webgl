@@ -1,0 +1,7 @@
+# Orbit preview of the island scene (elevated camera).
+extends = "../island.toml"
+
+[camera]
+pos = [0.0, 28.0, 110.0]
+yaw = 0.0
+pitch = -0.12

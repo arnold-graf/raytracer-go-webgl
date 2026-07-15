@@ -27,26 +27,28 @@
 #   font_size_px     text size in pixels            (default 14)
 #   font_color       text rgb                       (default [5.2, 5.2, 5.2])
 
-{{$screenID := or .screen_id "workstation_display"}}
-{{$screenX := or .screen_pos_x -0.15}}
-{{$screenY := or .screen_pos_y 0.28}}
-{{$screenZ := or .screen_pos_z 0.205}}
-{{$screenW := or .screen_width 0.30}}
-{{$screenH := or .screen_height 0.25}}
-{{$screenD := or .screen_depth 0.001}}
-{{$screenRotX := or .screen_rotate_x -8}}
-{{$screenRotY := or .screen_rotate_y 0}}
-{{$screenRotZ := or .screen_rotate_z 0}}
-{{$material := or .material "diffuse"}}
-{{$albedo := orVec3 .albedo 0.01 0.01 0.01}}
-{{$reflect := or .reflect 0.03}}
-{{$rough := or .rough 0.02}}
-{{$hint := or .hint "workstation"}}
-{{$useRange := or .use_range 1.5}}
-{{$headline := or .headline "SERVER ROOM"}}
-{{$font := or .font "M42.ttf"}}
-{{$fontSize := or .font_size_px 14}}
-{{$fontColor := orVec3 .font_color 5.2 5.2 5.2}}
+[props]
+screen_id = "workstation_display"
+screen_pos_x = -0.15
+screen_pos_y = 0.28
+screen_pos_z = 0.205
+screen_width = 0.30
+screen_height = 0.25
+screen_depth = 0.001
+screen_rotate_x = -8
+screen_rotate_y = 0
+screen_rotate_z = 0
+material = "diffuse"
+albedo = [0.01, 0.01, 0.01]
+reflect = 0.03
+rough = 0.02
+hint = "workstation"
+use_range = 1.5
+headline = "SERVER ROOM"
+paragraphs = ["Status: ONLINE", "Cube lift: READY", "Auth: session active"]
+font = "M42.ttf"
+font_size_px = 14
+font_color = [5.2, 5.2, 5.2]
 
 # --- main computer unit (pizza-box case) ---
 [[box]]
@@ -93,142 +95,10 @@ width = 0.11
 height = 0.01
 depth = 0.11
 
-# --- CRT monitor housing ---
-[[box]]
-material = "diffuse"
-reflect = 0.005
-albedo = [2.2, 2.2, 2]
-pos_x = -0.19
-pos_y = 0.22
-pos_z = -0.1
+[[include]]
+file = "workstation-monitor.toml"
+at = [0.0, 0.3, 0.0]
 rotate_x = -8
-width = 0.38
-height = 0.32
-depth = 0.3
-
-[[box]]
-material = "diffuse"
-reflect = 0.005
-albedo = [2.2, 2.2, 2]
-pos_x = -0.19
-pos_y = 0.22
-pos_z = -0.2
-rotate_x = -8
-width = 0.3
-height = 0.25
-depth = 0.1
-
-# monitor screen
-[[screen]]
-id = "{{$screenID}}"
-material = "{{$material}}"
-reflect = {{$reflect}}
-rough = {{$rough}}
-albedo = {{$albedo}}
-pos_x = {{$screenX}}
-pos_y = {{$screenY}}
-pos_z = {{$screenZ}}
-rotate_x = {{$screenRotX}}
-rotate_y = {{$screenRotY}}
-rotate_z = {{$screenRotZ}}
-width = {{$screenW}}
-height = {{$screenH}}
-depth = {{$screenD}}
-hint = "{{$hint}}"
-use_range = {{$useRange}}
-headline = "{{$headline}}"
-paragraphs = [
-{{if .paragraphs}}{{range .paragraphs}}
-  {{printf "%q" .}},
-{{end}}{{else}}
-  "Status: ONLINE",
-  "Cube lift: READY",
-  "Auth: session active",
-{{end}}]
-font = "{{$font}}"
-font_size_px = {{$fontSize}}
-font_color = {{$fontColor}}
-
-# monitor stand
-[[sphere]]
-material = "diffuse"
-albedo = [2.2, 2.2, 2]
-center = [0, 0.2, 0]
-radius = 0.1
-
-# screen glow
-[[light]]
-pos = [0, 0.4, 0.4]
-color = [1, 1, 6]
-range = 1
-brightness = 0.1
-
-# side ventilation ribs (monitor)
-[[box]]
-material = "diffuse"
-rotate_x = -8
-albedo = [0.38, 0.36, 0.33]
-pos_x = -0.196
-pos_y = 0.3
-pos_z = -0.06
-width = 0.006
-height = 0.018
-depth = 0.22
-
-[[box]]
-material = "diffuse"
-rotate_x = -8
-albedo = [0.38, 0.36, 0.33]
-pos_x = -0.196
-pos_y = 0.4
-pos_z = -0.06
-width = 0.006
-height = 0.018
-depth = 0.22
-
-[[box]]
-material = "diffuse"
-rotate_x = -8
-albedo = [0.38, 0.36, 0.33]
-pos_x = -0.196
-pos_y = 0.35
-pos_z = -0.06
-width = 0.006
-height = 0.018
-depth = 0.22
-
-[[box]]
-material = "diffuse"
-rotate_x = -8
-albedo = [0.38, 0.36, 0.33]
-pos_x = 0.190
-pos_y = 0.3
-pos_z = -0.02
-width = 0.006
-height = 0.018
-depth = 0.22
-
-[[box]]
-material = "diffuse"
-rotate_x = -8
-albedo = [0.38, 0.36, 0.33]
-pos_x = 0.190
-pos_y = 0.35
-pos_z = -0.02
-width = 0.006
-height = 0.018
-depth = 0.22
-
-[[box]]
-material = "diffuse"
-rotate_x = -8
-albedo = [0.38, 0.36, 0.33]
-pos_x = 0.190
-pos_y = 0.4
-pos_z = -0.02
-width = 0.006
-height = 0.018
-depth = 0.22
 
 # --- keyboard (slight tilt toward user) ---
 [[box]]

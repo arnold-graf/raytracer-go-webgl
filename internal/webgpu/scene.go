@@ -473,7 +473,7 @@ func PackWaters(s *scene.Scene) []GPUWater {
 			Params: [4]float32{f(w.Ripple), f(w.RippleSpeed), f(w.RippleDirX), f(w.RippleDirZ)},
 			Albedo: albedo(w.Albedo),
 			Surf:   surfaceParams(w.Surface),
-			Meta:   [4]uint32{uint32(w.Mat), uint32(w.Tex), 0, 0},
+			Meta:   [4]uint32{uint32(w.Mat), uint32(w.Tex), boolU32(w.MaskShoreline), 0},
 		})
 		if len(out) >= maxWaters {
 			break
@@ -642,6 +642,13 @@ func surfaceColors(s scene.Surface) (alb, alb2 [4]float32) {
 }
 
 func f(x float64) float32 { return float32(x) }
+
+func boolU32(b bool) uint32 {
+	if b {
+		return 1
+	}
+	return 0
+}
 
 func openCap(open bool) float32 {
 	if open {

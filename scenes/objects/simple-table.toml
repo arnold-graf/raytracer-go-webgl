@@ -9,7 +9,6 @@
 #   height     top-surface height above the floor   (default 0.75)
 #   top        tabletop thickness                 (default 0.06)
 #   leg_radius leg thickness at the floor         (default 0.05)
-#   leg_radius_top  leg thickness under the top   (default 0.035)
 #   inset      leg inset from the outer edge      (default 0.1)
 #   texture, albedo, reflect, rough — surface overrides
 #
@@ -18,45 +17,49 @@
 #   at = [0.0, 0.0, 0.0]
 #   params = { width = 1.6, depth = 0.8, height = 0.75, texture = "wood" }
 
-{{$width := or .width 1.6}}
-{{$depth := or .depth $width}}
-{{$height := or .height 0.9}}
-{{$top := or .top 0.06}}
-{{$legR := or .leg_radius 0.05}}
-{{$inset := or .inset 0.1}}
-{{$half := div $width 2}}
-{{$halfD := div $depth 2}}
-{{$off := sub $half $inset}}
-{{$offZ := sub $halfD $inset}}
-{{$legH := sub $height $top}}
-{{$texture := or .texture "wood"}}
-{{$albedo := orVec3 .albedo 0.55 0.42 0.28}}
-{{$reflect := or .reflect 0.01}}
-{{$rough := or .rough 0.02}}
+[props]
+width = 1.6
+depth = 'width'
+height = 0.9
+top = 0.06
+leg_radius = 0.05
+inset = 0.1
+texture = "wood"
+albedo = [0.55, 0.42, 0.28]
+reflect = 0.01
+rough = 0.02
+
+[const]
+half = 'width / 2'
+half_d = 'depth / 2'
+off = 'half - inset'
+off_z = 'half_d - inset'
+leg_h = 'height - top'
+leg_d = 'leg_radius * 2'
 
 [[box]] # tabletop
-pos_x = {{neg $half}}
-pos_y = {{$legH}}
-pos_z = {{neg $halfD}}
-width = {{$width}}
-height = {{$top}}
-depth = {{$depth}}
+pos_x = '-half'
+pos_y = 'leg_h'
+pos_z = '-half_d'
+width = 'width'
+height = 'top'
+depth = 'depth'
 material = "diffuse"
-albedo = {{$albedo}}
-texture = "{{$texture}}"
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'albedo'
+texture = 'texture'
+reflect = 'reflect'
+rough = 'rough'
 
-{{range $i := seq 4}}
-  [[cylinder]] # leg {{$i}}
-  pos_x = {{if lt $i 2}}{{sub $off $legR}}{{else}}{{sub (neg $off) $legR}}{{end}}
-  pos_y = 0.0
-  pos_z = {{if or (eq $i 0) (eq $i 2)}}{{sub $offZ $legR}}{{else}}{{sub (neg $offZ) $legR}}{{end}}
-  width = {{mul $legR 2}}
-  height = {{$legH}}
-  material = "diffuse"
-  albedo = {{$albedo}}
-  texture = "{{$texture}}"
-  reflect = {{$reflect}}
-  rough = {{$rough}}
-{{end}}
+# for i in range(4)
+[[cylinder]] # leg
+pos_x = 'leg_x(i, off, leg_radius)'
+pos_y = 0.0
+pos_z = 'leg_z(i, off_z, leg_radius)'
+width = 'leg_d'
+height = 'leg_h'
+material = "diffuse"
+albedo = 'albedo'
+texture = 'texture'
+reflect = 'reflect'
+rough = 'rough'
+# endfor

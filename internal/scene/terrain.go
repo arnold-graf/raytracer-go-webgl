@@ -23,6 +23,17 @@ type TerrainFeature struct {
 	Angle            float64
 }
 
+// TerrainIsland pulls terrain height toward Floor outside a circular landmass.
+// Inside Radius the natural sculpted height is preserved; over Margin world units
+// beyond Radius the height eases to Floor (typically below sea level). Applied
+// after features, detail, and pads when baking the height field.
+type TerrainIsland struct {
+	CenterX, CenterZ float64
+	Radius           float64 // full-strength land radius from center
+	Margin           float64 // blend width beyond Radius
+	Floor            float64 // height at the outer edge (e.g. seabed)
+}
+
 // TerrainPad flattens a rectangular building site into the height field: inside
 // the inner rectangle (CenterX/Z ± HalfX/Z) the terrain is forced to Level, and
 // over a Margin-wide ring outside it the natural terrain is smoothly blended
@@ -36,6 +47,11 @@ type TerrainPad struct {
 	Level            float64
 	Margin           float64
 	Angle            float64
+	// Absolute selects how Level is interpreted. When false (default), Level is
+	// an offset above the natural terrain height at the pad center. When true,
+	// Level is a fixed world-space elevation. Relative pads are resolved to
+	// absolute heights before the height field is baked.
+	Absolute bool
 }
 
 // MaxTerrainGridCells caps the baked height/normal grid uploaded to the GPU
@@ -71,6 +87,7 @@ type Terrain struct {
 	DetailScale      float64 // fBm frequency
 	Features         []TerrainFeature
 	Pads             []TerrainPad
+	Island           TerrainIsland
 
 	Grass, Rock, Snow          int   // texture ids
 	GrassCol, RockCol, SnowCol vec.V // per-layer tint
@@ -287,6 +304,37 @@ func (t *Terrain) buildCoarse() {
 // heightAnalytic evaluates the exact (expensive) terrain height at world (x,z).
 // Used only when building the cache.
 func (t *Terrain) heightAnalytic(x, z float64) float64 {
+	h := t.naturalHeightAnalytic(x, z)
+	for i := range t.Pads {
+		p := &t.Pads[i]
+		dx, dz := x-p.CenterX, z-p.CenterZ
+		if p.Angle != 0 {
+			c, s := math.Cos(p.Angle), math.Sin(p.Angle)
+			dx, dz = dx*c+dz*s, -dx*s+dz*c
+		}
+		lx := math.Abs(dx) - p.HalfX
+		lz := math.Abs(dz) - p.HalfZ
+		if lx < 0 {
+			lx = 0
+		}
+		if lz < 0 {
+			lz = 0
+		}
+		var w float64
+		if p.Margin <= 0 {
+			if lx == 0 && lz == 0 {
+				w = 1
+			}
+		} else {
+			w = 1 - smoothstep(0, p.Margin, math.Hypot(lx, lz))
+		}
+		h += (p.Level - h) * w
+	}
+	return h
+}
+
+// naturalHeightAnalytic is the terrain height before building pads are applied.
+func (t *Terrain) naturalHeightAnalytic(x, z float64) float64 {
 	h := t.Base
 	for i := range t.Features {
 		f := &t.Features[i]
@@ -316,35 +364,26 @@ func (t *Terrain) heightAnalytic(x, z float64) float64 {
 	if t.Detail != 0 {
 		h += t.Detail * texture.FBM(x*t.DetailScale, 0, z*t.DetailScale, 4)
 	}
-	// Building pads flatten the site and blend the surrounding relief down to
-	// Level over a Margin-wide ring. Applied last so they override features and
-	// detail, and applied in order so overlapping pads layer predictably.
-	for i := range t.Pads {
-		p := &t.Pads[i]
-		dx, dz := x-p.CenterX, z-p.CenterZ
-		if p.Angle != 0 {
-			c, s := math.Cos(p.Angle), math.Sin(p.Angle)
-			dx, dz = dx*c+dz*s, -dx*s+dz*c
+	if isl := t.Island; isl.Radius > 0 {
+		dist := math.Hypot(x-isl.CenterX, z-isl.CenterZ)
+		margin := isl.Margin
+		if margin <= 0 {
+			margin = isl.Radius * 0.5
 		}
-		lx := math.Abs(dx) - p.HalfX
-		lz := math.Abs(dz) - p.HalfZ
-		if lx < 0 {
-			lx = 0
-		}
-		if lz < 0 {
-			lz = 0
-		}
-		var w float64
-		if p.Margin <= 0 {
-			if lx == 0 && lz == 0 {
-				w = 1
-			}
-		} else {
-			w = 1 - smoothstep(0, p.Margin, math.Hypot(lx, lz))
-		}
-		h += (p.Level - h) * w
+		land := 1 - smoothstep(isl.Radius, isl.Radius+margin, dist)
+		h = isl.Floor + (h-isl.Floor)*land
 	}
 	return h
+}
+
+// NaturalHeight returns the terrain height at (x,z) before pads are applied.
+func (t *Terrain) NaturalHeight(x, z float64) float64 {
+	if !t.HasFootprint() {
+		return t.naturalHeightAnalytic(x, z)
+	}
+	// Pads are not in the baked grid's pre-pad analytic path during Prepare;
+	// evaluate analytically so callers can resolve relative pads before baking.
+	return t.naturalHeightAnalytic(x, z)
 }
 
 // HasFootprint reports whether the terrain owns a height field over a non-zero
@@ -430,20 +469,99 @@ func (t *Terrain) Height(x, z float64) float64 {
 	return a + (b-a)*tz
 }
 
-// PadLevelAt returns the flattening level of a terrain pad covering the point
-// (localX, localZ) in the sub-scene's local coordinates. Object files declare
-// pads in this space so an include's origin can be placed on the pad grade
-// rather than on wild terrain underneath.
+// PadGradeAt returns the placement grade for a pad covering (localX, localZ)
+// in the sub-scene's local coordinates. For relative pads (absolute = false),
+// parent supplies the natural terrain height at the include anchor's world X/Z.
+func (s *Scene) PadGradeAt(localX, localZ float64, parent *Scene, worldX, worldZ float64) (float64, bool) {
+	for i := range s.Terrains {
+		for j := range s.Terrains[i].Pads {
+			p := &s.Terrains[i].Pads[j]
+			if !padCovers(p, localX, localZ) {
+				continue
+			}
+			if p.Absolute {
+				return p.Level, true
+			}
+			if parent != nil {
+				if h, ok := parent.NaturalTerrainHeightAt(worldX, worldZ); ok {
+					return h + p.Level, true
+				}
+			}
+			return p.Level, true
+		}
+	}
+	return 0, false
+}
+
+func padCovers(p *TerrainPad, x, z float64) bool {
+	dx, dz := x-p.CenterX, z-p.CenterZ
+	if p.Angle != 0 {
+		c, s := math.Cos(-p.Angle), math.Sin(-p.Angle)
+		dx, dz = dx*c+dz*s, -dx*s+dz*c
+	}
+	return math.Abs(dx) <= p.HalfX && math.Abs(dz) <= p.HalfZ
+}
+
+// PadLevelAt returns the authored pad level covering (localX, localZ) without
+// resolving relative offsets. Prefer PadGradeAt for include placement.
 func (s *Scene) PadLevelAt(localX, localZ float64) (float64, bool) {
 	for i := range s.Terrains {
 		for j := range s.Terrains[i].Pads {
 			p := &s.Terrains[i].Pads[j]
-			if math.Abs(localX-p.CenterX) <= p.HalfX && math.Abs(localZ-p.CenterZ) <= p.HalfZ {
+			if padCovers(p, localX, localZ) {
 				return p.Level, true
 			}
 		}
 	}
 	return 0, false
+}
+
+// NaturalTerrainHeightAt returns the maximum natural (pre-pad) terrain height at
+// world (x,z) across every height field footprint in the scene.
+func (s *Scene) NaturalTerrainHeightAt(x, z float64) (float64, bool) {
+	h := math.Inf(-1)
+	ok := false
+	for i := range s.Terrains {
+		t := &s.Terrains[i]
+		if !t.HasFootprint() {
+			continue
+		}
+		if x < t.OriginX || x > t.OriginX+t.SizeX || z < t.OriginZ || z > t.OriginZ+t.SizeZ {
+			continue
+		}
+		ok = true
+		if ht := t.NaturalHeight(x, z); ht > h {
+			h = ht
+		}
+	}
+	if !ok {
+		return 0, false
+	}
+	return h, true
+}
+
+// resolveRelativePads converts relative pad levels to absolute world heights
+// using the natural terrain at each pad center.
+func (s *Scene) resolveRelativePads() {
+	changed := false
+	for i := range s.Terrains {
+		for j := range s.Terrains[i].Pads {
+			p := &s.Terrains[i].Pads[j]
+			if p.Absolute {
+				continue
+			}
+			if h, ok := s.NaturalTerrainHeightAt(p.CenterX, p.CenterZ); ok {
+				p.Level = h + p.Level
+			}
+			p.Absolute = true
+			changed = true
+		}
+	}
+	if changed {
+		for i := range s.Terrains {
+			s.Terrains[i].Invalidate()
+		}
+	}
 }
 
 // TerrainHeightAt returns the terrain surface height at world (x,z). When the
@@ -750,12 +868,15 @@ func (t *Terrain) AlbedoAt(p, n vec.V) vec.V {
 	return c
 }
 
-// WaterPool is a flat, reflective circular puddle at a fixed level. It reflects
-// (or refracts) the surrounding terrain and sky via the normal material path.
+// WaterPool is a flat, reflective water surface at a fixed level. Radius <= 0
+// means an infinite horizontal ocean. When MaskShoreline is set, water is omitted
+// wherever baked terrain height at (x,z) is at or above Level.
 type WaterPool struct {
 	CX, CZ float64
 	Radius float64
 	Level  float64
+	// MaskShoreline clips the water surface over dry land (needed for infinite oceans).
+	MaskShoreline bool
 	Ripple float64
 	// RippleSpeed drifts the ripple field over time to simulate wind-driven
 	// waves (0 = static). The drift direction is set by RippleDirX/RippleDirZ.
@@ -765,8 +886,9 @@ type WaterPool struct {
 	Surface
 }
 
-// Intersect returns the hit distance with the puddle disk, or Inf.
-func (w *WaterPool) Intersect(r vec.Ray) float64 {
+// Intersect returns the hit distance with the water surface, or Inf.
+// terrains supplies baked heights for shoreline masking when MaskShoreline is set.
+func (w *WaterPool) Intersect(r vec.Ray, terrains []Terrain) float64 {
 	if math.Abs(r.Dir.Y) < 1e-6 {
 		return Inf
 	}
@@ -776,11 +898,36 @@ func (w *WaterPool) Intersect(r vec.Ray) float64 {
 	}
 	px := r.Origin.X + r.Dir.X*t
 	pz := r.Origin.Z + r.Dir.Z*t
-	dx, dz := px-w.CX, pz-w.CZ
-	if dx*dx+dz*dz > w.Radius*w.Radius {
+	if w.Radius > 0 {
+		dx, dz := px-w.CX, pz-w.CZ
+		if dx*dx+dz*dz > w.Radius*w.Radius {
+			return Inf
+		}
+	}
+	if w.MaskShoreline && terrainHeightAt(terrains, px, pz) >= w.Level {
 		return Inf
 	}
 	return t
+}
+
+func terrainHeightAt(terrains []Terrain, x, z float64) float64 {
+	h := math.Inf(-1)
+	for i := range terrains {
+		t := &terrains[i]
+		if !t.HasFootprint() {
+			continue
+		}
+		if x < t.OriginX || x > t.OriginX+t.SizeX || z < t.OriginZ || z > t.OriginZ+t.SizeZ {
+			continue
+		}
+		if ht := t.Height(x, z); ht > h {
+			h = ht
+		}
+	}
+	if math.IsInf(h, -1) {
+		return math.Inf(-1)
+	}
+	return h
 }
 
 // NormalAt returns the (optionally rippled) water normal at point p and time t

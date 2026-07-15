@@ -84,6 +84,7 @@ func (s *Scene) Touch() {
 // once after merging includes so pads/features do not trigger a full rebuild
 // per include.
 func (s *Scene) PrepareTerrains() {
+	s.resolveRelativePads()
 	for i := range s.Terrains {
 		s.Terrains[i].ensurePrepared()
 	}

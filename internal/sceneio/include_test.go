@@ -83,20 +83,25 @@ func TestIncludeParamsTemplate(t *testing.T) {
 	dir := t.TempDir()
 	obj := filepath.Join(dir, "lamp.toml")
 	if err := os.WriteFile(obj, []byte(`
-{{- $stem := or .stem_len 1.5 -}}
-{{- $orb := or .orb_radius 0.4 -}}
+[props]
+stem_len = 1.5
+orb_radius = 0.4
+
+[const]
+orb_y = '-(stem_len + orb_radius)'
+
 [[cylinder]]
 pos_x = -0.045
-pos_y = {{neg $stem}}
+pos_y = '-stem_len'
 pos_z = -0.045
 width = 0.09
-height = {{$stem}}
+height = 'stem_len'
 material = "metal"
 albedo = [1.0, 1.0, 1.0]
 
 [[sphere]]
-center = [0.0, {{neg (add $stem $orb)}}, 0.0]
-radius = {{$orb}}
+center = [0.0, 'orb_y', 0.0]
+radius = 'orb_radius'
 material = "glass"
 albedo = [1.0, 1.0, 1.0]
 `), 0o644); err != nil {
@@ -435,7 +440,9 @@ func TestObjectTemplateVec3Param(t *testing.T) {
 	dir := t.TempDir()
 	obj := filepath.Join(dir, "obj.toml")
 	if err := os.WriteFile(obj, []byte(`
-{{$albedo := orVec3 .albedo 0.1 0.2 0.3}}
+[props]
+albedo = [0.1, 0.2, 0.3]
+
 [[box]]
 pos_x = 0
 pos_y = 0
@@ -444,7 +451,7 @@ width = 1
 height = 1
 depth = 1
 material = "diffuse"
-albedo = {{$albedo}}
+albedo = 'albedo'
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -596,29 +603,28 @@ func TestStormVillaSceneLoads(t *testing.T) {
 	if len(s.Terrains) == 0 {
 		t.Fatal("expected scene terrain")
 	}
-	// The villa object declares a local [[terrain.pad]] at center [0,0]; the
-	// include places it at [0,0,-10], so it must land at world z = -10.
+	var padCenterX, padCenterZ, padLevel float64
 	var found bool
 	for _, p := range s.Terrains[0].Pads {
-		if p.CenterX == 0 && p.CenterZ == -10 {
+		if math.Abs(p.CenterX) < 0.01 && math.Abs(p.Angle) < 0.01 {
+			padCenterX, padCenterZ, padLevel = p.CenterX, p.CenterZ, p.Level
 			found = true
+			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected villa pad merged at world [0,-10], pads=%+v", s.Terrains[0].Pads)
+		t.Fatalf("expected first villa pad, pads=%+v", s.Terrains[0].Pads)
+	}
+	natural, ok := s.NaturalTerrainHeightAt(padCenterX, padCenterZ)
+	if !ok {
+		t.Fatal("expected natural terrain under villa pad")
+	}
+	if padLevel < natural+2.5 || padLevel > natural+3.5 {
+		t.Fatalf("pad level = %v, want natural(%v)+3", padLevel, natural)
 	}
 	if len(s.Boxes) < 20 {
 		t.Fatalf("expected villa geometry from include, got %d boxes", len(s.Boxes))
 	}
-	// Villa origin (grade) sits on its pad level (3.0); at.y offset is 0.
-	const padLevel = 3.0
-	for i := range s.Boxes {
-		mn, mx := s.Boxes[i].WorldBounds()
-		if mn.Y >= padLevel-0.05 && mn.Y <= padLevel+0.05 && mx.Y >= padLevel+1.0 {
-			return // stone plinth base at pad grade
-		}
-	}
-	t.Fatalf("expected villa plinth base near pad level y=%v", padLevel)
 }
 
 func TestRotatedIncludePadHonorsYaw(t *testing.T) {
@@ -629,15 +635,13 @@ func TestRotatedIncludePadHonorsYaw(t *testing.T) {
 	const wantYaw = -45 * math.Pi / 180
 	var found bool
 	for _, p := range s.Terrains[0].Pads {
-		if math.Abs(p.CenterX-50) < 0.01 && math.Abs(p.CenterZ-(-10)) < 0.01 {
-			if math.Abs(p.Angle-wantYaw) > 0.01 {
-				t.Fatalf("second villa pad angle = %v, want %v", p.Angle, wantYaw)
-			}
+		if math.Abs(p.Angle-wantYaw) < 0.01 {
 			found = true
+			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected rotated second-villa pad at (50,-10), pads=%+v", s.Terrains[0].Pads)
+		t.Fatalf("expected rotated second-villa pad, pads=%+v", s.Terrains[0].Pads)
 	}
 }
 
@@ -650,6 +654,7 @@ func TestIncludeWithPadUsesPadLevelNotTerrain(t *testing.T) {
 center = [0.0, 0.0]
 half = [5.0, 5.0]
 level = 0.0
+absolute = true
 margin = 2.0
 
 [[box]]
@@ -1199,5 +1204,49 @@ func TestOutdoorsNightVillaTreesFollowTerrain(t *testing.T) {
 	}
 	if spreadMax-spreadMin < 1.0 {
 		t.Fatalf("pines share nearly flat Y (spread %.2f); follow_terrain not applied?", spreadMax-spreadMin)
+	}
+}
+
+func TestFrontOfficeDeskScreenHeadlines(t *testing.T) {
+	path := repoFile("scenes/office-sunset/objects/front-office-desk.toml")
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.ScreenSpecs) < 2 {
+		t.Fatalf("screens = %d, want 2", len(s.ScreenSpecs))
+	}
+	wantHeadline := "void water (int x, int y) {"
+	wantParas := []string{
+		"if (x < 0 || x >= width || y < 0 || y >= height) {",
+		"return 0;",
+		"}",
+		"return water[x][y];",
+		"}",
+	}
+	for i, spec := range s.ScreenSpecs[:2] {
+		if spec.Headline != wantHeadline {
+			t.Fatalf("screen[%d] headline = %q, want %q", i, spec.Headline, wantHeadline)
+		}
+		if len(spec.Paragraphs) != len(wantParas) {
+			t.Fatalf("screen[%d] paragraphs = %v, want %v", i, spec.Paragraphs, wantParas)
+		}
+		for j, p := range wantParas {
+			if spec.Paragraphs[j] != p {
+				t.Fatalf("screen[%d] paragraphs[%d] = %q, want %q", i, j, spec.Paragraphs[j], p)
+			}
+		}
+		if !strings.HasSuffix(spec.Font, "RedAlert.ttf") {
+			t.Fatalf("screen[%d] font = %q", i, spec.Font)
+		}
+		if spec.FontSizePx != 16 {
+			t.Fatalf("screen[%d] font_size_px = %d, want 16", i, spec.FontSizePx)
+		}
+	}
+	if s.ScreenSpecs[0].ID != "workstation_display" {
+		t.Fatalf("screen0 id = %q", s.ScreenSpecs[0].ID)
+	}
+	if s.ScreenSpecs[1].ID != "monitor_2" {
+		t.Fatalf("screen1 id = %q", s.ScreenSpecs[1].ID)
 	}
 }

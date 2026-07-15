@@ -1685,7 +1685,7 @@ struct Water {
   params: vec4<f32>, // ripple, rippleSpeed, dirX, dirZ
   albedo: vec4<f32>,
   surf: vec4<f32>,
-  info: vec4<u32>, // material, texture, _, _
+  info: vec4<u32>, // material, texture, mask_shoreline, _
 }
 
 
@@ -2405,9 +2405,20 @@ fn hit_water(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
     return T_MISS;
   }
   let p = ro + rd * t;
-  let d = p.xz - w.geom.xy;
-  if (dot(d, d) > w.geom.z * w.geom.z) {
-    return T_MISS;
+  if (w.geom.z > 0.0) {
+    let d = p.xz - w.geom.xy;
+    if (dot(d, d) > w.geom.z * w.geom.z) {
+      return T_MISS;
+    }
+  }
+  if (w.info.z != 0u) {
+    var th = -1e10;
+    for (var ti = 0u; ti < params.terrain_count; ti = ti + 1u) {
+      th = max(th, terrain_height(ti, p.x, p.z));
+    }
+    if (th >= w.geom.w) {
+      return T_MISS;
+    }
   }
   return t;
 }

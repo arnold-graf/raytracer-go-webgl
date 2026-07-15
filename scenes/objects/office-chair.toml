@@ -8,21 +8,25 @@
 #   at = [0.0, 0.0, 0.0]
 #   rotate_y = 180
 
-{{$leather := orVec3 .leather_albedo 0.10 0.10 0.11}}
-{{$chrome := orVec3 .chrome_albedo 0.52 0.52 0.55}}
-{{$reflect := or .reflect 0.35}}
-{{$rough := or .rough 0.06}}
-{{$legLen := 0.28}}
-{{$hubY := 0.05}}
-{{$legW := 0.035}}
-{{$legR := div $legW 2}}
-{{$wheel := 0.07}}
-{{$wh := div $wheel 2}}
 
 # seat cushion
+[props]
+leather_albedo = [0.10, 0.10, 0.11]
+chrome_albedo = [0.52, 0.52, 0.55]
+reflect = 0.35
+rough = 0.06
+
+[const]
+leg_len = 0.28
+hub_y = 0.05
+leg_w = 0.035
+leg_r = 'leg_w / 2'
+wheel = 0.07
+wh = 'wheel / 2'
+
 [[box]]
 material = "diffuse"
-albedo = {{$leather}}
+albedo = 'leather_albedo'
 reflect = 0.01
 rough = 0.08
 pos_x = -0.24
@@ -35,7 +39,7 @@ depth = 0.44
 # backrest (tilted away from sitter)
 [[box]]
 material = "diffuse"
-albedo = {{$leather}}
+albedo = 'leather_albedo'
 reflect = 0.01
 rough = 0.08
 rotate_x = 18
@@ -60,9 +64,9 @@ depth = 0.14
 # gas lift column
 [[cylinder]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
 pos_x = -0.03
 pos_y = 0.08
 pos_z = -0.03
@@ -72,9 +76,9 @@ height = 0.34
 # base hub
 [[cylinder]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
 pos_x = -0.045
 pos_y = 0.04
 pos_z = -0.045
@@ -84,130 +88,130 @@ height = 0.05
 # five-star base legs (boxes from hub to each wheel)
 [[box]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
-transform_origin = [0, {{$hubY}}, 0]
-pos_x = {{neg $legR}}
-pos_y = {{sub $hubY 0.015}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
+transform_origin = [0, 'hub_y', 0]
+pos_x = '-leg_r'
+pos_y = 'hub_y - 0.015'
 pos_z = 0.0
-width = {{$legW}}
+width = 'leg_w'
 height = 0.03
-depth = {{$legLen}}
+depth = 'leg_len'
 
 [[box]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
-transform_origin = [0, {{$hubY}}, 0]
-pos_x = {{neg $legR}}
-pos_y = {{sub $hubY 0.015}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
+transform_origin = [0, 'hub_y', 0]
+pos_x = '-leg_r'
+pos_y = 'hub_y - 0.015'
 pos_z = 0.0
-width = {{$legW}}
+width = 'leg_w'
 height = 0.03
-depth = {{$legLen}}
+depth = 'leg_len'
 rotate_y = 72
 
 [[box]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
-transform_origin = [0, {{$hubY}}, 0]
-pos_x = {{neg $legR}}
-pos_y = {{sub $hubY 0.015}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
+transform_origin = [0, 'hub_y', 0]
+pos_x = '-leg_r'
+pos_y = 'hub_y - 0.015'
 pos_z = 0.0
-width = {{$legW}}
+width = 'leg_w'
 height = 0.03
-depth = {{$legLen}}
+depth = 'leg_len'
 rotate_y = 144
 
 [[box]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
-transform_origin = [0, {{$hubY}}, 0]
-pos_x = {{neg $legR}}
-pos_y = {{sub $hubY 0.015}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
+transform_origin = [0, 'hub_y', 0]
+pos_x = '-leg_r'
+pos_y = 'hub_y - 0.015'
 pos_z = 0.0
-width = {{$legW}}
+width = 'leg_w'
 height = 0.03
-depth = {{$legLen}}
+depth = 'leg_len'
 rotate_y = 216
 
 [[box]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
-transform_origin = [0, {{$hubY}}, 0]
-pos_x = {{neg $legR}}
-pos_y = {{sub $hubY 0.015}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
+transform_origin = [0, 'hub_y', 0]
+pos_x = '-leg_r'
+pos_y = 'hub_y - 0.015'
 pos_z = 0.0
-width = {{$legW}}
+width = 'leg_w'
 height = 0.03
-depth = {{$legLen}}
+depth = 'leg_len'
 rotate_y = 288
 
 # casters (cylinders on their sides at leg tips)
 [[cylinder]]
 material = "diffuse"
 albedo = [0.08, 0.08, 0.09]
-pos_x = {{sub 0.0 $wh}}
+pos_x = '0 - wh'
 pos_y = 0.0
-pos_z = {{sub $legLen $wh}}
-width = {{$wheel}}
+pos_z = 'leg_len - wh'
+width = 'wheel'
 height = 0.05
 rotate_x = 90
 
 [[cylinder]]
 material = "diffuse"
 albedo = [0.08, 0.08, 0.09]
-pos_x = {{sub 0.266 $wh}}
+pos_x = '0.266 - wh'
 pos_y = 0.0
-pos_z = {{sub 0.086 $wh}}
-width = {{$wheel}}
+pos_z = '0.086 - wh'
+width = 'wheel'
 height = 0.05
 rotate_x = 90
 
 [[cylinder]]
 material = "diffuse"
 albedo = [0.08, 0.08, 0.09]
-pos_x = {{sub 0.165 $wh}}
+pos_x = '0.165 - wh'
 pos_y = 0.0
-pos_z = {{sub -0.227 $wh}}
-width = {{$wheel}}
+pos_z = '-0.227 - wh'
+width = 'wheel'
 height = 0.05
 rotate_x = 90
 
 [[cylinder]]
 material = "diffuse"
 albedo = [0.08, 0.08, 0.09]
-pos_x = {{sub -0.165 $wh}}
+pos_x = '-0.165 - wh'
 pos_y = 0.0
-pos_z = {{sub -0.227 $wh}}
-width = {{$wheel}}
+pos_z = '-0.227 - wh'
+width = 'wheel'
 height = 0.05
 rotate_x = 90
 
 [[cylinder]]
 material = "diffuse"
 albedo = [0.08, 0.08, 0.09]
-pos_x = {{sub -0.266 $wh}}
+pos_x = '-0.266 - wh'
 pos_y = 0.0
-pos_z = {{sub 0.086 $wh}}
-width = {{$wheel}}
+pos_z = '0.086 - wh'
+width = 'wheel'
 height = 0.05
 rotate_x = 90
 
 # armrests — front + rear posts into seat, full-length pads
 [[box]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
 pos_x = -0.28
 pos_y = 0.46
 pos_z = 0.10
@@ -217,9 +221,9 @@ depth = 0.05
 
 [[box]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
 pos_x = -0.28
 pos_y = 0.46
 pos_z = -0.16
@@ -229,9 +233,9 @@ depth = 0.05
 
 [[box]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
 pos_x = -0.30
 pos_y = 0.54
 pos_z = -0.18
@@ -241,9 +245,9 @@ depth = 0.42
 
 [[box]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
 pos_x = 0.23
 pos_y = 0.46
 pos_z = 0.10
@@ -253,9 +257,9 @@ depth = 0.05
 
 [[box]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
 pos_x = 0.23
 pos_y = 0.46
 pos_z = -0.16
@@ -265,9 +269,9 @@ depth = 0.05
 
 [[box]]
 material = "metal"
-albedo = {{$chrome}}
-reflect = {{$reflect}}
-rough = {{$rough}}
+albedo = 'chrome_albedo'
+reflect = 'reflect'
+rough = 'rough'
 pos_x = 0.25
 pos_y = 0.54
 pos_z = -0.18

@@ -14,7 +14,7 @@ func LoadIncludeSubScene(absPath string, params map[string]any) (*scene.Scene, e
 
 // DecodeSceneIncludes reads [[include]] tables from a TOML file.
 func DecodeSceneIncludes(path string) ([]includeDTO, error) {
-	dto, err := decodeSceneFile(path, nil)
+	dto, _, err := decodeSceneFile(path, nil)
 	if err != nil {
 		return nil, err
 	}

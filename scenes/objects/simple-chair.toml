@@ -7,8 +7,9 @@
 #   file = "objects/simple-chair.toml"
 #   at = [0.0, 0.0, 0.0]
 
-{{$albedo := orVec3 .albedo 0.58 0.44 0.30}}
-{{$reflect := or .reflect 0.01}}
+[props]
+albedo = [0.58, 0.44, 0.30]
+reflect = 0.01
 
 [[box]] # leg (front right)
 pos_x = 0.17
@@ -18,9 +19,9 @@ width = 0.07
 height = 0.47
 depth = 0.07
 material = "diffuse"
-albedo = {{$albedo}}
+albedo = 'albedo'
 texture = "wood"
-reflect = {{$reflect}}
+reflect = 'reflect'
 rough = 0.02
 
 [[box]] # leg (back left)
@@ -31,9 +32,9 @@ width = 0.07
 height = 0.47
 depth = 0.07
 material = "diffuse"
-albedo = {{$albedo}}
+albedo = 'albedo'
 texture = "wood"
-reflect = {{$reflect}}
+reflect = 'reflect'
 rough = 0.02
 
 [[box]] # leg (front left)
@@ -44,9 +45,9 @@ width = 0.07
 height = 0.47
 depth = 0.07
 material = "diffuse"
-albedo = {{$albedo}}
+albedo = 'albedo'
 texture = "wood"
-reflect = {{$reflect}}
+reflect = 'reflect'
 rough = 0.02
 
 [[box]] # leg (back right)
@@ -57,9 +58,9 @@ width = 0.07
 height = 0.47
 depth = 0.07
 material = "diffuse"
-albedo = {{$albedo}}
+albedo = 'albedo'
 texture = "wood"
-reflect = {{$reflect}}
+reflect = 'reflect'
 rough = 0.02
 
 [[box]] # seat
@@ -70,9 +71,9 @@ width = 0.58
 height = 0.05
 depth = 0.58
 material = "diffuse"
-albedo = {{$albedo}}
+albedo = 'albedo'
 texture = "wood"
-reflect = {{$reflect}}
+reflect = 'reflect'
 rough = 0.02
 
 [[box]] # back post (left)
@@ -83,9 +84,9 @@ width = 0.07
 height = 0.52
 depth = 0.07
 material = "diffuse"
-albedo = {{$albedo}}
+albedo = 'albedo'
 texture = "wood"
-reflect = {{$reflect}}
+reflect = 'reflect'
 rough = 0.02
 
 [[box]] # back post (right)
@@ -96,9 +97,9 @@ width = 0.07
 height = 0.52
 depth = 0.07
 material = "diffuse"
-albedo = {{$albedo}}
+albedo = 'albedo'
 texture = "wood"
-reflect = {{$reflect}}
+reflect = 'reflect'
 rough = 0.02
 
 [[box]] # back top rail
@@ -109,7 +110,7 @@ width = 0.5
 height = 0.06
 depth = 0.07
 material = "diffuse"
-albedo = {{$albedo}}
+albedo = 'albedo'
 texture = "wood"
-reflect = {{$reflect}}
+reflect = 'reflect'
 rough = 0.02

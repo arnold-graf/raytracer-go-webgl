@@ -19,8 +19,9 @@
 
 # Flatten the ground under the house. The stub [[terrain]] only exists so the
 # [[terrain.pad]] below decodes; an object never carries its own height field,
-# so the pad is merged into whatever terrain the parent scene defines. The pad
-# is in this object's local coordinates and is moved by the include's `at`.
+# so the pad is merged into whatever terrain the parent scene defines. level is
+# an offset above natural ground at the include anchor (set absolute = true for
+# a fixed world elevation). The pad moves with the include's at / rotation.
 [[terrain]]
 
 [[terrain.pad]] # flat site under the villa (footprint ~15 × 13 m + margin)

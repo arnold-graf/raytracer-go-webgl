@@ -17,11 +17,17 @@
 # The orb, filament and light hang just below the stem end, so they follow
 # stem_len/orb_radius automatically. The stem/canopy are "metal" with moderate
 # roughness so they read as bronze with a soft (not mirror) sheen.
-{{$stem := or .stem_len 1.5}}
-{{$brightness := or .brightness 1}}
-{{$orb := or .orb_radius 0.4}}
-{{$orbY := neg (add $stem (mul $orb 0.875))}}
-{{$range := or .range 16}}
+
+[props]
+stem_len = 1.5
+brightness = 1.0
+orb_radius = 0.4
+range = 16.0
+
+[const]
+orb_y = '-(stem_len + orb_radius * 0.875)'
+filament_r = 'orb_radius * 0.15'
+
 [[cylinder]] # ceiling canopy (bronze)
 pos_x = -0.18
 pos_y = -0.08
@@ -34,32 +40,32 @@ rough = 0.22
 
 [[cylinder]] # stem / suspension rod (bronze)
 pos_x = -0.045
-pos_y = {{neg $stem}}
+pos_y = '-stem_len'
 pos_z = -0.045
 width = 0.09
-height = {{$stem}}
+height = 'stem_len'
 albedo = [0.70, 0.48, 0.26]
 material = "metal"
 
 [[sphere]] # glass orb
 albedo = [0.95, 0.92, 0.85]
-center = [0.0, {{$orbY}}, 0.0]
+center = [0.0, 'orb_y', 0.0]
 ior = 1.5
 material = "glass"
-radius = {{$orb}}
+radius = 'orb_radius'
 reflect = 0.1
 rough = 0.02
 transmit = 0.9
 
 [[sphere]] # filament (warm emitter inside the orb)
 albedo = [9.0, 5.4, 2.2]
-center = [0.0, {{$orbY}}, 0.0]
+center = [0.0, 'orb_y', 0.0]
 material = "emit"
-radius = {{mul $orb 0.15}}
+radius = 'filament_r'
 
 [[light]]
-brightness = {{$brightness}}
+brightness = 'brightness'
 color = [3.5, 3.5, 2.4]
-pos = [0.0, {{$orbY}}, 0.0]
+pos = [0.0, 'orb_y', 0.0]
 radius = 0.5
-range = {{$range}}
+range = 'range'

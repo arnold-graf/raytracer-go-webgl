@@ -312,6 +312,7 @@ file = "objects/building.toml"
 center = [16.0, -2.0]
 half = [4.9, 5.9]
 level = 0.0
+absolute = true
 margin = 4.0
 
 # The building's interior (spheres, furniture, columns, cones, tori and the two

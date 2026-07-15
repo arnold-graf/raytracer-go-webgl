@@ -21,7 +21,7 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
 	}
-	dto, err := decodeSceneFile(incPath, inc.Params)
+	dto, resolved, err := decodeSceneFile(incPath, inc.Params)
 	if err != nil {
 		return err
 	}
@@ -37,7 +37,8 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 			childPath = filepath.Join(filepath.Dir(incPath), childPath)
 		}
 		childFollow := child.FollowTerrain
-		childSub, err := load(childPath, child.Params, seen, deps, nil)
+		childParams := mergeIncludeParams(resolved, child.Params)
+		childSub, err := load(childPath, childParams, seen, deps, nil)
 		if err != nil {
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 		}
@@ -46,7 +47,7 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 		}
 		childXf = parentXf.Compose(childXf)
-		childDTO, err := decodeSceneFile(childPath, child.Params)
+		childDTO, _, err := decodeSceneFile(childPath, childParams)
 		if err != nil {
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 		}
@@ -56,7 +57,7 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 			}
 			continue
 		}
-		if err := registerInstancePlacement(dst, childPath, child.Params, childXf, childFollow, child.At.toV().Y, seen, deps); err != nil {
+		if err := registerInstancePlacement(dst, childPath, childParams, childXf, childFollow, child.At.toV().Y, seen, deps); err != nil {
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 		}
 	}
@@ -69,7 +70,7 @@ func registerLeafInstance(dst *scene.Scene, inc includeDTO, parentDir string, se
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
 	}
-	dto, err := decodeSceneFile(incPath, inc.Params)
+	dto, _, err := decodeSceneFile(incPath, inc.Params)
 	if err != nil {
 		return err
 	}
