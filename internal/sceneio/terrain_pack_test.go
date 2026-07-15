@@ -22,7 +22,7 @@ func TestVilla400TerrainPacksForGPU(t *testing.T) {
 	ter.Prepare()
 	gnx, gnz := ter.GridDimensions()
 
-	terrains, samples, _, _ := webgpu.PackTerrains(s)
+	terrains, samples, _, _, _ := webgpu.PackTerrains(s)
 	if len(terrains) != 1 {
 		t.Fatalf("got %d terrains, want 1", len(terrains))
 	}
@@ -54,8 +54,11 @@ func TestIslandSceneHybridFootprint(t *testing.T) {
 	if ter.SizeX < 1500 || ter.SizeZ < 1500 {
 		t.Fatalf("footprint = %.0f×%.0f, want ~2 km", ter.SizeX, ter.SizeZ)
 	}
-	_, _, feats, _ := webgpu.PackTerrains(s)
+	_, _, feats, _, mips := webgpu.PackTerrains(s)
 	if len(feats) == 0 {
 		t.Fatal("expected terrain features packed for analytic near band")
+	}
+	if len(mips) == 0 {
+		t.Fatal("expected terrain mip pyramid packed")
 	}
 }

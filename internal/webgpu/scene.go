@@ -36,6 +36,7 @@ const (
 	maxTerrainVals     = scene.MaxTerrainGridCells
 	maxTerrainFeatures = 256
 	maxTerrainPads     = 64
+	maxTerrainMipVals  = 1 << 21 // min/max pairs as vec2 (8 bytes each)
 	maxWaters      = 64
 )
 
@@ -125,9 +126,11 @@ type GPUTerrain struct {
 	Island0  [4]float32 // centerX, centerZ, radius, margin
 	Island1  [4]float32 // floor, nearEnd, hybrid (1/0), _
 	Offsets  [4]uint32  // featureBase, padBase, featureCount, padCount
+	Mip      [4]uint32  // mipBase (vec2 index), l0nx, l0nz, levelCount
+	Coarse   [4]float32 // cwx, cwz, cInvDx, cInvDz
 }
 
-const terrainStride = 192
+const terrainStride = 224
 
 // GPUTerrainFeature mirrors a sculpted peak/valley for WGSL heightAnalytic.
 type GPUTerrainFeature struct {
@@ -452,12 +455,13 @@ func PackLights(s *scene.Scene) []GPULight {
 	return out
 }
 
-func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature, []GPUTerrainPad) {
+func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature, []GPUTerrainPad, []float32) {
 	if s == nil {
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	terrains := make([]GPUTerrain, 0, len(s.Terrains))
 	samples := make([]float32, 0)
+	mips := make([]float32, 0)
 	features := make([]GPUTerrainFeature, 0)
 	pads := make([]GPUTerrainPad, 0)
 	for i := range s.Terrains {
@@ -467,6 +471,16 @@ func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature,
 		for i, h := range snap.Height {
 			n := snap.Normal[i]
 			samples = append(samples, f(n.X), f(n.Y), f(n.Z), f(h))
+		}
+		mipLevels, cwx, cwz, cInvDx, cInvDz := t.MipSnapshot()
+		mipBase := uint32(len(mips) / 2)
+		var l0nx, l0nz, mipCount uint32
+		for _, lvl := range mipLevels {
+			mips = append(mips, lvl.MinMax...)
+			if l0nx == 0 {
+				l0nx, l0nz = uint32(lvl.NX), uint32(lvl.NZ)
+			}
+			mipCount++
 		}
 		featBase := uint32(len(features))
 		for _, feat := range t.Features {
@@ -516,13 +530,16 @@ func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature,
 			Island0:  [4]float32{f(isl.CenterX), f(isl.CenterZ), f(isl.Radius), f(isl.Margin)},
 			Island1:  [4]float32{f(isl.Floor), f(nearEnd), hybrid, 0},
 			Offsets:  [4]uint32{featBase, padBase, uint32(len(t.Features)), uint32(len(t.Pads))},
+			Mip:      [4]uint32{mipBase, l0nx, l0nz, mipCount},
+			Coarse:   [4]float32{f(cwx), f(cwz), f(cInvDx), f(cInvDz)},
 		})
 		if len(terrains) >= maxTerrains || len(samples)/4 >= maxTerrainVals ||
-			len(features) > maxTerrainFeatures || len(pads) > maxTerrainPads {
+			len(features) > maxTerrainFeatures || len(pads) > maxTerrainPads ||
+			len(mips)/2 > maxTerrainMipVals {
 			break
 		}
 	}
-	return terrains, samples, features, pads
+	return terrains, samples, features, pads, mips
 }
 
 func PackWaters(s *scene.Scene) []GPUWater {

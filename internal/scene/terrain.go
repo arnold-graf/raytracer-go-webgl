@@ -117,9 +117,17 @@ type Terrain struct {
 	cwx, cwz       float64 // coarse cell world size
 	cInvDx, cInvDz float64
 	cmin, cmax     []float64
+	mipLevels      []TerrainMipLevel // min/max pyramid for GPU empty-space skipping
 
 	stale     bool // height/normal cache is out of date (pads/features changed)
 	hybridLOD bool // coarse bake + analytic queries (CoarseCell > 0)
+}
+
+// TerrainMipLevel is one level of the min/max height pyramid (level 0 = coarsest
+// step matching buildCoarse's cell size).
+type TerrainMipLevel struct {
+	NX, NZ int
+	MinMax []float32 // pairs [min0,max0, min1,max1, ...]
 }
 
 // TerrainCacheSnapshot is a read-only copy of the prepared terrain grids for
@@ -260,6 +268,81 @@ func (t *Terrain) buildCache() {
 	})
 
 	t.buildCoarse()
+	t.buildMipPyramid()
+}
+
+// buildMipPyramid downsamples the coarse min/max grid into a mip chain for GPU
+// ray marching (each level merges 2×2 children).
+func (t *Terrain) buildMipPyramid() {
+	if t.cgnx < 1 || t.cgnz < 1 || len(t.cmin) == 0 {
+		t.mipLevels = nil
+		return
+	}
+	pack := func(nx, nz int, cmin, cmax []float64) []float32 {
+		out := make([]float32, nx*nz*2)
+		for j := 0; j < nz; j++ {
+			for i := 0; i < nx; i++ {
+				idx := j*nx + i
+				out[idx*2] = float32(cmin[idx])
+				out[idx*2+1] = float32(cmax[idx])
+			}
+		}
+		return out
+	}
+	levels := []TerrainMipLevel{{
+		NX: t.cgnx, NZ: t.cgnz,
+		MinMax: pack(t.cgnx, t.cgnz, t.cmin, t.cmax),
+	}}
+	nx, nz := t.cgnx, t.cgnz
+	curMin := append([]float64(nil), t.cmin...)
+	curMax := append([]float64(nil), t.cmax...)
+	for nx > 1 || nz > 1 {
+		nnx := (nx + 1) / 2
+		nnz := (nz + 1) / 2
+		nmin := make([]float64, nnx*nnz)
+		nmax := make([]float64, nnx*nnz)
+		for j := 0; j < nnz; j++ {
+			for i := 0; i < nnx; i++ {
+				lo := math.Inf(1)
+				hi := math.Inf(-1)
+				for dz := 0; dz < 2; dz++ {
+					for dx := 0; dx < 2; dx++ {
+						ci, cj := i*2+dx, j*2+dz
+						if ci >= nx || cj >= nz {
+							continue
+						}
+						idx := cj*nx + ci
+						if curMin[idx] < lo {
+							lo = curMin[idx]
+						}
+						if curMax[idx] > hi {
+							hi = curMax[idx]
+						}
+					}
+				}
+				idx := j*nnx + i
+				nmin[idx] = lo
+				nmax[idx] = hi
+			}
+		}
+		levels = append(levels, TerrainMipLevel{NX: nnx, NZ: nnz, MinMax: pack(nnx, nnz, nmin, nmax)})
+		curMin, curMax = nmin, nmax
+		nx, nz = nnx, nnz
+	}
+	t.mipLevels = levels
+}
+
+// MipSnapshot returns the prepared min/max pyramid and coarse cell metrics.
+func (t *Terrain) MipSnapshot() (levels []TerrainMipLevel, cwx, cwz, cInvDx, cInvDz float64) {
+	t.ensurePrepared()
+	levels = make([]TerrainMipLevel, len(t.mipLevels))
+	for i := range t.mipLevels {
+		levels[i] = TerrainMipLevel{
+			NX: t.mipLevels[i].NX, NZ: t.mipLevels[i].NZ,
+			MinMax: append([]float32(nil), t.mipLevels[i].MinMax...),
+		}
+	}
+	return levels, t.cwx, t.cwz, t.cInvDx, t.cInvDz
 }
 
 // buildCoarse builds a coarse grid holding the maximum terrain height in each

@@ -140,6 +140,8 @@ struct Terrain {
     island0: vec4<f32>,    // centerX, centerZ, radius, margin
     island1: vec4<f32>,    // floor, nearEnd, hybrid (1/0), _
     offsets: vec4<u32>,    // featureBase, padBase, featureCount, padCount
+    mip: vec4<u32>,        // mipBase (vec2 index), l0nx, l0nz, levelCount
+    coarse: vec4<f32>,     // cwx, cwz, cInvDx, cInvDz
 };
 
 struct TerrainFeature {
@@ -213,6 +215,9 @@ var<storage, read> terrain_features: array<TerrainFeature>;
 
 @group(0) @binding(22)
 var<storage, read> terrain_pads: array<TerrainPad>;
+
+@group(0) @binding(23)
+var<storage, read> terrain_mip: array<vec2<f32>>;
 
 @group(0) @binding(14)
 var<storage, read> inst_templates: array<TemplateRecord>;

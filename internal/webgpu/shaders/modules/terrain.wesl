@@ -5,7 +5,13 @@
 
 
 
-import package::types::{RAY_EPSILON, T_MISS, params, terrain_features, terrain_pads, terrain_samples, terrains, waters};
+
+
+
+
+
+
+import package::types::{RAY_EPSILON, T_MISS, params, terrain_features, terrain_mip, terrain_pads, terrain_samples, terrains, waters};
 import package::profile::{PROF_TERRAIN_STEPS, prof_inc};
 import package::math::{fbm, mix3, perlin, smoothstepf};
 
@@ -188,15 +194,71 @@ fn terrain_slab(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> vec2<f32> {
     return vec2<f32>(max(enter, RAY_EPSILON), exit);
 }
 
-fn hit_terrain(i: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32, refine: bool) -> f32 {
-    let te = terrain_slab(i, ro, rd);
-    var tc = te.x;
-    var t_exit = min(te.y, max_t);
-    if (tc >= t_exit || tc >= T_MISS) {
-        return T_MISS;
+// terrain_shadow_skip reports whether a shadow ray cannot hit terrain before max_t.
+fn terrain_shadow_skip(i: u32, origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
+    let tr = terrains[i];
+    if (dir.y >= -1e-4) {
+        return true;
     }
+    if (origin.y > tr.bounds1.y && dir.y >= 0.0) {
+        return true;
+    }
+    let te = terrain_slab(i, origin, dir);
+    let t_lim = min(te.y, max_t);
+    if (te.x >= t_lim || te.x >= T_MISS) {
+        return true;
+    }
+    return false;
+}
+
+fn mip_level_dims(l0nx: u32, l0nz: u32, level: u32) -> vec2<u32> {
+    var nx = l0nx;
+    var nz = l0nz;
+    for (var l = 0u; l < level; l = l + 1u) {
+        nx = max(1u, (nx + 1u) / 2u);
+        nz = max(1u, (nz + 1u) / 2u);
+    }
+    return vec2<u32>(nx, nz);
+}
+
+fn mip_level_off(base: u32, l0nx: u32, l0nz: u32, level: u32) -> u32 {
+    var off = base;
+    var nx = l0nx;
+    var nz = l0nz;
+    for (var l = 0u; l < level; l = l + 1u) {
+        off += nx * nz;
+        nx = max(1u, (nx + 1u) / 2u);
+        nz = max(1u, (nz + 1u) / 2u);
+    }
+    return off;
+}
+
+fn mip_cell_minmax(i: u32, level: u32, cell: vec2<u32>) -> vec2<f32> {
+    let tr = terrains[i];
+    let dims = mip_level_dims(tr.mip.y, tr.mip.z, level);
+    let off = mip_level_off(tr.mip.x, tr.mip.y, tr.mip.z, level);
+    return terrain_mip[off + cell.y * dims.x + cell.x];
+}
+
+fn mip_world_cell(i: u32, level: u32, x: f32, z: f32) -> vec2<u32> {
+    let tr = terrains[i];
+    let scale = f32(1u << level);
+    let cwx = tr.coarse.x * scale;
+    let cwz = tr.coarse.y * scale;
+    let dims = mip_level_dims(tr.mip.y, tr.mip.z, level);
+    var cx = u32(floor((x - tr.bounds0.x) / cwx));
+    var cz = u32(floor((z - tr.bounds0.y) / cwz));
+    let mx = dims.x - 1u;
+    let mz = dims.y - 1u;
+    if (cx > mx) { cx = mx; }
+    if (cz > mz) { cz = mz; }
+    return vec2<u32>(cx, cz);
+}
+
+fn hit_terrain_fine(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f32, refine: bool) -> f32 {
     let tr = terrains[i];
     let base = tr.bounds1.z;
+    var tc = t_enter;
     var p = ro + rd * tc;
     var fc = p.y - terrain_height(i, p.x, p.z);
     for (var iter = 0u; iter < 256u; iter = iter + 1u) {
@@ -234,6 +296,281 @@ fn hit_terrain(i: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32, refine: bool) -
         fc = f_next;
     }
     return T_MISS;
+}
+
+fn mip_init_dda(
+    i: u32,
+    level: u32,
+    ro: vec3<f32>,
+    rd: vec3<f32>,
+    tc: f32,
+    cx: ptr<function, i32>,
+    cz: ptr<function, i32>,
+    t_next_x: ptr<function, f32>,
+    t_delta_x: ptr<function, f32>,
+    step_x: ptr<function, i32>,
+    t_next_z: ptr<function, f32>,
+    t_delta_z: ptr<function, f32>,
+    step_z: ptr<function, i32>,
+) {
+    let tr = terrains[i];
+    let scale = f32(1u << level);
+    let cwx = tr.coarse.x * scale;
+    let cwz = tr.coarse.y * scale;
+    let cell = mip_world_cell(i, level, ro.x + rd.x * tc, ro.z + rd.z * tc);
+    *cx = i32(cell.x);
+    *cz = i32(cell.y);
+
+    *t_next_x = 1e30;
+    *t_delta_x = 1e30;
+    *step_x = 0;
+    if (rd.x > 1e-9) {
+        *step_x = 1;
+        *t_next_x = (tr.bounds0.x + f32(*cx + 1) * cwx - ro.x) / rd.x;
+        *t_delta_x = cwx / rd.x;
+    } else if (rd.x < -1e-9) {
+        *step_x = -1;
+        *t_next_x = (tr.bounds0.x + f32(*cx) * cwx - ro.x) / rd.x;
+        *t_delta_x = -cwx / rd.x;
+    }
+
+    *t_next_z = 1e30;
+    *t_delta_z = 1e30;
+    *step_z = 0;
+    if (rd.z > 1e-9) {
+        *step_z = 1;
+        *t_next_z = (tr.bounds0.y + f32(*cz + 1) * cwz - ro.z) / rd.z;
+        *t_delta_z = cwz / rd.z;
+    } else if (rd.z < -1e-9) {
+        *step_z = -1;
+        *t_next_z = (tr.bounds0.y + f32(*cz) * cwz - ro.z) / rd.z;
+        *t_delta_z = -cwz / rd.z;
+    }
+}
+
+fn hit_terrain_mip(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f32, refine: bool) -> f32 {
+    let tr = terrains[i];
+    var stk_level: array<u32, 12>;
+    var stk_t_exit: array<f32, 12>;
+    var stk_tc: array<f32, 12>;
+    var stk_cx: array<i32, 12>;
+    var stk_cz: array<i32, 12>;
+    var stk_t_next_x: array<f32, 12>;
+    var stk_t_delta_x: array<f32, 12>;
+    var stk_step_x: array<i32, 12>;
+    var stk_t_next_z: array<f32, 12>;
+    var stk_t_delta_z: array<f32, 12>;
+    var stk_step_z: array<i32, 12>;
+    var stk_resume: array<f32, 12>;
+    var sp = 0u;
+
+    var level = tr.mip.w - 1u;
+    var seg_exit = t_exit;
+    var tc = t_enter;
+    var cx: i32 = 0;
+    var cz: i32 = 0;
+    var t_next_x: f32 = 1e30;
+    var t_delta_x: f32 = 1e30;
+    var step_x: i32 = 0;
+    var t_next_z: f32 = 1e30;
+    var t_delta_z: f32 = 1e30;
+    var step_z: i32 = 0;
+    var need_init = true;
+
+    for (var guard = 0u; guard < 8192u; guard = guard + 1u) {
+        if (level == 0u) {
+            if (tc + 1e-4 >= seg_exit) {
+                if (sp == 0u) {
+                    return T_MISS;
+                }
+                sp = sp - 1u;
+                level = stk_level[sp];
+                seg_exit = stk_t_exit[sp];
+                tc = stk_resume[sp];
+                cx = stk_cx[sp];
+                cz = stk_cz[sp];
+                t_next_x = stk_t_next_x[sp];
+                t_delta_x = stk_t_delta_x[sp];
+                step_x = stk_step_x[sp];
+                t_next_z = stk_t_next_z[sp];
+                t_delta_z = stk_t_delta_z[sp];
+                step_z = stk_step_z[sp];
+                let cross_x = t_next_x <= t_next_z;
+                let cross_z = t_next_z <= t_next_x;
+                if (cross_x) {
+                    cx += step_x;
+                    t_next_x += t_delta_x;
+                }
+                if (cross_z) {
+                    cz += step_z;
+                    t_next_z += t_delta_z;
+                }
+                need_init = false;
+                continue;
+            }
+            let hit = hit_terrain_fine(i, ro, rd, tc, seg_exit, refine);
+            if (hit < T_MISS) {
+                return hit;
+            }
+            if (sp == 0u) {
+                return T_MISS;
+            }
+            sp = sp - 1u;
+            level = stk_level[sp];
+            seg_exit = stk_t_exit[sp];
+            tc = stk_resume[sp];
+            cx = stk_cx[sp];
+            cz = stk_cz[sp];
+            t_next_x = stk_t_next_x[sp];
+            t_delta_x = stk_t_delta_x[sp];
+            step_x = stk_step_x[sp];
+            t_next_z = stk_t_next_z[sp];
+            t_delta_z = stk_t_delta_z[sp];
+            step_z = stk_step_z[sp];
+            let cross_x = t_next_x <= t_next_z;
+            let cross_z = t_next_z <= t_next_x;
+            if (cross_x) {
+                cx += step_x;
+                t_next_x += t_delta_x;
+            }
+            if (cross_z) {
+                cz += step_z;
+                t_next_z += t_delta_z;
+            }
+            need_init = false;
+            continue;
+        }
+
+        let dims = mip_level_dims(tr.mip.y, tr.mip.z, level);
+        if (need_init) {
+            mip_init_dda(i, level, ro, rd, tc, &cx, &cz, &t_next_x, &t_delta_x, &step_x, &t_next_z, &t_delta_z, &step_z);
+            need_init = false;
+        }
+
+        if (tc >= seg_exit) {
+            if (sp == 0u) {
+                return T_MISS;
+            }
+            sp = sp - 1u;
+            level = stk_level[sp];
+            seg_exit = stk_t_exit[sp];
+            tc = stk_resume[sp];
+            cx = stk_cx[sp];
+            cz = stk_cz[sp];
+            t_next_x = stk_t_next_x[sp];
+            t_delta_x = stk_t_delta_x[sp];
+            step_x = stk_step_x[sp];
+            t_next_z = stk_t_next_z[sp];
+            t_delta_z = stk_t_delta_z[sp];
+            step_z = stk_step_z[sp];
+            need_init = true;
+            continue;
+        }
+        if (cx < 0 || cz < 0 || cx >= i32(dims.x) || cz >= i32(dims.y)) {
+            if (sp == 0u) {
+                return T_MISS;
+            }
+            sp = sp - 1u;
+            level = stk_level[sp];
+            seg_exit = stk_t_exit[sp];
+            tc = stk_resume[sp];
+            cx = stk_cx[sp];
+            cz = stk_cz[sp];
+            t_next_x = stk_t_next_x[sp];
+            t_delta_x = stk_t_delta_x[sp];
+            step_x = stk_step_x[sp];
+            t_next_z = stk_t_next_z[sp];
+            t_delta_z = stk_t_delta_z[sp];
+            step_z = stk_step_z[sp];
+            need_init = true;
+            continue;
+        }
+
+        var tn = t_next_x;
+        if (t_next_z < tn) {
+            tn = t_next_z;
+        }
+        if (tn > seg_exit) {
+            tn = seg_exit;
+        }
+        if (tn < tc) {
+            tn = tc;
+        }
+
+        let mm = mip_cell_minmax(i, level, vec2<u32>(u32(cx), u32(cz)));
+        let y0 = ro.y + rd.y * tc;
+        let y1 = ro.y + rd.y * tn;
+        let seg_min = min(y0, y1);
+        let seg_max = max(y0, y1);
+        if (seg_max >= mm.x && seg_min <= mm.y && tn > tc + 1e-4) {
+            if (sp >= 12u) {
+                return T_MISS;
+            }
+            stk_level[sp] = level;
+            stk_t_exit[sp] = seg_exit;
+            stk_tc[sp] = tc;
+            stk_cx[sp] = cx;
+            stk_cz[sp] = cz;
+            stk_t_next_x[sp] = t_next_x;
+            stk_t_delta_x[sp] = t_delta_x;
+            stk_step_x[sp] = step_x;
+            stk_t_next_z[sp] = t_next_z;
+            stk_t_delta_z[sp] = t_delta_z;
+            stk_step_z[sp] = step_z;
+            stk_resume[sp] = tn + 1e-5;
+            sp = sp + 1u;
+            level = level - 1u;
+            seg_exit = tn;
+            need_init = true;
+            continue;
+        }
+
+        if (tn >= seg_exit) {
+            if (sp == 0u) {
+                return T_MISS;
+            }
+            sp = sp - 1u;
+            level = stk_level[sp];
+            seg_exit = stk_t_exit[sp];
+            tc = stk_resume[sp];
+            cx = stk_cx[sp];
+            cz = stk_cz[sp];
+            t_next_x = stk_t_next_x[sp];
+            t_delta_x = stk_t_delta_x[sp];
+            step_x = stk_step_x[sp];
+            t_next_z = stk_t_next_z[sp];
+            t_delta_z = stk_t_delta_z[sp];
+            step_z = stk_step_z[sp];
+            need_init = true;
+            continue;
+        }
+
+        let cross_x = t_next_x <= t_next_z;
+        let cross_z = t_next_z <= t_next_x;
+        if (cross_x) {
+            cx += step_x;
+            t_next_x += t_delta_x;
+        }
+        if (cross_z) {
+            cz += step_z;
+            t_next_z += t_delta_z;
+        }
+        tc = tn + 1e-5;
+    }
+    return T_MISS;
+}
+
+fn hit_terrain(i: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32, refine: bool) -> f32 {
+    let te = terrain_slab(i, ro, rd);
+    var t_exit = min(te.y, max_t);
+    if (te.x >= t_exit || te.x >= T_MISS) {
+        return T_MISS;
+    }
+    let tr = terrains[i];
+    if (tr.mip.w > 0u) {
+        return hit_terrain_mip(i, ro, rd, te.x, t_exit, refine);
+    }
+    return hit_terrain_fine(i, ro, rd, te.x, t_exit, refine);
 }
 
 fn hit_water(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> f32 {

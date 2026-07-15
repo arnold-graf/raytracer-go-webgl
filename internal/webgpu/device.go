@@ -64,6 +64,7 @@ type Renderer struct {
 	samples   *wgpu.Buffer
 	terrFeat  *wgpu.Buffer
 	terrPads  *wgpu.Buffer
+	terrMips  *wgpu.Buffer
 	waters    *wgpu.Buffer
 	perm      *wgpu.Buffer
 	aoVolume  *wgpu.Buffer
@@ -267,6 +268,14 @@ func (r *Renderer) init() error {
 	})
 	if err != nil {
 		return fmt.Errorf("create terrain pads buffer: %w", err)
+	}
+	r.terrMips, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "terrain mip pyramid",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  maxTerrainMipVals * 8,
+	})
+	if err != nil {
+		return fmt.Errorf("create terrain mips buffer: %w", err)
 	}
 	r.waters, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "waters",
@@ -488,6 +497,7 @@ func (r *Renderer) init() error {
 			{Binding: 20, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 			{Binding: 21, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainFeatureStride}},
 			{Binding: 22, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainPadStride}},
+			{Binding: 23, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 8}},
 		},
 	})
 	if err != nil {
@@ -543,6 +553,7 @@ func (r *Renderer) init() error {
 			{Binding: 20, Buffer: r.boxFaces, Size: maxPrims * boxFacesPerPrim * 4},
 			{Binding: 21, Buffer: r.terrFeat, Size: maxTerrainFeatures * terrainFeatureStride},
 			{Binding: 22, Buffer: r.terrPads, Size: maxTerrainPads * terrainPadStride},
+			{Binding: 23, Buffer: r.terrMips, Size: maxTerrainMipVals * 8},
 		},
 	})
 	if err != nil {
@@ -676,6 +687,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		blockerInstCount: c.blockerInstCount,
 	terrains: c.terrains, samples: c.samples,
 		terrainFeatures: c.terrainFeatures, terrainPads: c.terrainPads,
+		terrainMips: c.terrainMips,
 		waters: c.waters,
 		campfireParams: c.campfireParams, holes: c.holes, boxFaceTex: c.boxFaceTex, ao: c.ao, aoOK: c.aoOK && aoEnabled,
 		shadows: shadows, mirror: mirror, timeSec: timeSec, sky: sky,
@@ -732,6 +744,7 @@ type renderParams struct {
 	samples          []float32
 	terrainFeatures  []GPUTerrainFeature
 	terrainPads      []GPUTerrainPad
+	terrainMips      []float32
 	waters           []GPUWater
 	campfireParams   []CampfireParams
 	holes            []GPUHole
@@ -818,6 +831,11 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 		}
 		if len(p.terrainPads) > 0 {
 			if err := r.queue.WriteBuffer(r.terrPads, 0, terrainPadBytes(p.terrainPads)); err != nil {
+				return err
+			}
+		}
+		if len(p.terrainMips) > 0 {
+			if err := r.queue.WriteBuffer(r.terrMips, 0, floatBytes(p.terrainMips)); err != nil {
 				return err
 			}
 		}
@@ -1296,6 +1314,9 @@ func (r *Renderer) Release() {
 	}
 	if r.terrPads != nil {
 		r.terrPads.Release()
+	}
+	if r.terrMips != nil {
+		r.terrMips.Release()
 	}
 	if r.terrains != nil {
 		r.terrains.Release()
