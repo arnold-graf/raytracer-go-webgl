@@ -340,7 +340,7 @@ material = "emit"
 radius = 0.16
 
 # brightness scales intensity independently of color/range (1 = as authored).
-[[campfire]] # bright, lively fire under the night sky; culled inside the building
+[[light_flickering]] # bright, lively fire under the night sky; culled inside the building
 brightness = 0.25
 center = [0.0, 0.42, 3.0]
 color = [5.5, 2.7, 0.95]
@@ -348,3 +348,4 @@ flicker = 0.75
 jitter = 0.16
 range = 20
 speed = 1
+lights = 3

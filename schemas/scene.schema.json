@@ -9,7 +9,7 @@
   "properties": {
     "extends": {
       "type": "string",
-      "description": "Path to a base scene file (relative to this file or absolute). The base is loaded first; this file overrides [camera], [environment], [[light]], [[campfire]], and may add [[include]] entries or [[terrain.pad]] stubs. Used for scene variants that share most content."
+      "description": "Path to a base scene file (relative to this file or absolute). The base is loaded first; this file overrides [camera], [environment], [[light]], [[light_flickering]], and may add [[include]] entries or [[terrain.pad]] stubs. Used for scene variants that share most content."
     },
     "camera": {
       "$ref": "#/definitions/camera",
@@ -103,11 +103,11 @@
         "$ref": "#/definitions/light"
       }
     },
-    "campfire": {
+    "light_flickering": {
       "type": "array",
-      "description": "TOML [[campfire]]. Flickering warm light source (no visible geometry).",
+      "description": "TOML [[light_flickering]]. Flickering warm light cluster (no visible geometry).",
       "items": {
-        "$ref": "#/definitions/campfire"
+        "$ref": "#/definitions/light_flickering"
       }
     },
     "sound": {
@@ -1087,13 +1087,13 @@
       ],
       "additionalProperties": false
     },
-    "campfire": {
+    "light_flickering": {
       "type": "object",
-      "description": "Animated flickering point light without geometry.",
+      "description": "Animated flickering point-light cluster without geometry.",
       "properties": {
         "center": {
           "$ref": "#/definitions/vec3",
-          "description": "Fire position."
+          "description": "Cluster centre."
         },
         "color": {
           "$ref": "#/definitions/rgb",
@@ -1122,6 +1122,10 @@
         "seed": {
           "$ref": "#/definitions/number_or_expr",
           "description": "Random seed for reproducible flicker."
+        },
+        "lights": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Sub-light count. Defaults to 3 (the only value currently supported by the renderer)."
         }
       },
       "required": [

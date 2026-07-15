@@ -24,6 +24,7 @@ type Campfire struct {
 	Flicker    float64 // intensity wobble amount in [0,1]
 	Speed      float64 // flicker speed multiplier (1 = default)
 	Seed       float64 // phase offset so multiple fires look different
+	Lights     int     // sub-light count (renderer currently supports 3)
 }
 
 // campfireTint warms each sub-light differently: the low ember is red-orange,

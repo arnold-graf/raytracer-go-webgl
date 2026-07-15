@@ -15,7 +15,8 @@ sun_dir = [-0.35, -0.22, 0.90]
 sun_color = [1.40, 0.55, 0.22]
 
 # Campfire starts to matter as the sun drops.
-[[campfire]]
+[[light_flickering]]
 center = [0.0, 0.5, 3.0]
 color = [3.8, 1.9, 0.7]
 range = 14.0
+lights = 3

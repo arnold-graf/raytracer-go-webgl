@@ -15,8 +15,9 @@ sun_dir = [0.08, -0.42, 0.90]
 sun_color = [0.16, 0.19, 0.27]
 
 # Strong warm campfire against the cold storm light.
-[[campfire]]
+[[light_flickering]]
 center = [0.0, 0.5, 3.0]
 color = [6.5, 3.2, 1.1]
 range = 17.0
 flicker = 0.55
+lights = 3

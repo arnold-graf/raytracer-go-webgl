@@ -12,7 +12,7 @@ app runs.
 - [Shared surface fields](#shared-surface-fields)
 - [Per-primitive transforms](#per-primitive-transforms)
 - [Primitives](#primitives)
-- [Lights, campfires & sounds](#lights-campfires--sounds)
+- [Lights, flickering lights & sounds](#lights-flickering-lights--sounds)
 - [Terrain & water](#terrain--water)
 - [Camera & environment](#camera--environment)
 - [Composing scenes: `extends`](#composing-scenes-extends)
@@ -96,7 +96,7 @@ A scene file is a single TOML document. These top-level keys are recognized
 | `[[terrain]]` | array | Heightfield terrain (+ features & pads) |
 | `[[water]]` | array | Circular water pools |
 | `[[light]]` | array | Point lights |
-| `[[campfire]]` | array | Animated flickering lights |
+| `[[light_flickering]]` | array | Animated flickering light cluster |
 | `[[sound]]` | array | Spatial ambient emitters |
 
 `[[name]]` is TOML's "array of tables": repeat the block to add more of that
@@ -254,7 +254,7 @@ terrain and water are tested directly.
 
 ---
 
-## Lights, campfires & sounds
+## Lights, flickering lights & sounds
 
 ### Point light
 ```toml
@@ -269,9 +269,9 @@ brightness = 1.0        # scales color (folded in at load; default 1)
 affects geometry within 16 units, so interior lights vanish (with their shadow
 rays) once you walk outside.
 
-### Campfire (animated flicker)
+### Light flickering (animated cluster)
 ```toml
-[[campfire]]
+[[light_flickering]]
 center = [0.0, 0.42, 3.0]
 color = [5.5, 2.7, 0.95]  # default warm [3.6,1.7,0.55] if omitted
 brightness = 0.25         # default 1
@@ -280,9 +280,10 @@ flicker = 0.75            # flicker depth (default 0.45)
 jitter = 0.16             # positional jitter of sub-lights / "dancing shadows" (default 0.16)
 speed = 1.0               # flicker speed (default 1)
 seed = 0.0                # optional, for deterministic variation
+lights = 3                # sub-light count (default 3)
 ```
-A bare `[[campfire]]` with just a `center` already looks like a fire (all other
-fields default).
+A bare `[[light_flickering]]` with just a `center` already looks like a fire (all other
+fields default). Pair with `objects/campfire.toml` for logs plus light.
 
 ### Sound (spatial ambience)
 ```toml
@@ -409,8 +410,8 @@ sky = "sunset"
 `extends` is used for sky-preset variants (see `scenes/outdoors-*.toml`).
 
 **What a child can override:** `camera`, `environment`, `[[light]]` (replaces
-the base's entire light list), and `[[campfire]]` (replaces the base's
-campfires). It may also add `[[include]]` blocks.
+the base's entire light list), and `[[light_flickering]]` (replaces the base's
+flickering lights). It may also add `[[include]]` blocks.
 
 **Important limitation:** loose primitive tables (`[[sphere]]`, `[[box]]`, …)
 written directly in an `extends` child are **ignored** — only overrides and
@@ -447,7 +448,7 @@ How it works:
   `objects/otto-wagner-sphere-lamp.toml`, and both compose with wherever the
   building is placed.
 - All primitive kinds (spheres, cylinders, cones, tori, boxes, lights,
-  campfires, sounds) are merged and placed correctly.
+  flickering lights, sounds) are merged and placed correctly.
 
 Real objects live in `scenes/objects/` — `building.toml`, `staircase.toml`,
 `otto-wagner-sphere-lamp.toml`, `tiled-stove-round.toml` are good examples.
@@ -586,7 +587,7 @@ matched.
 
 - **Camera angles are radians, rotations are degrees.** Easy to mix up.
 - **`extends` children can't add loose primitives** — only override
-  camera/environment/lights/campfires and add includes. Use an include for
+  camera/environment/lights/light_flickering and add includes. Use an include for
   geometry.
 - **Box holes should overshoot** the wall thickness so they pierce both faces;
   a hole flush with the face can leave a sliver.

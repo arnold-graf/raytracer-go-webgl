@@ -1,0 +1,23 @@
+# Campfire preview on a sandy floor at dusk.
+[environment]
+sky = "sunset"
+ambient_sky = [0.35, 0.28, 0.32]
+ambient_ground = [0.12, 0.10, 0.09]
+sun_dir = [-0.25, -0.55, 0.78]
+sun_color = [0.45, 0.32, 0.22]
+
+[[box]]
+material = "diffuse"
+albedo = [0.52, 0.46, 0.34]
+texture = "stone"
+pos_x = -2.0
+pos_y = 0.0
+pos_z = -2.0
+width = 4.0
+height = 0.02
+depth = 4.0
+
+[[include]]
+file = "../objects/campfire.toml"
+at = [0.0, 0.0, 0.0]
+params = { brightness = 2.0, range = 12.0, flicker = 0.65, speed = 1.0 }

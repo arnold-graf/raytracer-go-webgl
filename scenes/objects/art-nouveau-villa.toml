@@ -688,12 +688,13 @@ height = 7
 depth = 2.6
 texture = "stone_wall"
 
-[[campfire]] # open fire in the hearth
+[[light_flickering]] # open fire in the hearth
 brightness = 0.35
 center = [-6.35, 1.55, 2.35]
 color = [5.0, 2.2, 0.8]
 flicker = 0.6
 range = 14.0
+lights = 3
 
 [[sphere]] # fire glow (visible embers)
 albedo = [4.0, 1.6, 0.5]

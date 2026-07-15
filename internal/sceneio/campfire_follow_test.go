@@ -17,13 +17,14 @@ range = 50.0
 flicker = 0.45
 speed = 1.0
 
-[[campfire]]
+[[light_flickering]]
 center = [0.0, 0.0, 0.0]
 color = [3.6, 1.7, 0.55]
 brightness = 'brightness'
 range = 'range'
 flicker = 'flicker'
 speed = 'speed'
+lights = 3
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,7 @@ func TestCampfireFollowTerrainViaInclude(t *testing.T) {
 	dir := t.TempDir()
 	fire := filepath.Join(dir, "fire.toml")
 	if err := os.WriteFile(fire, []byte(`
-[[campfire]]
+[[light_flickering]]
 center = [0.0, 0.5, 0.0]
 color = [3.6, 1.7, 0.55]
 brightness = 10.0

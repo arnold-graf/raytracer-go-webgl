@@ -303,7 +303,7 @@ texture = "stone"
 # ----------------------------------------------------------------- campfire ----
 # A campfire on the lake shore (replaces the old lantern orb). The visible part
 # is just three glowing orbs (which also reflect in the water); the light is a
-# [[campfire]] -- a cluster of warm point lights that flicker in intensity and
+# [[light_flickering]] -- a cluster of warm point lights that flicker in intensity and
 # position over time, so the surrounding shadows dance.
 
 [[sphere]] # orb 1 (red-orange)
@@ -333,7 +333,7 @@ albedo = [3.8, 2.6, 0.95]
 #   flicker    - intensity wobble amount in [0,1]
 #   speed      - flicker speed multiplier
 #   seed       - phase offset (use different values for multiple fires)
-[[campfire]]
+[[light_flickering]]
 center = [0.0, 0.42, 3.0]
 color = [3.6, 1.7, 0.55]
 brightness = 1.0
@@ -341,3 +341,4 @@ range = 14.0
 jitter = 0.16
 flicker = 0.45
 speed = 1.0
+lights = 3

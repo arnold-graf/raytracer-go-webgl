@@ -1,0 +1,81 @@
+# Campfire — three wooden logs and a flickering warm light cluster.
+#
+# Origin (0,0,0) is the ground centre of the fire ring. Front faces -Z.
+#
+# Optional [[include]] params (defaults below):
+#   brightness  overall light intensity multiplier  (default 10.0)
+#   range       cull / falloff distance             (default 50.0)
+#   flicker     intensity wobble in [0, 1]          (default 0.45)
+#   speed       flicker speed multiplier            (default 1.0)
+#
+#   [[include]]
+#   file = "objects/campfire.toml"
+#   at = [8.0, 0.0, 58.0]
+#   follow_terrain = true
+#   params = { brightness = 1.0, range = 25.0, flicker = 0.45, speed = 1.0 }
+
+[props]
+brightness = 10.0
+range = 50.0
+flicker = 0.45
+speed = 1.0
+albedo = [0.34, 0.22, 0.14]
+reflect = 0.01
+
+[[light_flickering]]
+center = [0.0, 0.42, 0.0]
+color = [3.6, 1.7, 0.55]
+brightness = 'brightness'
+range = 'range'
+jitter = 0.4
+flicker = 'flicker'
+speed = 'speed'
+lights = 3
+
+# Three logs in a teepee — tapered cylinders leaning toward the centre.
+
+[[cylinder]] # log (+X)
+pos_x = 0.14
+pos_y = 0.0
+pos_z = -0.04
+width_bottom = 0.11
+width_top = 0.07
+height = 0.52
+rotate_z = -58.0
+material = "diffuse"
+albedo = 'albedo'
+texture = "wood"
+reflect = 'reflect'
+rough = 0.04
+
+[[cylinder]] # log (back-left)
+pos_x = -0.12
+pos_y = 0.0
+pos_z = 0.12
+width_bottom = 0.10
+width_top = 0.065
+height = 0.50
+rotate_x = 18.0
+rotate_y = 148.0
+rotate_z = -54.0
+material = "diffuse"
+albedo = 'albedo'
+texture = "wood"
+reflect = 'reflect'
+rough = 0.04
+
+[[cylinder]] # log (back-right)
+pos_x = -0.04
+pos_y = 0.0
+pos_z = -0.14
+width_bottom = 0.105
+width_top = 0.068
+height = 0.48
+rotate_x = -14.0
+rotate_y = -38.0
+rotate_z = -56.0
+material = "diffuse"
+albedo = 'albedo'
+texture = "wood"
+reflect = 'reflect'
+rough = 0.04

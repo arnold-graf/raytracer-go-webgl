@@ -282,7 +282,7 @@ func (d lightDTO) build() scene.Light {
 	return scene.Light{Pos: d.Pos.toV(), Color: d.Color.toV().Scale(b), Radius: d.Radius, Range: d.Range}
 }
 
-type campfireDTO struct {
+type lightFlickeringDTO struct {
 	Center     vec3    `toml:"center"`
 	Color      vec3    `toml:"color"`
 	Brightness float64 `toml:"brightness"`
@@ -291,6 +291,7 @@ type campfireDTO struct {
 	Flicker    float64 `toml:"flicker"`
 	Speed      float64 `toml:"speed"`
 	Seed       float64 `toml:"seed"`
+	Lights     int     `toml:"lights"`
 }
 
 type soundDTO struct {
@@ -321,10 +322,10 @@ func (d soundDTO) build() (scene.Ambience, error) {
 	}, nil
 }
 
-// build resolves a campfire, filling in sensible defaults for any omitted
-// flicker parameters so a bare [[campfire]] with just a center already looks
-// like a fire.
-func (d campfireDTO) build() scene.Campfire {
+// build resolves a light_flickering source, filling in sensible defaults for
+// any omitted flicker parameters so a bare [[light_flickering]] with just a
+// center already looks like a fire.
+func (d lightFlickeringDTO) build() scene.Campfire {
 	c := scene.Campfire{
 		Center:     d.Center.toV(),
 		Color:      d.Color.toV(),
@@ -334,6 +335,7 @@ func (d campfireDTO) build() scene.Campfire {
 		Flicker:    d.Flicker,
 		Speed:      d.Speed,
 		Seed:       d.Seed,
+		Lights:     d.Lights,
 	}
 	if c.Color == (vec.V{}) {
 		c.Color = vec.New(3.6, 1.7, 0.55) // warm default
@@ -349,6 +351,9 @@ func (d campfireDTO) build() scene.Campfire {
 	}
 	if c.Speed == 0 {
 		c.Speed = 1
+	}
+	if c.Lights == 0 {
+		c.Lights = scene.CampfireLights
 	}
 	return c
 }
@@ -526,7 +531,7 @@ type sceneDTO struct {
 	Terrain     []terrainDTO    `toml:"terrain"`
 	Water       []waterDTO      `toml:"water"`
 	Light       []lightDTO      `toml:"light"`
-	Campfire    []campfireDTO   `toml:"campfire"`
+	LightFlickering []lightFlickeringDTO `toml:"light_flickering"`
 	Sound       []soundDTO      `toml:"sound"`
 	Point            []pointDTO            `toml:"point"`
 	NPC              []npcDTO              `toml:"npc"`
@@ -724,9 +729,9 @@ func (dto sceneDTO) applyOverrides(s *scene.Scene) error {
 			s.Lights = append(s.Lights, d.build())
 		}
 	}
-	if dto.Campfire != nil {
+	if dto.LightFlickering != nil {
 		s.Campfires = s.Campfires[:0]
-		for _, d := range dto.Campfire {
+		for _, d := range dto.LightFlickering {
 			s.Campfires = append(s.Campfires, d.build())
 		}
 	}
@@ -884,7 +889,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 	for _, d := range dto.Light {
 		s.Lights = append(s.Lights, d.build())
 	}
-	for _, d := range dto.Campfire {
+	for _, d := range dto.LightFlickering {
 		s.Campfires = append(s.Campfires, d.build())
 	}
 	for i, d := range dto.Sound {
