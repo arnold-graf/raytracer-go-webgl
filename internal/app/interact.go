@@ -26,14 +26,14 @@ func (g *Game) handleInteract() {
 	}
 	if g.documents != nil && g.documents.Reading() {
 		g.activeHint = "put away"
-		if inpututil.IsKeyJustPressed(ebiten.KeyE) {
+		if g.useJustPressed() {
 			g.documents.Dismiss(g.sc)
 		}
 		return
 	}
 	if g.screens != nil && g.screens.Viewing() {
 		g.activeHint = "step back"
-		if inpututil.IsKeyJustPressed(ebiten.KeyE) {
+		if g.useJustPressed() {
 			g.screens.Dismiss(g.sc, g.cam)
 		}
 		return
@@ -43,7 +43,7 @@ func (g *Game) handleInteract() {
 	if ia != nil && g.canUseInteract(ia) {
 		g.activeHint = ia.Hint
 	}
-	if ia == nil || !g.canUseInteract(ia) || !inpututil.IsKeyJustPressed(ebiten.KeyE) {
+	if ia == nil || !g.canUseInteract(ia) || !g.useJustPressed() {
 		return
 	}
 	h := UseHandlers[ia.Handler]
@@ -70,4 +70,16 @@ func (g *Game) canUseInteract(ia *scene.Interactable) bool {
 		return g.doors.CanUseInteract(ia, g.cam.Pos)
 	}
 	return true
+}
+
+// useJustPressed reports E or the left face button (X/square), left of jump (A/cross).
+func (g *Game) useJustPressed() bool {
+	if inpututil.IsKeyJustPressed(ebiten.KeyE) {
+		return true
+	}
+	id, ok := g.activeGamepad()
+	if !ok {
+		return false
+	}
+	return inpututil.IsStandardGamepadButtonJustPressed(id, ebiten.StandardGamepadButtonRightLeft)
 }

@@ -47,7 +47,8 @@ params = { width = 20.0, height = 8.0, depth = 0.2, unit_size = 1, albedo = [1, 
 # west wall (solid top)
 [[box]]
 material = "diffuse"
-albedo = [0.3, 0.3, 0.3]
+texture = "cement"
+albedo = [1,1,1]
 pos_x = 0.0
 pos_y = 4.2
 pos_z = 0.0

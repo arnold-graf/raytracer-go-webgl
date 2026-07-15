@@ -523,7 +523,7 @@ func (g *Game) Update() error {
 		}
 		if !readingDoc && !viewingScreen {
 			g.applyGamepad(&mv)
-		} else if viewingScreen {
+		} else if readingDoc || viewingScreen {
 			g.applyGamepadLook()
 		}
 		if !readingDoc && !viewingScreen {
@@ -587,8 +587,8 @@ func (g *Game) activeGamepad() (ebiten.GamepadID, bool) {
 }
 
 // applyGamepad layers analog controller input onto mv: left stick walks, right
-// stick looks (both analog), the left/right triggers crouch/run, and the bottom
-// face button (A/cross) jumps. It is a no-op when no standard gamepad is found.
+// stick looks (both analog), the left/right triggers crouch/run, the bottom
+// face button (A/cross) jumps, and the left face button (X/square) uses.
 func (g *Game) applyGamepad(mv *camera.Move) {
 	id, ok := g.activeGamepad()
 	if !ok {
@@ -911,7 +911,7 @@ func (g *Game) statusLine() string {
 }
 
 func (g *Game) helpLine() string {
-	return "WASD/arrows move   mouse look   Space jump   Shift sprint   C crouch   6 NPC debug   P pose dump+report   pad: sticks move/look, triggers crouch/run, A jump"
+	return "WASD/arrows move   mouse look   Space jump   Shift sprint   C crouch   E/X use   6 NPC debug   P pose dump+report   pad: sticks move/look, triggers crouch/run, A jump, X use"
 }
 
 func onOff(b bool) string {

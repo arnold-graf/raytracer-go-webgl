@@ -28,56 +28,7 @@ file = "server-room-front-office.toml"
 transform_origin = [0, 0, 0]
 at = [40, 200, 0]
 
-# Skyscrapers in the distance
-[[box]]
-rotate_y = 20
-material = "diffuse"
-reflect = 0.3
-albedo = [0.01, 0.01, 0.01]
-pos_x = -200.0
-pos_y = 0.0
-pos_z = 0.0
-width = 30
-height = 250
-depth = 30
-
-
-# Skyscrapers in the distance
-[[box]]
-rotate_y = 20
-material = "diffuse"
-reflect = 0.3
-albedo = [0.01, 0.01, 0.01]
-pos_x = -200.0
-pos_y = 0.0
-pos_z = 0.0
-width = 50
-height = 200
-depth = 30
-
-# Skyscrapers in the distance
-[[box]]
-rotate_y = -50
-material = "diffuse"
-reflect = 0.2
-albedo = [0.01, 0.01, 0.01]
-pos_x = -150.0
-pos_y = 0.0
-pos_z = -70.0
-width = 50
-height = 220
-depth = 30
-
-
-
-# Skyscrapers in the distance
-[[box]]
-material = "diffuse"
-reflect = 0.2
-albedo = [0.01, 0.01, 0.01]
-pos_x = -120.0
-pos_y = 0.0
-pos_z = 70.0
-width = 40
-height = 180
-depth = 30
+[[include]]
+file = "objects/skyscrapers-distance.toml"
+transform_origin = [0, 0, 0]
+at = [0, 0, 0]

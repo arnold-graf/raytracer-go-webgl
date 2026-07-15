@@ -100,11 +100,23 @@ reflect = 0.005
 albedo = [2.2, 2.2, 2]
 pos_x = -0.19
 pos_y = 0.22
+pos_z = -0.1
 rotate_x = -8
-pos_z = -0.16
 width = 0.38
 height = 0.32
-depth = 0.36
+depth = 0.3
+
+[[box]]
+material = "diffuse"
+reflect = 0.005
+albedo = [2.2, 2.2, 2]
+pos_x = -0.19
+pos_y = 0.22
+pos_z = -0.2
+rotate_x = -8
+width = 0.3
+height = 0.25
+depth = 0.1
 
 # monitor screen
 [[screen]]

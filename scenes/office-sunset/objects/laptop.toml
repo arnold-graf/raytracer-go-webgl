@@ -56,7 +56,7 @@ paragraphs = [
   "Auth: session active",
 ]
 font = "M42.ttf"
-font_size_px = 14
+font_size_px = 16
 font_color = [0.1, 0.1, 0.2]
 
 # trackball
