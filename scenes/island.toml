@@ -1,4 +1,5 @@
-# Moonlit island — volcanic landmass in an infinite ocean on a 2 km terrain footprint.
+# Moonlit island — volcanic landmass in an infinite ocean on a 4 km terrain footprint.
+# Madeira-like twin massifs (north & south) with a central rift valley and lagoons.
 # Hybrid LOD: 3 m coarse global bake + full analytic height within ~40 m of camera.
 #
 # Run with:
@@ -9,7 +10,7 @@
 # Approach from the southern lagoon toward the villa on the central ridge.
 
 [camera]
-pos = [0.0, 2.2, 72.0]
+pos = [0.0, 2.2, 144.0]
 yaw = 0.0
 pitch = 0.02
 
@@ -26,20 +27,20 @@ size  = 5.0
 glow  = 0.1
 
 [[light]]
-pos = [-111.0, 133.0, -100.0]
+pos = [-222.0, 266.0, -200.0]
 color = [1.4, 1.6, 2.4]
 brightness = 30.0
 range = 0
 
 # --------------------------------------------------------------- terrain ----
-# 2000×2000 m height field with a 3 m coarse bake (hybrid LOD: analytic near band).
-# Island falloff: ~260 m land diameter, ~390 m shore shelf to the seabed.
+# 4000×4000 m height field with a 3 m coarse bake (hybrid LOD: analytic near band).
+# Island falloff: ~520 m land diameter, ~780 m shore shelf to the seabed.
 
 [[terrain]]
-origin = [-1000.0, 0.0, -1000.0]
-size = [2000.0, 2000.0]
+origin = [-2000.0, 0.0, -2000.0]
+size = [4000.0, 4000.0]
 coarse_cell = 1.5
-hybrid_near = [25.0, 25.0]
+hybrid_near = [40.0, 40.0]
 base = 1.2
 detail = 0.26
 detail_scale = 0.12
@@ -49,207 +50,353 @@ rock = "stone"
 snow = "snow"
 slope_lo = 0.30
 slope_hi = 0.62
-snow_lo = 20.0
-snow_hi = 27.0
+snow_lo = 32.0
+snow_hi = 42.0
 
   [terrain.island]
   center = [0.0, 0.0]
-  radius = 130.0
-  margin = 65.0
+  radius = 260.0
+  margin = 130.0
   floor = -16.0
 
-  # ---- main volcanic complex (center-north) ----
+  # ---- north massif (main volcanic complex) ----
   [[terrain.feature]]
   kind = "peak"
-  pos = [0.0, -28.0]
-  height = 30.0
-  width = 24.0
-  steepness = 2.1
+  pos = [0.0, -78.0]
+  height = 50.0
+  width = 44.0
+  steepness = 2.4
 
   [[terrain.feature]]
   kind = "peak"
-  pos = [-14.0, -18.0]
-  height = 22.0
-  width = 20.0
-  steepness = 2.0
-
-  [[terrain.feature]]
-  kind = "peak"
-  pos = [22.0, -20.0]
-  height = 20.0
-  width = 18.0
-  steepness = 2.1
-
-  [[terrain.feature]]
-  kind = "peak"
-  pos = [-8.0, -8.0]
-  height = 18.0
-  width = 16.0
-  steepness = 2.2
-
-  # ---- long ridges ----
-  [[terrain.feature]]
-  kind = "peak"
-  pos = [0.0, -62.0]
-  height = 16.0
+  pos = [-8.0, -92.0]
+  height = 44.0
   width = 34.0
-  steepness = 1.7
-  extend = [2.6, 1.0]
-
-  [[terrain.feature]]
-  kind = "peak"
-  pos = [-52.0, -18.0]
-  height = 14.0
-  width = 22.0
-  steepness = 1.9
-  extend = [1.4, 2.0]
-
-  [[terrain.feature]]
-  kind = "peak"
-  pos = [58.0, 12.0]
-  height = 13.0
-  width = 20.0
-  steepness = 2.0
-  extend = [2.2, 1.2]
-
-  # ---- outer highlands and coastal hills ----
-  [[terrain.feature]]
-  kind = "peak"
-  pos = [-48.0, 38.0]
-  height = 12.0
-  width = 18.0
-  steepness = 2.0
-
-  [[terrain.feature]]
-  kind = "peak"
-  pos = [42.0, 42.0]
-  height = 11.0
-  width = 17.0
-  steepness = 2.0
-
-  [[terrain.feature]]
-  kind = "peak"
-  pos = [-30.0, -52.0]
-  height = 10.0
-  width = 16.0
-  steepness = 2.1
-
-  [[terrain.feature]]
-  kind = "peak"
-  pos = [68.0, -28.0]
-  height = 9.0
-  width = 14.0
-  steepness = 2.2
-
-  [[terrain.feature]]
-  kind = "peak"
-  pos = [-68.0, 8.0]
-  height = 8.5
-  width = 13.0
   steepness = 2.3
 
   [[terrain.feature]]
   kind = "peak"
-  pos = [18.0, 58.0]
-  height = 9.5
-  width = 15.0
-  steepness = 1.9
-
-  [[terrain.feature]]
-  kind = "peak"
-  pos = [-12.0, 68.0]
-  height = 8.0
-  width = 14.0
-  steepness = 2.0
-
-  [[terrain.feature]]
-  kind = "peak"
-  pos = [78.0, -8.0]
-  height = 7.0
-  width = 12.0
+  pos = [-32.0, -48.0]
+  height = 36.0
+  width = 36.0
   steepness = 2.2
 
   [[terrain.feature]]
   kind = "peak"
-  pos = [-78.0, -42.0]
-  height = 7.5
-  width = 13.0
+  pos = [48.0, -52.0]
+  height = 33.0
+  width = 32.0
+  steepness = 2.3
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [-34.0, -38.0]
+  height = 24.0
+  width = 28.0
+  steepness = 2.3
+
+  # ---- south massif (twin peak — Madeira-style) ----
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [0.0, 96.0]
+  height = 48.0
+  width = 44.0
+  steepness = 2.4
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [-30.0, 104.0]
+  height = 42.0
+  width = 36.0
+  steepness = 2.2
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [32.0, 88.0]
+  height = 40.0
+  width = 34.0
+  steepness = 2.2
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [12.0, 82.0]
+  height = 32.0
+  width = 28.0
+  steepness = 2.2
+
+  # ---- central rift valley (between the two massifs) ----
+  [[terrain.feature]]
+  kind = "valley"
+  pos = [0.0, 6.0]
+  height = 42.0
+  width = 58.0
+  steepness = 2.3
+  extend = [0.85, 6.5]
+
+  [[terrain.feature]]
+  kind = "valley"
+  pos = [0.0, -18.0]
+  height = 28.0
+  width = 44.0
+  steepness = 2.4
+  extend = [1.0, 4.5]
+
+  [[terrain.feature]]
+  kind = "valley"
+  pos = [-48.0, -18.0]
+  height = 54.0
+  width = 28.0
+  steepness = 2.4
+
+  [[terrain.feature]]
+  kind = "valley"
+  pos = [44.0, 48.0]
+  height = 22.0
+  width = 24.0
+  steepness = 2.5
+
+  # ---- long ridges and rift shoulders ----
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [0.0, -124.0]
+  height = 26.0
+  width = 68.0
+  steepness = 1.7
+  extend = [5.2, 1.0]
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [-104.0, -36.0]
+  height = 23.0
+  width = 44.0
+  steepness = 1.9
+  extend = [2.8, 4.0]
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [116.0, 24.0]
+  height = 21.0
+  width = 40.0
+  steepness = 2.0
+  extend = [4.4, 2.4]
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [-80.0, -100.0]
+  height = 24.0
+  width = 38.0
+  steepness = 1.8
+  extend = [4.0, 3.0]
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [90.0, -80.0]
+  height = 22.0
+  width = 50.0
+  steepness = 1.6
+  extend = [2.0, 5.6]
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [-120.0, 40.0]
+  height = 22.0
+  width = 45.0
+  steepness = 1.4
+
+  # ---- outer highlands and coastal headlands ----
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [-96.0, 76.0]
+  height = 20.0
+  width = 36.0
+  steepness = 2.0
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [84.0, 84.0]
+  height = 18.0
+  width = 34.0
+  steepness = 2.0
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [-60.0, -104.0]
+  height = 17.0
+  width = 32.0
   steepness = 2.1
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [136.0, -56.0]
+  height = 15.0
+  width = 28.0
+  steepness = 2.2
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [-136.0, 16.0]
+  height = 14.0
+  width = 26.0
+  steepness = 2.3
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [36.0, 116.0]
+  height = 16.0
+  width = 30.0
+  steepness = 1.9
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [-24.0, 136.0]
+  height = 13.0
+  width = 28.0
+  steepness = 2.0
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [156.0, -16.0]
+  height = 12.0
+  width = 24.0
+  steepness = 2.2
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [-156.0, -84.0]
+  height = 12.0
+  width = 26.0
+  steepness = 2.1
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [200.0, 0.0]
+  height = 20.0
+  width = 35.0
+  steepness = 2.3
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [140.0, 80.0]
+  height = 14.0
+  width = 30.0
+  steepness = 2.0
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [100.0, -100.0]
+  height = 16.0
+  width = 42.0
+  steepness = 1.5
+
+  [[terrain.feature]]
+  kind = "peak"
+  pos = [50.0, 150.0]
+  height = 10.0
+  width = 32.0
+  steepness = 1.8
 
   # ---- valleys, bays, and saddles ----
   [[terrain.feature]]
   kind = "valley"
-  pos = [4.0, -88.0]
-  height = 6.5
-  width = 20.0
+  pos = [8.0, -176.0]
+  height = 11.0
+  width = 40.0
   steepness = 2.7
 
   [[terrain.feature]]
   kind = "valley"
-  pos = [82.0, 6.0]
-  height = 5.0
-  width = 14.0
+  pos = [0.0, -200.0]
+  height = 12.0
+  width = 55.0
+  steepness = 2.8
+
+  [[terrain.feature]]
+  kind = "valley"
+  pos = [164.0, 12.0]
+  height = 8.0
+  width = 28.0
   steepness = 2.5
 
   [[terrain.feature]]
   kind = "valley"
-  pos = [-80.0, -22.0]
-  height = 4.5
-  width = 16.0
+  pos = [-160.0, -44.0]
+  height = 7.0
+  width = 32.0
   steepness = 2.4
 
   [[terrain.feature]]
   kind = "valley"
-  pos = [28.0, 6.0]
-  height = 4.0
-  width = 18.0
-  steepness = 2.2
-
-  [[terrain.feature]]
-  kind = "valley"
-  pos = [-18.0, 52.0]
-  height = 5.5
-  width = 16.0
+  pos = [-180.0, -60.0]
+  height = 9.0
+  width = 45.0
   steepness = 2.6
 
   [[terrain.feature]]
   kind = "valley"
-  pos = [48.0, 58.0]
-  height = 5.0
-  width = 14.0
-  steepness = 2.5
-
-  [[terrain.feature]]
-  kind = "valley"
-  pos = [-42.0, 72.0]
-  height = 4.0
-  width = 18.0
-  steepness = 2.3
-
-  [[terrain.feature]]
-  kind = "valley"
-  pos = [62.0, -62.0]
-  height = 3.5
-  width = 15.0
-  steepness = 2.4
-
-  [[terrain.feature]]
-  kind = "valley"
-  pos = [-58.0, 62.0]
-  height = 3.5
-  width = 16.0
+  pos = [72.0, 28.0]
+  height = 7.0
+  width = 36.0
   steepness = 2.2
 
   [[terrain.feature]]
   kind = "valley"
-  pos = [0.0, 38.0]
-  height = 3.0
-  width = 20.0
+  pos = [40.0, -20.0]
+  height = 6.0
+  width = 25.0
+  steepness = 2.2
+
+  [[terrain.feature]]
+  kind = "valley"
+  pos = [-36.0, 104.0]
+  height = 9.0
+  width = 32.0
+  steepness = 2.6
+
+  [[terrain.feature]]
+  kind = "valley"
+  pos = [96.0, 116.0]
+  height = 8.0
+  width = 28.0
+  steepness = 2.5
+
+  [[terrain.feature]]
+  kind = "valley"
+  pos = [-84.0, 144.0]
+  height = 7.0
+  width = 36.0
+  steepness = 2.3
+
+  [[terrain.feature]]
+  kind = "valley"
+  pos = [124.0, -124.0]
+  height = 6.0
+  width = 30.0
+  steepness = 2.4
+
+  [[terrain.feature]]
+  kind = "valley"
+  pos = [-116.0, 124.0]
+  height = 6.0
+  width = 32.0
+  steepness = 2.2
+
+  [[terrain.feature]]
+  kind = "valley"
+  pos = [0.0, 76.0]
+  height = 4.0
+  width = 40.0
   steepness = 2.0
+
+  [[terrain.feature]]
+  kind = "valley"
+  pos = [-40.0, -160.0]
+  height = 8.0
+  width = 38.0
+  steepness = 2.5
 
   # Villa site — raised 3 m above the ridge (relative pad).
   [[terrain.pad]]
-  center = [18.0, -32.0]
+  center = [36.0, -64.0]
   half = [8.5, 8.0]
   level = 3.0
   margin = 5.0
@@ -267,60 +414,141 @@ ripple_direction = [1.0, 0.35]
 material = "mirror"
 albedo = [0.40, 0.56, 0.72]
 
+# ---- inland lagoons ----
+
+# Central rift basin between the north and south massifs.
+[[water]]
+pos = [0.0, 4.0]
+radius = 24.0
+level = 2.2
+ripple = 0.025
+ripple_animation_speed = 0.35
+ripple_direction = [0.5, 0.9]
+material = "mirror"
+albedo = [0.30, 0.48, 0.64]
+
+# Western cirque pool on the rift floor.
+[[water]]
+pos = [-48.0, -18.0]
+radius = 10.0
+level = 1.8
+ripple = 0.02
+ripple_animation_speed = 0.25
+material = "mirror"
+albedo = [0.28, 0.46, 0.60]
+
+# Smaller eastern tarn in the south-east saddle.
+[[water]]
+pos = [44.0, 48.0]
+radius = 8.0
+level = 1.5
+ripple = 0.02
+ripple_animation_speed = 0.3
+ripple_direction = [0.8, 0.2]
+material = "mirror"
+albedo = [0.32, 0.50, 0.65]
+
+# Shallow tidal lagoon on the southern shore shelf.
+[[water]]
+pos = [-8.0, 172.0]
+radius = 30.0
+level = 0.2
+ripple = 0.035
+ripple_animation_speed = 0.45
+ripple_direction = [1.0, 0.25]
+material = "mirror"
+albedo = [0.36, 0.52, 0.68]
+
 # ================================================================ THE VILLA ====
 
 [[include]]
 file = "objects/art-nouveau-villa.toml"
-at = [18.0, 0.0, -32.0]
+at = [36.0, 0.0, -64.0]
 transform_origin = [0.0, 0.0, 0.0]
 
 # ------------------------------------------------------------------ trees ----
 
 [[include]]
 file = "objects/pine-tree-cluster.toml"
-at = [-22.0, 6.7, -38.0]
+at = [-44.0, 0.0, -76.0]
+follow_terrain = true
 instance = true
 
 [[include]]
 file = "objects/pine-tree-cluster.toml"
-at = [38.0, 6.7, -24.0]
+at = [76.0, 0.0, -48.0]
 rotate_y = 40.0
+follow_terrain = true
 instance = true
 
 [[include]]
 file = "objects/pine-tree-cluster.toml"
-at = [-48.0, 6.7, 18.0]
+at = [-96.0, 0.0, 36.0]
 rotate_y = 120.0
+follow_terrain = true
 instance = true
 
 [[include]]
 file = "objects/pine-tree-cluster.toml"
-at = [52.0, 6.7, 28.0]
+at = [104.0, 0.0, 56.0]
 rotate_y = -60.0
+follow_terrain = true
 instance = true
 
 [[include]]
 file = "objects/pine-tree-cluster.toml"
-at = [-58.0, 6.7, -48.0]
+at = [-116.0, 0.0, -96.0]
 rotate_y = 200.0
+follow_terrain = true
 instance = true
 
 [[include]]
 file = "objects/pine-tree-cluster.toml"
-at = [64.0, 6.7, -12.0]
+at = [128.0, 0.0, -24.0]
 rotate_y = -30.0
+follow_terrain = true
 instance = true
 
 [[include]]
 file = "objects/pine-tree-cluster.toml"
-at = [-35.0, 6.7, 55.0]
+at = [-70.0, 0.0, 110.0]
 rotate_y = 75.0
+follow_terrain = true
 instance = true
 
 [[include]]
 file = "objects/pine-tree-cluster.toml"
-at = [12.0, 6.7, 62.0]
+at = [24.0, 0.0, 124.0]
 rotate_y = 160.0
+follow_terrain = true
+instance = true
+
+[[include]]
+file = "objects/pine-tree-cluster.toml"
+at = [-180.0, 0.0, 40.0]
+rotate_y = 15.0
+follow_terrain = true
+instance = true
+
+[[include]]
+file = "objects/pine-tree-cluster.toml"
+at = [150.0, 0.0, -120.0]
+rotate_y = -110.0
+follow_terrain = true
+instance = true
+
+[[include]]
+file = "objects/pine-tree-cluster.toml"
+at = [200.0, 0.0, 60.0]
+rotate_y = 55.0
+follow_terrain = true
+instance = true
+
+[[include]]
+file = "objects/pine-tree-cluster.toml"
+at = [-200.0, 0.0, -80.0]
+rotate_y = 240.0
+follow_terrain = true
 instance = true
 
 # ----------------------------------------------------------------- campfire ----
@@ -328,6 +556,6 @@ instance = true
 
 [[include]]
 file = "objects/campfire.toml"
-at = [8.0, 0.0, 58.0]
+at = [16.0, 0.0, 116.0]
 follow_terrain = true
 params = { brightness = 1.0, range = 50.0, flicker = 0.45, speed = 1.0 }
