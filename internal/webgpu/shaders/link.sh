@@ -15,6 +15,17 @@ else
 	npx --yes wesl-link trace --baseDir modules --src '**/*.w[eg]sl' >"$tmp"
 fi
 
+# Drop leading blank lines and collapse runs of empty lines from linker output.
+python3 -c '
+import re, sys
+text = sys.stdin.read().lstrip("\n")
+text = re.sub(r"\n{3,}", "\n\n", text)
+if text and not text.endswith("\n"):
+    text += "\n"
+sys.stdout.write(text)
+' <"$tmp" >"${tmp}.norm"
+mv "${tmp}.norm" "$tmp"
+
 # Stamp the output with a digest of the module sources (post gen_imports.py)
 # so TestLinkedWGSLMatchesModules can flag a stale trace_linked.wgsl.
 # Must mirror the hash computed in link_test.go.

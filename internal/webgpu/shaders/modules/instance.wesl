@@ -2,35 +2,6 @@
 // Converts ray origins, directions, hit points, and normals between world
 // space and an instance's local template space for TLAS/BLAS traversal.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import package::types::{inst_records};
 
 fn inst_local_origin(i: u32, ro: vec3<f32>) -> vec3<f32> {
@@ -58,3 +29,5 @@ fn inst_world_normal(i: u32, ln: vec3<f32>) -> vec3<f32> {
         r.xf0.z * ln.x + r.xf1.z * ln.y + r.xf2.z * ln.z,
     ));
 }
+
+

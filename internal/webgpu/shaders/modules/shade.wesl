@@ -3,6 +3,14 @@
 // evaluates point lights and flickering campfires, samples baked ambient
 // occlusion, and assembles direct diffuse lighting (shade_diffuse).
 
+import package::types::{CampfireParams, LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_SKIP_EPS, ao_volume, blocker_plane_idx, campfires, holes, lights, params, terrains};
+import package::profile::{PROF_SHADOW_BLOCK, PROF_SHADOW_RAYS, prof_inc};
+import package::math::{mix3, perlin, smoothstepf};
+import package::texture::{texture_eval};
+import package::intersect::{intersect_blocker};
+import package::terrain::{hit_terrain, terrain_shadow_skip};
+import package::bvh::{blocker_bvh_any_hit};
+
 // face_axis returns (normal.xyz, dist.w): the outward axis normal of the
 // [mn,mx] box face nearest to hp, plus that distance. Mirrors scene.faceAxis.
 
@@ -34,13 +42,6 @@
 
 
 
-import package::types::{CampfireParams, LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_SKIP_EPS, ao_volume, blocker_plane_idx, campfires, holes, lights, params, terrains};
-import package::profile::{PROF_SHADOW_BLOCK, PROF_SHADOW_RAYS, prof_inc};
-import package::math::{mix3, perlin, smoothstepf};
-import package::texture::{texture_eval};
-import package::intersect::{intersect_blocker};
-import package::terrain::{hit_terrain, terrain_shadow_skip};
-import package::bvh::{blocker_bvh_any_hit};
 
 fn face_axis(mn: vec3<f32>, mx: vec3<f32>, hp: vec3<f32>) -> vec4<f32> {
     var n = vec3<f32>(-1.0, 0.0, 0.0);
@@ -471,3 +472,5 @@ fn terrain_albedo(i: u32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     }
     return c;
 }
+
+

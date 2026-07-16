@@ -2,34 +2,6 @@
 // clamp/mix/smoothstep utilities plus Perlin noise, fbm, and turbulence shared
 // by procedural textures, terrain blending, and the cloudy/storm sky.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import package::types::{perm};
 
 fn clamp01(x: f32) -> f32 {
@@ -185,3 +157,5 @@ fn cell_rand(c: f32, r: f32, seed: f32) -> f32 {
 
 // The texture functions below are faithful ports of internal/texture/*.go.
 const TEX_PI: f32 = 3.141592653589793;
+
+

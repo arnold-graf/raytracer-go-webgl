@@ -84,12 +84,10 @@ SKIP = {
 
 
 def strip_header(text: str) -> tuple[str, str]:
-    """Return (header comment block, body)."""
+    """Return (// comment header, body). Blank lines after comments are not header."""
     lines = text.splitlines(keepends=True)
-    if not lines or not lines[0].startswith("//"):
-        return "", text
     i = 0
-    while i < len(lines) and (lines[i].startswith("//") or lines[i].strip() == ""):
+    while i < len(lines) and lines[i].startswith("//"):
         i += 1
     return "".join(lines[:i]), "".join(lines[i:])
 
@@ -130,7 +128,23 @@ def format_imports(needs: dict[str, set[str]]) -> str:
             continue
         items = ", ".join(sorted(syms))
         lines.append(f"import package::{mod}::{{{items}}};")
-    return "\n".join(lines) + ("\n" if lines else "")
+    return "\n".join(lines)
+
+
+def assemble_module(header: str, imports: str, body: str) -> str:
+    parts: list[str] = []
+    h = header.rstrip("\n")
+    if h:
+        parts.append(h)
+    imp = imports.strip()
+    if imp:
+        parts.append(imp)
+    b = body.lstrip("\n")
+    if b:
+        parts.append(b)
+    if not parts:
+        return ""
+    return "\n\n".join(parts) + "\n"
 
 
 def strip_imports(text: str) -> str:
@@ -171,7 +185,7 @@ def main() -> None:
                     needs[dep] = used
 
         imports = format_imports(needs)
-        out = headers[name] + imports + ("\n" if imports else "") + body.lstrip("\n")
+        out = assemble_module(headers[name], imports, body)
         (ROOT / f"{name}{ext}").write_text(out)
         print(f"{name}: {sum(len(v) for v in needs.values())} imports from {len(needs)} modules")
 

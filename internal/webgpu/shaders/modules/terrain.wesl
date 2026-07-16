@@ -3,27 +3,6 @@
 // fBm) in the near band keyed on camera distance. Ray marching samples
 // terrain_height, which blends the two over the configured fade band.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import package::types::{RAY_EPSILON, T_MISS, params, terrain_features, terrain_mip, terrain_pads, terrain_samples, terrains, waters};
 import package::profile::{PROF_TERRAIN_STEPS, prof_inc};
 import package::math::{fbm_xz, mix3, perlin_xz, smoothstepf};
@@ -688,3 +667,5 @@ fn water_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
         w.params.x * perlin_xz(p.x * 2.5 + dx + 7.0, p.z * 2.5 + dz + 3.0),
     ));
 }
+
+

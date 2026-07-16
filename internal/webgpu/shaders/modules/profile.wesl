@@ -2,35 +2,6 @@
 // Atomic counters read back by gpuprof and the in-game HUD (~once per second).
 // When params.profile_enabled is 0 the helpers compile to no-ops at runtime.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import package::types::{params, profile_counters};
 
 const PROF_PIXELS: u32 = 0u;
@@ -79,3 +50,5 @@ fn prof_tests(n: u32) {
         prim_tests_acc = prim_tests_acc + n;
     }
 }
+
+
