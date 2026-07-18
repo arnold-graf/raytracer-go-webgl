@@ -389,6 +389,10 @@ Run parity on every phase gate. Never merge a phase that widens the error budget
 Do these **after** parity, not before — premature GPU optimization breaks fidelity
 debugging.
 
+For **large hybrid terrain maps** at full 512×320 (no resolution scaling), see
+[`plans/hybrid-terrain-perf.md`](hybrid-terrain-perf.md) — shadow/light budget,
+streamed near tile, and instance LOD tiers targeting 200 fps on `island.toml`.
+
 1. **No CPU readback** in the render loop (storage texture → surface present).
 2. **Bind groups stable** — only `uniforms` and `output` change per frame; scene
    buffers only on reload.

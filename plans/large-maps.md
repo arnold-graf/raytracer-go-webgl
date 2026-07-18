@@ -2,6 +2,12 @@
 
 ## Status: PROPOSED
 
+**Per-frame GPU performance** (200 fps at full 512×320 resolution on hybrid maps
+like `scenes/island.toml`, without lowering `pixSize`) is tracked separately in
+[`hybrid-terrain-perf.md`](hybrid-terrain-perf.md). This file owns world
+representation, memory, and LOD rings; that file owns shadow/light budgets and
+near-field bake streaming.
+
 ## Comment from the Human
 
 For the terrain we have a number of options.
@@ -24,9 +30,21 @@ Think of the world in concentric bands from the camera:
 
 | Band | Distance | Height representation |
 | ---- | -------- | --------------------- |
-| **Near** | 0 – ~40 m | Full detail: analytic `heightAnalytic` (features + pads + fBm) |
+| **Near** | 0 – ~40 m | Full detail: analytic `heightAnalytic` **or** streamed fine bake (see below) |
 | **Mid** | ~40 m – ~400 m | Coarse global heightfield (base + features + pads, **no fBm**) + mip pyramid for fast marching |
 | **Far** | ~400 m+ | Panorama lookup (Step 3) — no terrain march at all |
+
+**2026-07-18 learnings (island, `gpuprof` + shader work):**
+
+- Hybrid LOD + mip pyramid + `terrain_seg_near` land correctly; the remaining
+  cost on large maps is **shadow-ray terrain marching** and **per-light shadow
+  multiplicity**, not mid-band bake resolution.
+- **Distance-gated normals** (baked outside `hybrid_near` end) are high ROI;
+  analytic finite-diff normals everywhere in hybrid mode were a major waste.
+- **Analytic near field for marching** is still expensive at full resolution;
+  for 200 fps targets, prefer **streamed near tile (heights + normals)** over
+  live WGSL `heightAnalytic` per march step — see `hybrid-terrain-perf.md` Tier B1.
+- Normals-only streaming is **not** worth the complexity alone; bake heights too.
 
 The near band uses **camera/sample distance**, not player position. Ground 80 m
 ahead of you is outside a "20 m around the player" bubble but still needs
@@ -46,10 +64,13 @@ front of you.
 
 ### Recommendation: Option 3 (hybrid)
 
-1. **Near (~0–40 m from camera):** evaluate `heightAnalytic` in WGSL with full
-   fBm. Normals via finite differences (2–4 extra height evals) or precomputed
-   partials for the smooth parts. No fine-grid streaming — the bubble is small
-   enough that live eval is affordable.
+1. **Near (~0–40 m from camera):** two viable paths:
+   - **Quality (original):** evaluate `heightAnalytic` in WGSL with full fBm;
+     normals via finite differences only inside the near band (baked outside).
+   - **Performance (recommended for island-scale):** CPU-stream a camera-centered
+     fine tile (0.25–0.5 m) with precomputed heights + normals; GPU cross-fades
+     to the coarse global bake at the band edge. Avoids per-step feature loops
+     and fBm on primary and shadow refine paths. See `hybrid-terrain-perf.md`.
 2. **Mid (~40 m – panorama cutoff):** one **global coarse heightfield** baked
    at load (base + features + pads, no fBm). Upload once; fits comfortably under
    the existing `maxTerrainVals` cap. Mip min/max pyramid accelerates ray
@@ -330,9 +351,11 @@ once content genuinely exceeds what fits comfortably in memory.
    decision buys instancing.
 2. **TLAS/BLAS + instancing** (Step 1) → **distance-LOD proxies** (Step 2).
 3. **Terrain far-clip**, then **hybrid height (Option 3) + mip pyramid** (Step 4).
-4. **Far-field panorama** (Step 3).
-5. **Localize the AO volume** (Step 5).
-6. **Tile streaming + frustum cull** (Step 6) — last, once content exceeds memory.
+4. **Shadow/light budget + near-tile streaming** (`hybrid-terrain-perf.md` Tiers
+   A–B) — parallel with Step 4 if island is the acceptance scene.
+5. **Far-field panorama** (Step 3).
+6. **Localize the AO volume** (Step 5).
+7. **Tile streaming + frustum cull** (Step 6) — last, once content exceeds memory.
 
 Steps 1–4 mostly *reduce* per-frame work, so each can be validated with the
 existing parity-gate discipline. A far LOD/impostor ring widens the error budget
