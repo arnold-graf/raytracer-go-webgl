@@ -198,7 +198,7 @@ depth = 1.0
 
 # cube
 [[include]]
-file = "objects/cube.toml"
+file = "../objects/cube.toml"
 # migrated-center-at
 at = [11.75, 4.0, 3.5]
 rotate_y = 0.0

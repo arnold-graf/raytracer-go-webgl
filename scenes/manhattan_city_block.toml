@@ -8,7 +8,9 @@
 #
 # Run with:
 #   go run . -scene scenes/manhattan_city_block.toml
-#   go run ./cmd/preview -scene scenes/manhattan_city_block.toml -o preview_manhattan.png
+# Run with:
+#   go run . -scene scenes/manhattan_city_block.toml
+#   go run ./cmd/preview -scene scenes/manhattan_city_block.toml -o tmp/manhattan
 
 # ---------------------------------------------------------------- camera ----
 # Stand in the street, facing the towers (yaw 0 looks toward -Z), tilted up a

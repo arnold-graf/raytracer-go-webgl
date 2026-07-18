@@ -7,7 +7,7 @@ furniture, etc.), **always verify the result visually** with the preview command
 before considering the work done.
 
 ```bash
-go run ./cmd/preview -scene scenes/preview/<name>.toml -o /tmp/<name>
+go run ./cmd/preview -scene scenes/preview/island.toml -o tmp/island
 ```
 
 Preview auto-centers the subject and writes twelve orbit screenshots
@@ -17,3 +17,7 @@ if one does not exist yet.
 
 Do not rely on geometry math or unit tests alone for object authoring — run
 preview and inspect the renders (especially front, side, and top views).
+
+## When Terminal Tool Calls fail
+
+When using the terminal tool in zed.dev, ALWAYS include the cd parameter with the working directory, on every call, even for commands that don't depend on directory.

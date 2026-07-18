@@ -4,7 +4,7 @@
 #
 # Run with:
 #   go run . -scene scenes/island.toml
-#   go run ./cmd/preview -scene scenes/preview/island.toml -o /tmp/island
+# go run ./cmd/preview -scene scenes/preview/island.toml -o tmp/island
 
 # ---------------------------------------------------------------- camera ----
 # Approach from the southern lagoon toward the villa on the central ridge.
@@ -29,7 +29,7 @@ glow  = 0.1
 [[light]]
 pos = [-222.0, 266.0, -200.0]
 color = [1.4, 1.6, 2.4]
-brightness = 30.0
+brightness = 120.0
 range = 0
 
 # --------------------------------------------------------------- terrain ----
@@ -552,10 +552,10 @@ follow_terrain = true
 instance = true
 
 # ----------------------------------------------------------------- campfire ----
-# Beach fire on the southern shore.
+# Fire pit near the villa on the eastern rift shoulder.
 
 [[include]]
 file = "objects/campfire.toml"
-at = [16.0, 0.0, 116.0]
+at = [48.0, 0.0, -64.0]
 follow_terrain = true
 params = { brightness = 1.0, range = 50.0, flicker = 0.45, speed = 1.0 }

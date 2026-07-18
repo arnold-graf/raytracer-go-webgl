@@ -171,9 +171,13 @@ fn terrain_normal_baked(i: u32, p: vec3<f32>) -> vec3<f32> {
 
 fn terrain_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
     let tr = terrains[i];
-    if (tr.island1.z < 0.5) {
+    // Use baked normals outside the hybrid near band
+    let cam = params.cam_pos.xz;
+    let dist = length(vec2<f32>(p.x, p.z) - cam);
+    if (dist >= tr.island1.y || tr.island1.z < 0.5) {
         return terrain_normal_baked(i, p);
     }
+    // Analytic finite-difference normals (only in near band)
     let e = 0.05;
     let hl = terrain_height(i, p.x - e, p.z);
     let hr = terrain_height(i, p.x + e, p.z);
@@ -300,6 +304,9 @@ fn hit_terrain_fine(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: 
             break;
         }
         var step = base;
+        if (shadow_ray) {
+            step = base * 2.0; // coarse step for shadow rays — only need hit detection
+        }
         if (fc > 0.0) {
             step = max(step, fc * 0.7);
             step = min(step, base * 20.0);
@@ -667,5 +674,6 @@ fn water_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
         w.params.x * perlin_xz(p.x * 2.5 + dx + 7.0, p.z * 2.5 + dz + 3.0),
     ));
 }
+
 
 
