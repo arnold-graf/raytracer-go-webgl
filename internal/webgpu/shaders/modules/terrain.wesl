@@ -7,6 +7,59 @@ import package::types::{RAY_EPSILON, T_MISS, params, terrain_features, terrain_m
 import package::profile::{PROF_TERRAIN_STEPS, prof_inc};
 import package::math::{fbm_xz, mix3, perlin_xz, smoothstepf};
 
+// ---- Hybrid LOD (coarse bake + analytic near band) ----
+// island1.z encodes hybrid on/off; island1.y is the outer near-band radius (m).
+const HYBRID_LOD_THRESHOLD: f32 = 0.5;
+
+// ---- Analytic height field ----
+const TERRAIN_FBM_OCTAVES: u32 = 4u;
+const TERRAIN_FEATURE_DEFAULT_STEEPNESS: f32 = 2.0;
+const TERRAIN_FEATURE_DEFAULT_EXTEND: f32 = 1.0;
+const TERRAIN_ISLAND_DEFAULT_MARGIN_FRAC: f32 = 0.5;
+
+// ---- Normals ----
+const TERRAIN_NORMAL_FINITE_DIFF_EPS: f32 = 0.05;
+const TERRAIN_NORMAL_STRIDE: u32 = 3u; // vec3 components per baked normal sample
+
+// ---- Heightfield ray march (hit_terrain_fine) ----
+const TERRAIN_MARCH_MAX_ITER: u32 = 256u;
+const TERRAIN_MARCH_REFINE_ITERS: u32 = 10u;
+const TERRAIN_MARCH_SHADOW_STEP_SCALE: f32 = 2.0;
+const TERRAIN_MARCH_STEP_ABOVE_FRAC: f32 = 0.7;
+const TERRAIN_MARCH_STEP_MAX_MULT: f32 = 20.0;
+const TERRAIN_REFINE_REMAIN_ABOVE: f32 = 0.02;
+
+// ---- Shadow-ray early out ----
+const TERRAIN_SHADOW_UPWARD_EPS: f32 = 1e-4;
+
+// ---- Mip pyramid empty-space walk (hit_terrain_mip) ----
+const TERRAIN_MIP_STACK_DEPTH: u32 = 12u;
+const TERRAIN_MIP_WALK_GUARD_MAX: u32 = 8192u;
+const TERRAIN_MIP_SEGMENT_EPS: f32 = 1e-4;
+const TERRAIN_MIP_RESUME_EPS: f32 = 1e-5;
+const TERRAIN_MIP_HYBRID_BOUNDS_PAD_FRAC: f32 = 0.5; // fraction of fBm amplitude
+const TERRAIN_MIP_DDA_HUGE_T: f32 = 1e30;
+const TERRAIN_MIP_DDA_RD_EPS: f32 = 1e-9;
+
+// ---- Near-band segment test (terrain_seg_near) ----
+const TERRAIN_SEG_NEAR_DOT_EPS: f32 = 1e-12;
+
+// ---- Water surfaces ----
+const WATER_RAY_HORIZON_EPS: f32 = 1e-6;
+const WATER_SHORELINE_HEIGHT_FLOOR: f32 = -1e10;
+const WATER_FLAT_NORMAL_RIPPLE_EPS: f32 = 1e-5;
+// Ripple LOD: full strength within NEAR m, flat by FAR m (horizontal distance to camera).
+const WATER_LOD_NEAR_M: f32 = 20.0;
+const WATER_LOD_FAR_M: f32 = 500.0;
+const WATER_RIPPLE_FREQ_NEAR: f32 = 2.5;
+const WATER_RIPPLE_FREQ_FAR: f32 = 0.4;
+// Grazing-angle fade: soften ripples when viewing the surface edge-on.
+const WATER_GRAZING_ANGLE_START: f32 = 0.05;
+const WATER_GRAZING_ANGLE_END: f32 = 0.25;
+// Second Perlin sample offset (decorrelates X/Z ripple components).
+const WATER_PERLIN_U_OFFSET: f32 = 7.0;
+const WATER_PERLIN_V_OFFSET: f32 = 3.0;
+
 fn terrain_height_baked(i: u32, x: f32, z: f32) -> f32 {
     let tr = terrains[i];
     let gnx = tr.grid.x;
@@ -85,11 +138,11 @@ fn terrain_natural_analytic(i: u32, x: f32, z: f32, detail_w: f32) -> f32 {
         var ex = f.shape.y;
         var ez = f.shape.z;
         var w = f.pos.w;
-        if (ex == 0.0) { ex = 1.0; }
-        if (ez == 0.0) { ez = 1.0; }
-        if (w == 0.0) { w = 1.0; }
+        if (ex == 0.0) { ex = TERRAIN_FEATURE_DEFAULT_EXTEND; }
+        if (ez == 0.0) { ez = TERRAIN_FEATURE_DEFAULT_EXTEND; }
+        if (w == 0.0) { w = TERRAIN_FEATURE_DEFAULT_EXTEND; }
         var st = f.shape.x;
-        if (st == 0.0) { st = 2.0; }
+        if (st == 0.0) { st = TERRAIN_FEATURE_DEFAULT_STEEPNESS; }
         let ax = dx / (w * ex);
         let az = dz / (w * ez);
         let d = length(vec2<f32>(ax, az));
@@ -97,14 +150,14 @@ fn terrain_natural_analytic(i: u32, x: f32, z: f32, detail_w: f32) -> f32 {
     }
     if (detail_w > 0.0 && tr.analytic.y != 0.0) {
         let scale = tr.analytic.z;
-        h = h + tr.analytic.y * detail_w * fbm_xz(x * scale, z * scale, 4u);
+        h = h + tr.analytic.y * detail_w * fbm_xz(x * scale, z * scale, TERRAIN_FBM_OCTAVES);
     }
     let isl = tr.island0;
     if (isl.z > 0.0) {
         let dist = length(vec2<f32>(x - isl.x, z - isl.y));
         var margin = isl.w;
         if (margin <= 0.0) {
-            margin = isl.z * 0.5;
+            margin = isl.z * TERRAIN_ISLAND_DEFAULT_MARGIN_FRAC;
         }
         let land = 1.0 - smoothstepf(isl.z, isl.z + margin, dist);
         h = tr.island1.x + (h - tr.island1.x) * land;
@@ -125,7 +178,7 @@ fn terrain_height_sample(i: u32, x: f32, z: f32, baked_only: bool) -> f32 {
         return terrain_height_baked(i, x, z);
     }
     let tr = terrains[i];
-    if (tr.island1.z < 0.5) {
+    if (tr.island1.z < HYBRID_LOD_THRESHOLD) {
         return terrain_height_baked(i, x, z);
     }
     let cam = params.cam_pos.xz;
@@ -161,24 +214,22 @@ fn terrain_normal_baked(i: u32, p: vec3<f32>) -> vec3<f32> {
     if (iz >= gnz - 1u) { iz = gnz - 2u; }
     let tx = fx0 - f32(ix);
     let tz = fz0 - f32(iz);
-    let base = off + 3u * (iz * gnx + ix);
+    let base = off + TERRAIN_NORMAL_STRIDE * (iz * gnx + ix);
     let n00 = terrain_sample_normal(base);
-    let n10 = terrain_sample_normal(base + 3u);
-    let n01 = terrain_sample_normal(base + 3u * gnx);
-    let n11 = terrain_sample_normal(base + 3u * gnx + 3u);
+    let n10 = terrain_sample_normal(base + TERRAIN_NORMAL_STRIDE);
+    let n01 = terrain_sample_normal(base + TERRAIN_NORMAL_STRIDE * gnx);
+    let n11 = terrain_sample_normal(base + TERRAIN_NORMAL_STRIDE * gnx + TERRAIN_NORMAL_STRIDE);
     return normalize(mix3(mix3(n00, n10, tx), mix3(n01, n11, tx), tz));
 }
 
 fn terrain_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
     let tr = terrains[i];
-    // Use baked normals outside the hybrid near band
     let cam = params.cam_pos.xz;
     let dist = length(vec2<f32>(p.x, p.z) - cam);
-    if (dist >= tr.island1.y || tr.island1.z < 0.5) {
+    if (dist >= tr.island1.y || tr.island1.z < HYBRID_LOD_THRESHOLD) {
         return terrain_normal_baked(i, p);
     }
-    // Analytic finite-difference normals (only in near band)
-    let e = 0.05;
+    let e = TERRAIN_NORMAL_FINITE_DIFF_EPS;
     let hl = terrain_height(i, p.x - e, p.z);
     let hr = terrain_height(i, p.x + e, p.z);
     let hd = terrain_height(i, p.x, p.z - e);
@@ -206,7 +257,7 @@ fn terrain_slab(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> vec2<f32> {
 // terrain_shadow_skip reports whether a shadow ray cannot hit terrain before max_t.
 fn terrain_shadow_skip(i: u32, origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
     let tr = terrains[i];
-    if (dir.y >= -1e-4) {
+    if (dir.y >= -TERRAIN_SHADOW_UPWARD_EPS) {
         return true;
     }
     if (origin.y > tr.bounds1.y && dir.y >= 0.0) {
@@ -271,7 +322,7 @@ fn terrain_seg_near(ro: vec3<f32>, rd: vec3<f32>, t0: f32, t1: f32, near_end: f3
     let a = ro.xz + rd.xz * t0;
     let ab = rd.xz * (t1 - t0);
     let toc = params.cam_pos.xz - a;
-    let tt = clamp(dot(toc, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
+    let tt = clamp(dot(toc, ab) / max(dot(ab, ab), TERRAIN_SEG_NEAR_DOT_EPS), 0.0, 1.0);
     let d = a + ab * tt - params.cam_pos.xz;
     return dot(d, d) < near_end * near_end;
 }
@@ -291,25 +342,25 @@ fn hit_terrain_fine(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: 
     // Hoisted per-segment: only segments passing through the near band ever
     // see hybrid heights, so far segments march (and refine) baked-only.
     var seg_hybrid = false;
-    if (tr.island1.z >= 0.5) {
+    if (tr.island1.z >= HYBRID_LOD_THRESHOLD) {
         seg_hybrid = terrain_seg_near(ro, rd, t_enter, t_exit, tr.island1.y);
     }
     let march_hybrid = seg_hybrid && !shadow_ray;
     var tc = t_enter;
     var p = ro + rd * tc;
     var fc = p.y - terrain_height_march(i, p.x, p.z, march_hybrid);
-    for (var iter = 0u; iter < 256u; iter = iter + 1u) {
+    for (var iter = 0u; iter < TERRAIN_MARCH_MAX_ITER; iter = iter + 1u) {
         prof_inc(PROF_TERRAIN_STEPS, 1u);
         if (tc >= t_exit) {
             break;
         }
         var step = base;
         if (shadow_ray) {
-            step = base * 2.0; // coarse step for shadow rays — only need hit detection
+            step = base * TERRAIN_MARCH_SHADOW_STEP_SCALE;
         }
         if (fc > 0.0) {
-            step = max(step, fc * 0.7);
-            step = min(step, base * 20.0);
+            step = max(step, fc * TERRAIN_MARCH_STEP_ABOVE_FRAC);
+            step = min(step, base * TERRAIN_MARCH_STEP_MAX_MULT);
         }
         var tn = min(tc + step, t_exit);
         let pn = ro + rd * tn;
@@ -320,7 +371,7 @@ fn hit_terrain_fine(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: 
             }
             var lo = tc;
             var hi = tn;
-            for (var j = 0u; j < 10u; j = j + 1u) {
+            for (var j = 0u; j < TERRAIN_MARCH_REFINE_ITERS; j = j + 1u) {
                 let m = (lo + hi) * 0.5;
                 let pm = ro + rd * m;
                 if (pm.y - terrain_height_march(i, pm.x, pm.z, seg_hybrid) <= 0.0) {
@@ -331,7 +382,7 @@ fn hit_terrain_fine(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: 
             }
             let th = (lo + hi) * 0.5;
             let ph = ro + rd * th;
-            if (ph.y - terrain_height_march(i, ph.x, ph.z, seg_hybrid) > 0.02) {
+            if (ph.y - terrain_height_march(i, ph.x, ph.z, seg_hybrid) > TERRAIN_REFINE_REMAIN_ABOVE) {
                 tc = th;
                 fc = ph.y - terrain_height_march(i, ph.x, ph.z, march_hybrid);
             } else {
@@ -369,27 +420,27 @@ fn mip_init_dda(
     *cx = i32(cell.x);
     *cz = i32(cell.y);
 
-    *t_next_x = 1e30;
-    *t_delta_x = 1e30;
+    *t_next_x = TERRAIN_MIP_DDA_HUGE_T;
+    *t_delta_x = TERRAIN_MIP_DDA_HUGE_T;
     *step_x = 0;
-    if (rd.x > 1e-9) {
+    if (rd.x > TERRAIN_MIP_DDA_RD_EPS) {
         *step_x = 1;
         *t_next_x = (tr.bounds0.x + f32(*cx + 1) * cwx - ro.x) / rd.x;
         *t_delta_x = cwx / rd.x;
-    } else if (rd.x < -1e-9) {
+    } else if (rd.x < -TERRAIN_MIP_DDA_RD_EPS) {
         *step_x = -1;
         *t_next_x = (tr.bounds0.x + f32(*cx) * cwx - ro.x) / rd.x;
         *t_delta_x = -cwx / rd.x;
     }
 
-    *t_next_z = 1e30;
-    *t_delta_z = 1e30;
+    *t_next_z = TERRAIN_MIP_DDA_HUGE_T;
+    *t_delta_z = TERRAIN_MIP_DDA_HUGE_T;
     *step_z = 0;
-    if (rd.z > 1e-9) {
+    if (rd.z > TERRAIN_MIP_DDA_RD_EPS) {
         *step_z = 1;
         *t_next_z = (tr.bounds0.y + f32(*cz + 1) * cwz - ro.z) / rd.z;
         *t_delta_z = cwz / rd.z;
-    } else if (rd.z < -1e-9) {
+    } else if (rd.z < -TERRAIN_MIP_DDA_RD_EPS) {
         *step_z = -1;
         *t_next_z = (tr.bounds0.y + f32(*cz) * cwz - ro.z) / rd.z;
         *t_delta_z = -cwz / rd.z;
@@ -398,18 +449,18 @@ fn mip_init_dda(
 
 fn hit_terrain_mip(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f32, refine: bool, shadow_ray: bool) -> f32 {
     let tr = terrains[i];
-    var stk_level: array<u32, 12>;
-    var stk_t_exit: array<f32, 12>;
-    var stk_tc: array<f32, 12>;
-    var stk_cx: array<i32, 12>;
-    var stk_cz: array<i32, 12>;
-    var stk_t_next_x: array<f32, 12>;
-    var stk_t_delta_x: array<f32, 12>;
-    var stk_step_x: array<i32, 12>;
-    var stk_t_next_z: array<f32, 12>;
-    var stk_t_delta_z: array<f32, 12>;
-    var stk_step_z: array<i32, 12>;
-    var stk_resume: array<f32, 12>;
+    var stk_level: array<u32, TERRAIN_MIP_STACK_DEPTH>;
+    var stk_t_exit: array<f32, TERRAIN_MIP_STACK_DEPTH>;
+    var stk_tc: array<f32, TERRAIN_MIP_STACK_DEPTH>;
+    var stk_cx: array<i32, TERRAIN_MIP_STACK_DEPTH>;
+    var stk_cz: array<i32, TERRAIN_MIP_STACK_DEPTH>;
+    var stk_t_next_x: array<f32, TERRAIN_MIP_STACK_DEPTH>;
+    var stk_t_delta_x: array<f32, TERRAIN_MIP_STACK_DEPTH>;
+    var stk_step_x: array<i32, TERRAIN_MIP_STACK_DEPTH>;
+    var stk_t_next_z: array<f32, TERRAIN_MIP_STACK_DEPTH>;
+    var stk_t_delta_z: array<f32, TERRAIN_MIP_STACK_DEPTH>;
+    var stk_step_z: array<i32, TERRAIN_MIP_STACK_DEPTH>;
+    var stk_resume: array<f32, TERRAIN_MIP_STACK_DEPTH>;
     var sp = 0u;
 
     var level = tr.mip.w - 1u;
@@ -417,17 +468,17 @@ fn hit_terrain_mip(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f
     var tc = t_enter;
     var cx: i32 = 0;
     var cz: i32 = 0;
-    var t_next_x: f32 = 1e30;
-    var t_delta_x: f32 = 1e30;
+    var t_next_x: f32 = TERRAIN_MIP_DDA_HUGE_T;
+    var t_delta_x: f32 = TERRAIN_MIP_DDA_HUGE_T;
     var step_x: i32 = 0;
-    var t_next_z: f32 = 1e30;
-    var t_delta_z: f32 = 1e30;
+    var t_next_z: f32 = TERRAIN_MIP_DDA_HUGE_T;
+    var t_delta_z: f32 = TERRAIN_MIP_DDA_HUGE_T;
     var step_z: i32 = 0;
     var need_init = true;
 
-    for (var guard = 0u; guard < 8192u; guard = guard + 1u) {
+    for (var guard = 0u; guard < TERRAIN_MIP_WALK_GUARD_MAX; guard = guard + 1u) {
         if (level == 0u) {
-            if (tc + 1e-4 >= seg_exit) {
+            if (tc + TERRAIN_MIP_SEGMENT_EPS >= seg_exit) {
                 if (sp == 0u) {
                     return T_MISS;
                 }
@@ -554,15 +605,15 @@ fn hit_terrain_mip(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f
         // amplitude; only borderline cells whose segment passes near the
         // camera need that padding (far cells march baked, bounded by mm).
         var overlap = seg_max >= mm.x && seg_min <= mm.y;
-        if (!overlap && tr.island1.z >= 0.5) {
-            let mm_pad = tr.analytic.y * 0.5;
+        if (!overlap && tr.island1.z >= HYBRID_LOD_THRESHOLD) {
+            let mm_pad = tr.analytic.y * TERRAIN_MIP_HYBRID_BOUNDS_PAD_FRAC;
             if (seg_max >= mm.x - mm_pad && seg_min <= mm.y + mm_pad
                 && terrain_seg_near(ro, rd, tc, tn, tr.island1.y)) {
                 overlap = true;
             }
         }
-        if (overlap && tn > tc + 1e-4) {
-            if (sp >= 12u) {
+        if (overlap && tn > tc + TERRAIN_MIP_SEGMENT_EPS) {
+            if (sp >= TERRAIN_MIP_STACK_DEPTH) {
                 return T_MISS;
             }
             stk_level[sp] = level;
@@ -576,7 +627,7 @@ fn hit_terrain_mip(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f
             stk_t_next_z[sp] = t_next_z;
             stk_t_delta_z[sp] = t_delta_z;
             stk_step_z[sp] = step_z;
-            stk_resume[sp] = tn + 1e-5;
+            stk_resume[sp] = tn + TERRAIN_MIP_RESUME_EPS;
             sp = sp + 1u;
             level = level - 1u;
             seg_exit = tn;
@@ -614,7 +665,7 @@ fn hit_terrain_mip(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f
             cz += step_z;
             t_next_z += t_delta_z;
         }
-        tc = tn + 1e-5;
+        tc = tn + TERRAIN_MIP_RESUME_EPS;
     }
     return T_MISS;
 }
@@ -634,7 +685,7 @@ fn hit_terrain(i: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32, refine: bool, s
 
 fn hit_water(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
     let w = waters[i];
-    if (abs(rd.y) < 1e-6) {
+    if (abs(rd.y) < WATER_RAY_HORIZON_EPS) {
         return T_MISS;
     }
     let t = (w.geom.w - ro.y) / rd.y;
@@ -649,7 +700,7 @@ fn hit_water(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
         }
     }
     if (w.info.z != 0u) {
-        var th = -1e10;
+        var th = WATER_SHORELINE_HEIGHT_FLOOR;
         for (var ti = 0u; ti < params.terrain_count; ti = ti + 1u) {
             th = max(th, terrain_height(ti, p.x, p.z));
         }
@@ -668,12 +719,32 @@ fn water_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
     let phase = params.time * w.params.y;
     let dx = phase * w.params.z;
     let dz = phase * w.params.w;
+
+    // Fade ripples with horizontal distance from camera (see WATER_LOD_*).
+    let cam_dist = length(params.cam_pos.xz - p.xz);
+    let lod = smoothstepf(WATER_LOD_NEAR_M, WATER_LOD_FAR_M, cam_dist);
+    let amp = w.params.x * (1.0 - lod);
+    let freq = mix(WATER_RIPPLE_FREQ_NEAR, WATER_RIPPLE_FREQ_FAR, lod);
+
+    // Grazing views stretch reflections; soften micro-ripples at shallow angles.
+    let view = normalize(params.cam_pos.xyz - p);
+    let grazing = smoothstepf(WATER_GRAZING_ANGLE_START, WATER_GRAZING_ANGLE_END, abs(dot(vec3<f32>(0.0, 1.0, 0.0), view)));
+    let ripple_w = amp * grazing;
+    if (ripple_w <= WATER_FLAT_NORMAL_RIPPLE_EPS) {
+        return vec3<f32>(0.0, 1.0, 0.0);
+    }
+
     return normalize(vec3<f32>(
-        w.params.x * perlin_xz(p.x * 2.5 + dx, p.z * 2.5 + dz),
+        ripple_w * perlin_xz(p.x * freq + dx, p.z * freq + dz),
         1.0,
-        w.params.x * perlin_xz(p.x * 2.5 + dx + 7.0, p.z * 2.5 + dz + 3.0),
+        ripple_w * perlin_xz(p.x * freq + dx + WATER_PERLIN_U_OFFSET, p.z * freq + dz + WATER_PERLIN_V_OFFSET),
     ));
 }
+
+
+
+
+
 
 
 
