@@ -2,7 +2,9 @@
 // scene ported from the original realtime_raytracer_dos_geo.html.
 package scene
 
-import "raytracer/internal/vec"
+import (
+	"raytracer/internal/vec"
+)
 
 // CameraStart is an optional initial camera pose supplied by a scene file.
 type CameraStart struct {
@@ -34,8 +36,9 @@ type Scene struct {
 	DocumentSpecs []DocumentSpec
 	ScreenSpecs   []ScreenSpec
 	DynamicBodies []DynamicBody
-	Start     CameraStart
-	Env       Environment
+	Start         CameraStart
+	PlayerMovement PlayerMovement
+	Env            Environment
 
 	doorGhost DoorGhostBox
 

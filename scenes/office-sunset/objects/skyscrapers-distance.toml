@@ -38,6 +38,18 @@ width = 50
 height = 220
 depth = 30
 
+# Skyscrapers in the distance
+[[cylinder]]
+material = "diffuse"
+reflect = 0.5
+rotate_y = -10
+albedo = [0.01, 0.01, 0.01]
+pos_x = -130.0
+pos_y = 0.0
+pos_z = 50.0
+width = 40
+height = 180
+depth = 30
 
 
 # Skyscrapers in the distance

@@ -189,8 +189,8 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 		if sp.Xform != nil {
 			center = sp.Xform.ToWorld(center)
 		}
-		bottom := center.Y - sp.Radius
-		top := center.Y + sp.Radius
+		mn, mx := sp.WorldBounds()
+		bottom, top := mn.Y, mx.Y
 		if top <= walkTop || bottom >= headY || bottom > walkTop {
 			continue
 		}
@@ -270,8 +270,8 @@ func (s *Scene) BlockedStatic(x, z, feetY, headY, radius, step float64) bool {
 		if sp.Xform != nil {
 			center = sp.Xform.ToWorld(center)
 		}
-		bottom := center.Y - sp.Radius
-		top := center.Y + sp.Radius
+		mn, mx := sp.WorldBounds()
+		bottom, top := mn.Y, mx.Y
 		if top <= walkTop || bottom >= headY || bottom > walkTop {
 			continue
 		}

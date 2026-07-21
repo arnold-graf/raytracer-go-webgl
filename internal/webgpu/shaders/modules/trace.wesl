@@ -146,7 +146,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
                 tex_n = -tex_n;
             }
             if (p.info.x == PRIM_BOX) {
-                alb = texture_eval_box(hit.idx, tex_p, tex_n, p.geo_a.xyz, p.geo_b.xyz, p.info.z, p.albedo.xyz);
+                alb = texture_eval_box(hit.idx, tex_p, tex_n, p.geo_a.xyz, p.geo_b.xyz, p.info.z, plane_albedo(p, hp));
             } else {
                 alb = texture_eval(p.info.z, tex_p, tex_n, plane_albedo(p, hp));
             }
@@ -318,6 +318,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Host reads little-endian bytes as RGBA.
     pixels[gid.y * params.width + gid.x] = r | (g << 8u) | (b << 16u) | (a << 24u);
 }
+
+
+
+
+
 
 
 

@@ -35,6 +35,10 @@ color = [1.4, 1.6, 2.4]
 brightness = 30.0
 range = 0
 
+[player.movement]
+gravity = 0.1
+double_jump_enabled = true
+
 # --------------------------------------------------------------- terrain ----
 # A single height field. Peaks have positive height, valleys negative (or use
 # kind="valley"). grass/rock/snow are blended by slope (slope_lo..slope_hi) and

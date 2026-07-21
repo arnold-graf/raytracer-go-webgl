@@ -59,7 +59,7 @@ const (
 //	GeoA: sphere -> (center.xyz, radius); plane -> (n.xyz, d); box -> (min.xyz, _)
 //	      cylinder -> (cx, cz, radius, ymin); cone -> (cx, cz, rbase, ybase)
 //	      torus -> (center.xyz, majorR)
-//	GeoB: box -> (max.xyz, _); cylinder -> (ymax, radius_top,..); cone -> (ytip,..);
+//	GeoB: box -> (max.xyz, _); sphere -> (cut_off,..); cylinder -> (ymax, radius_top,..); cone -> (ytip,..);
 //	      torus -> (minorR,..); unused otherwise
 //	Albedo: linear rgb in xyz
 //	Albedo2: checker second color (MatChecker)
@@ -172,17 +172,7 @@ func PackPrimitives(s *scene.Scene) []GPUPrimitive {
 	out := make([]GPUPrimitive, 0, len(s.Spheres)+len(s.Planes)+len(s.Boxes))
 
 	for i := range s.Spheres {
-		sp := &s.Spheres[i]
-		alb, alb2 := surfaceColors(sp.Surface)
-		p := GPUPrimitive{
-			GeoA:    [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
-			Albedo:  alb,
-			Albedo2: alb2,
-			Params:  surfaceParams(sp.Surface),
-			Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
-		}
-		setXform(&p, sp.Xform)
-		out = append(out, p)
+		out = append(out, spherePrim(&s.Spheres[i]))
 	}
 	for i := range s.Planes {
 		pl := &s.Planes[i]
@@ -232,6 +222,20 @@ func setXform(p *GPUPrimitive, x *scene.Transform) {
 	p.Xf1 = [4]float32{f(r1.X), f(r1.Y), f(r1.Z), f(t.Y)}
 	p.Xf2 = [4]float32{f(r2.X), f(r2.Y), f(r2.Z), f(t.Z)}
 	p.Meta[3] |= primFlagTransformed
+}
+
+func spherePrim(sp *scene.Sphere) GPUPrimitive {
+	alb, alb2 := surfaceColors(sp.Surface)
+	p := GPUPrimitive{
+		GeoA:    [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
+		GeoB:    [4]float32{f(sp.CutOff), 0, 0, 0},
+		Albedo:  alb,
+		Albedo2: alb2,
+		Params:  surfaceParams(sp.Surface),
+		Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
+	}
+	setXform(&p, sp.Xform)
+	return p
 }
 
 func boxPrim(bx *scene.Box, holeStart uint32) GPUPrimitive {
@@ -368,16 +372,7 @@ func PackBlockers(s *scene.Scene) []GPUPrimitive {
 		if sp.Mat == scene.MatEmit || sp.Mat == scene.MatGlass {
 			continue
 		}
-		alb, alb2 := surfaceColors(sp.Surface)
-		p := GPUPrimitive{
-			GeoA:    [4]float32{f(sp.Center.X), f(sp.Center.Y), f(sp.Center.Z), f(sp.Radius)},
-			Albedo:  alb,
-			Albedo2: alb2,
-			Params:  surfaceParams(sp.Surface),
-			Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
-		}
-		setXform(&p, sp.Xform)
-		out = append(out, p)
+		out = append(out, spherePrim(sp))
 	}
 	for i := range s.Planes {
 		pl := &s.Planes[i]

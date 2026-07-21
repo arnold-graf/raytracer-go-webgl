@@ -32,11 +32,43 @@ type Surface struct {
 	Xform *Transform
 }
 
-// Sphere is a simple analytic sphere.
+// Sphere is a simple analytic sphere. CutOff (0..1) removes the bottom
+// portion: cut_off = 0.5 keeps the top hemisphere with an open bottom.
 type Sphere struct {
 	Center vec.V
 	Radius float64
+	CutOff float64 // fraction of height at which the bottom is removed; 0 = full sphere
 	Surface
+}
+
+// cutPlaneY returns the local Y of the horizontal cut plane. With CutOff == 0
+// this is the sphere bottom (no geometry removed).
+func (s *Sphere) cutPlaneY() float64 {
+	if s.CutOff <= 0 {
+		return s.Center.Y - s.Radius
+	}
+	if s.CutOff >= 1 {
+		return s.Center.Y + s.Radius
+	}
+	return s.Center.Y - s.Radius + s.CutOff*(2*s.Radius)
+}
+
+// LocalBounds returns the sphere's axis-aligned bounds in local space,
+// accounting for CutOff.
+func (s *Sphere) LocalBounds() (vec.V, vec.V) {
+	r := s.Radius
+	ymin := s.cutPlaneY()
+	if s.CutOff <= 0 {
+		ymin = s.Center.Y - r
+	}
+	return vec.V{X: s.Center.X - r, Y: ymin, Z: s.Center.Z - r},
+		vec.V{X: s.Center.X + r, Y: s.Center.Y + r, Z: s.Center.Z + r}
+}
+
+// WorldBounds returns the sphere's axis-aligned bounds in world space.
+func (s *Sphere) WorldBounds() (vec.V, vec.V) {
+	lmin, lmax := s.LocalBounds()
+	return expandXformBounds(s.Xform, lmin, lmax)
 }
 
 // Intersect returns the nearest positive hit distance, or Inf on a miss.
@@ -45,18 +77,28 @@ func (s *Sphere) Intersect(r vec.Ray) float64 {
 	bd := b.Dot(r.Dir)
 	c := b.LenSq() - s.Radius*s.Radius
 	disc := bd*bd - c
-	if disc < 0 {
+	if disc < 0 && s.CutOff <= 0 {
 		return Inf
 	}
-	sq := math.Sqrt(disc)
-	t := -bd - sq
-	if t < eps {
-		t = -bd + sq
+	best := Inf
+	if disc >= 0 {
+		sq := math.Sqrt(disc)
+		for _, t := range []float64{-bd - sq, -bd + sq} {
+			if t < eps {
+				continue
+			}
+			if s.CutOff > 0 {
+				hy := r.Origin.Y + r.Dir.Y*t
+				if hy < s.cutPlaneY()-1e-6 {
+					continue
+				}
+			}
+			if t < best {
+				best = t
+			}
+		}
 	}
-	if t < eps {
-		return Inf
-	}
-	return t
+	return best
 }
 
 // Normal returns the outward unit normal at surface point p.

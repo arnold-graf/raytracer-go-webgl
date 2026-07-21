@@ -81,8 +81,8 @@ func build(s *scene.Scene, blockersOnly bool) *BVH {
 		if blockersOnly && (o.Mat == scene.MatEmit || o.Mat == scene.MatGlass) {
 			continue // emissive spheres and glass cast no shadow
 		}
-		rad := vec.V{X: o.Radius, Y: o.Radius, Z: o.Radius}
-		b.addBounded(KindSphere, i, o.Xform, o.Center.Sub(rad), o.Center.Add(rad))
+		lmin, lmax := o.LocalBounds()
+		b.addBounded(KindSphere, i, o.Xform, lmin, lmax)
 	}
 	for i := range s.Boxes {
 		o := &s.Boxes[i]

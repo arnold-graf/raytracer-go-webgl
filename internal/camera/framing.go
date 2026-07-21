@@ -35,8 +35,8 @@ func PreviewSubjectBounds(s *scene.Scene) (min, max vec.V, ok bool) {
 	}
 	for i := range s.Spheres {
 		o := &s.Spheres[i]
-		rad := vec.V{X: o.Radius, Y: o.Radius, Z: o.Radius}
-		accum(expandBounds(o.Xform, o.Center.Sub(rad), o.Center.Add(rad)))
+		omin, omax := o.WorldBounds()
+		accum(omin, omax)
 	}
 	for i := range s.Boxes {
 		o := &s.Boxes[i]

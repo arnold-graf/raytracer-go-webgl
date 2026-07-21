@@ -32,6 +32,10 @@ type Config struct {
 	SprintMultiplier      float64
 	CrouchEyeHeight       float64
 	CrouchSpeedMultiplier float64
+
+	// DoubleJumpEnabled allows one extra jump while airborne (requires releasing
+	// and pressing jump again mid-air).
+	DoubleJumpEnabled bool
 }
 
 // DefaultConfig returns the built-in movement tuning.
@@ -73,6 +77,8 @@ type Camera struct {
 	world    World
 	velY     float64
 	onGround bool
+	airJumps int  // jumps used since last landing (0, 1, or 2)
+	jumpPrev bool // previous frame jump held (edge-detect air jumps)
 
 	// crouchT and sprintT are the eased stance blends in [0,1] (0 = standing /
 	// not sprinting, 1 = fully crouched / sprinting). They follow the held keys
@@ -249,10 +255,17 @@ func (c *Camera) Update(m Move, dt float64) {
 	if c.world != nil {
 		standEye = c.world.GroundHeight(c.Pos.X, c.Pos.Z, c.Pos.Y) + eye
 	}
-	if m.Jump && c.onGround {
-		c.velY = c.cfg.JumpVelocity
-		c.onGround = false
+	if m.Jump {
+		if c.onGround {
+			c.velY = c.cfg.JumpVelocity
+			c.onGround = false
+			c.airJumps = 1
+		} else if c.cfg.DoubleJumpEnabled && c.airJumps == 1 && !c.jumpPrev {
+			c.velY = c.cfg.JumpVelocity
+			c.airJumps = 2
+		}
 	}
+	c.jumpPrev = m.Jump
 
 	if c.onGround {
 		// Stay glued to the ground while walking, following small rises and dips
@@ -277,6 +290,7 @@ func (c *Camera) Update(m Move, dt float64) {
 			c.Pos.Y = standEye
 			c.velY = 0
 			c.onGround = true
+			c.airJumps = 0
 		}
 	}
 }

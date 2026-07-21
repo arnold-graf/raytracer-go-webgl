@@ -47,7 +47,9 @@ type Game struct {
 	aoVer  uint64
 	aoBake uint64
 
-	// Feature toggles the renderer honors per frame (keys 1/2/3/5).
+	// basePlayerCfg is the global player.toml tuning; scene [player.movement]
+	// overrides are merged on top when the scene is (re)loaded.
+	basePlayerCfg camera.Config
 	shadow bool
 	mirror bool
 	ao     bool
@@ -141,15 +143,17 @@ type Game struct {
 }
 
 // New builds a game with the given internal render resolution rendering the
-// provided scene through ren, using cfg for player-movement tuning.
+// provided scene through ren. basePlayerCfg is the global player-movement tuning
+// (from player.toml); per-scene [player.movement] overrides are merged on top.
 // scenePath/playerPath are the files those were loaded from (empty for the
 // built-in defaults); when set, they are watched for changes and hot-reloaded.
-func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath string, ren render.Renderer) *Game {
+func New(rw, rh int, sc *scene.Scene, basePlayerCfg camera.Config, scenePath, playerPath string, ren render.Renderer) *Game {
 	g := &Game{
-		rw:         rw,
-		rh:         rh,
-		ren:        ren,
-		cam:        camera.New(),
+		rw:            rw,
+		rh:            rh,
+		ren:           ren,
+		cam:           camera.New(),
+		basePlayerCfg: basePlayerCfg,
 		shadow:     true,
 		mirror:     true,
 		ao:         true,
@@ -161,8 +165,8 @@ func New(rw, rh int, sc *scene.Scene, cfg camera.Config, scenePath, playerPath s
 		scenePath:  scenePath,
 		playerPath: playerPath,
 	}
-	g.cam.SetConfig(cfg)
 	g.setScene(sc) // builds the probe, bakes AO, binds the camera's world
+	g.applyPlayerConfig()
 	if sc.Start.Set {
 		g.cam.Pos, g.cam.Yaw, g.cam.Pitch = sc.Start.Pos, sc.Start.Yaw, sc.Start.Pitch
 		g.cam.Land()
@@ -704,6 +708,7 @@ func (g *Game) reloadScene() bool {
 		doorSnap = g.doors.Snapshot(g.sc)
 	}
 	g.setScene(sc) // rebuilds the probe, re-bakes AO; pose/toggles unchanged
+	g.applyPlayerConfig()
 	if len(doorSnap) > 0 {
 		g.doors.Restore(sc, doorSnap)
 	}
@@ -720,9 +725,18 @@ func (g *Game) reloadPlayer() bool {
 		g.setReloadMsg("player reload FAILED: " + err.Error())
 		return false
 	}
-	g.cam.SetConfig(cfg)
+	g.basePlayerCfg = cfg
+	g.applyPlayerConfig()
 	g.setReloadMsg("player config reloaded")
 	return true
+}
+
+func (g *Game) applyPlayerConfig() {
+	if g.sc == nil {
+		g.cam.SetConfig(g.basePlayerCfg)
+		return
+	}
+	g.cam.SetConfig(camera.MergeConfig(g.basePlayerCfg, g.sc.PlayerMovement))
 }
 
 func (g *Game) setReloadMsg(msg string) {

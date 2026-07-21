@@ -90,6 +90,7 @@ func boxCenter(min, max vec.V) vec.V {
 type sphereDTO struct {
 	Center vec3    `toml:"center"`
 	Radius float64 `toml:"radius"`
+	CutOff float64 `toml:"cut_off"`
 	transformDTO
 	surfaceDTO
 }
@@ -520,6 +521,7 @@ func (d pointDTO) build() (scene.Point, error) {
 type sceneDTO struct {
 	Extends     string          `toml:"extends"`
 	Camera      *cameraDTO      `toml:"camera"`
+	Player      *playerSceneDTO `toml:"player"`
 	Environment *environmentDTO `toml:"environment"`
 	Include     []includeDTO    `toml:"include"`
 	Sphere      []sphereDTO     `toml:"sphere"`
@@ -718,6 +720,9 @@ func (dto sceneDTO) applyOverrides(s *scene.Scene) error {
 	if dto.Camera != nil {
 		s.Start = scene.CameraStart{Set: true, Pos: dto.Camera.Pos.toV(), Yaw: dto.Camera.Yaw, Pitch: dto.Camera.Pitch}
 	}
+	if dto.Player != nil {
+		s.PlayerMovement = dto.Player.Movement.toScene()
+	}
 	if dto.Environment != nil {
 		env, err := dto.Environment.build()
 		if err != nil {
@@ -762,7 +767,7 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		}
 		center := d.Center.toV()
 		surf.Xform = d.transformDTO.buildPlacement(center)
-		s.Spheres = append(s.Spheres, scene.Sphere{Center: center, Radius: d.Radius, Surface: surf})
+		s.Spheres = append(s.Spheres, scene.Sphere{Center: center, Radius: d.Radius, CutOff: d.CutOff, Surface: surf})
 	}
 	for i, d := range dto.Plane {
 		surf, err := d.toSurface()
@@ -903,6 +908,9 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 	}
 	if dto.Camera != nil {
 		s.Start = scene.CameraStart{Set: true, Pos: dto.Camera.Pos.toV(), Yaw: dto.Camera.Yaw, Pitch: dto.Camera.Pitch}
+	}
+	if dto.Player != nil {
+		s.PlayerMovement = dto.Player.Movement.toScene()
 	}
 	if e := dto.Environment; e != nil {
 		env, err := e.build()

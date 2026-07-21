@@ -63,6 +63,10 @@
           "minimum": 0,
           "exclusiveMinimum": true,
           "description": "Walk speed scale while crouching. Default: 0.5."
+        },
+        "double_jump_enabled": {
+          "type": "boolean",
+          "description": "Allow one extra jump while airborne (release and press jump again mid-air). Default: false."
         }
       },
       "additionalProperties": false

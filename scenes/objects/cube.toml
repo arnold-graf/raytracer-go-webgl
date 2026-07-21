@@ -12,6 +12,85 @@ floor_y = 0.3
 yaw = 0.0
 pitch = 0.0
 
+[[sphere]]
+cut_off = 0.45
+material = "glass"
+center = [1.7, 1.8, 1.5]
+radius = 0.2
+albedo = [0.3, 0.3, 0.3]
+reflect = 0.5
+rough = 0.0
+
+[[sphere]]
+material = "metal"
+center = [1.7, 2, 1.5]
+radius = 0.05
+albedo = [0.3, 0.3, 0.3]
+reflect = 0.5
+rough = 0.0
+
+[[cylinder]]
+material = "metal"
+pos_x = 1.45
+pos_y = 1.95
+pos_z = 1.47
+width = 0.05
+height = 0.7
+rotate_z = 40
+depth = 0.3
+albedo = [0.3, 0.3, 0.3]
+reflect = 0.2
+rough = 0.01
+
+[[sphere]]
+material = "metal"
+center = [1.25, 2.6, 1.5]
+radius = 0.05
+albedo = [0.3, 0.3, 0.3]
+reflect = 0.5
+rough = 0.0
+
+[[cylinder]]
+material = "metal"
+pos_x = 1.45
+pos_y = 2.5
+pos_z = 1.47
+width = 0.05
+height = 0.7
+rotate_z = -40
+depth = 0.3
+albedo = [0.3, 0.3, 0.3]
+reflect = 0.2
+rough = 0.01
+
+[[sphere]]
+material = "metal"
+center = [1.72, 3.15, 1.5]
+radius = 0.05
+albedo = [0.3, 0.3, 0.3]
+reflect = 0.5
+rough = 0.0
+
+[[cylinder]]
+material = "metal"
+pos_x = 1.7
+pos_y = 3.15
+pos_z = 1.47
+width = 0.05
+height = 0.9
+depth = 0.3
+albedo = [0.3, 0.3, 0.3]
+reflect = 0.2
+rough = 0.01
+
+[[sphere]]
+material = "metal"
+center = [1.72, 4.01, 1.5]
+radius = 0.1
+albedo = [0.3, 0.3, 0.3]
+reflect = 0.5
+rough = 0.0
+
 # Front wall (interior face +Z)
 [[box]]
 material = "diffuse"
@@ -26,10 +105,10 @@ texture_front = "capture_forward"
 
 # Light
 [[light_flickering]]
-center = [2.5, 2.5, 1]
+center = [1.7, 1, 1]
 color = [0.1, 0.1, 0.2]
 brightness = 5
-range = 20
+range = 50
 flicker = 0.5
 speed = 0.5
 seed = 0

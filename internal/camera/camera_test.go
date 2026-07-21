@@ -202,6 +202,32 @@ func TestSnapToGroundIgnoresCeilingAboveEye(t *testing.T) {
 	}
 }
 
+func TestDoubleJumpRequiresReleaseAndRepress(t *testing.T) {
+	c := New()
+	c.SetWorld(mockWorld{})
+	c.cfg.DoubleJumpEnabled = true
+	c.Update(Move{}, 0.1)
+
+	c.Update(Move{Jump: true}, 0.1)
+	if c.onGround || c.airJumps != 1 {
+		t.Fatalf("after first jump: onGround=%v airJumps=%d", c.onGround, c.airJumps)
+	}
+
+	// Holding jump through the first hop must not auto-trigger a double jump.
+	for i := 0; i < 5; i++ {
+		c.Update(Move{Jump: true}, 0.1)
+	}
+	if c.airJumps != 1 {
+		t.Fatalf("held jump double-tapped early: airJumps=%d", c.airJumps)
+	}
+
+	c.Update(Move{}, 0.1)
+	c.Update(Move{Jump: true}, 0.1)
+	if c.airJumps != 2 {
+		t.Fatalf("after second press: airJumps=%d, want 2", c.airJumps)
+	}
+}
+
 func TestGroundFollowing(t *testing.T) {
 	height := 2.0
 	c := New()

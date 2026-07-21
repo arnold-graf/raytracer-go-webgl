@@ -90,11 +90,11 @@ func main() {
 		return
 	}
 
-	var cfg camera.Config
+	var basePlayerCfg camera.Config
 	if *playerPath != "" {
-		cfg, err = sceneio.LoadPlayer(*playerPath)
+		basePlayerCfg, err = sceneio.LoadPlayer(*playerPath)
 	} else {
-		cfg, err = sceneio.DecodePlayer(defaultPlayerTOML)
+		basePlayerCfg, err = sceneio.DecodePlayer(defaultPlayerTOML)
 	}
 	if err != nil {
 		log.Fatal(err)
@@ -108,7 +108,7 @@ func main() {
 	// one so the GPU renders while the CPU packs/blits, instead of stalling on it.
 	ren.SetPipelined(true)
 
-	game := app.New(renderW, renderH, sc, cfg, *scenePath, *playerPath, ren)
+	game := app.New(renderW, renderH, sc, basePlayerCfg, *scenePath, *playerPath, ren)
 
 	ebiten.SetWindowSize(renderW*scale, renderH*scale)
 	ebiten.SetWindowTitle("Realtime Raytracer (Go + WebGPU)")

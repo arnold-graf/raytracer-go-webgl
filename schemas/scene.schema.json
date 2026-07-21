@@ -15,6 +15,10 @@
       "$ref": "#/definitions/camera",
       "description": "TOML table [camera]. Optional starting viewpoint when the scene loads."
     },
+    "player": {
+      "$ref": "#/definitions/player",
+      "description": "TOML table [player]. Optional per-scene player controller overrides ([player.movement])."
+    },
     "environment": {
       "$ref": "#/definitions/environment",
       "description": "TOML table [environment]. Sky gradient, ambient light, and directional sun."
@@ -1177,6 +1181,71 @@
       "required": [
         "pos"
       ],
+      "additionalProperties": false
+    },
+    "player": {
+      "type": "object",
+      "description": "Per-scene player controller tuning. Fields under movement override the global player.toml defaults when the scene loads.",
+      "properties": {
+        "movement": {
+          "$ref": "#/definitions/player_movement"
+        }
+      },
+      "additionalProperties": false
+    },
+    "player_movement": {
+      "type": "object",
+      "description": "TOML table [player.movement]. Same fields as player.toml [movement]; omitted values inherit from the global player config.",
+      "properties": {
+        "walk_speed": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true
+        },
+        "eye_height": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true
+        },
+        "jump_velocity": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true
+        },
+        "gravity": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true
+        },
+        "collision_radius": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true
+        },
+        "step_height": {
+          "type": "number",
+          "minimum": 0
+        },
+        "sprint_multiplier": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true
+        },
+        "crouch_eye_height": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true
+        },
+        "crouch_speed_multiplier": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMinimum": true
+        },
+        "double_jump_enabled": {
+          "type": "boolean",
+          "description": "Allow one extra jump while airborne (release and press jump again mid-air)."
+        }
+      },
       "additionalProperties": false
     },
     "sun": {

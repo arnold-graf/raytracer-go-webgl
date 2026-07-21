@@ -461,7 +461,8 @@ fn texture_eval_box(prim_idx: u32, lp: vec3<f32>, ln: vec3<f32>, bmin: vec3<f32>
 }
 
 // plane_albedo applies the analytic checker pattern (matching Plane.AlbedoAt)
-// before any procedural texture is layered on top.
+// before any procedural texture is layered on top. Uses world X/Z, so it works
+// for planes, boxes, and other finite primitives with MAT_CHECKER.
 fn plane_albedo(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     if (p.info.y == MAT_CHECKER) {
         let cx = i32(floor(hp.x + 0.5));
@@ -472,6 +473,11 @@ fn plane_albedo(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     }
     return p.albedo.xyz;
 }
+
+
+
+
+
 
 
 

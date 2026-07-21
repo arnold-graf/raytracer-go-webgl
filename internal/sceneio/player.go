@@ -6,9 +6,10 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"raytracer/internal/camera"
+	"raytracer/internal/scene"
 )
 
-// movementDTO mirrors the [movement] table of a player-config TOML file.
+// movementDTO mirrors [movement] / [player.movement] TOML tables.
 type movementDTO struct {
 	WalkSpeed             float64 `toml:"walk_speed"`
 	EyeHeight             float64 `toml:"eye_height"`
@@ -19,9 +20,18 @@ type movementDTO struct {
 	SprintMultiplier      float64 `toml:"sprint_multiplier"`
 	CrouchEyeHeight       float64 `toml:"crouch_eye_height"`
 	CrouchSpeedMultiplier float64 `toml:"crouch_speed_multiplier"`
+	DoubleJumpEnabled     *bool   `toml:"double_jump_enabled"`
+}
+
+func (m movementDTO) toScene() scene.PlayerMovement {
+	return scene.PlayerMovement(m)
 }
 
 type playerDTO struct {
+	Movement movementDTO `toml:"movement"`
+}
+
+type playerSceneDTO struct {
 	Movement movementDTO `toml:"movement"`
 }
 
@@ -46,34 +56,5 @@ func DecodePlayer(data []byte) (camera.Config, error) {
 }
 
 func (d playerDTO) config() camera.Config {
-	c := camera.DefaultConfig()
-	m := d.Movement
-	if m.WalkSpeed != 0 {
-		c.WalkSpeed = m.WalkSpeed
-	}
-	if m.EyeHeight != 0 {
-		c.EyeHeight = m.EyeHeight
-	}
-	if m.JumpVelocity != 0 {
-		c.JumpVelocity = m.JumpVelocity
-	}
-	if m.Gravity != 0 {
-		c.Gravity = m.Gravity
-	}
-	if m.CollisionRadius != 0 {
-		c.CollisionRadius = m.CollisionRadius
-	}
-	if m.StepHeight != 0 {
-		c.StepHeight = m.StepHeight
-	}
-	if m.SprintMultiplier != 0 {
-		c.SprintMultiplier = m.SprintMultiplier
-	}
-	if m.CrouchEyeHeight != 0 {
-		c.CrouchEyeHeight = m.CrouchEyeHeight
-	}
-	if m.CrouchSpeedMultiplier != 0 {
-		c.CrouchSpeedMultiplier = m.CrouchSpeedMultiplier
-	}
-	return c
+	return camera.MergeConfig(camera.DefaultConfig(), d.Movement.toScene())
 }

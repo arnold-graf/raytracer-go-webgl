@@ -90,6 +90,7 @@ func (g *Game) cancelPortalTransition() {
 
 func (g *Game) loadPortalScene(sc *scene.Scene, deps map[string]time.Time, path string) {
 	g.setScene(sc)
+	g.applyPlayerConfig()
 	g.scenePath = path
 	g.sceneDeps = deps
 	g.setupAmbience()

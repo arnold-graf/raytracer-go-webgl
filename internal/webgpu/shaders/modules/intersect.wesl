@@ -5,25 +5,45 @@
 
 import package::types::{PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, RING_SHELL, T_MISS, blockers, holes, prims};
 
+fn sphere_cut_plane_y(center_y: f32, radius: f32, cut_off: f32) -> f32 {
+    if (cut_off <= 0.0) {
+        return center_y - radius;
+    }
+    if (cut_off >= 1.0) {
+        return center_y + radius;
+    }
+    return center_y - radius + cut_off * (2.0 * radius);
+}
+
 fn hit_sphere(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
     let center = p.geo_a.xyz;
     let radius = p.geo_a.w;
+    let cut_off = p.geo_b.x;
     let b = ro - center;
     let bd = dot(b, rd);
     let c = dot(b, b) - radius * radius;
     let disc = bd * bd - c;
-    if (disc < 0.0) {
-        return T_MISS;
+    var best = T_MISS;
+    if (disc >= 0.0) {
+        let sq = sqrt(disc);
+        let y_cut = sphere_cut_plane_y(center.y, radius, cut_off);
+        for (var k = 0u; k < 2u; k = k + 1u) {
+            var t = select(-bd - sq, -bd + sq, k == 1u);
+            if (t < RAY_EPSILON) {
+                continue;
+            }
+            if (cut_off > 0.0) {
+                let hy = ro.y + rd.y * t;
+                if (hy < y_cut - 1e-6) {
+                    continue;
+                }
+            }
+            if (t < best) {
+                best = t;
+            }
+        }
     }
-    let sq = sqrt(disc);
-    var t = -bd - sq;
-    if (t < RAY_EPSILON) {
-        t = -bd + sq;
-    }
-    if (t < RAY_EPSILON) {
-        return T_MISS;
-    }
-    return t;
+    return best;
 }
 
 fn hit_plane(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
@@ -513,6 +533,11 @@ fn slab_hit(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, inv: vec3<f32>, t_m
     let tf = min(min(t2, t4), t6);
     return !(tf < tn || tf < RAY_EPSILON || tn > t_max);
 }
+
+
+
+
+
 
 
 

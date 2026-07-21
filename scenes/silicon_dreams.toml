@@ -1,0 +1,80 @@
+# Silicon Dreams — a floating platform over an endless sunset ocean.
+#
+# Run with:
+#   go run . -scene scenes/silicon_dreams.toml
+#   go run ./cmd/preview -scene scenes/silicon_dreams.toml -o tmp/silicon-dreams
+
+# ---------------------------------------------------------------- camera ----
+
+[camera]
+pos = [0.0, 12.6, 0.0]
+yaw = 0.0
+pitch = -0.12
+
+# ----------------------------------------------------------- environment ----
+
+[environment]
+sky = "sunset"
+ambient_sky = [0.48, 0.30, 0.36]
+ambient_ground = [0.16, 0.11, 0.10]
+sun_dir = [-0.35, -0.22, 0.90]
+sun_color = [1.40, 0.55, 0.22]
+
+# Sun in a low position in the east
+[[light]]
+pos = [-0.35, 50, -50]
+color = [1.4, 0.55, 0.22]
+brightness = 10.0
+range = 0
+
+# ----------------------------------------------------------------- player ----
+
+[player.movement]
+gravity = 0.1
+double_jump_enabled = true
+
+# ----------------------------------------------------------------- ocean ----
+# radius = 0 is an infinite ocean to the horizon (no terrain to mask against).
+
+[[water]]
+pos = [0.0, 0.0]
+radius = 0
+level = 0.0
+mask = false
+ripple = 0.1
+ripple_animation_speed = 1
+ripple_direction = [1.0, 0.25]
+material = "mirror"
+albedo = [0.38, 0.52, 0.68]
+
+# ----------------------------------------------------------- platform ----
+# 100 × 100 × 2 m slab, centered on the origin, bottom 50 m above sea level.
+
+[[box]]
+pos_x = -50.0
+pos_y = 10.0
+pos_z = -50.0
+width = 100.0
+height = 2.0
+depth = 100.0
+material = "checker"
+albedo = [0.72, 0.74, 0.78]
+albedo2 = [0.3, 0.3, 0.3]
+
+[[include]]
+file = "objects/art-nouveau-villa.toml"
+rotate_y = 180
+at = [0.0, 18.0, 0.0]
+
+[[cone]]
+material = "glass"
+cx = 30.0
+cz = 30.0
+cy = 20
+ybase = 18.0
+ytip = 18.0
+rbase = 10.0
+rtip = 10.0
+albedo = [0.3, 0.3, 0.3]
+reflect = 0.5
+rough = 0.0

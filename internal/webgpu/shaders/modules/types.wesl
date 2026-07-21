@@ -68,7 +68,7 @@ struct Prim {
                         // cylinder: cx, cz, radius, ymin | cone: cx, cz, rbase, ybase
                         // torus: center.xyz, majorR
                         // ring: cx, cz, radius, cy
-    geo_b: vec4<f32>,   // box: max.xyz, holeCount | cylinder: ymax, radius_top | cone: ytip | torus: minorR | ring: height
+    geo_b: vec4<f32>,   // box: max.xyz, holeCount | sphere: cut_off | cylinder: ymax, radius_top | cone: ytip | torus: minorR | ring: height
     albedo: vec4<f32>,  // linear rgb in xyz
     albedo2: vec4<f32>, // checker second color
     surf: vec4<f32>,    // rough, ior, reflect, transmit
@@ -329,6 +329,12 @@ struct Hit {
 };
 
 const HIT_NO_INSTANCE: u32 = 0xffffffffu;
+
+
+
+
+
+
 
 
 
