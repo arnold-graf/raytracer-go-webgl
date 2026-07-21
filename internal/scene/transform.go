@@ -166,6 +166,21 @@ func (x *Transform) ToLocal(p vec.V) vec.V {
 	return x.inv.mul(p.Sub(x.t))
 }
 
+// WorldYForLocalY returns the world-space Y on the vertical column (wx,*,wz)
+// where the transformed point has local Y equal to targetY. ok is false when the
+// column is parallel to the local Y plane (a vertical wall cap).
+func (x *Transform) WorldYForLocalY(wx, wz, targetY float64) (wy float64, ok bool) {
+	if x == nil {
+		return targetY, true
+	}
+	denom := x.inv[4]
+	if math.Abs(denom) < 1e-8 {
+		return 0, false
+	}
+	constY := x.inv[3]*(wx-x.t.X) + x.inv[5]*(wz-x.t.Z)
+	return x.t.Y + (targetY-constY)/denom, true
+}
+
 // Translation returns the transform's world-space translation (zero for nil).
 func (x *Transform) Translation() vec.V {
 	if x == nil {
@@ -196,6 +211,14 @@ func (x *Transform) GPUData() (r0, r1, r2, t vec.V) {
 		vec.V{X: x.inv[3], Y: x.inv[4], Z: x.inv[5]},
 		vec.V{X: x.inv[6], Y: x.inv[7], Z: x.inv[8]},
 		x.t
+}
+
+// ToLocalDir maps a world-space direction into local space (no translation).
+func (x *Transform) ToLocalDir(d vec.V) vec.V {
+	if x == nil {
+		return d
+	}
+	return x.inv.mul(d)
 }
 
 // RotateDir maps a direction vector from local to world space (no translation).

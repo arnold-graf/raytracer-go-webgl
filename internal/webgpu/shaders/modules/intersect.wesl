@@ -221,6 +221,9 @@ fn hit_cone(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
     let ybase = p.geo_a.w;
     let ytip = p.geo_b.x;
     let h = ytip - ybase;
+    if (h <= 0.0) {
+        return T_MISS;
+    }
     let k = rbase / h;
     let ey = ro.y - ytip;
     let dx = rd.x;
@@ -231,34 +234,37 @@ fn hit_cone(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
     let a = dx * dx + dz * dz - dy * dy * k * k;
     let b = ox * dx + oz * dz - ey * dy * k * k;
     let cc = ox * ox + oz * oz - ey * ey * k * k;
+
+    var best = T_MISS;
     let disc = b * b - a * cc;
-    if (disc < 0.0) {
-        return T_MISS;
+    if (disc >= 0.0 && abs(a) > 1e-12) {
+        let sq = sqrt(disc);
+        let t0 = (-b - sq) / a;
+        let hy0 = ro.y + dy * t0;
+        if (t0 >= RAY_EPSILON && hy0 >= ybase && hy0 <= ytip) {
+            best = t0;
+        }
+        let t1 = (-b + sq) / a;
+        let hy1 = ro.y + dy * t1;
+        if (t1 >= RAY_EPSILON && hy1 >= ybase && hy1 <= ytip && t1 < best) {
+            best = t1;
+        }
     }
-    let sq = sqrt(disc);
-    var t = (-b - sq) / a;
-    let hy = ro.y + dy * t;
-    if (t < RAY_EPSILON || hy < ybase || hy > ytip) {
-        t = (-b + sq) / a;
-        let hy2 = ro.y + dy * t;
-        if (t < RAY_EPSILON || hy2 < ybase || hy2 > ytip) {
-            if (abs(dy) < 1e-6) {
-                return T_MISS;
-            }
-            let tc = (ybase - ro.y) / dy;
-            if (tc < RAY_EPSILON) {
-                return T_MISS;
-            }
+
+    // Base disk cap — always considered so the nearer of side vs cap wins
+    // (entering through the flat base must not pick a farther side exit).
+    if (abs(dy) > 1e-6) {
+        let tc = (ybase - ro.y) / dy;
+        if (tc >= RAY_EPSILON && tc < best) {
             let hx = ro.x + dx * tc;
             let hz = ro.z + dz * tc;
             let dd = (hx - cx) * (hx - cx) + (hz - cz) * (hz - cz);
             if (dd <= rbase * rbase) {
-                return tc;
+                best = tc;
             }
-            return T_MISS;
         }
     }
-    return t;
+    return best;
 }
 
 fn torus_poly(a4: f32, a3: f32, a2: f32, a1: f32, a0: f32, t: f32) -> f32 {
@@ -533,6 +539,9 @@ fn slab_hit(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, inv: vec3<f32>, t_m
     let tf = min(min(t2, t4), t6);
     return !(tf < tn || tf < RAY_EPSILON || tn > t_max);
 }
+
+
+
 
 
 

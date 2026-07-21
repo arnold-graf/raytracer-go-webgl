@@ -3,11 +3,11 @@
 // evaluates point lights and flickering campfires, samples baked ambient
 // occlusion, and assembles direct diffuse lighting (shade_diffuse).
 
-import package::types::{CampfireParams, LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_SKIP_EPS, ao_volume, blocker_plane_idx, campfires, holes, lights, params, terrains};
+import package::types::{CampfireParams, LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_SKIP_EPS, ao_volume, blocker_plane_idx, campfires, holes, lights, params, terrains};
 import package::profile::{PROF_SHADOW_BLOCK, PROF_SHADOW_RAYS, prof_inc};
 import package::math::{mix3, perlin, smoothstepf};
 import package::texture::{texture_eval};
-import package::intersect::{intersect_blocker};
+import package::intersect::{intersect_blocker, xf_to_world_normal};
 import package::terrain::{hit_terrain, terrain_shadow_skip};
 import package::bvh::{blocker_bvh_any_hit};
 
@@ -97,14 +97,30 @@ fn cylinder_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     return normalize(vec3<f32>(dx, -ry * alpha, dz));
 }
 
-fn cone_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
+fn cone_cap_normal_world(p: Prim, ro: vec3<f32>, hp: vec3<f32>) -> vec3<f32> {
+    var plane_out = vec3<f32>(0.0, -1.0, 0.0);
+    if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
+        plane_out = normalize(xf_to_world_normal(p, plane_out));
+    }
+    let to_hit = hp - ro;
+    if (dot(to_hit, plane_out) < 0.0) {
+        return plane_out;
+    }
+    return -plane_out;
+}
+
+fn cone_normal(p: Prim, hp: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
     let cx = p.geo_a.x;
     let cz = p.geo_a.y;
     let rbase = p.geo_a.z;
     let ybase = p.geo_a.w;
     let ytip = p.geo_b.x;
     if (abs(hp.y - ybase) < 0.01) {
-        return vec3<f32>(0.0, -1.0, 0.0);
+        // Untransformed cones only; transformed caps use cone_cap_normal_world.
+        if (rd.y > 0.0) {
+            return vec3<f32>(0.0, -1.0, 0.0);
+        }
+        return vec3<f32>(0.0, 1.0, 0.0);
     }
     let k = rbase / (ytip - ybase);
     let lx = hp.x - cx;
@@ -178,7 +194,7 @@ fn lens_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(0.0, 1.0, 0.0);
 }
 
-fn normal_at(p: Prim, hp: vec3<f32>) -> vec3<f32> {
+fn normal_at(p: Prim, hp: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
     let kind = p.info.x;
     if (kind == PRIM_SPHERE) {
         return normalize(hp - p.geo_a.xyz);
@@ -193,7 +209,7 @@ fn normal_at(p: Prim, hp: vec3<f32>) -> vec3<f32> {
         return cylinder_normal(p, hp);
     }
     if (kind == PRIM_CONE) {
-        return cone_normal(p, hp);
+        return cone_normal(p, hp, rd);
     }
     if (kind == PRIM_RING) {
         return ring_normal(p, hp);
@@ -472,6 +488,9 @@ fn terrain_albedo(i: u32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     }
     return c;
 }
+
+
+
 
 
 

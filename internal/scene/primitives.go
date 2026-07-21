@@ -616,9 +616,88 @@ func (c *Cone) WorldBounds() (vec.V, vec.V) {
 		vec.V{X: c.CX + c.RBase, Y: c.YTip, Z: c.CZ + c.RBase})
 }
 
+// minConeCapUpY is the minimum world-space Y component of a cone base cap's
+// upward normal for the cap to count as walkable (≈60° max slope).
+const minConeCapUpY = 0.5
+
+// capUpNormal returns the world-space upward normal of the cone's base cap
+// (the side you stand on when the cap is walkable).
+func (c *Cone) capUpNormal() vec.V {
+	n := vec.V{Y: 1}
+	if c.Xform != nil {
+		n = c.Xform.WorldNormal(n)
+	}
+	return n
+}
+
+// worldYOnBaseCap returns the world Y of the base cap under (wx,wz), or ok=false
+// when the column misses the cap disk or the cap is too steep to walk on.
+func (c *Cone) worldYOnBaseCap(wx, wz float64) (wy float64, ok bool) {
+	h := c.YTip - c.YBase
+	if h <= 0 || c.RBase <= 0 {
+		return 0, false
+	}
+	if c.capUpNormal().Y < minConeCapUpY && c.capUpNormal().Y > -minConeCapUpY {
+		return 0, false
+	}
+	if c.Xform == nil {
+		dx, dz := wx-c.CX, wz-c.CZ
+		if dx*dx+dz*dz > c.RBase*c.RBase {
+			return 0, false
+		}
+		return c.YBase, true
+	}
+	wy, ok = c.Xform.WorldYForLocalY(wx, wz, c.YBase)
+	if !ok {
+		return 0, false
+	}
+	lp := c.Xform.ToLocal(vec.V{X: wx, Y: wy, Z: wz})
+	if math.Abs(lp.Y-c.YBase) > 0.05 {
+		return 0, false
+	}
+	dx, dz := lp.X-c.CX, lp.Z-c.CZ
+	if dx*dx+dz*dz > c.RBase*c.RBase {
+		return 0, false
+	}
+	return wy, true
+}
+
+// capGroundHeight returns the walkable height of the base cap at (wx,wz) when it
+// lies at or below headY.
+func (c *Cone) capGroundHeight(wx, wz, headY float64) (float64, bool) {
+	wy, ok := c.worldYOnBaseCap(wx, wz)
+	if !ok || wy > headY {
+		return 0, false
+	}
+	return wy, true
+}
+
+func (c *Cone) onCapDisk(wx, wz, worldY, playerR float64) bool {
+	p := vec.V{X: wx, Y: worldY, Z: wz}
+	if c.Xform != nil {
+		p = c.Xform.ToLocal(p)
+	}
+	if math.Abs(p.Y-c.YBase) > 0.05 {
+		return false
+	}
+	rr := c.RBase - playerR
+	if rr < 0 {
+		rr = 0
+	}
+	dx, dz := p.X-c.CX, p.Z-c.CZ
+	return dx*dx+dz*dz <= rr*rr+1e-6
+}
+
 // blocksColumn reports whether a player footprint at world (wx,wz) intersects
-// the cone's volume within [bandLo,bandHi].
+// the cone's volume within [bandLo,bandHi]. bandLo is walkTop (feet+step) in
+// Blocked queries. The base cap disk is walkable and does not block; the sloped
+// sides and interior still do.
 func (c *Cone) blocksColumn(wx, wz, bandLo, bandHi, playerR float64) bool {
+	capY, onCap := c.worldYOnBaseCap(wx, wz)
+	if onCap && c.onCapDisk(wx, wz, capY, playerR) && bandLo <= capY+0.55 {
+		// Feet are on the cap; the capsule may extend into the cone interior above.
+		return false
+	}
 	for _, wy := range []float64{bandLo, bandHi, (bandLo + bandHi) * 0.5} {
 		p := vec.V{X: wx, Y: wy, Z: wz}
 		if c.Xform != nil {
@@ -626,6 +705,12 @@ func (c *Cone) blocksColumn(wx, wz, bandLo, bandHi, playerR float64) bool {
 		}
 		if p.Y < c.YBase || p.Y > c.YTip {
 			continue
+		}
+		if math.Abs(p.Y-c.YBase) < 0.01 {
+			dx, dz := p.X-c.CX, p.Z-c.CZ
+			if dx*dx+dz*dz <= c.RBase*c.RBase {
+				continue
+			}
 		}
 		rr := c.radiusAt(p.Y) + playerR
 		dx, dz := p.X-c.CX, p.Z-c.CZ
@@ -639,6 +724,9 @@ func (c *Cone) blocksColumn(wx, wz, bandLo, bandHi, playerR float64) bool {
 // Intersect returns the nearest positive hit distance, or Inf on a miss.
 func (c *Cone) Intersect(r vec.Ray) float64 {
 	h := c.YTip - c.YBase
+	if h <= 0 {
+		return Inf
+	}
 	k := c.RBase / h // radius per unit height below the tip
 	ey := r.Origin.Y - c.YTip
 	dx, dy, dz := r.Dir.X, r.Dir.Y, r.Dir.Z
@@ -646,42 +734,65 @@ func (c *Cone) Intersect(r vec.Ray) float64 {
 	a := dx*dx + dz*dz - dy*dy*k*k
 	b := ox*dx + oz*dz - ey*dy*k*k
 	cc := ox*ox + oz*oz - ey*ey*k*k
+
+	best := Inf
 	disc := b*b - a*cc
-	if disc < 0 {
-		return Inf
+	if disc >= 0 && math.Abs(a) > 1e-12 {
+		sq := math.Sqrt(disc)
+		for _, t := range []float64{(-b - sq) / a, (-b + sq) / a} {
+			if t < eps {
+				continue
+			}
+			hy := r.Origin.Y + dy*t
+			if hy >= c.YBase && hy <= c.YTip && t < best {
+				best = t
+			}
+		}
 	}
-	sq := math.Sqrt(disc)
-	t := (-b - sq) / a
-	hy := r.Origin.Y + dy*t
-	if t < eps || hy < c.YBase || hy > c.YTip {
-		t = (-b + sq) / a
-		hy2 := r.Origin.Y + dy*t
-		if t < eps || hy2 < c.YBase || hy2 > c.YTip {
-			// Fall back to the base disk cap.
-			if math.Abs(dy) < 1e-6 {
-				return Inf
-			}
-			tc := (c.YBase - r.Origin.Y) / dy
-			if tc < eps {
-				return Inf
-			}
+
+	// Base disk cap — always considered so rays that enter through the open
+	// tip or hit the flat base are not swallowed by a farther side hit.
+	if math.Abs(dy) > 1e-6 {
+		tc := (c.YBase - r.Origin.Y) / dy
+		if tc >= eps && tc < best {
 			hx := r.Origin.X + dx*tc
 			hz := r.Origin.Z + dz*tc
 			dd := (hx-c.CX)*(hx-c.CX) + (hz-c.CZ)*(hz-c.CZ)
 			if dd <= c.RBase*c.RBase {
-				return tc
+				best = tc
 			}
-			return Inf
 		}
 	}
-	return t
+	return best
+}
+
+// CapNormalWorld returns a shading normal for the base cap disk that faces the
+// ray origin, using world-space traversal so rotated cones shade correctly.
+func (c *Cone) CapNormalWorld(ro, hp vec.V) vec.V {
+	outward := vec.V{Y: -1}
+	if c.Xform != nil {
+		outward = c.Xform.WorldNormal(outward)
+	}
+	toHit := hp.Sub(ro)
+	if toHit.Dot(outward) < 0 {
+		return outward
+	}
+	return outward.Neg()
 }
 
 // Normal returns the outward unit normal at surface point p for hit distance t.
 func (c *Cone) Normal(p vec.V, r vec.Ray, t float64) vec.V {
 	hy := r.Origin.Y + r.Dir.Y*t
 	if math.Abs(hy-c.YBase) < 0.01 {
-		return vec.V{Y: -1}
+		if c.Xform != nil {
+			hp := c.Xform.ToWorld(p)
+			ro := c.Xform.ToWorld(r.Origin)
+			return c.Xform.ToLocalDir(c.CapNormalWorld(ro, hp))
+		}
+		if r.Dir.Y > 0 {
+			return vec.V{Y: -1}
+		}
+		return vec.V{Y: 1}
 	}
 	h := c.YTip - c.YBase
 	k := c.RBase / h

@@ -92,6 +92,12 @@ func (s *Scene) groundHeight(x, z, headY float64, skipBox func(int) bool) float6
 		}
 	}
 
+	for i := range s.Cones {
+		if h, ok := s.Cones[i].capGroundHeight(x, z, headY); ok && h > g {
+			g = h
+		}
+	}
+
 	if math.IsInf(g, -1) {
 		return 0
 	}

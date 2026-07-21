@@ -3,16 +3,16 @@
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
-import package::types::{HIT_NO_INSTANCE, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_FLAG_TRANSFORMED, SURFACE_EPSILON, params, pixels, prims, waters};
+import package::types::{HIT_NO_INSTANCE, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_TRANSFORMED, SURFACE_EPSILON, params, pixels, prims, waters};
 import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc};
 import package::math::{clamp01};
 import package::texture::{plane_albedo, texture_eval, texture_eval_box};
 import package::sky::{sky};
-import package::intersect::{xf_to_local_point, xf_to_world_normal};
+import package::intersect::{xf_to_local_dir, xf_to_local_point, xf_to_world_normal};
 import package::terrain::{terrain_normal, water_normal};
 import package::instance::{inst_local_point, inst_world_normal};
 import package::bvh::{nearest_hit};
-import package::shade::{jitter_dir, normal_at, shade_diffuse, terrain_albedo};
+import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, shade_diffuse, terrain_albedo};
 
 fn tonemap_channel(x: f32) -> f32 {
     return clamp01((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14));
@@ -125,9 +125,21 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
             }
             var tex_p = tpl_hp;
             var tex_n = n;
+            var lrd = rd;
             if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
-                let lhp = xf_to_local_point(p, tpl_hp);
-                tex_n = normal_at(p, lhp);
+                lrd = xf_to_local_dir(p, rd);
+            }
+            var lhp = tpl_hp;
+            if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
+                lhp = xf_to_local_point(p, tpl_hp);
+            }
+            let cone_cap = p.info.x == PRIM_CONE && abs(lhp.y - p.geo_a.w) < 0.02;
+            if (cone_cap) {
+                n = cone_cap_normal_world(p, ro, hp);
+                tex_n = normal_at(p, lhp, lrd);
+                tex_p = lhp;
+            } else if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
+                tex_n = normal_at(p, lhp, lrd);
                 var ln = xf_to_world_normal(p, tex_n);
                 if (hit.inst_idx != HIT_NO_INSTANCE) {
                     ln = inst_world_normal(hit.inst_idx, ln);
@@ -135,7 +147,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
                 n = normalize(ln);
                 tex_p = lhp;
             } else {
-                tex_n = normal_at(p, tpl_hp);
+                tex_n = normal_at(p, tpl_hp, lrd);
                 n = tex_n;
                 if (hit.inst_idx != HIT_NO_INSTANCE) {
                     n = inst_world_normal(hit.inst_idx, n);
@@ -318,6 +330,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Host reads little-endian bytes as RGBA.
     pixels[gid.y * params.width + gid.x] = r | (g << 8u) | (b << 16u) | (a << 24u);
 }
+
+
+
 
 
 

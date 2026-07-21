@@ -22,9 +22,9 @@ sun_color = [1.40, 0.55, 0.22]
 
 # Sun in a low position in the east
 [[light]]
-pos = [-0.35, 50, -50]
+pos = [-0.35, 100, -50]
 color = [1.4, 0.55, 0.22]
-brightness = 10.0
+brightness = 200
 range = 0
 
 # ----------------------------------------------------------------- player ----
@@ -67,14 +67,42 @@ rotate_y = 180
 at = [0.0, 18.0, 0.0]
 
 [[cone]]
-material = "glass"
+material = "diffuse"
 cx = 30.0
 cz = 30.0
 cy = 20
-ybase = 18.0
-ytip = 18.0
+ybase = 12.0
+ytip = 15.0
 rbase = 10.0
 rtip = 10.0
+rotate_z = 180
 albedo = [0.3, 0.3, 0.3]
 reflect = 0.5
+rough = 0.0
+
+
+[[cone]]
+material = "diffuse"
+cx = 35.0
+cz = 35.0
+cy = 50
+ybase = 16.0
+ytip = 18.0
+rbase = 5.0
+rtip = 5.0
+rotate_z = 180
+albedo = [0.3, 0.3, 0.3]
+reflect = 0.5
+rough = 0.0
+
+[[box]]
+material = "diffuse"
+pos_x = 35.0
+pos_y = 20.0
+pos_z = 35.0
+width = 5.0
+height = 0.5
+depth = 5.0
+albedo = [0.3, 0.3, 0.3]
+reflect = 0.2
 rough = 0.0

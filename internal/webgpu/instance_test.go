@@ -271,22 +271,33 @@ func hitGPUCone(p GPUPrimitive, ro, rd vec.V) float64 {
 	a := rd.X*rd.X + rd.Z*rd.Z - rd.Y*rd.Y*k*k
 	b := ox*rd.X + oz*rd.Z - ey*rd.Y*k*k
 	cc := ox*ox + oz*oz - ey*ey*k*k
+
+	best := gpuTMiss
 	disc := b*b - a*cc
-	if disc < 0 {
-		return gpuTMiss
+	if disc >= 0 && math.Abs(a) > 1e-12 {
+		sq := math.Sqrt(disc)
+		for _, t := range []float64{(-b - sq) / a, (-b + sq) / a} {
+			if t < gpuRayEps {
+				continue
+			}
+			hy := ro.Y + rd.Y*t
+			if hy >= yb && hy <= yt && t < best {
+				best = t
+			}
+		}
 	}
-	sq := math.Sqrt(disc)
-	t := (-b - sq) / a
-	hy := ro.Y + rd.Y*t
-	if t >= gpuRayEps && hy >= yb && hy <= yt {
-		return t
+	if math.Abs(rd.Y) > 1e-6 {
+		tc := (yb - ro.Y) / rd.Y
+		if tc >= gpuRayEps && tc < best {
+			hx := ro.X + rd.X*tc
+			hz := ro.Z + rd.Z*tc
+			dd := (hx-cx)*(hx-cx) + (hz-cz)*(hz-cz)
+			if dd <= rb*rb {
+				best = tc
+			}
+		}
 	}
-	t = (-b + sq) / a
-	hy = ro.Y + rd.Y*t
-	if t >= gpuRayEps && hy >= yb && hy <= yt {
-		return t
-	}
-	return gpuTMiss
+	return best
 }
 
 func gpuSlabHit(nmin, nmax, ro, rd vec.V, tMax float64) bool {

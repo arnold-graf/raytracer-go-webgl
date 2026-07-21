@@ -257,6 +257,69 @@ func TestBlockedHonorsConeTransform(t *testing.T) {
 	}
 }
 
+func TestGroundHeightConeBaseCap(t *testing.T) {
+	s := &Scene{Cones: []Cone{{
+		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10,
+	}}}
+	if g := s.GroundHeight(30, 30, 20); math.Abs(g-12) > 1e-9 {
+		t.Fatalf("cap center = %v, want 12", g)
+	}
+	if g := s.GroundHeight(39, 30, 20); math.Abs(g-12) > 1e-9 {
+		t.Fatalf("on cap disk = %v, want 12", g)
+	}
+	if g := s.GroundHeight(41, 30, 20); g > 11.5 {
+		t.Fatalf("outside cap disk = %v, want below cap", g)
+	}
+}
+
+func TestStandingOnConeCapNotBlocked(t *testing.T) {
+	s := &Scene{Cones: []Cone{{
+		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10,
+	}}}
+	feetY, headY, r, step := 12.0, 13.6, 0.3, 0.45
+	if s.Blocked(30, 30, feetY, headY, r, step) {
+		t.Fatal("standing on cone cap should not block")
+	}
+}
+
+func TestConeInteriorBlocksAboveCap(t *testing.T) {
+	s := &Scene{Cones: []Cone{{
+		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10,
+	}}}
+	feetY, headY, r, step := 13.0, 14.6, 0.3, 0.45
+	if !s.Blocked(34, 30, feetY, headY, r, step) {
+		t.Fatal("cone interior should block above the cap")
+	}
+}
+
+func TestGroundHeightInvertedConeCap(t *testing.T) {
+	center := vec.New(30, (12+15)/2, 30)
+	xf := PlacementTransform(180, 0, 0, center, center)
+	s := &Scene{Cones: []Cone{{
+		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10,
+		Surface: Surface{Xform: xf},
+	}}}
+	if g := s.GroundHeight(30, 30, 20); math.Abs(g-14) > 0.05 {
+		t.Fatalf("inverted cap = %v, want ~14", g)
+	}
+}
+
+func TestGroundHeightConeCapWithRotateZ(t *testing.T) {
+	center := vec.New(30, (12+15)/2, 30)
+	xf := PlacementTransform(0, 0, 180, center, center)
+	s := &Scene{Cones: []Cone{{
+		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10,
+		Surface: Surface{Xform: xf},
+	}}}
+	// rotate_z=180 about the cone midpoint flips base and tip in world Y.
+	if g := s.GroundHeight(30, 30, 20); math.Abs(g-14) > 0.05 {
+		t.Fatalf("rotate_z cap = %v, want ~14", g)
+	}
+	if s.Blocked(30, 30, 14, 15.6, 0.3, 0.45) {
+		t.Fatal("rotate_z should not block on inverted cap")
+	}
+}
+
 func TestGroundHeightStaticIgnoresDynamicBoxes(t *testing.T) {
 	s := &Scene{
 		Boxes: []Box{
