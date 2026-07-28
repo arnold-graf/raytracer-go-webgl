@@ -205,3 +205,12 @@ jitter = 0.4
 flicker = 0.45
 speed = 1.0
 lights = 3
+
+[[npc]]
+rig = "data/rigs/spider.yaml"
+at = [0.0, 5, 5]
+yaw = 0
+speed = 5
+patrol = [[0, 0, 5], [0, 0, 40]]
+
+

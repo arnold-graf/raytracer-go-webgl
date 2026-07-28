@@ -4,54 +4,90 @@ import (
 	"math"
 
 	"raytracer/internal/scene"
+	"raytracer/internal/vec"
 )
-
-// minKneeBendDeg keeps a slight knee flex during locomotion (real gait rarely
-// locks the leg fully straight).
-const minKneeBendDeg = 18.0
 
 // ComputeLocomotionPose builds a full skeleton pose with IK legs and swaying
 // upper body for the current locomotor state.
 func ComputeLocomotionPose(rig *Rig, loc *Locomotor, poseName string, world FootWorld) SkeletonPose {
 	hips := loc.HipPos
 
-	if loc.Speed < 0.05 && world == nil {
+	if loc.Speed < 0.05 {
 		return rig.ComputeFK(poseName, hips, loc.Heading)
+	}
+
+	legs := rig.LegDefs()
+	if len(legs) == 0 || world == nil {
+		return rig.ComputeFK(poseName, hips, loc.Heading)
+	}
+
+	if rig.isMultiped() {
+		pose := rig.computeMultipedBodyPose(poseName, loc, loc.Phase)
+		for i, leg := range legs {
+			loc.ensureFeet(len(legs))
+			applyTripodLegIK(rig, &pose, leg, &loc.Feet[i], loc.Heading)
+		}
+		return pose
 	}
 
 	upperPose := poseName
-	if loc.Speed >= 0.05 {
-		if _, ok := rig.Poses["walk"]; ok {
-			upperPose = "walk"
-		}
+	if _, ok := rig.Poses["walk"]; ok {
+		upperPose = "walk"
 	}
-	phase := 0.0
-	if loc.Speed >= 0.05 {
-		phase = loc.Phase
-	}
+	phase := loc.Phase
 	pose := rig.computeUpperBodyPose(upperPose, loc, phase)
-	if world == nil {
-		return rig.ComputeFK(poseName, hips, loc.Heading)
-	}
-
-	applyLegIK(rig, &pose, "thigh_l", "shin_l", "foot_l", loc.Left, loc.Heading, 1, world)
-	applyLegIK(rig, &pose, "thigh_r", "shin_r", "foot_r", loc.Right, loc.Heading, -1, world)
+	loc.ensureFeet(len(legs))
+	applyLegIK(rig, &pose, "thigh_l", "shin_l", "foot_l", loc.Feet[0], loc.Heading, 1, world)
+	applyLegIK(rig, &pose, "thigh_r", "shin_r", "foot_r", loc.Feet[1], loc.Heading, -1, world)
 	return pose
+}
+
+func (r *Rig) hasBipedLegs() bool {
+	if r == nil {
+		return false
+	}
+	_, ok := r.Bones["thigh_l"]
+	return ok
+}
+
+func (r *Rig) computeMultipedBodyPose(poseName string, loc *Locomotor, phase float64) SkeletonPose {
+	skipLeg := r.legBoneSet()
+	gait := r.GaitForSpeed(loc.Speed)
+	bob := math.Sin(phase*2*math.Pi) * gait.Bob
+	hips := loc.HipPos.Add(vec.V{Y: bob})
+
+	out := SkeletonPose{Bones: make(map[string]*scene.Transform, len(r.BoneOrder))}
+	for _, name := range r.BoneOrder {
+		if skipLeg[name] {
+			continue
+		}
+		b := r.Bones[name]
+		angles := r.PoseAngles(poseName, name)
+		if b.Parent == "" {
+			out.Bones[name] = scene.NewRigidTransform(loc.BodyPitch, loc.Heading, loc.BodyRoll, hips)
+			continue
+		}
+		parent := out.Bones[b.Parent]
+		if parent == nil {
+			continue
+		}
+		jointLocal := r.JointLocal(name)
+		out.Bones[name] = parent.ChildAt(jointLocal, angles.Pitch, angles.Yaw, angles.Roll)
+	}
+	return out
 }
 
 func (r *Rig) computeUpperBodyPose(poseName string, loc *Locomotor, phase float64) SkeletonPose {
 	// Arm swing opposes leg stride (left arm back when left foot forward).
+	swayParams := r.Locomotion.UpperBody
 	stridePhase := math.Cos(phase * 2 * math.Pi)
-	swing := stridePhase * 12
+	swing := stridePhase * swayParams.ArmSwing
 	sway := math.Sin(phase * 2 * math.Pi)
 
-	skipLeg := map[string]bool{
-		"thigh_l": true, "shin_l": true, "foot_l": true,
-		"thigh_r": true, "shin_r": true, "foot_r": true,
-	}
+	skipLeg := r.legBoneSet()
 
 	hips := loc.HipPos
-	latSway := yawRight(loc.Heading).Scale(sway * 0.025)
+	latSway := yawRight(loc.Heading).Scale(sway * swayParams.LateralSway)
 	hips = hips.Add(latSway)
 
 	out := SkeletonPose{Bones: make(map[string]*scene.Transform, len(r.BoneOrder))}
@@ -63,15 +99,15 @@ func (r *Rig) computeUpperBodyPose(poseName string, loc *Locomotor, phase float6
 		angles := r.PoseAngles(poseName, name)
 		switch name {
 		case "spine":
-			angles.Pitch += sway * 1.5
-			angles.Roll += sway * 2
+			angles.Pitch += sway * swayParams.SpinePitch
+			angles.Roll += sway * swayParams.SpineRoll
 		case "upper_arm_l":
 			angles.Pitch += swing
 		case "upper_arm_r":
 			angles.Pitch -= swing
 		}
 		if b.Parent == "" {
-			out.Bones[name] = scene.NewRigidTransform(sway, loc.Heading, sway*1.5, hips)
+			out.Bones[name] = scene.NewRigidTransform(sway, loc.Heading, sway*swayParams.HipRoll, hips)
 			continue
 		}
 		parent := out.Bones[b.Parent]
@@ -93,6 +129,8 @@ func applyLegIK(rig *Rig, pose *SkeletonPose, thighName, shinName, footName stri
 	hipSocket := hips.ToWorld(rig.JointLocal(thighName))
 	thigh := rig.Bones[thighName]
 	shin := rig.Bones[shinName]
+	locParams := rig.Locomotion
+	knee := locParams.Knee
 
 	normal := footGroundNormal(foot, world)
 	soleDrop := footSoleBelowAnkle(rig, footName)
@@ -100,30 +138,30 @@ func applyLegIK(rig *Rig, pose *SkeletonPose, thighName, shinName, footName stri
 
 	fwd := yawForward(heading)
 	right := yawRight(heading)
-	pole := legIKPole(hipSocket, ankleTarget, fwd, right, sideSign, foot)
+	pole := legIKPole(locParams, hipSocket, ankleTarget, fwd, right, sideSign, foot)
 
-	minBend := minKneeBendDeg
+	minBend := knee.Stance
 	stepUp := footStepUp(foot.PlantWorld, foot.SwingTo)
 	if foot.Phase == FootSwing {
-		minBend = 28.0
-		if stepUp > stepUpMinHeight {
-			intensity := stepUpIntensity(stepUp, foot.PlantGroundY)
-			minBend = 32.0 + 12.0*intensity // 32°..44° depending on riser / ground context
+		minBend = knee.Swing
+		if stepUp > locParams.StepUpMinHeight {
+			intensity := stepUpIntensity(stepUp, foot.PlantGroundY, locParams)
+			minBend = knee.StepUpBase + knee.StepUpScale*intensity
 		} else if ankleTarget.Y >= hipSocket.Y-0.08 {
-			minBend = 32.0
+			minBend = knee.HighAnkle
 		}
 	} else if hipSocket.Y-ankleTarget.Y > 0.10 {
-		minBend = 22.0
+		minBend = knee.StanceDeep
 	}
 
 	res := SolveTwoBoneMinBend(hipSocket, ankleTarget, pole, thigh.Length, shin.Length, minBend)
 	if !res.OK {
 		return
 	}
-	fallbackBend := 18.0
-	if foot.Phase == FootSwing && stepUp > stepUpMinHeight {
-		intensity := stepUpIntensity(stepUp, foot.PlantGroundY)
-		fallbackBend = 24.0 + 10.0*intensity
+	fallbackBend := knee.FallbackStance
+	if foot.Phase == FootSwing && stepUp > locParams.StepUpMinHeight {
+		intensity := stepUpIntensity(stepUp, foot.PlantGroundY, locParams)
+		fallbackBend = knee.FallbackStepUpBase + knee.FallbackStepUpScale*intensity
 	}
 	if res.EndError(ankleTarget) > 0.015 {
 		if loose := SolveTwoBoneMinBend(hipSocket, ankleTarget, pole, thigh.Length, shin.Length, fallbackBend); loose.OK {

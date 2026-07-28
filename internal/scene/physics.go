@@ -11,13 +11,13 @@ import (
 // for the terrain plus the flat tops of axis-aligned boxes (floors, platforms,
 // foundations) the player is standing over. Implements camera.World.
 func (s *Scene) GroundHeight(x, z, headY float64) float64 {
-	return s.groundHeight(x, z, headY, nil)
+	return s.groundHeight(x, z, headY, nil, nil)
 }
 
 // GroundHeightStatic is like GroundHeight but ignores runtime NPC/dynamic body
-// boxes so characters do not stand on their own limb geometry.
+// geometry so characters do not stand on their own limb primitives.
 func (s *Scene) GroundHeightStatic(x, z, headY float64) float64 {
-	return s.groundHeight(x, z, headY, s.isDynamicBox)
+	return s.groundHeight(x, z, headY, s.isDynamicBox, s.isDynamicCylinder)
 }
 
 func (s *Scene) isDynamicBox(i int) bool {
@@ -54,7 +54,7 @@ func (s *Scene) isDoorGhostBox(i int) bool {
 	return s.doorGhost(i)
 }
 
-func (s *Scene) groundHeight(x, z, headY float64, skipBox func(int) bool) float64 {
+func (s *Scene) groundHeight(x, z, headY float64, skipBox, skipCylinder func(int) bool) float64 {
 	g := math.Inf(-1)
 
 	for i := range s.Terrains {
@@ -98,6 +98,15 @@ func (s *Scene) groundHeight(x, z, headY float64, skipBox func(int) bool) float6
 		}
 	}
 
+	for i := range s.Cylinders {
+		if skipCylinder != nil && skipCylinder(i) {
+			continue
+		}
+		if h, ok := s.Cylinders[i].capGroundHeight(x, z, headY); ok && h > g {
+			g = h
+		}
+	}
+
 	if math.IsInf(g, -1) {
 		return 0
 	}
@@ -107,20 +116,20 @@ func (s *Scene) groundHeight(x, z, headY float64, skipBox func(int) bool) float6
 // GroundNormal returns an upward-pointing surface normal at (x,z) estimated by
 // finite differences on GroundHeight. headY caps ceiling/overhang selection.
 func (s *Scene) GroundNormal(x, z, headY float64) vec.V {
-	return s.groundNormal(x, z, headY, nil)
+	return s.groundNormal(x, z, headY, nil, nil)
 }
 
-// GroundNormalStatic is like GroundNormal but ignores dynamic body boxes.
+// GroundNormalStatic is like GroundNormal but ignores dynamic body geometry.
 func (s *Scene) GroundNormalStatic(x, z, headY float64) vec.V {
-	return s.groundNormal(x, z, headY, s.isDynamicBox)
+	return s.groundNormal(x, z, headY, s.isDynamicBox, s.isDynamicCylinder)
 }
 
-func (s *Scene) groundNormal(x, z, headY float64, skipBox func(int) bool) vec.V {
+func (s *Scene) groundNormal(x, z, headY float64, skipBox, skipCylinder func(int) bool) vec.V {
 	const eps = 0.08
-	hL := s.groundHeight(x-eps, z, headY, skipBox)
-	hR := s.groundHeight(x+eps, z, headY, skipBox)
-	hN := s.groundHeight(x, z-eps, headY, skipBox)
-	hS := s.groundHeight(x, z+eps, headY, skipBox)
+	hL := s.groundHeight(x-eps, z, headY, skipBox, skipCylinder)
+	hR := s.groundHeight(x+eps, z, headY, skipBox, skipCylinder)
+	hN := s.groundHeight(x, z-eps, headY, skipBox, skipCylinder)
+	hS := s.groundHeight(x, z+eps, headY, skipBox, skipCylinder)
 	n := vec.V{hL - hR, 2 * eps, hN - hS}
 	if n.LenSq() < 1e-12 {
 		return vec.V{Y: 1}

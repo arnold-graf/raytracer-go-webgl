@@ -7,6 +7,7 @@ import (
 )
 
 func TestStanceSubPhase(t *testing.T) {
+	roll := DefaultLocomotionParams().FootRoll
 	cases := []struct {
 		t    float64
 		want FootPhase
@@ -18,26 +19,27 @@ func TestStanceSubPhase(t *testing.T) {
 		{0.95, FootToeOff},
 	}
 	for _, c := range cases {
-		if got := stanceSubPhase(c.t); got != c.want {
+		if got := stanceSubPhase(c.t, roll); got != c.want {
 			t.Fatalf("stanceSubPhase(%v) = %v, want %v", c.t, got, c.want)
 		}
 	}
 }
 
 func TestFootRollDeg(t *testing.T) {
-	if r := footRollDeg(FootSwing, 0); r <= 0 {
+	roll := DefaultLocomotionParams().FootRoll
+	if r := footRollDeg(FootSwing, 0, roll); r <= 0 {
 		t.Fatalf("swing roll should be positive (toe up), got %v", r)
 	}
-	if r := footRollDeg(FootHeelStrike, 0); r <= 0 {
+	if r := footRollDeg(FootHeelStrike, 0, roll); r <= 0 {
 		t.Fatalf("heel strike start should be positive, got %v", r)
 	}
-	if r := footRollDeg(FootHeelStrike, 0.15); r > 1 {
+	if r := footRollDeg(FootHeelStrike, 0.15, roll); r > 1 {
 		t.Fatalf("heel strike end should flatten, got %v", r)
 	}
-	if r := footRollDeg(FootMidStance, 0.5); r != 0 {
+	if r := footRollDeg(FootMidStance, 0.5, roll); r != 0 {
 		t.Fatalf("mid stance roll = %v, want 0", r)
 	}
-	if r := footRollDeg(FootToeOff, 1); r >= 0 {
+	if r := footRollDeg(FootToeOff, 1, roll); r >= 0 {
 		t.Fatalf("toe off end should be negative, got %v", r)
 	}
 }

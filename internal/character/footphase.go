@@ -25,14 +25,11 @@ func (p FootPhase) String() string {
 	}
 }
 
-// swingFraction is the walk-cycle portion spent in swing (rest is stance).
-const swingFraction = 0.38
-
-func stanceSubPhase(stanceT float64) FootPhase {
+func stanceSubPhase(stanceT float64, roll FootRollParams) FootPhase {
 	switch {
-	case stanceT < 0.15:
+	case stanceT < roll.HeelStrikeEnd:
 		return FootHeelStrike
-	case stanceT > 0.82:
+	case stanceT > roll.ToeOffStart:
 		return FootToeOff
 	default:
 		return FootMidStance
@@ -40,20 +37,20 @@ func stanceSubPhase(stanceT float64) FootPhase {
 }
 
 // footRollDeg returns ankle pitch (degrees) for toe-up (+) / toe-down (−) roll.
-func footRollDeg(phase FootPhase, stanceT float64) float64 {
-	const maxRoll = 26.0
+func footRollDeg(phase FootPhase, stanceT float64, roll FootRollParams) float64 {
+	maxRoll := roll.MaxDeg
 	switch phase {
 	case FootSwing:
 		// Toe slightly raised during swing.
-		return maxRoll * 0.12
+		return maxRoll * roll.SwingScale
 	case FootHeelStrike:
-		u := clamp01(stanceT / 0.15)
+		u := clamp01(stanceT / roll.HeelStrikeEnd)
 		return maxRoll * (1 - u)
 	case FootMidStance:
 		return 0
 	case FootToeOff:
-		u := clamp01((stanceT - 0.82) / 0.18)
-		return -maxRoll * 0.55 * u
+		u := clamp01((stanceT - roll.ToeOffStart) / (1 - roll.ToeOffStart))
+		return -maxRoll * roll.ToeOffScale * u
 	default:
 		return 0
 	}

@@ -79,5 +79,12 @@ func (s *Scene) StepMaterialAt(x, z, headY float64) StepMaterial {
 		}
 	}
 
+	for i := range s.Cylinders {
+		if h, ok := s.Cylinders[i].capGroundHeight(x, z, headY); ok && h > bestY {
+			bestY = h
+			mat = stepMaterialForTexture(s.Cylinders[i].Tex)
+		}
+	}
+
 	return mat
 }

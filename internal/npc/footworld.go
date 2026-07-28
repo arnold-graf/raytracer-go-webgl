@@ -34,5 +34,8 @@ func footWorld(sc *scene.Scene) staticFootWorld {
 
 // FootWorld returns a FootWorld that ignores dynamic NPC geometry in the scene.
 func FootWorld(sc *scene.Scene) character.FootWorld {
-	return footWorld(sc)
+	if sc == nil {
+		return staticFootWorld{}
+	}
+	return character.SceneSpiderWorld{Sc: sc}
 }

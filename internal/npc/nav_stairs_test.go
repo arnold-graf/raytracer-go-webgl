@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"raytracer/internal/character"
 	"raytracer/internal/sceneio"
 	"raytracer/internal/vec"
 )
@@ -15,7 +16,7 @@ func TestFindPathCrossesStairsNotAround(t *testing.T) {
 	}
 	start := vec.V{X: -1, Z: 0}
 	goal := vec.V{X: 6.5, Z: 0}
-	path := FindPath(sc, start, goal, 0)
+	path := FindPath(sc, start, goal, 0, character.DefaultNavigationParams())
 	if len(path) < 2 {
 		t.Fatalf("path = %v, want polyline across scene", path)
 	}

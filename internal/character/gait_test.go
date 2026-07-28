@@ -9,13 +9,17 @@ import (
 )
 
 func TestGaitStateForSpeed(t *testing.T) {
-	if GaitStateForSpeed(0) != GaitIdle {
+	r, err := LoadRig(repoFile("data/rigs/humanoid.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.GaitStateForSpeed(0) != GaitIdle {
 		t.Fatal("zero speed should idle")
 	}
-	if GaitStateForSpeed(1.4) != GaitWalk {
+	if r.GaitStateForSpeed(1.4) != GaitWalk {
 		t.Fatal("walk speed")
 	}
-	if GaitStateForSpeed(4) != GaitRun {
+	if r.GaitStateForSpeed(4) != GaitRun {
 		t.Fatal("run speed")
 	}
 }
@@ -99,7 +103,7 @@ func TestLocomotionKneeBendsDuringStride(t *testing.T) {
 		}
 	}
 	// 2 = fully straight; 22° min bend caps flex around 1.93.
-	if maxFlex > 1+math.Cos(minKneeBendDeg*math.Pi/180)+0.02 {
+	if maxFlex > 1+math.Cos(r.Locomotion.Knee.Stance*math.Pi/180)+0.02 {
 		t.Fatalf("knee over-extended during walk, max flex=%v (2=straight)", maxFlex)
 	}
 }
@@ -127,6 +131,22 @@ type flatGround struct{}
 
 func (flatGround) GroundHeight(x, z, headY float64) float64 { return 0 }
 func (flatGround) GroundNormal(x, z, headY float64) vec.V    { return vec.V{Y: 1} }
+
+func (flatGround) CastRay(origin, dir vec.V, maxDist, headY float64) SurfaceHit {
+	if dir.LenSq() < 1e-18 {
+		return SurfaceHit{}
+	}
+	dir = dir.Normalize()
+	if math.Abs(dir.Y) < 1e-9 {
+		return SurfaceHit{}
+	}
+	t := -origin.Y / dir.Y
+	if t < 0 || t > maxDist {
+		return SurfaceHit{}
+	}
+	p := origin.Add(dir.Scale(t))
+	return SurfaceHit{Point: p, Normal: vec.V{Y: 1}, Hit: true, Dist: t}
+}
 
 func TestSceneGroundNormal(t *testing.T) {
 	sc := &scene.Scene{

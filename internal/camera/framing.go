@@ -2,6 +2,7 @@ package camera
 
 import (
 	"math"
+	"strings"
 
 	"raytracer/internal/scene"
 	"raytracer/internal/vec"
@@ -98,6 +99,31 @@ func previewGroundBox(omin, omax vec.V) bool {
 	return omin.Y < 0.15
 }
 
+// PreviewNamedDirection returns a unit vector from the subject toward the camera
+// for common inspection angles. ok is false when name is unknown.
+func PreviewNamedDirection(name string, elevRad float64) (vec.V, bool) {
+	ce := math.Cos(elevRad)
+	se := math.Sin(elevRad)
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "front":
+		return vec.V{X: 0, Y: se, Z: -ce}.Normalize(), true
+	case "back":
+		return vec.V{X: 0, Y: se, Z: ce}.Normalize(), true
+	case "right":
+		return vec.V{X: ce, Y: se, Z: 0}.Normalize(), true
+	case "left":
+		return vec.V{X: -ce, Y: se, Z: 0}.Normalize(), true
+	case "side":
+		return vec.V{X: ce, Y: se, Z: 0}.Normalize(), true
+	case "top":
+		return vec.V{Y: 1}, true
+	case "low", "ground":
+		return vec.V{X: 0, Y: -math.Max(se, 0.15), Z: -ce}.Normalize(), true
+	default:
+		return vec.V{}, false
+	}
+}
+
 // PreviewOrbitDirections returns unit vectors from the subject center toward the
 // camera. Index 0 is the front view (−Z toward a subject facing −Z).
 func PreviewOrbitDirections(n int, elevRad float64) []vec.V {
@@ -121,6 +147,11 @@ func PreviewOrbitDirections(n int, elevRad float64) []vec.V {
 // OrbitPose returns a camera pose on an orbit around bounds, looking at the
 // center and far enough back that the subject nearly fills the viewport.
 func OrbitPose(boundsMin, boundsMax vec.V, camDir vec.V, aspect float64) Pose {
+	return OrbitPoseZoom(boundsMin, boundsMax, camDir, aspect, 1)
+}
+
+// OrbitPoseZoom is OrbitPose with an optional distance multiplier (>1 pulls back).
+func OrbitPoseZoom(boundsMin, boundsMax vec.V, camDir vec.V, aspect, zoom float64) Pose {
 	center := boundsMin.Add(boundsMax).Scale(0.5)
 	camDir = camDir.Normalize()
 	look := camDir.Neg()
@@ -143,6 +174,9 @@ func OrbitPose(boundsMin, boundsMax vec.V, camDir vec.V, aspect float64) Pose {
 	distH := radius / math.Tan(previewViewFill*previewVFovRad/2)
 	distW := radius / math.Tan(previewViewFill*hFov/2)
 	dist := math.Max(distH, distW)
+	if zoom > 0 {
+		dist /= zoom
+	}
 	if dist < 0.12 {
 		dist = 0.12
 	}

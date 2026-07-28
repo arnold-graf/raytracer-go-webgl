@@ -1,0 +1,116 @@
+# Horse-sized spider NPC test scene — uneven terrain patrol.
+# Preview: go run ./cmd/preview -scene scenes/npc-spider-test.toml -view low -zoom 1.2 -views 1 -o tmp/spider
+
+[camera]
+pos = [0.0, 4.5, 18.0]
+yaw = 180.0
+pitch = -10.0
+
+[[plane]]
+normal = [0.0, 0.0, 1.0]
+d = -30.0
+material = "diffuse"
+albedo = [0.45, 0.42, 0.55]
+
+# --------------------------------------------------------------- terrain ----
+# 32×32 m patch under the patrol routes (±10 m). Rolling hills + fBm detail.
+
+[[terrain]]
+origin = [-16.0, -1.0, -16.0]
+size = [32.0, 32.0]
+base = 0.0
+detail = 0.62
+detail_scale = 0.20
+step = 0.22
+grass = "grass"
+rock = "stone"
+snow = "snow"
+slope_lo = 0.26
+slope_hi = 0.60
+snow_lo = 14.0
+snow_hi = 18.0
+
+  [[terrain.feature]]   # ridge across the north–south patrol (x ≈ 0)
+  kind = "peak"
+  pos = [0.0, 2.0]
+  height = 1.6
+  width = 16.0
+  steepness = 1.5
+  extend = [1.0, 3.5]
+
+  [[terrain.feature]]   # hill on the east–west patrol (z ≈ -10)
+  kind = "peak"
+  pos = [5.0, -10.0]
+  height = 1.4
+  width = 7.0
+  steepness = 1.9
+
+  [[terrain.feature]]   # dip between patrol legs
+  kind = "valley"
+  pos = [-4.0, 4.0]
+  height = 1.2
+  width = 9.0
+  steepness = 2.2
+
+  [[terrain.feature]]   # bump on diagonal route
+  kind = "peak"
+  pos = [3.0, 3.0]
+  height = 1.8
+  width = 5.5
+  steepness = 2.1
+
+  [[terrain.feature]]   # low saddle near spawn
+  kind = "valley"
+  pos = [0.0, -2.0]
+  height = 0.9
+  width = 11.0
+  steepness = 1.8
+  extend = [3.0, 1.0]
+
+  [[terrain.feature]]   # corner mound (diagonal patrol start)
+  kind = "peak"
+  pos = [-9.0, -9.0]
+  height = 1.3
+  width = 6.0
+  steepness = 1.7
+
+  [[terrain.feature]]   # far corner (diagonal patrol end)
+  kind = "peak"
+  pos = [10.0, 10.0]
+  height = 2.0
+  width = 6.5
+  steepness = 2.0
+
+[[light]]
+pos = [4.0, 8.0, 6.0]
+color = [3.0, 2.6, 2.0]
+radius = 0.6
+
+[[light]]
+pos = [-6.0, 6.0, -4.0]
+color = [1.4, 1.8, 3.2]
+radius = 0.5
+
+[[npc]]
+rig = "data/rigs/spider.yaml"
+pose = "idle"
+at = [0.0, 0.0, 0.0]
+yaw = 0
+speed = 5
+patrol = [[0, 0, -10], [0, 0, 10]]
+
+[[npc]]
+rig = "data/rigs/spider.yaml"
+pose = "idle"
+at = [0.0, 0.0, -10.0]
+yaw = 0
+speed = 5
+patrol = [[-10, 0, 0], [10, 0, 0]]
+
+[[npc]]
+rig = "data/rigs/spider.yaml"
+pose = "idle"
+at = [0.0, 0.0, -10.0]
+yaw = 0
+speed = 5
+patrol = [[-10, 0, -10], [10, 0, 10]]

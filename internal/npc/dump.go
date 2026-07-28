@@ -71,8 +71,15 @@ func WriteGaitReport(path string, recs []character.PoseRecord) error {
 func (m *Manager) collectPoseRecords(frame int, world character.FootWorld, recs *[]character.PoseRecord) {
 	for i := range m.agents {
 		a := &m.agents[i]
-		pose := character.ComputeLocomotionPose(a.Rig, &a.Locomotor, a.Pose, world)
-		*recs = append(*recs, character.BuildPoseRecord(frame, a.Name, a.Rig, &a.Locomotor, pose, world))
+		if a.Driver == nil {
+			continue
+		}
+		loc := a.Driver.Locomotor()
+		if loc == nil {
+			continue
+		}
+		pose := a.Driver.ComputePose(a.Rig, a.Pose, world)
+		*recs = append(*recs, character.BuildPoseRecord(frame, a.Name, a.Rig, loc, pose, world))
 	}
 }
 
@@ -102,8 +109,15 @@ func (m *Manager) DebugLines(world character.FootWorld) []character.DebugLine {
 	var out []character.DebugLine
 	for i := range m.agents {
 		a := &m.agents[i]
-		pose := character.ComputeLocomotionPose(a.Rig, &a.Locomotor, a.Pose, world)
-		out = append(out, character.DebugLines(a.Rig, &a.Locomotor, pose)...)
+		if a.Driver == nil {
+			continue
+		}
+		loc := a.Driver.Locomotor()
+		if loc == nil {
+			continue
+		}
+		pose := a.Driver.ComputePose(a.Rig, a.Pose, world)
+		out = append(out, character.DebugLines(a.Rig, loc, pose)...)
 	}
 	return out
 }

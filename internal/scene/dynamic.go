@@ -15,8 +15,9 @@ type NPCSpawn struct {
 	Yaw     float64
 	Speed   float64 // locomotion speed (m/s); 0 = idle
 	Heading float64 // walk direction (degrees); 0 uses Yaw
-	Patrol  []vec.V // closed-loop waypoints; Y is optional feet height hint (0 = auto)
-	Goal    *vec.V  // single target; Y is optional feet height hint (0 = auto)
+	Patrol       []vec.V // closed-loop waypoints; Y is optional feet height hint (0 = auto)
+	Goal         *vec.V  // single target; Y is optional feet height hint (0 = auto)
+	TargetRadius float64 // horizontal arrival radius for patrol/goal (0 = default 0.75 m, scaled up by rig size/speed)
 }
 
 // Placed returns sp transformed into world space by an include instance xf.

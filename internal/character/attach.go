@@ -27,9 +27,11 @@ func SpawnAttachments(rig *Rig, sc *scene.Scene) (SpawnedBody, error) {
 
 	for _, att := range rig.Attachments {
 		surf := scene.Surface{
-			Mat:    scene.MatDiffuse,
-			Albedo: att.Albedo,
-			IOR:    1.5,
+			Mat:     scene.MatDiffuse,
+			Albedo:  att.Albedo,
+			Reflect: att.Reflect,
+			Rough:   att.Rough,
+			IOR:     1.5,
 		}
 		switch att.Kind {
 		case "box":

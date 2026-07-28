@@ -47,8 +47,8 @@ func BuildPoseRecord(frame int, agent string, rig *Rig, loc *Locomotor, pose Ske
 		Heading: loc.Heading,
 		Speed:   loc.Speed,
 		Hip:     vec3Array(loc.HipPos),
-		Left:    footRecord(loc.Left),
-		Right:   footRecord(loc.Right),
+		Left:    footRecord(loc.Left, rig.Locomotion.FootRoll),
+		Right:   footRecord(loc.Right, rig.Locomotion.FootRoll),
 		Bones:   make(map[string][3]float64, len(rig.BoneOrder)),
 		Metrics: ComputeGaitMetrics(rig, loc, pose, world),
 	}
@@ -60,14 +60,14 @@ func BuildPoseRecord(frame int, agent string, rig *Rig, loc *Locomotor, pose Ske
 	return rec
 }
 
-func footRecord(f Foot) FootRecord {
+func footRecord(f Foot, roll FootRollParams) FootRecord {
 	return FootRecord{
 		World:   vec3Array(f.World),
 		Plant:   vec3Array(f.PlantWorld),
 		Phase:   f.Phase.String(),
 		StanceT: f.StanceT,
 		SwingT:  f.SwingT,
-		RollDeg: footRollDeg(f.Phase, f.StanceT),
+		RollDeg: footRollDeg(f.Phase, f.StanceT, roll),
 	}
 }
 

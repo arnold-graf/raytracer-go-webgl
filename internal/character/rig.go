@@ -16,8 +16,11 @@ type Rig struct {
 	Name        string
 	HipHeight   float64
 	AnkleHeight float64
+	Locomotion  LocomotionParams
+	Navigation  NavigationParams
 	Bones       map[string]Bone
 	BoneOrder   []string
+	Legs        []LegDef
 	Attachments []Attachment
 	Poses       map[string]map[string]JointAngles
 	Gaits       map[string]GaitParams
@@ -82,14 +85,19 @@ type Attachment struct {
 	Radius float64
 	Length float64
 	Offset vec.V
-	Albedo vec.V
+	Albedo  vec.V
+	Reflect float64
+	Rough   float64
 }
 
 type rigYAML struct {
 	Name        string                            `yaml:"name"`
 	HipHeight   float64                           `yaml:"hip_height"`
 	AnkleHeight float64                           `yaml:"ankle_height"`
+	Locomotion  locomotionYAML                    `yaml:"locomotion"`
+	Navigation  navigationYAML                    `yaml:"navigation"`
 	Bones       map[string]boneYAML               `yaml:"bones"`
+	Legs        []legYAML                         `yaml:"legs"`
 	Attachments []attachmentYAML                  `yaml:"attachments"`
 	Poses       map[string]map[string]JointAngles `yaml:"poses"`
 	Gaits       map[string]gaitYAML               `yaml:"gaits"`
@@ -118,7 +126,9 @@ type attachmentYAML struct {
 	Radius float64    `yaml:"radius"`
 	Length float64    `yaml:"length"`
 	Offset [3]float64 `yaml:"offset"`
-	Albedo [3]float64 `yaml:"albedo"`
+	Albedo  [3]float64 `yaml:"albedo"`
+	Reflect float64    `yaml:"reflect"`
+	Rough   float64    `yaml:"rough"`
 }
 
 // LoadRig reads a YAML rig definition from path.
@@ -146,10 +156,13 @@ func LoadRig(path string) (*Rig, error) {
 		ankle = 0.06
 	}
 
+	locomotion := loadLocomotionParams(raw.Locomotion)
 	r := &Rig{
 		Name:        raw.Name,
 		HipHeight:   hip,
 		AnkleHeight: ankle,
+		Locomotion:  locomotion,
+		Navigation:  loadNavigationParams(raw.Navigation, locomotion),
 		Bones:     make(map[string]Bone, len(raw.Bones)),
 		Poses:     raw.Poses,
 	}
@@ -177,6 +190,7 @@ func LoadRig(path string) (*Rig, error) {
 		return nil, fmt.Errorf("rig %q: %w", path, err)
 	}
 	r.BoneOrder = topoOrder(r.Bones)
+	r.Legs = loadLegDefs(raw.Legs, r.Bones)
 
 	for _, a := range raw.Attachments {
 		if _, ok := r.Bones[a.Bone]; !ok {
@@ -187,13 +201,15 @@ func LoadRig(path string) (*Rig, error) {
 			alb = vec.New(a.Albedo[0], a.Albedo[1], a.Albedo[2])
 		}
 		r.Attachments = append(r.Attachments, Attachment{
-			Bone:   a.Bone,
-			Kind:   a.Kind,
-			Size:   vec.New(a.Size[0], a.Size[1], a.Size[2]),
-			Radius: a.Radius,
-			Length: a.Length,
-			Offset: vec.New(a.Offset[0], a.Offset[1], a.Offset[2]),
-			Albedo: alb,
+			Bone:    a.Bone,
+			Kind:    a.Kind,
+			Size:    vec.New(a.Size[0], a.Size[1], a.Size[2]),
+			Radius:  a.Radius,
+			Length:  a.Length,
+			Offset:  vec.New(a.Offset[0], a.Offset[1], a.Offset[2]),
+			Albedo:  alb,
+			Reflect: a.Reflect,
+			Rough:   a.Rough,
 		})
 	}
 	return r, nil
@@ -286,9 +302,20 @@ func loadGaits(raw map[string]gaitYAML) map[string]GaitParams {
 	return out
 }
 
+// GaitStateForSpeed maps speed (m/s) to idle/walk/run for this rig.
+func (r *Rig) GaitStateForSpeed(speed float64) GaitState {
+	if speed < 0.05 {
+		return GaitIdle
+	}
+	if speed < r.Locomotion.RunSpeedThreshold {
+		return GaitWalk
+	}
+	return GaitRun
+}
+
 // GaitForSpeed picks walk or run parameters from agent speed.
 func (r *Rig) GaitForSpeed(speed float64) GaitParams {
-	if speed >= 3.5 {
+	if speed >= r.Locomotion.RunSpeedThreshold {
 		if g, ok := r.Gaits["run"]; ok {
 			return g
 		}

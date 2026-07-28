@@ -49,7 +49,7 @@ func TestManagerUpdateMovesAgent(t *testing.T) {
 	if err := m.Instantiate(sc, FootWorld(sc)); err != nil {
 		t.Fatal(err)
 	}
-	z0 := m.agents[0].Locomotor.HipPos.Z
+	z0 := m.agents[0].LocomotorState().HipPos.Z
 	gen0 := sc.Generation()
 	x0 := sc.TransformGeneration()
 	if !m.Update(sc, FootWorld(sc), 0.1) {
@@ -61,7 +61,7 @@ func TestManagerUpdateMovesAgent(t *testing.T) {
 	if sc.TransformGeneration() <= x0 {
 		t.Fatal("expected TransformGeneration bump after locomotion update")
 	}
-	if m.agents[0].Locomotor.HipPos.Z >= z0 {
+	if m.agents[0].LocomotorState().HipPos.Z >= z0 {
 		t.Fatalf("hip Z should decrease at heading 0, was %v", z0)
 	}
 }

@@ -2,6 +2,48 @@ name: humanoid
 hip_height: 0.80
 ankle_height: 0.06
 
+locomotion:
+  run_speed_threshold: 3.5
+  swing_fraction: 0.38
+  foot_offset_lateral: 0.14
+  stride_forward_limit: 0.55
+  foot_lateral_min: 0.08
+  foot_lateral_max: 0.17
+  step_up: 0.50
+  step_down: 1.20
+  step_up_min_height: 0.06
+  pelvis_forward_probe: 0.18
+  head_clearance: 2.5
+  knee:
+    stance: 18
+    swing: 28
+    step_up_base: 32
+    step_up_scale: 12
+    stance_deep: 22
+    high_ankle: 32
+    fallback_stance: 18
+    fallback_step_up_base: 24
+    fallback_step_up_scale: 10
+    min_outward: 0.06
+  foot_roll:
+    max_deg: 26
+    swing_scale: 0.12
+    toe_off_scale: 0.55
+    heel_strike_end: 0.15
+    toe_off_start: 0.82
+  upper_body:
+    arm_swing: 12
+    lateral_sway: 0.025
+    spine_pitch: 1.5
+    spine_roll: 2
+    hip_roll: 1.5
+
+navigation:
+  height: 1.7
+  radius: 0.3
+  clearance_radius: 0.45
+  max_step_up: 0.50
+
 bones:
   hips:
     parent: null

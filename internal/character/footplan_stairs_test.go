@@ -97,18 +97,20 @@ func TestStairsWithRealisticEdgeNormals(t *testing.T) {
 }
 
 func TestFootStepHeightClampedOnStairs(t *testing.T) {
-	if got := clampFootHeight(1.0, 0.25); got != 0.75 {
+	locParams := DefaultLocomotionParams()
+	if got := clampFootHeight(locParams, 1.0, 0.25); got != 0.75 {
 		t.Fatalf("clamp up = %v want 0.75", got)
 	}
-	if got := clampFootHeight(0.5, 0.25); got != 0.5 {
+	if got := clampFootHeight(locParams, 0.5, 0.25); got != 0.5 {
 		t.Fatalf("clamp within limit = %v want 0.5", got)
 	}
 }
 
 func TestSwingLiftIncreasesOnStepUp(t *testing.T) {
+	locParams := DefaultLocomotionParams()
 	base := 0.08
-	flat := swingLift(vec.V{Y: 0.0}, vec.V{Y: 0.0}, base)
-	up := swingLift(vec.V{Y: 0.0}, vec.V{Y: 0.25}, base)
+	flat := swingLift(vec.V{Y: 0.0}, vec.V{Y: 0.0}, base, locParams)
+	up := swingLift(vec.V{Y: 0.0}, vec.V{Y: 0.25}, base, locParams)
 	if flat != base {
 		t.Fatalf("flat swing lift = %.3f want %.3f", flat, base)
 	}
@@ -228,7 +230,7 @@ func TestHipTracksStairsAtWalkSpeed(t *testing.T) {
 	for i := 0; i < 420; i++ {
 		loc.Update(1.0 / 60.0, r, world)
 	}
-	expected := world.GroundHeight(loc.HipPos.X, loc.HipPos.Z, loc.HipPos.Y+groundHeadClearance)
+	expected := world.GroundHeight(loc.HipPos.X, loc.HipPos.Z, loc.HipPos.Y+r.Locomotion.HeadClearance)
 	if loc.GroundY < expected-0.35 {
 		t.Fatalf("hip ground lag: got=%.2f expected≈%.2f hipX=%.2f", loc.GroundY, expected, loc.HipPos.X)
 	}
@@ -251,7 +253,7 @@ func TestHipTerrainLagBoundedOnVariedSteps(t *testing.T) {
 	maxLag := 0.0
 	for i := 0; i < 540; i++ {
 		loc.Update(1.0/60.0, r, world)
-		terrain := world.GroundHeight(loc.HipPos.X, loc.HipPos.Z, loc.HipPos.Y+groundHeadClearance)
+		terrain := world.GroundHeight(loc.HipPos.X, loc.HipPos.Z, loc.HipPos.Y+r.Locomotion.HeadClearance)
 		lag := terrain - loc.GroundY
 		if lag > maxLag {
 			maxLag = lag
@@ -289,7 +291,7 @@ func TestUpperStepSwingsKeepKneeFlex(t *testing.T) {
 			swinging := f.Phase == FootSwing
 			if swinging {
 				if !tracks[idx].wasSwing {
-					tracks[idx].stepUp = f.SwingTo.Y-f.PlantGroundY > stepUpMinHeight && f.SwingTo.Y >= 1.0
+					tracks[idx].stepUp = f.SwingTo.Y-f.PlantGroundY > r.Locomotion.StepUpMinHeight && f.SwingTo.Y >= 1.0
 					tracks[idx].minFlex = 180
 				}
 				var flex float64

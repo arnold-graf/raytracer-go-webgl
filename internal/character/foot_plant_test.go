@@ -113,7 +113,7 @@ func TestHipTracksSurfaceUnderPelvis(t *testing.T) {
 		loc.Update(1.0/60.0, r, world)
 	}
 	// Hip should be near the surface under its X, not stuck at spawn height.
-	expected := world.GroundHeight(loc.HipPos.X, loc.HipPos.Z, loc.HipPos.Y+groundHeadClearance)
+	expected := world.GroundHeight(loc.HipPos.X, loc.HipPos.Z, loc.HipPos.Y+r.Locomotion.HeadClearance)
 	got := loc.GroundY
 	if got < expected-0.15 {
 		t.Fatalf("hip ground lag: got=%v expected≈%v at x=%v", got, expected, loc.HipPos.X)

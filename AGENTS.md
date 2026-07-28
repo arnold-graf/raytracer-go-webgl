@@ -15,6 +15,22 @@ Preview auto-centers the subject and writes twelve orbit screenshots
 `scenes/preview/` that includes the object on a simple floor with basic lighting
 if one does not exist yet.
 
+Useful flags for inspecting characters and small props:
+
+```bash
+# Single front view, zoomed in
+go run ./cmd/preview -scene scenes/npc-spider-test.toml -view front -zoom 2 -views 1 -o tmp/spider
+
+# Low side angle
+go run ./cmd/preview -scene scenes/npc-spider-test.toml -view low -zoom 1.5 -views 1 -o tmp/spider
+
+# Manual camera (overrides auto orbit)
+go run ./cmd/preview -scene scenes/npc-spider-test.toml -cam 0,0.5,6 -yaw 180 -pitch -5 -views 1 -o tmp/spider
+```
+
+`-view` accepts `front|back|left|right|side|top|low`. `-zoom` > 1 moves the
+camera closer. `-elev` sets orbit ring elevation in degrees (default 25).
+
 Do not rely on geometry math or unit tests alone for object authoring — run
 preview and inspect the renders (especially front, side, and top views).
 

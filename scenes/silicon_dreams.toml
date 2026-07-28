@@ -14,7 +14,7 @@ pitch = -0.12
 # ----------------------------------------------------------- environment ----
 
 [environment]
-sky = "sunset"
+sky = "night_stars"
 ambient_sky = [0.48, 0.30, 0.36]
 ambient_ground = [0.16, 0.11, 0.10]
 sun_dir = [-0.35, -0.22, 0.90]
@@ -23,8 +23,8 @@ sun_color = [1.40, 0.55, 0.22]
 # Sun in a low position in the east
 [[light]]
 pos = [-0.35, 100, -50]
-color = [1.4, 0.55, 0.22]
-brightness = 200
+color = [0.4, 0.55, 1]
+brightness = 50
 range = 0
 
 # ----------------------------------------------------------------- player ----
@@ -48,9 +48,9 @@ material = "mirror"
 albedo = [0.38, 0.52, 0.68]
 
 # ----------------------------------------------------------- platform ----
-# 100 × 100 × 2 m slab, centered on the origin, bottom 50 m above sea level.
+# 100 × 100 × 2 m slab, centered on the origin, above sea level.
 
-[[box]]
+[[cylinder]]
 pos_x = -50.0
 pos_y = 10.0
 pos_z = -50.0
@@ -58,6 +58,9 @@ width = 100.0
 height = 2.0
 depth = 100.0
 material = "checker"
+texture = "cement"
+reflect = 0.1
+rough = 0.1
 albedo = [0.72, 0.74, 0.78]
 albedo2 = [0.3, 0.3, 0.3]
 
@@ -67,22 +70,21 @@ rotate_y = 180
 at = [0.0, 18.0, 0.0]
 
 [[cone]]
-material = "diffuse"
+material = "glass"
 cx = 30.0
 cz = 30.0
 cy = 20
-ybase = 12.0
+ybase = 13.5
 ytip = 15.0
-rbase = 10.0
-rtip = 10.0
+rbase = 5.0
+rtip = 5.0
 rotate_z = 180
-albedo = [0.3, 0.3, 0.3]
+albedo = [0.3, 0.3, 1.3]
 reflect = 0.5
-rough = 0.0
 
 
 [[cone]]
-material = "diffuse"
+material = "glass"
 cx = 35.0
 cz = 35.0
 cy = 50
@@ -91,18 +93,20 @@ ytip = 18.0
 rbase = 5.0
 rtip = 5.0
 rotate_z = 180
-albedo = [0.3, 0.3, 0.3]
+albedo = [1.3, 0.3, 0.3]
 reflect = 0.5
 rough = 0.0
 
 [[box]]
-material = "diffuse"
+material = "checker"
+texture = "marble"
 pos_x = 35.0
 pos_y = 20.0
 pos_z = 35.0
 width = 5.0
 height = 0.5
 depth = 5.0
-albedo = [0.3, 0.3, 0.3]
-reflect = 0.2
-rough = 0.0
+albedo = [2, 0.3, 2]
+albedo2 = [0.5, 0.5, 0.5]
+reflect = 0.01
+ior = 0

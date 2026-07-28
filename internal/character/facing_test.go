@@ -66,7 +66,7 @@ func TestFootToePointsForward(t *testing.T) {
 		if toe.Sub(ankle).Dot(travel) < 0.01 {
 			t.Fatalf("%s shoe toe %v should be ahead of ankle %v along travel %v", foot, toe, ankle, travel)
 		}
-		if math.Abs(footRollDeg(f.Phase, f.StanceT)) > 1 {
+		if math.Abs(footRollDeg(f.Phase, f.StanceT, r.Locomotion.FootRoll)) > 1 {
 			continue // roll temporarily shifts heel/toe along travel
 		}
 		heel := footHeelWorld(r, pose, foot)

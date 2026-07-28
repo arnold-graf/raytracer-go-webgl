@@ -20,6 +20,19 @@ func TestNPCTestSceneLoads(t *testing.T) {
 	}
 }
 
+func TestNPCSpiderTestSceneLoads(t *testing.T) {
+	s, err := Load(repoFile("scenes/npc-spider-test.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.NPCSpawns) != 1 {
+		t.Fatalf("npc spawns = %d, want 1", len(s.NPCSpawns))
+	}
+	if s.NPCSpawns[0].Rig != "data/rigs/spider.yaml" {
+		t.Fatalf("rig = %q", s.NPCSpawns[0].Rig)
+	}
+}
+
 func TestNPCPatrolAndGoalConflict(t *testing.T) {
 	_, err := Decode([]byte(`
 [[npc]]

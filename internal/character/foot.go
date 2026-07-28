@@ -80,7 +80,7 @@ func applyFootPlant(rig *Rig, pose *SkeletonPose, footName string, ankle, contac
 	}
 	fwd := footForwardOnPlane(heading, up)
 	base := scene.NewTransformYZ(ankle, fwd, up)
-	roll := footRollDeg(phase, stanceT)
+	roll := footRollDeg(phase, stanceT, rig.Locomotion.FootRoll)
 	if roll != 0 {
 		rollXF := scene.NewRigidTransform(roll, 0, 0, vec.V{})
 		base = base.Compose(rollXF)

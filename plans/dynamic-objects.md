@@ -1,6 +1,6 @@
 # Plan: Runtime Dynamic / Moving Objects
 
-## Status: PROPOSED
+## Status: DONE
 
 ## Goal
 

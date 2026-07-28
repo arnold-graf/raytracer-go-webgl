@@ -1,0 +1,33 @@
+# Spider rig preview — floor + basic lighting.
+# go run ./cmd/preview -scene scenes/preview/spider.toml -o tmp/spider
+
+[camera]
+pos = [0.0, 2.8, 12.0]
+yaw = 180.0
+pitch = -8.0
+
+[[plane]]
+normal = [0.0, 1.0, 0.0]
+d = 0.0
+material = "checker"
+albedo = [0.72, 0.68, 0.62]
+albedo2 = [0.18, 0.17, 0.20]
+reflect = 0.12
+rough = 0.03
+
+[[light]]
+pos = [4.0, 8.0, 6.0]
+color = [3.0, 2.6, 2.0]
+radius = 0.6
+
+[[light]]
+pos = [-6.0, 6.0, -4.0]
+color = [1.4, 1.8, 3.2]
+radius = 0.5
+
+[[npc]]
+rig = "data/rigs/spider.yaml"
+pose = "idle"
+at = [0.0, 0.0, 0.0]
+yaw = 0
+speed = 0

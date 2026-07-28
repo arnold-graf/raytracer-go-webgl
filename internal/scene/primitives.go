@@ -493,9 +493,101 @@ func (c *Cylinder) WorldBounds() (vec.V, vec.V) {
 		vec.V{X: c.CX + r, Y: c.YMax, Z: c.CZ + r})
 }
 
+// minWalkableCapUpY is the minimum |world Y| of a cap's upward-facing normal
+// for the cap to count as walkable (≈60° max slope).
+const minWalkableCapUpY = 0.5
+
+// worldYOnCap returns the world Y of a flat cap at local y=localY under (wx,wz),
+// or ok=false when the column misses the cap disk or the cap is too steep.
+func (c *Cylinder) worldYOnCap(wx, wz, localY, capR float64, standLocal vec.V) (wy float64, ok bool) {
+	if capR <= 0 {
+		return 0, false
+	}
+	n := standLocal
+	if c.Xform != nil {
+		n = c.Xform.WorldNormal(n)
+	}
+	if math.Abs(n.Y) < minWalkableCapUpY {
+		return 0, false
+	}
+	if c.Xform == nil {
+		dx, dz := wx-c.CX, wz-c.CZ
+		if dx*dx+dz*dz > capR*capR {
+			return 0, false
+		}
+		return localY, true
+	}
+	wy, ok = c.Xform.WorldYForLocalY(wx, wz, localY)
+	if !ok {
+		return 0, false
+	}
+	lp := c.Xform.ToLocal(vec.V{X: wx, Y: wy, Z: wz})
+	if math.Abs(lp.Y-localY) > 0.05 {
+		return 0, false
+	}
+	dx, dz := lp.X-c.CX, lp.Z-c.CZ
+	if dx*dx+dz*dz > capR*capR {
+		return 0, false
+	}
+	return wy, true
+}
+
+// capGroundHeight returns the highest walkable cap height at (wx,wz) at or below headY.
+func (c *Cylinder) capGroundHeight(wx, wz, headY float64) (float64, bool) {
+	best := math.Inf(-1)
+	found := false
+	try := func(localY, capR float64, open bool) {
+		if open {
+			return
+		}
+		for _, stand := range []vec.V{{Y: 1}, {Y: -1}} {
+			wy, ok := c.worldYOnCap(wx, wz, localY, capR, stand)
+			if !ok || wy > headY || wy <= best {
+				continue
+			}
+			best, found = wy, true
+		}
+	}
+	try(c.YMax, c.radiusTop(), c.OpenMax)
+	try(c.YMin, c.Radius, c.OpenMin)
+	if !found {
+		return 0, false
+	}
+	return best, true
+}
+
+func (c *Cylinder) standingOnCap(wx, wz, bandLo, playerR float64) bool {
+	wy, ok := c.capGroundHeight(wx, wz, bandLo+10)
+	if !ok || bandLo < wy-0.08 || bandLo > wy+0.55 {
+		return false
+	}
+	return (!c.OpenMax && c.onCapDisk(wx, wz, wy, c.YMax, c.radiusTop(), playerR)) ||
+		(!c.OpenMin && c.onCapDisk(wx, wz, wy, c.YMin, c.Radius, playerR))
+}
+
+func (c *Cylinder) onCapDisk(wx, wz, worldY, localY, capR, playerR float64) bool {
+	p := vec.V{X: wx, Y: worldY, Z: wz}
+	if c.Xform != nil {
+		p = c.Xform.ToLocal(p)
+	}
+	if math.Abs(p.Y-localY) > 0.05 {
+		return false
+	}
+	rr := capR - playerR
+	if rr < 0 {
+		rr = 0
+	}
+	dx, dz := p.X-c.CX, p.Z-c.CZ
+	return dx*dx+dz*dz <= rr*rr+1e-6
+}
+
 // blocksColumn reports whether a player footprint at world (wx,wz) with vertical
-// extent [bandLo,bandHi] and the given radius intersects the cylinder.
+// extent [bandLo,bandHi] and the given radius intersects the cylinder. Flat caps
+// are walkable and do not block when the player is standing on them.
 func (c *Cylinder) blocksColumn(wx, wz, bandLo, bandHi, playerR float64) bool {
+	if c.standingOnCap(wx, wz, bandLo, playerR) {
+		return false
+	}
 	for _, wy := range []float64{bandLo, bandHi, (bandLo + bandHi) * 0.5} {
 		p := vec.V{X: wx, Y: wy, Z: wz}
 		if c.Xform != nil {
@@ -503,6 +595,19 @@ func (c *Cylinder) blocksColumn(wx, wz, bandLo, bandHi, playerR float64) bool {
 		}
 		if p.Y < c.YMin || p.Y > c.YMax {
 			continue
+		}
+		if !c.OpenMin && math.Abs(p.Y-c.YMin) < 0.01 {
+			dx, dz := p.X-c.CX, p.Z-c.CZ
+			if dx*dx+dz*dz <= c.Radius*c.Radius {
+				continue
+			}
+		}
+		if !c.OpenMax && math.Abs(p.Y-c.YMax) < 0.01 {
+			dx, dz := p.X-c.CX, p.Z-c.CZ
+			rt := c.radiusTop()
+			if dx*dx+dz*dz <= rt*rt {
+				continue
+			}
 		}
 		rr := c.radiusAt(p.Y) + playerR
 		dx, dz := p.X-c.CX, p.Z-c.CZ
@@ -618,7 +723,7 @@ func (c *Cone) WorldBounds() (vec.V, vec.V) {
 
 // minConeCapUpY is the minimum world-space Y component of a cone base cap's
 // upward normal for the cap to count as walkable (≈60° max slope).
-const minConeCapUpY = 0.5
+const minConeCapUpY = minWalkableCapUpY
 
 // capUpNormal returns the world-space upward normal of the cone's base cap
 // (the side you stand on when the cap is walkable).
@@ -694,7 +799,7 @@ func (c *Cone) onCapDisk(wx, wz, worldY, playerR float64) bool {
 // sides and interior still do.
 func (c *Cone) blocksColumn(wx, wz, bandLo, bandHi, playerR float64) bool {
 	capY, onCap := c.worldYOnBaseCap(wx, wz)
-	if onCap && c.onCapDisk(wx, wz, capY, playerR) && bandLo <= capY+0.55 {
+	if onCap && c.onCapDisk(wx, wz, capY, playerR) && bandLo >= capY-0.08 && bandLo <= capY+0.55 {
 		// Feet are on the cap; the capsule may extend into the cone interior above.
 		return false
 	}

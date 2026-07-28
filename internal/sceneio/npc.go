@@ -14,8 +14,9 @@ type npcDTO struct {
 	Yaw     float64  `toml:"yaw"`
 	Speed   float64  `toml:"speed"`
 	Heading *float64 `toml:"heading"`
-	Patrol  []vec3   `toml:"patrol"`
-	Goal    *vec3    `toml:"goal"`
+	Patrol       []vec3   `toml:"patrol"`
+	Goal         *vec3    `toml:"goal"`
+	TargetRadius float64  `toml:"target_radius"`
 }
 
 func (d npcDTO) build() (scene.NPCSpawn, error) {
@@ -40,13 +41,14 @@ func (d npcDTO) build() (scene.NPCSpawn, error) {
 		return scene.NPCSpawn{}, fmt.Errorf("npc: set patrol or goal, not both")
 	}
 	return scene.NPCSpawn{
-		Rig:     d.Rig,
-		Pose:    pose,
-		Pos:     d.At.toV(),
-		Yaw:     d.Yaw,
-		Speed:   d.Speed,
-		Heading: heading,
-		Patrol:  patrol,
-		Goal:    goal,
+		Rig:          d.Rig,
+		Pose:         pose,
+		Pos:          d.At.toV(),
+		Yaw:          d.Yaw,
+		Speed:        d.Speed,
+		Heading:      heading,
+		Patrol:       patrol,
+		Goal:         goal,
+		TargetRadius: d.TargetRadius,
 	}, nil
 }

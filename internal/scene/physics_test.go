@@ -242,6 +242,56 @@ func TestBlockedHonorsCylinderTransform(t *testing.T) {
 	}
 }
 
+func TestGroundHeightCylinderTopCap(t *testing.T) {
+	s := &Scene{Cylinders: []Cylinder{{
+		CX: 0, CZ: 0, Radius: 5, YMin: 10, YMax: 12,
+	}}}
+	if g := s.GroundHeight(0, 0, 20); math.Abs(g-12) > 1e-9 {
+		t.Fatalf("top cap = %v, want 12", g)
+	}
+	if g := s.GroundHeight(4, 0, 20); math.Abs(g-12) > 1e-9 {
+		t.Fatalf("on cap disk = %v, want 12", g)
+	}
+	if g := s.GroundHeight(6, 0, 20); g > 11.5 {
+		t.Fatalf("outside cap disk = %v, want below cap", g)
+	}
+}
+
+func TestStandingOnCylinderCapNotBlocked(t *testing.T) {
+	s := &Scene{Cylinders: []Cylinder{{
+		CX: 0, CZ: 0, Radius: 5, YMin: 10, YMax: 12,
+	}}}
+	feetY, headY, r, step := 12.0, 13.6, 0.3, 0.45
+	if s.Blocked(0, 0, feetY, headY, r, step) {
+		t.Fatal("standing on cylinder top cap should not block")
+	}
+}
+
+func TestCylinderInteriorBlocksAboveCap(t *testing.T) {
+	s := &Scene{Cylinders: []Cylinder{{
+		CX: 0, CZ: 0, Radius: 5, YMin: 10, YMax: 12,
+	}}}
+	feetY, headY, r, step := 11.0, 12.6, 0.3, 0.45
+	if !s.Blocked(2, 0, feetY, headY, r, step) {
+		t.Fatal("cylinder wall should block inside the tube")
+	}
+}
+
+func TestGroundHeightCylinderTopCapWithTransform(t *testing.T) {
+	center := vec.New(0, 11, 0)
+	xf := PlacementTransform(0, 0, 180, center, center)
+	s := &Scene{Cylinders: []Cylinder{{
+		CX: 0, CZ: 0, Radius: 5, YMin: 10, YMax: 12,
+		Surface: Surface{Xform: xf},
+	}}}
+	if g := s.GroundHeight(0, 0, 20); math.Abs(g-12) > 0.05 {
+		t.Fatalf("inverted top cap = %v, want ~12", g)
+	}
+	if s.Blocked(0, 0, 12, 13.6, 0.3, 0.45) {
+		t.Fatal("should not block on inverted top cap")
+	}
+}
+
 func TestBlockedHonorsConeTransform(t *testing.T) {
 	xf := NewInstanceTransform(0, 0, 0, vec.New(-18, 0, -6))
 	s := &Scene{Cones: []Cone{{
@@ -333,5 +383,21 @@ func TestGroundHeightStaticIgnoresDynamicBoxes(t *testing.T) {
 	}
 	if g := s.GroundHeightStatic(0, 0, 2); math.Abs(g-0.2) > 1e-9 {
 		t.Fatalf("static query = %v, want 0.2 (floor)", g)
+	}
+}
+
+func TestGroundHeightStaticIgnoresDynamicCylinders(t *testing.T) {
+	s := &Scene{
+		Boxes: []Box{{Min: vec.New(-2, 0, -2), Max: vec.New(2, 0.08, 2)}},
+		Cylinders: []Cylinder{
+			{CX: 0, CZ: 0, Radius: 0.1, YMin: 0, YMax: 1.2},
+		},
+		DynamicBodies: []DynamicBody{{Cylinders: [2]int{0, 1}}},
+	}
+	if g := s.GroundHeight(0, 0, 2); math.Abs(g-1.2) > 1e-9 {
+		t.Fatalf("full query = %v, want 1.2 (leg cylinder)", g)
+	}
+	if g := s.GroundHeightStatic(0, 0, 2); math.Abs(g-0.08) > 1e-9 {
+		t.Fatalf("static query = %v, want 0.08 (floor)", g)
 	}
 }

@@ -42,7 +42,7 @@ func ComputeGaitMetrics(rig *Rig, loc *Locomotor, pose SkeletonPose, world FootW
 		GroundY:   loc.GroundY,
 	}
 	if world != nil {
-		headY := groundHeadHint(loc, loc.GroundY+rig.HipHeight)
+		headY := groundHeadHint(loc, rig, loc.GroundY+rig.HipHeight)
 		if gy := world.GroundHeight(loc.HipPos.X, loc.HipPos.Z, headY); gy > m.GroundY {
 			m.GroundY = gy
 		}

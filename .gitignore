@@ -1,4 +1,6 @@
 .gocache
 .gopath
 .toolchain
+.vscode
 bin
+tmp
