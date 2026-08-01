@@ -46,14 +46,15 @@ func (inc includeDTO) AtVec() vec.V { return inc.At.toV() }
 
 // surfaceDTO holds the shading fields shared by every primitive table.
 type surfaceDTO struct {
-	Material string   `toml:"material"`
-	Albedo   vec3     `toml:"albedo"`
-	Albedo2  vec3     `toml:"albedo2"`
-	Rough    float64  `toml:"rough"`
-	IOR      *float64 `toml:"ior"`
-	Texture  string   `toml:"texture"`
-	Reflect  float64  `toml:"reflect"`
-	Transmit float64  `toml:"transmit"`
+	Material  string   `toml:"material"`
+	Albedo    vec3     `toml:"albedo"`
+	Albedo2   vec3     `toml:"albedo2"`
+	Rough     float64  `toml:"rough"`
+	IOR       *float64 `toml:"ior"`
+	Texture   string   `toml:"texture"`
+	Reflect   float64  `toml:"reflect"`
+	Transmit  float64  `toml:"transmit"`
+	Collision *bool    `toml:"collision"`
 }
 
 func (s surfaceDTO) toSurface() (scene.Surface, error) {
@@ -71,9 +72,13 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 	if s.IOR != nil {
 		ior = *s.IOR
 	}
+	noCollision := false
+	if s.Collision != nil && !*s.Collision {
+		noCollision = true
+	}
 	return scene.Surface{
 		Mat: mat, Albedo: s.Albedo.toV(), Albedo2: s.Albedo2.toV(), Rough: s.Rough, IOR: ior, Tex: tex,
-		Reflect: s.Reflect, Transmit: s.Transmit,
+		Reflect: s.Reflect, Transmit: s.Transmit, NoCollision: noCollision,
 	}, nil
 }
 
@@ -288,6 +293,9 @@ type lightDTO struct {
 	Color  vec3    `toml:"color"`
 	Radius float64 `toml:"radius"`
 	Range  float64 `toml:"range"`
+	Dir    vec3    `toml:"dir"`
+	// ConeAngle is the full outer cone angle in degrees for spot lights.
+	ConeAngle float64 `toml:"cone_angle"`
 	// Brightness scales the light's intensity independently of its color/range
 	// (1 = as authored), mirroring the campfire's brightness knob. It is folded
 	// into the color at load time, so culling and shading honor it for free.
@@ -301,7 +309,14 @@ func (d lightDTO) build() scene.Light {
 	if b == 0 {
 		b = 1
 	}
-	return scene.Light{Pos: d.Pos.toV(), Color: d.Color.toV().Scale(b), Radius: d.Radius, Range: d.Range}
+	dir := d.Dir.toV()
+	if dir.LenSq() > 0 {
+		dir = dir.Normalize()
+	}
+	return scene.Light{
+		Pos: d.Pos.toV(), Color: d.Color.toV().Scale(b), Radius: d.Radius, Range: d.Range,
+		Dir: dir, ConeDeg: d.ConeAngle,
+	}
 }
 
 type lightFlickeringDTO struct {

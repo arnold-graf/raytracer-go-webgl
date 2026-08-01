@@ -78,16 +78,16 @@ func expandFor(lines []string, start int, varName, boundExpr string, env *Env) (
 					if err != nil {
 						return 0, nil, err
 					}
-					substituted, err := substituteExprs(strings.Join(iterBody, "\n"), iterEnv)
+					expanded, err := expandDirectives(strings.Join(iterBody, "\n"), iterEnv)
 					if err != nil {
 						return 0, nil, err
 					}
-					expanded, err := expandDirectives(substituted, iterEnv)
+					substituted, err := substituteExprs(expanded, iterEnv)
 					if err != nil {
 						return 0, nil, err
 					}
-					if expanded != "" {
-						out = append(out, strings.Split(expanded, "\n")...)
+					if substituted != "" {
+						out = append(out, strings.Split(substituted, "\n")...)
 					}
 				}
 				return i, out, nil
@@ -143,16 +143,16 @@ func expandIf(lines []string, start int, env *Env) (end int, out []string, err e
 			if depth == 0 {
 				if truth {
 					body := lines[bodyStart:i]
-					substituted, err := substituteExprs(strings.Join(body, "\n"), env)
+					expanded, err := expandDirectives(strings.Join(body, "\n"), env)
 					if err != nil {
 						return 0, nil, err
 					}
-					expanded, err := expandDirectives(substituted, env)
+					substituted, err := substituteExprs(expanded, env)
 					if err != nil {
 						return 0, nil, err
 					}
-					if expanded != "" {
-						out = append(out, strings.Split(expanded, "\n")...)
+					if substituted != "" {
+						out = append(out, strings.Split(substituted, "\n")...)
 					}
 				}
 				return i, out, nil

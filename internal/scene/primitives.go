@@ -27,10 +27,16 @@ type Surface struct {
 	// Transmit (0..1) is the glass transparency: 0 is opaque, 1 is fully
 	// transparent. The glass tint comes from Albedo. Ignored by other materials.
 	Transmit float64
+	// NoCollision opts the primitive out of player capsule tests (walking,
+	// ground height, footsteps). Ray tracing is unaffected. Defaults to false.
+	NoCollision bool
 	// Xform, when non-nil, maps the primitive from local space into world space.
 	// Intersection and normals are evaluated in local space and transformed back.
 	Xform *Transform
 }
+
+// Collides reports whether the primitive participates in player capsule tests.
+func (s Surface) Collides() bool { return !s.NoCollision }
 
 // Sphere is a simple analytic sphere. CutOff (0..1) removes the bottom
 // portion: cut_off = 0.5 keeps the top hemisphere with an open bottom.
@@ -1219,15 +1225,26 @@ func (tr *Torus) Normal(p vec.V) vec.V {
 	return e.Sub(c).Normalize()
 }
 
-// Light is a point light with per-channel intensity. Radius is informational
-// (kept for parity with the source scene). Range, when > 0, is the distance at
-// which the light's contribution is forced to zero: beyond it the renderer
-// skips the light entirely (including its shadow ray), and within it the
+// Light is a point or spot light with per-channel intensity. Radius is
+// informational (kept for parity with the source scene). Range, when > 0, is the
+// distance at which the light's contribution is forced to zero: beyond it the
+// renderer skips the light entirely (including its shadow ray), and within it the
 // falloff is smoothly windowed down to zero at Range. Range == 0 means "auto":
 // the light reaches as far as it meaningfully contributes.
+//
+// Spot lights set Dir to the emission axis (normalized at load time) and
+// ConeDeg to the full outer cone angle in degrees. Omit Dir or cone_angle for
+// an omnidirectional point light.
 type Light struct {
-	Pos    vec.V
-	Color  vec.V
-	Radius float64
-	Range  float64
+	Pos     vec.V
+	Color   vec.V
+	Radius  float64
+	Range   float64
+	Dir     vec.V
+	ConeDeg float64
+}
+
+// IsSpot reports whether the light casts a directional cone.
+func (l Light) IsSpot() bool {
+	return l.ConeDeg > 0 && l.Dir.LenSq() > 1e-12
 }

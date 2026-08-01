@@ -23,6 +23,7 @@ type sceneCache struct {
 	layout              primLayout
 	partialPrimSpans    [][2]int // coalesced GPU prim index spans dirtied last partial update
 	partialBlockerSpans [][2]int
+	lightsDirty         bool
 
 	prims    []GPUPrimitive
 	blockers []GPUPrimitive
@@ -122,6 +123,7 @@ afterPack:
 	}
 	c.partialPrimSpans = nil
 	c.partialBlockerSpans = nil
+	c.lightsDirty = false
 	c.valid = true
 }
 
@@ -167,6 +169,10 @@ func (c *sceneCache) updateDynamicTransforms(s *scene.Scene) {
 		}
 	}
 	if len(dirtyPrim) == 0 {
+		if sceneHasDynamicLights(s) {
+			c.lights = PackLights(s)
+			c.lightsDirty = true
+		}
 		c.xformGen = s.TransformGeneration()
 		c.partialPrimSpans = nil
 		c.partialBlockerSpans = nil
@@ -187,7 +193,23 @@ func (c *sceneCache) updateDynamicTransforms(s *scene.Scene) {
 	}
 	c.partialPrimSpans = coalesceIndices(dirtyPrim)
 	c.partialBlockerSpans = coalesceIndices(dirtyBlocker)
+	if sceneHasDynamicLights(s) {
+		c.lights = PackLights(s)
+		c.lightsDirty = true
+	}
 	c.xformGen = s.TransformGeneration()
+}
+
+func sceneHasDynamicLights(s *scene.Scene) bool {
+	if s == nil {
+		return false
+	}
+	for _, db := range s.DynamicBodies {
+		if db.Lights[1] > db.Lights[0] {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *sceneCache) rebuildFlat(s *scene.Scene) {

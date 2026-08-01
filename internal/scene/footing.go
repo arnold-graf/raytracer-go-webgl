@@ -64,6 +64,9 @@ func (s *Scene) StepMaterialAt(x, z, headY float64) StepMaterial {
 
 	for i := range s.Boxes {
 		mn, mx := s.Boxes[i].WorldBounds()
+		if !s.Boxes[i].Collides() {
+			continue
+		}
 		if mx.Y <= headY && x >= mn.X && x <= mx.X && z >= mn.Z && z <= mx.Z {
 			if mx.Y > bestY {
 				bestY = mx.Y
@@ -73,6 +76,9 @@ func (s *Scene) StepMaterialAt(x, z, headY float64) StepMaterial {
 	}
 
 	for i := range s.Cones {
+		if !s.Cones[i].Collides() {
+			continue
+		}
 		if h, ok := s.Cones[i].capGroundHeight(x, z, headY); ok && h > bestY {
 			bestY = h
 			mat = stepMaterialForTexture(s.Cones[i].Tex)
@@ -80,6 +86,9 @@ func (s *Scene) StepMaterialAt(x, z, headY float64) StepMaterial {
 	}
 
 	for i := range s.Cylinders {
+		if !s.Cylinders[i].Collides() {
+			continue
+		}
 		if h, ok := s.Cylinders[i].capGroundHeight(x, z, headY); ok && h > bestY {
 			bestY = h
 			mat = stepMaterialForTexture(s.Cylinders[i].Tex)

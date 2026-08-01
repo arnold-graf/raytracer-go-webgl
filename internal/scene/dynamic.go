@@ -56,6 +56,7 @@ type DynamicBody struct {
 	Cylinders [2]int
 	Spheres   [2]int
 	Lenses    [2]int
+	Lights    [2]int
 }
 
 // IsDynamicCylinder reports whether cylinder index i belongs to a DynamicBody.
@@ -69,6 +70,80 @@ func (s *Scene) IsDynamicCylinder(i int) bool {
 		}
 	}
 	return false
+}
+
+// Attached reports whether this body's index ranges still fit the scene slices.
+func (db DynamicBody) Attached(s *Scene) bool {
+	if s == nil {
+		return false
+	}
+	return inRange(db.Boxes, len(s.Boxes)) &&
+		inRange(db.Cylinders, len(s.Cylinders)) &&
+		inRange(db.Spheres, len(s.Spheres)) &&
+		inRange(db.Lenses, len(s.Lenses)) &&
+		inRange(db.Lights, len(s.Lights))
+}
+
+func inRange(span [2]int, n int) bool {
+	if span[1] < span[0] {
+		return false
+	}
+	if span[0] == span[1] {
+		return true
+	}
+	return span[0] >= 0 && span[1] <= n
+}
+
+// RemoveDynamicBody splices out one runtime body's primitives and shifts later
+// bodies' index ranges. Bodies are expected to own disjoint append-only spans.
+func (s *Scene) RemoveDynamicBody(db DynamicBody) {
+	if s == nil {
+		return
+	}
+	s.Boxes = spliceRange(s.Boxes, db.Boxes[0], db.Boxes[1])
+	s.Cylinders = spliceRange(s.Cylinders, db.Cylinders[0], db.Cylinders[1])
+	s.Spheres = spliceRange(s.Spheres, db.Spheres[0], db.Spheres[1])
+	s.Lenses = spliceRange(s.Lenses, db.Lenses[0], db.Lenses[1])
+	s.Lights = spliceRange(s.Lights, db.Lights[0], db.Lights[1])
+
+	out := s.DynamicBodies[:0]
+	for _, b := range s.DynamicBodies {
+		if b.Name == db.Name {
+			continue
+		}
+		out = append(out, shiftDynamicBody(b, db))
+	}
+	s.DynamicBodies = out
+}
+
+func spliceRange[T any](slice []T, start, end int) []T {
+	if start >= end || start < 0 || end > len(slice) {
+		return slice
+	}
+	return append(slice[:start], slice[end:]...)
+}
+
+func shiftDynamicBody(b, removed DynamicBody) DynamicBody {
+	b.Boxes = shiftSpan(b.Boxes, removed.Boxes)
+	b.Cylinders = shiftSpan(b.Cylinders, removed.Cylinders)
+	b.Spheres = shiftSpan(b.Spheres, removed.Spheres)
+	b.Lenses = shiftSpan(b.Lenses, removed.Lenses)
+	b.Lights = shiftSpan(b.Lights, removed.Lights)
+	return b
+}
+
+func shiftSpan(span, removed [2]int) [2]int {
+	if span[1] <= span[0] {
+		return span
+	}
+	if removed[1] <= removed[0] {
+		return span
+	}
+	if span[0] >= removed[1] {
+		n := removed[1] - removed[0]
+		return [2]int{span[0] - n, span[1] - n}
+	}
+	return span
 }
 
 // TouchTransforms marks primitive transforms as changed without invalidating

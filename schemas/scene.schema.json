@@ -344,6 +344,10 @@
         },
         "transmit": {
           "$ref": "#/definitions/surface_transmit"
+        },
+        "collision": {
+          "type": "boolean",
+          "description": "When false, the primitive is ignored by player movement, ground height, and footstep queries. Ray tracing is unaffected. Defaults to true."
         }
       },
       "required": [
@@ -1040,6 +1044,14 @@
         "brightness": {
           "$ref": "#/definitions/number_or_expr",
           "description": "Intensity multiplier applied to color at load time. Defaults to 1."
+        },
+        "dir": {
+          "$ref": "#/definitions/vec3",
+          "description": "Spot light emission axis in local space. With cone_angle, casts a directional cone instead of an omnidirectional point light."
+        },
+        "cone_angle": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Full outer cone angle in degrees for spot lights (requires dir)."
         }
       },
       "required": [

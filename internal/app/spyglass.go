@@ -95,20 +95,25 @@ func (sg *Spyglass) despawn(sc *scene.Scene) {
 	if !sg.mounted || sc == nil {
 		return
 	}
-	db := sg.body
-	sc.Boxes = sc.Boxes[:db.Boxes[0]]
-	sc.Cylinders = sc.Cylinders[:db.Cylinders[0]]
-	sc.Lenses = sc.Lenses[:db.Lenses[0]]
-	out := sc.DynamicBodies[:0]
-	for _, b := range sc.DynamicBodies {
-		if b.Name != db.Name {
-			out = append(out, b)
-		}
-	}
-	sc.DynamicBodies = out
+	sc.RemoveDynamicBody(sg.body)
 	sg.body = scene.DynamicBody{}
 	sg.mounted = false
 	sc.Touch()
+}
+
+func (sg *Spyglass) remountIfStale(sc *scene.Scene) {
+	if !sg.mounted || sc == nil {
+		return
+	}
+	if sg.body.Attached(sc) {
+		return
+	}
+	wasShown := sg.shown
+	sg.mounted = false
+	sg.body = scene.DynamicBody{}
+	if wasShown {
+		_ = sg.spawn(sc)
+	}
 }
 
 // Toggle raises or lowers the spyglass (Q key).
@@ -122,6 +127,10 @@ func (sg *Spyglass) Update(sc *scene.Scene, cam *camera.Camera, dt float64) bool
 	if sg.shown && !sg.mounted {
 		_ = sg.spawn(sc)
 	}
+	if !sg.mounted {
+		return false
+	}
+	sg.remountIfStale(sc)
 	if !sg.mounted {
 		return false
 	}
@@ -179,9 +188,10 @@ func spyglassBodyBlocker() scene.Box {
 		Min: vec.New(-spyglassBodyHalfW, yFar, -spyglassBodyHalfH),
 		Max: vec.New(spyglassBodyHalfW, yNear, spyglassBodyHalfH),
 		Surface: scene.Surface{
-			Mat:    scene.MatDiffuse,
-			Albedo: vec.V{X: 0.02, Y: 0.02, Z: 0.02},
-			IOR:    1.5,
+			Mat:         scene.MatDiffuse,
+			Albedo:      vec.V{X: 0.02, Y: 0.02, Z: 0.02},
+			IOR:         1.5,
+			NoCollision: true,
 		},
 	}
 }

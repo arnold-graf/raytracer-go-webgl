@@ -1,7 +1,8 @@
+
+# sunset
 [environment]
 sky = "sunset"
-ambient_sky = [0.48, 0.30, 0.36]
-ambient_ground = [0.16, 0.11, 0.10]
+ambient_sky = [0.20, 0.12, 0.10]
 sun_dir = [-0.35, -0.22, 0.90]
 sun_color = [1.40, 0.55, 0.22]
 
@@ -9,15 +10,15 @@ sun_color = [1.40, 0.55, 0.22]
 [[light]]
 pos = [-10.35, 200, 0]
 color = [1.4, 0.55, 0.22]
-brightness = 10.0
-range = 0
+brightness = 20.0
+range = 100
 
-# Sun in a high position to the right of the server-room
-# [[light]]
-# pos = [100.35, 250, 0]
-# color = [0.5, 0.55, 1.2]
-# brightness = 10.0
-# range = 0
+# night storm
+# [environment]
+# sky = "night_storm"
+# ambient_sky = [0.05, 0.05, 0.05]
+# sun_dir = [-0.35, -0.22, 0.90]
+# sun_color = [1.40, 0.55, 0.22]
 
 [camera]
 # Eye height on the server-room floor (y=200.2 + 1.6), facing the cube (-Z).
@@ -30,11 +31,7 @@ file = "server-room-1.toml"
 transform_origin = [0, 0, 0]
 at = [0, 200, 0]
 
-[[include]]
-file = "server-room-front-office.toml"
-transform_origin = [0, 0, 0]
-at = [40, 200, 0]
-
+# building below the server-room
 [[box]]
 material = "diffuse"
 reflect = 0.05
@@ -45,6 +42,31 @@ depth = 20.0
 pos_x = 0.0
 pos_y = 0.0
 pos_z = 0.0
+
+[[include]]
+file = "server-room-front-office.toml"
+transform_origin = [0, 0, 0]
+at = [40, 200, 0]
+
+# Skyway from the front-office south door (local 1,0,20) → world 41,200,20.
+[[include]]
+file = "objects/skyway.toml"
+transform_origin = [0, 0, 0]
+at = [41.0, 200.0, 20.0]
+params = { length = 30 }
+
+# building below the main office building
+[[box]]
+material = "diffuse"
+reflect = 0.05
+albedo = [0.5, 0.5, 0.5]
+width = 100
+height = 200.0
+depth = 100
+pos_x = 20.0
+pos_y = 0
+pos_z = 50.0
+
 
 [[include]]
 file = "objects/skyscrapers-distance.toml"

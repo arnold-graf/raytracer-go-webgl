@@ -71,6 +71,9 @@ func (s *Scene) groundHeight(x, z, headY float64, skipBox, skipCylinder func(int
 			continue
 		}
 		b := &s.Boxes[i]
+		if !b.Collides() {
+			continue
+		}
 		_, mx := b.WorldBounds()
 		if mx.Y > headY {
 			continue
@@ -93,6 +96,9 @@ func (s *Scene) groundHeight(x, z, headY float64, skipBox, skipCylinder func(int
 	}
 
 	for i := range s.Cones {
+		if !s.Cones[i].Collides() {
+			continue
+		}
 		if h, ok := s.Cones[i].capGroundHeight(x, z, headY); ok && h > g {
 			g = h
 		}
@@ -100,6 +106,9 @@ func (s *Scene) groundHeight(x, z, headY float64, skipBox, skipCylinder func(int
 
 	for i := range s.Cylinders {
 		if skipCylinder != nil && skipCylinder(i) {
+			continue
+		}
+		if !s.Cylinders[i].Collides() {
 			continue
 		}
 		if h, ok := s.Cylinders[i].capGroundHeight(x, z, headY); ok && h > g {
@@ -150,6 +159,9 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 			continue
 		}
 		b := &s.Boxes[i]
+		if !b.Collides() {
+			continue
+		}
 		mn, mx := b.WorldBounds()
 		if mx.Y <= walkTop || mn.Y >= headY {
 			continue
@@ -169,6 +181,9 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 
 	for i := range s.Cylinders {
 		c := &s.Cylinders[i]
+		if !c.Collides() {
+			continue
+		}
 		mn, mx := c.WorldBounds()
 		if mx.Y <= walkTop || mn.Y >= headY {
 			continue
@@ -182,6 +197,9 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 
 	for i := range s.Cones {
 		co := &s.Cones[i]
+		if !co.Collides() {
+			continue
+		}
 		mn, mx := co.WorldBounds()
 		if mx.Y <= walkTop || mn.Y >= headY {
 			continue
@@ -197,6 +215,9 @@ func (s *Scene) Blocked(x, z, feetY, headY, radius, step float64) bool {
 	// ground), so floating spheres like tree canopies can be walked under.
 	for i := range s.Spheres {
 		sp := &s.Spheres[i]
+		if !sp.Collides() {
+			continue
+		}
 		if sp.Mat == MatEmit {
 			continue
 		}
@@ -229,6 +250,9 @@ func (s *Scene) BlockedStatic(x, z, feetY, headY, radius, step float64) bool {
 			continue
 		}
 		b := &s.Boxes[i]
+		if !b.Collides() {
+			continue
+		}
 		mn, mx := b.WorldBounds()
 		if mx.Y <= walkTop || mn.Y >= headY {
 			continue
@@ -249,6 +273,9 @@ func (s *Scene) BlockedStatic(x, z, feetY, headY, radius, step float64) bool {
 			continue
 		}
 		c := &s.Cylinders[i]
+		if !c.Collides() {
+			continue
+		}
 		mn, mx := c.WorldBounds()
 		if mx.Y <= walkTop || mn.Y >= headY {
 			continue
@@ -262,6 +289,9 @@ func (s *Scene) BlockedStatic(x, z, feetY, headY, radius, step float64) bool {
 
 	for i := range s.Cones {
 		co := &s.Cones[i]
+		if !co.Collides() {
+			continue
+		}
 		mn, mx := co.WorldBounds()
 		if mx.Y <= walkTop || mn.Y >= headY {
 			continue
@@ -278,6 +308,9 @@ func (s *Scene) BlockedStatic(x, z, feetY, headY, radius, step float64) bool {
 			continue
 		}
 		sp := &s.Spheres[i]
+		if !sp.Collides() {
+			continue
+		}
 		if sp.Mat == MatEmit {
 			continue
 		}

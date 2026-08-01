@@ -18,7 +18,8 @@ struct Params {
     max_bounce_depth: u32,
     aspect: f32,
     fov_scale: f32,
-    ambient: f32,
+    ambient_sky: vec4<f32>,    // hemispheric ambient (xyz); from [environment].ambient_sky
+    ambient_ground: vec4<f32>, // hemispheric ambient (xyz); from [environment].ambient_ground
     mirror: u32, // 1 when reflections/refractions are enabled (tr.Opts.Mirror)
     cam_pos: vec4<f32>,
     fwd: vec4<f32>,
@@ -106,7 +107,7 @@ struct FlameParticle {
 struct Light {
     pos: vec4<f32>,
     color: vec4<f32>,
-    falloff: vec4<f32>, // cullR2, invR2, _, _
+    falloff: vec4<f32>, // cullR2, invR2, spotYaw, spotPitch
 };
 
 // BVHNode mirrors GPUBVHNode in bvh.go (std430, 48-byte stride).
@@ -339,6 +340,8 @@ struct Hit {
 };
 
 const HIT_NO_INSTANCE: u32 = 0xffffffffu;
+
+
 
 
 

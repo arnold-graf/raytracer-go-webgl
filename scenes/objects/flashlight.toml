@@ -1,0 +1,56 @@
+# Handheld flashlight mesh in local coordinates.
+#
+# +Y is the beam axis (forward when raised). Origin (0,0,0) is the grip.
+# The runtime attaches this with NewTransformYZ and animates it on F.
+#
+# collision = false: camera-attached handheld, must not block player movement.
+
+[[cylinder]] # grip
+pos_x = 0.0
+pos_y = -0.035
+pos_z = 0.0
+width = 0.020
+height = 0.07
+open_min = true
+open_max = true
+material = "diffuse"
+albedo = [0.12, 0.12, 0.13]
+rough = 0.55
+collision = false
+
+[[cylinder]] # head / reflector barrel
+pos_x = 0.0
+pos_y = 0.028
+pos_z = 0.0
+width = 0.026
+height = 0.034
+open_min = true
+open_max = true
+material = "metal"
+albedo = [0.55, 0.56, 0.58]
+rough = 0.22
+collision = false
+
+[[cylinder]] # lens ring
+pos_x = 0.0
+pos_y = 0.048
+pos_z = 0.0
+width = 0.022
+height = 0.006
+open_min = true
+open_max = true
+material = "glass"
+albedo = [0.9, 0.92, 0.95]
+rough = 0.04
+ior = 1.5
+transmit = 0.92
+collision = false
+
+[[light]]
+pos = [0.0, 0.052, 0.0]
+color = [1.6, 1.5, 1.25]
+brightness = 1.0
+range = 20
+radius = 0.02
+dir = [0.0, 1.0, 0.0]
+cone_angle = 45.0

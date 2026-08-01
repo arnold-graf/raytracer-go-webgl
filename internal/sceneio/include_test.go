@@ -211,6 +211,31 @@ func TestSpyglassObjectShape(t *testing.T) {
 	}
 }
 
+func TestFlashlightObjectShape(t *testing.T) {
+	s, err := Load(repoFile("scenes/objects/flashlight.toml"))
+	if err != nil {
+		t.Fatalf("load flashlight: %v", err)
+	}
+	if len(s.Cylinders) != 3 {
+		t.Fatalf("flashlight: %d cylinders, want 3", len(s.Cylinders))
+	}
+	if len(s.Lights) != 1 {
+		t.Fatalf("flashlight: %d lights, want 1", len(s.Lights))
+	}
+	l := s.Lights[0]
+	if !l.IsSpot() {
+		t.Fatal("flashlight beam should be a spot light")
+	}
+	if l.Range <= 0 || l.ConeDeg <= 0 {
+		t.Fatalf("flashlight range/cone: range=%v cone=%v", l.Range, l.ConeDeg)
+	}
+	for i, c := range s.Cylinders {
+		if c.Collides() {
+			t.Fatalf("cylinder %d should have collision=false", i)
+		}
+	}
+}
+
 func TestArtDecoRingLampShape(t *testing.T) {
 	dir := t.TempDir()
 	parent := filepath.Join(dir, "scene.toml")

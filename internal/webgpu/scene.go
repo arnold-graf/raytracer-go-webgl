@@ -103,9 +103,10 @@ const holeStride = 32
 
 // GPULight is the std430 layout consumed by trace.wgsl.
 //
-//	Pos: light position in xyz
-//	Color: per-channel radiance in xyz
-//	Falloff: (cullR2, invR2, _, _)
+//	Point: pos.w = 0
+//	Spot:  pos.w = 1, color.w = cos(half-angle), falloff.zw = yaw/pitch of Dir
+//
+//	Falloff: (cullR2, invR2, spotYaw, spotPitch)
 type GPULight struct {
 	Pos     [4]float32
 	Color   [4]float32
@@ -434,7 +435,7 @@ func PackBlockers(s *scene.Scene) []GPUPrimitive {
 }
 
 // PackLights computes the per-light cull distance and falloff for static point
-// lights (the same model the shader's add_point_light_raw uses). Campfire
+// and spot lights (the same model the shader's add_point_light uses). Campfire
 // parameters are resolved in the shader from constant data (PackCampfireParams).
 func PackLights(s *scene.Scene) []GPULight {
 	if s == nil {
@@ -442,18 +443,36 @@ func PackLights(s *scene.Scene) []GPULight {
 	}
 	out := make([]GPULight, 0, len(s.Lights))
 	for i := range s.Lights {
-		l := &s.Lights[i]
-		cullR2, invR2 := lightCull(l.Color, l.Range)
-		out = append(out, GPULight{
-			Pos:     [4]float32{f(l.Pos.X), f(l.Pos.Y), f(l.Pos.Z), 0},
-			Color:   albedo(l.Color),
-			Falloff: [4]float32{f(cullR2), f(invR2), 0, 0},
-		})
+		out = append(out, packLight(&s.Lights[i]))
 	}
 	if len(out) > maxLights {
 		out = out[:maxLights]
 	}
 	return out
+}
+
+func packLight(l *scene.Light) GPULight {
+	cullR2, invR2 := lightCull(l.Color, l.Range)
+	gl := GPULight{
+		Pos:     [4]float32{f(l.Pos.X), f(l.Pos.Y), f(l.Pos.Z), 0},
+		Color:   albedo(l.Color),
+		Falloff: [4]float32{f(cullR2), f(invR2), 0, 0},
+	}
+	if l.IsSpot() {
+		d := l.Dir.Normalize()
+		half := l.ConeDeg * 0.5 * math.Pi / 180
+		gl.Pos[3] = 1
+		gl.Color[3] = float32(math.Cos(half))
+		gl.Falloff[2] = float32(math.Atan2(d.X, -d.Z))
+		pitch := d.Y
+		if pitch > 1 {
+			pitch = 1
+		} else if pitch < -1 {
+			pitch = -1
+		}
+		gl.Falloff[3] = float32(math.Asin(pitch))
+	}
+	return gl
 }
 
 func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature, []GPUTerrainPad, []float32) {

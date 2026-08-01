@@ -141,6 +141,7 @@ type Game struct {
 	npcDebug bool
 
 	spyglass Spyglass
+	flashlight Flashlight
 }
 
 // New builds a game with the given internal render resolution rendering the
@@ -229,6 +230,9 @@ func (g *Game) setScene(sc *scene.Scene) {
 	})
 	if err := g.spyglass.Init(); err != nil {
 		fmt.Fprintf(os.Stderr, "spyglass: %v\n", err)
+	}
+	if err := g.flashlight.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "flashlight: %v\n", err)
 	}
 	g.flames.Reset(scene.FlameCampfires(sc.Campfires))
 	g.aoMu.Lock()
@@ -561,6 +565,7 @@ func (g *Game) Update() error {
 			g.screens.Update(g.sc, g.cam, aspect, 1.0/60.0)
 		}
 		g.spyglass.Update(g.sc, g.cam, 1.0/60.0)
+		g.flashlight.Update(g.sc, g.cam, 1.0/60.0)
 	}
 	g.updateFade()
 	g.updatePortalTransition()
@@ -802,6 +807,9 @@ func (g *Game) handleToggles() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyQ) {
 		g.spyglass.Toggle()
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF) {
+		g.flashlight.Toggle()
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyH) {
 		switch g.fpsCap {
 		case 0:
@@ -933,7 +941,7 @@ func (g *Game) statusLine() string {
 }
 
 func (g *Game) helpLine() string {
-	return "WASD/arrows move   mouse look   Space jump   Shift sprint   C crouch   E/X use   6 NPC debug   P pose dump+report   pad: sticks move/look, triggers crouch/run, A jump, X use"
+	return "WASD/arrows move   mouse look   Space jump   Shift sprint   C crouch   E/X use   F flashlight   Q spyglass   6 NPC debug   P pose dump+report   pad: sticks move/look, triggers crouch/run, A jump, X use"
 }
 
 func onOff(b bool) string {

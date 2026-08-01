@@ -11,6 +11,7 @@ import (
 
 	"raytracer/internal/camera"
 	"raytracer/internal/render"
+	"raytracer/internal/scene"
 	"raytracer/internal/texture"
 	"raytracer/internal/vec"
 	"raytracer/internal/webgpu/shaders"
@@ -20,14 +21,14 @@ import (
 
 const (
 	fovScale    = 0.5773502691896257 // tan(60deg / 2)
-	paramsSize  = 288
+	paramsSize  = 336
 	workgroupXY = 8
 	// Six square portal captures (see texture.MaxCaptureDim).
 	maxCaptureDim = texture.MaxCaptureDim
 
-	// ambientFlat is the CPU shade()'s flat-ambient term used when a scene has
-	// no hemispheric sky/ground ambient: lit = albedo * 0.04.
-	ambientFlat = 0.03
+	// ambientFlat is the fallback hemispheric ambient when a scene omits
+	// [environment].ambient_sky / ambient_ground.
+	ambientFlat = 0.04
 )
 
 func maxCapturePixels(maxDim int) int {
@@ -660,6 +661,8 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		bodyColor     vec.V
 		bodyCosRadius float32
 		bodyGlow      float32
+		ambientSky    vec.V
+		ambientGround vec.V
 	)
 	if v != nil && v.Scene != nil {
 		if !r.cache.fresh(v) {
@@ -667,7 +670,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 			uploadStatic = true
 		} else if !r.cache.transformsFresh(v) {
 			r.cache.updateDynamicTransforms(v.Scene)
-			uploadPartial = len(r.cache.partialPrimSpans) > 0 || len(r.cache.partialBlockerSpans) > 0
+			uploadPartial = len(r.cache.partialPrimSpans) > 0 || len(r.cache.partialBlockerSpans) > 0 || r.cache.lightsDirty
 		} else if v.AOok && v.AOVersion != r.cache.aoVersion {
 			r.cache.ao, r.cache.aoOK = PackAOVolume(v)
 			r.cache.aoVersion = v.AOVersion
@@ -678,6 +681,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		mirror = v.Mirror
 		aoEnabled = v.AO
 		sky = v.Scene.Env.Sky
+		ambientSky, ambientGround = packSceneAmbient(v.Scene.Env)
 		if env := v.Scene.Env; env.Sun.Visible() && env.SunDir != (vec.V{}) {
 			bodyEnabled = true
 			bodyDir = env.SunDir.Scale(-1).Normalize()
@@ -704,7 +708,9 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		shadows: shadows, mirror: mirror, timeSec: timeSec, sky: sky,
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
 		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
+		ambientSky: ambientSky, ambientGround: ambientGround,
 		uploadStatic: uploadStatic, uploadPartial: uploadPartial,
+		uploadLights:    c.lightsDirty,
 		partialPrimSpans:    c.partialPrimSpans,
 		partialBlockerSpans: c.partialBlockerSpans,
 	}
@@ -778,6 +784,8 @@ type renderParams struct {
 	bodyColor      vec.V
 	bodyCosRadius  float32
 	bodyGlow       float32
+	ambientSky     vec.V
+	ambientGround  vec.V
 	colorQuant     uint32
 	maxBounceDepth uint32
 	profileEnabled bool
@@ -787,6 +795,7 @@ type renderParams struct {
 	uploadStatic bool
 	// uploadPartial re-sends only dirty primitive spans + refit BVH after NPC pose updates.
 	uploadPartial       bool
+	uploadLights        bool
 	partialPrimSpans    [][2]int
 	partialBlockerSpans [][2]int
 }
@@ -946,6 +955,12 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 					return err
 				}
 			}
+		}
+		if p.uploadLights && len(p.lights) > 0 {
+			if err := r.queue.WriteBuffer(r.lights, 0, lightBytes(p.lights)); err != nil {
+				return err
+			}
+			r.cache.lightsDirty = false
 		}
 	}
 	r.timing.Upload = time.Since(uploadStart)
@@ -1147,6 +1162,19 @@ func (r *Renderer) discardPending() {
 // portal captures keep exact synchronous, same-frame semantics.
 func (r *Renderer) SetPipelined(on bool) { r.pipelined = on }
 
+func packSceneAmbient(env scene.Environment) (sky, ground vec.V) {
+	flat := vec.V{X: ambientFlat, Y: ambientFlat, Z: ambientFlat}
+	if !env.HasAmbient() {
+		return flat, flat
+	}
+	sky = env.AmbientSky
+	ground = env.AmbientGround
+	if ground == (vec.V{}) {
+		ground = vec.V{X: sky.X * 0.4, Y: sky.Y * 0.4, Z: sky.Z * 0.4}
+	}
+	return sky, ground
+}
+
 func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [paramsSize]byte {
 	fwd, right, up := cam.Basis()
 	var out [paramsSize]byte
@@ -1166,59 +1194,61 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	putU32(out[44:48], p.maxBounceDepth)
 	putF32(out[48:52], float32(float64(fw)/float64(fh)))
 	putF32(out[52:56], float32(fovScale))
-	putF32(out[56:60], float32(ambientFlat))
+	// ambient_sky vec4 is 16-byte aligned at offset 64 in the WGSL Params struct.
+	putVec4(out[64:80], p.ambientSky)
+	putVec4(out[80:96], p.ambientGround)
 	if p.mirror {
-		putU32(out[60:64], 1)
+		putU32(out[96:100], 1)
 	}
-	putVec4(out[64:80], cam.Pos)
-	putVec4(out[80:96], fwd)
-	putVec4(out[96:112], right)
-	putVec4(out[112:128], up)
+	putVec4(out[112:128], cam.Pos)
+	putVec4(out[128:144], fwd)
+	putVec4(out[144:160], right)
+	putVec4(out[160:176], up)
 	// Campfire + ambient-occlusion volume params.
-	putU32(out[128:132], uint32(len(p.campfireParams)))
+	putU32(out[176:180], uint32(len(p.campfireParams)))
 	if p.aoOK {
-		putU32(out[132:136], 1)
-		putU32(out[136:140], uint32(p.ao.NX))
-		putU32(out[140:144], uint32(p.ao.NY))
-		putU32(out[144:148], uint32(p.ao.NZ))
-		putF32(out[148:152], float32(p.ao.Inv))
-		putF32(out[152:156], float32(p.ao.Cell))
-		putF32(out[156:160], float32(p.ao.Bias))
-		putVec4(out[160:176], p.ao.Min)
-	}
-	putU32(out[176:180], uint32(p.sky))
-	// Celestial body (sun/moon disc): enable flag + disc geometry, then the
-	// direction and color vec4s (16-byte aligned at 192/208). See the Params
-	// struct in trace.wgsl for the matching layout.
-	if p.bodyEnabled {
 		putU32(out[180:184], 1)
+		putU32(out[184:188], uint32(p.ao.NX))
+		putU32(out[188:192], uint32(p.ao.NY))
+		putU32(out[192:196], uint32(p.ao.NZ))
+		putF32(out[196:200], float32(p.ao.Inv))
+		putF32(out[200:204], float32(p.ao.Cell))
+		putF32(out[204:208], float32(p.ao.Bias))
+		putVec4(out[208:224], p.ao.Min)
 	}
-	putF32(out[184:188], p.bodyCosRadius)
-	putF32(out[188:192], p.bodyGlow)
-	putVec4(out[192:208], p.bodyDir)
-	putVec4(out[208:224], p.bodyColor)
-	putU32(out[224:228], p.colorQuant)
-	if r.captureLoaded {
+	putU32(out[224:228], uint32(p.sky))
+	// Celestial body (sun/moon disc): enable flag + disc geometry, then the
+	// direction and color vec4s (16-byte aligned at 240/256). See Params in
+	// trace.wgsl for the matching layout.
+	if p.bodyEnabled {
 		putU32(out[228:232], 1)
-		putU32(out[232:236], uint32(r.captureW))
-		putU32(out[236:240], uint32(r.captureH))
+	}
+	putF32(out[232:236], p.bodyCosRadius)
+	putF32(out[236:240], p.bodyGlow)
+	putVec4(out[240:256], p.bodyDir)
+	putVec4(out[256:272], p.bodyColor)
+	putU32(out[272:276], p.colorQuant)
+	if r.captureLoaded {
+		putU32(out[276:280], 1)
+		putU32(out[280:284], uint32(r.captureW))
+		putU32(out[284:288], uint32(r.captureH))
 	}
 	if r.documentLoaded {
-		putU32(out[240:244], 1)
+		putU32(out[288:292], 1)
 	}
-	putU32(out[244:248], uint32(len(p.instTemplates)))
-	putU32(out[248:252], uint32(len(p.instPlacements)))
-	putU32(out[252:256], p.instNodeBase)
-	putU32(out[256:260], p.instNodeCount)
-	putU32(out[260:264], p.blockerSecStart)
-	putU32(out[264:268], p.blockerInstBase)
-	putU32(out[268:272], p.blockerInstCount)
+	putU32(out[292:296], uint32(len(p.instTemplates)))
+	putU32(out[296:300], uint32(len(p.instPlacements)))
+	putU32(out[300:304], p.instNodeBase)
+	putU32(out[304:308], p.instNodeCount)
+	putU32(out[308:312], p.blockerSecStart)
+	putU32(out[312:316], p.blockerInstBase)
+	putU32(out[316:320], p.blockerInstCount)
 	if p.profileEnabled {
-		putU32(out[272:276], 1)
+		putU32(out[320:324], 1)
 	}
-	putU32(out[276:280], uint32(len(p.planeIdx)))
-	putU32(out[280:284], uint32(len(p.blockerPlaneIdx)))
-	putU32(out[284:288], uint32(len(p.flameParticles)))
+	putU32(out[324:328], uint32(len(p.planeIdx)))
+	putU32(out[328:332], uint32(len(p.blockerPlaneIdx)))
+	putU32(out[332:336], uint32(len(p.flameParticles)))
 	return out
 }
 

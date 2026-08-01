@@ -107,7 +107,7 @@ depth = 5
 [[box]]
 material = "diffuse"
 texture = "marble"
-reflect = 0.05
+reflect = 0.1
 rough = 0.005
 albedo = [0.7, 0.7, 0.7]
 pos_x = 40
@@ -120,7 +120,7 @@ depth = 0.5
 [[box]]
 material = "diffuse"
 texture = "marble"
-reflect = 0.05
+reflect = 0.1
 rough = 0.005
 albedo = [0.7, 0.7, 0.7]
 pos_x = 40
@@ -133,7 +133,7 @@ depth = 5
 [[box]]
 material = "diffuse"
 texture = "marble"
-reflect = 0.05
+reflect = 0.1
 rough = 0.005
 albedo = [0.7, 0.7, 0.7]
 pos_x = 40

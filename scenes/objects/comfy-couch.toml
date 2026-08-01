@@ -1,0 +1,246 @@
+# Comfy upholstered couch with separate seat and back cushions.
+#
+# Origin (0, 0, 0) is the centre of the footprint on the floor.
+# Sitters face -Z; the back rests against +Z.
+#
+# Parameterized via [[include]] params (all optional):
+#   width             overall width in X                 (default 2.2)
+#   depth             overall depth in Z                 (default 0.92)
+#   seat_height       top of the seat cushions           (default 0.44)
+#   back_height       back frame height above seat deck  (default 0.52)
+#   arm_width         arm width                          (default 0.16)
+#   cushion_gap       gap between cushions               (default 0.05)
+#   seat_count        number of seat/back cushions       (default 2)
+#   cushion_thickness seat and back cushion thickness    (default 0.14)
+#   texture           upholstery texture                 (default "wallpaper_rose")
+#   albedo            upholstery tint                    (default [1.15, 1.08, 1.12])
+#   frame_albedo      wood frame tint                    (default [0.32, 0.20, 0.12])
+#   cushion_reflect   upholstery specular reflectance    (default 0.42)
+#   cushion_rough     upholstery micro-roughness           (default 0.06)
+#
+# Example:
+#
+#   [[include]]
+#   file = "objects/comfy-couch.toml"
+#   at = [0.0, 0.0, 0.0]
+#   params = { width = 2.6, seat_count = 3, texture = "wallpaper_navy" }
+
+[props]
+width = 2.2
+depth = 0.92
+seat_height = 0.44
+back_height = 0.52
+arm_width = 0.16
+cushion_gap = 0.05
+seat_count = 2
+cushion_thickness = 0.14
+texture = "wallpaper_rose"
+albedo = [1.15, 1.08, 1.12]
+cushion_reflect = 0.42
+cushion_rough = 0.06
+frame_albedo = [0.32, 0.20, 0.12]
+frame_texture = "wood"
+
+[const]
+half_w = 'width / 2'
+half_d = 'depth / 2'
+leg_h = 0.08
+base_h = 0.11
+base_top = 'leg_h + base_h'
+inner_w = 'width - 2 * arm_width'
+cushion_w = '(inner_w - cushion_gap * (seat_count + 1)) / seat_count'
+seat_depth = 'depth - 0.28'
+back_thick = 0.16
+back_cushion_d = 0.30
+leg_inset = 0.10
+leg_w = 0.09
+arm_h = 'base_top + back_height - leg_h'
+seat_cushion_d = 'seat_depth - 0.08'
+
+# legs (corner-aligned with the base footprint)
+[[box]]
+material = "diffuse"
+albedo = 'frame_albedo'
+texture = 'frame_texture'
+reflect = 0.03
+rough = 0.35
+pos_x = '-half_w + leg_inset'
+pos_y = 0.0
+pos_z = '-half_d + leg_inset'
+width = 'leg_w'
+height = 'leg_h'
+depth = 'leg_w'
+
+[[box]]
+material = "diffuse"
+albedo = 'frame_albedo'
+texture = 'frame_texture'
+reflect = 0.03
+rough = 0.35
+pos_x = 'half_w - leg_inset - leg_w'
+pos_y = 0.0
+pos_z = '-half_d + leg_inset'
+width = 'leg_w'
+height = 'leg_h'
+depth = 'leg_w'
+
+[[box]]
+material = "diffuse"
+albedo = 'frame_albedo'
+texture = 'frame_texture'
+reflect = 0.03
+rough = 0.35
+pos_x = '-half_w + leg_inset'
+pos_y = 0.0
+pos_z = 'half_d - leg_inset - leg_w'
+width = 'leg_w'
+height = 'leg_h'
+depth = 'leg_w'
+
+[[box]]
+material = "diffuse"
+albedo = 'frame_albedo'
+texture = 'frame_texture'
+reflect = 0.03
+rough = 0.35
+pos_x = 'half_w - leg_inset - leg_w'
+pos_y = 0.0
+pos_z = 'half_d - leg_inset - leg_w'
+width = 'leg_w'
+height = 'leg_h'
+depth = 'leg_w'
+
+# base platform
+[[box]]
+material = "diffuse"
+albedo = 'frame_albedo'
+texture = 'frame_texture'
+reflect = 0.03
+rough = 0.35
+pos_x = '-half_w'
+pos_y = 'leg_h'
+pos_z = '-half_d'
+width = 'width'
+height = 'base_h'
+depth = 'depth'
+
+# front skirt
+[[box]]
+material = "diffuse"
+albedo = 'frame_albedo'
+texture = 'frame_texture'
+reflect = 0.03
+rough = 0.35
+pos_x = '-half_w'
+pos_y = 'leg_h'
+pos_z = '-half_d'
+width = 'width'
+height = 0.06
+depth = 0.07
+
+# seat deck
+[[box]]
+material = "diffuse"
+albedo = 'frame_albedo'
+texture = 'frame_texture'
+reflect = 0.03
+rough = 0.35
+pos_x = '-half_w + arm_width'
+pos_y = 'base_top - 0.05'
+pos_z = '-half_d + 0.14'
+width = 'inner_w'
+height = 0.06
+depth = 'seat_depth'
+
+# back frame
+[[box]]
+material = "diffuse"
+albedo = 'frame_albedo'
+texture = 'frame_texture'
+reflect = 0.03
+rough = 0.35
+pos_x = '-half_w + arm_width'
+pos_y = 'base_top'
+pos_z = 'half_d - back_thick'
+width = 'inner_w'
+height = 'back_height'
+depth = 'back_thick'
+
+# arms (wood core)
+[[box]]
+material = "diffuse"
+albedo = 'frame_albedo'
+texture = 'frame_texture'
+reflect = 0.03
+rough = 0.35
+pos_x = '-half_w'
+pos_y = 'leg_h'
+pos_z = '-half_d + 0.06'
+width = 'arm_width'
+height = 'arm_h'
+depth = 'depth - 0.12'
+
+[[box]]
+material = "diffuse"
+albedo = 'frame_albedo'
+texture = 'frame_texture'
+reflect = 0.03
+rough = 0.35
+pos_x = 'half_w - arm_width'
+pos_y = 'leg_h'
+pos_z = '-half_d + 0.06'
+width = 'arm_width'
+height = 'arm_h'
+depth = 'depth - 0.12'
+
+# arm upholstery caps
+[[box]]
+material = "diffuse"
+albedo = 'albedo'
+texture = 'texture'
+pos_x = '-half_w'
+pos_y = 'base_top + back_height - 0.14'
+pos_z = '-half_d + 0.08'
+width = 'arm_width'
+height = 0.16
+depth = 'depth - 0.16'
+
+[[box]]
+material = "diffuse"
+albedo = 'albedo'
+texture = 'texture'
+pos_x = 'half_w - arm_width'
+pos_y = 'base_top + back_height - 0.14'
+pos_z = '-half_d + 0.08'
+width = 'arm_width'
+height = 0.16
+depth = 'depth - 0.16'
+
+# seat cushions
+# for i in range(seat_count)
+[[box]]
+material = "diffuse"
+albedo = 'albedo'
+texture = 'texture'
+pos_x = '-half_w + arm_width + cushion_gap + i * (cushion_w + cushion_gap)'
+pos_y = 'seat_height - cushion_thickness'
+pos_z = '-half_d'
+width = 'cushion_w'
+height = 'cushion_thickness'
+depth = 'seat_cushion_d'
+# endfor
+
+# back cushions
+# for i in range(seat_count)
+[[box]]
+material = "diffuse"
+albedo = 'albedo'
+texture = 'texture'
+pos_x = '-half_w + arm_width + cushion_gap + i * (cushion_w + cushion_gap)'
+pos_y = 'seat_height - 0.02'
+pos_z = 'half_d - back_thick - back_cushion_d + 0.1'
+width = 'cushion_w'
+height = 'cushion_thickness + 0.2'
+depth = 'back_cushion_d'
+rotate_x = 3
+# endfor

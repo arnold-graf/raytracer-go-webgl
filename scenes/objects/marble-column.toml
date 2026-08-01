@@ -1,0 +1,40 @@
+[props]
+height = 4.5
+width = 0.5
+albedo = [1,1,1]
+reflect = 0.1
+
+# base
+[[cylinder]]
+material = "diffuse"
+texture = "marble"
+albedo = 'albedo'
+height = 0.1
+width = 'width + 0.2'
+pos_x = -0.1
+pos_y = 0
+pos_z = -0.1
+reflect = 'reflect'
+# top
+[[cylinder]]
+material = "diffuse"
+texture = "marble"
+albedo = 'albedo'
+height = 0.1
+width = 'width + 0.2'
+pos_x = -0.1
+pos_y = 'height - 0.1'
+pos_z = -0.1
+reflect = 'reflect'
+
+# column
+[[cylinder]]
+material = "diffuse"
+texture = "marble"
+albedo = 'albedo'
+height = 'height'
+width = 'width'
+pos_x = 0
+pos_y = 0
+pos_z = 0
+reflect = 'reflect'

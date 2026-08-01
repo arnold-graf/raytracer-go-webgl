@@ -6,6 +6,9 @@
 # Active: Keplerian pair (weak eyepiece just ahead of the eye + strong objective
 # at the front). Higher magnification than a single lens; keep apertures matched
 # to the front bore so there is no unmagnified ring around the glass.
+#
+# collision = false on all mesh primitives: the handheld is camera-attached and
+# must not block player movement.
 
 [[cylinder]] # tapered barrel
 pos_x = -0.022
@@ -19,6 +22,7 @@ open_max = true
 material = "metal"
 albedo = [0.72, 0.54, 0.28]
 rough = 0.18
+collision = false
 
 [[cylinder]] # front retaining ring (same bore as the lenses)
 pos_x = -0.011
@@ -31,6 +35,7 @@ open_max = true
 material = "metal"
 albedo = [0.72, 0.54, 0.28]
 rough = 0.18
+collision = false
 
 # Eyepiece: just ahead of the camera (eye ≈ Y 0.022 when raised).
 [[lens]]

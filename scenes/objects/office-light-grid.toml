@@ -1,0 +1,79 @@
+# Ceiling panel + point-light grid for office interiors.
+#
+# Every cell gets a thin emissive panel; point lights sit on a coarser subset
+# of those same panels (roughly one per panels_per_light), always centered
+# under a panel on the X/Z plane.
+#
+# Parameterized via [[include]] params (all optional):
+#   x_count          panels along X              (default 4)
+#   z_count          panels along Z              (default 3)
+#   panels_per_light target panels per point light (default 3)
+#   origin_x         first panel corner X        (default 2.0)
+#   origin_z         first panel corner Z        (default 2.0)
+#   spacing          distance between panels     (default 2.0)
+#   y                panel and light height Y    (default 4.4)
+#   panel_width      emissive panel width        (default 1.0)
+#   panel_height     emissive panel thickness    (default 0.01)
+#   panel_depth      emissive panel depth        (default 1.0)
+#   emit_albedo      emissive RGB                (default [1, 0.5, 0.5])
+#   light_color      point light RGB             (default [0.5, 0.5, 1])
+#   light_brightness point light brightness      (default 0.3)
+#   light_range      point light range           (default 7.0)
+#
+# Example:
+#
+#   [[include]]
+#   file = "objects/office-light-grid.toml"
+#   at = [0.0, 0.0, 0.0]
+#   params = { x_count = 4, z_count = 3 }
+
+[props]
+x_count = 4
+z_count = 3
+panels_per_light = 3
+origin_x = 2.0
+origin_z = 2.0
+spacing = 2.0
+y = 4.4
+panel_width = 1.0
+panel_height = 0.01
+panel_depth = 1.0
+emit_albedo = [1, 0.5, 0.5]
+light_color = [0.5, 0.5, 1]
+light_brightness = 0.3
+light_range = 7.0
+
+[const]
+light_offset = 'panel_width / 2'
+light_x_count = 'floor((x_count + 1) / 2)'
+light_z_count = 'floor((z_count + 1) / 2)'
+single_x = '1 - (light_x_count - 1)'
+single_z = '1 - (light_z_count - 1)'
+center_i = 'floor((x_count - 1) / 2)'
+center_j = 'floor((z_count - 1) / 2)'
+stride_i = '(x_count - 1) * (light_x_count - 1)'
+stride_j = '(z_count - 1) * (light_z_count - 1)'
+
+# for i in range(x_count)
+# for j in range(z_count)
+[[box]]
+material = "emit"
+albedo = 'emit_albedo'
+width = 'panel_width'
+height = 'panel_height'
+depth = 'panel_depth'
+pos_x = 'origin_x + (i * spacing)'
+pos_y = 'y'
+pos_z = 'origin_z + (j * spacing)'
+# endfor
+# endfor
+
+# for li in range(light_x_count)
+# for lj in range(light_z_count)
+[[light]]
+pos = ['origin_x + light_offset + (center_i * single_x + li * stride_i) * spacing', 'y', 'origin_z + light_offset + (center_j * single_z + lj * stride_j) * spacing']
+color = 'light_color'
+brightness = 'light_brightness'
+range = 'light_range'
+# endfor
+# endfor

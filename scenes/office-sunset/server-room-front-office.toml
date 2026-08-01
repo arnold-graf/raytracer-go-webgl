@@ -8,7 +8,7 @@ pos_z = 0
 width = 10
 height = 0.2
 depth = 20
-albedo = [2,2,2]
+albedo = [1,1,1]
 
 # north wall (glass)
 [[box]]
@@ -35,25 +35,49 @@ width = 10
 height = 1
 depth = 0.3
 
+# north wall top
+[[box]]
+material = "diffuse"
+texture = "cement"
+albedo = [2,2,2]
+pos_x = 0
+pos_y = 4
+pos_z = 0.2
+width = 10
+height = 1
+depth = 0.3
+
 # east wall (grid)
 [[include]]
 file = "../objects/grid.toml"
 transform_origin = [0, 0, 0]
 at = [10.0, 0.0, 0.0]
 rotate_y = -90
-params = { width = 20.0, height = 4.5, depth = 0.2, unit_size = 0.7, albedo = [3.2,3,3], material = "diffuse", texture = "cement"}
+params = { width = 20.0, height = 4.5, depth = 0.2, unit_size = 0.7, albedo = [2,2,2], material = "diffuse", texture = "cement"}
+
+# east wall top
+[[box]]
+material = "diffuse"
+texture = "cement"
+albedo = [2,2,2]
+pos_x = 9.6
+pos_y = 4
+pos_z = 0.2
+width = 0.3
+height = 1
+depth = 20
 
 # east wall sun blinds
 [[box]]
 material = "diffuse"
 texture = "cement"
-albedo = [2,2,2]
+albedo = [0.1,0.1,0.1]
 pos_x = 11
-pos_y = 2.5
+pos_y = 3.4
 pos_z = 0
 width = 0.2
 depth = 20
-height = 2
+height = 1.5
 
 # glass wall
 [[box]]
@@ -102,6 +126,19 @@ width = 10
 depth = 20
 height = 0.2
 
+# ceiling lights
+[[include]]
+file = "../objects/office-light-grid.toml"
+transform_origin = [0, 0, 0]
+at = [0.0, 0.0, 0.0]
+
+# ceiling lights
+[[include]]
+file = "../objects/office-light-grid.toml"
+transform_origin = [0, 0, 0]
+at = [0.0, 0.0, 12.0]
+
+
 # desk in the corner
 [[include]]
 file = "objects/front-office-desk.toml"
@@ -137,10 +174,11 @@ transform_origin = [0, 0, 0]
 at = [1.5, 0, 18]
 params = { color = [1, 1, 1], brightness = 0.05, range = 12, stem_len = 2}
 
-
-# skyway to office building
+# lounge couch along the north wall, facing the room
 [[include]]
-file = "objects/skyway.toml"
+file = "../objects/comfy-couch.toml"
 transform_origin = [0, 0, 0]
-at = [1.0, 0.0, 20.0]
-params = { length = 20 }
+at = [6.05, 0.0, 1.5]
+rotate_y = 180
+params = { width = 2.4, seat_count = 2, texture = "wallpaper_rose", albedo = [1.2, 1.1, 1.15] }
+

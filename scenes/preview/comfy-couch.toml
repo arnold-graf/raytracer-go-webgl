@@ -1,0 +1,28 @@
+# Preview: comfy couch on a simple floor.
+
+[environment]
+ambient_sky = [0.45, 0.42, 0.48]
+ambient_ground = [0.18, 0.16, 0.14]
+sun_dir = [-0.35, -0.55, 0.75]
+sun_color = [1.2, 0.95, 0.75]
+
+[[box]]
+material = "diffuse"
+texture = "cement"
+albedo = [0.55, 0.54, 0.56]
+pos_x = -2.0
+pos_y = -0.02
+pos_z = -1.2
+width = 4.0
+height = 0.02
+depth = 3.0
+
+[[light]]
+pos = [1.5, 2.5, 1.0]
+color = [1.0, 0.92, 0.82]
+brightness = 2.0
+range = 6
+
+[[include]]
+file = "../objects/comfy-couch.toml"
+at = [0.0, 0.0, 0.0]

@@ -401,3 +401,17 @@ func TestGroundHeightStaticIgnoresDynamicCylinders(t *testing.T) {
 		t.Fatalf("static query = %v, want 0.08 (floor)", g)
 	}
 }
+
+func TestNoCollisionPrimitiveIgnored(t *testing.T) {
+	s := &Scene{Boxes: []Box{{
+		Min: vec.New(-1, 0, -1), Max: vec.New(1, 2, 1),
+		Surface: Surface{Mat: MatDiffuse, NoCollision: true},
+	}}}
+	feetY, headY, r, step := 0.0, 1.7, 0.3, 0.45
+	if s.Blocked(0, 0, feetY, headY, r, step) {
+		t.Fatal("collision=false box should not block")
+	}
+	if g := s.GroundHeight(0, 0, 2); g > 0.01 {
+		t.Fatalf("collision=false box should not be ground, got %v", g)
+	}
+}

@@ -10,7 +10,7 @@ albedo = [0.66, 0.45, 0.24]
 
 [[cylinder]]
 material = "diffuse"
-reflect = 0.05
+reflect = 0.1
 rough = 0.1
 albedo = 'albedo'
 height = 0.1
@@ -21,7 +21,7 @@ width = 0.8
 
 [[cylinder]]
 material = "diffuse"
-reflect = 0.05
+reflect = 0.1
 rough = 0.1
 albedo = 'albedo'
 height = 0.05
@@ -32,7 +32,7 @@ width = 0.6
 
 [[cylinder]]
 material = "diffuse"
-reflect = 0.05
+reflect = 0.1
 rough = 0.1
 albedo = 'albedo'
 height = 0.05
@@ -45,17 +45,19 @@ width = 0.4
 # stem
 [[cylinder]]
 material = "diffuse"
-reflect = 0.05
+texture = "wood"
+reflect = 0.1
 albedo = 'albedo'
 height = 'stem_len'
-pos_x = 0.35
+pos_x = 0.30
 pos_y = 0.0
-pos_z = 0.35
-width = 0.1
+pos_z = 0.30
+width_bottom = 0.05
+width_top = 0.2
 
 [[cone]]
 material = "diffuse"
-reflect = 0.05
+reflect = 0.2
 albedo = 'albedo'
 height = 0.3
 width = 1
