@@ -14,6 +14,7 @@ MODULES = [
     "sky",
     "intersect",
     "terrain",
+    "flame",
     "instance",
     "bvh",
     "shade",

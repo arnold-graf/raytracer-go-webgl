@@ -351,8 +351,12 @@ texture = "cement"
 # [[box]] # west wall, centre
 # albedo = [0.94, 0.93, 0.90]
 # material = "diffuse"
-# max = [-3.05, 5.85, 4.1]
-# min = [-7.15, 1.2, -5.15]
+# pos_x = -7.15
+# pos_y = 1.2
+# pos_z = -5.15
+# width = 4.1
+# height = 4.65
+# depth = 9.25
 # texture = "cement"
 
 [[box]] # east (+X) wall, right wing
@@ -369,8 +373,12 @@ texture = "cement"
 # [[box]] # east wall, centre
 # albedo = [0.94, 0.93, 0.90]
 # material = "diffuse"
-# max = [7.15, 5.85, 4.1]
-# min = [3.05, 1.2, -5.15]
+# pos_x = 3.05
+# pos_y = 1.2
+# pos_z = -5.15
+# width = 4.1
+# height = 4.65
+# depth = 9.25
 # texture = "cement"
 
 # ---- wing side returns (inner step of facade) ----

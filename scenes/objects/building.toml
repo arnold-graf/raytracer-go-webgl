@@ -408,45 +408,45 @@ rough = 0.02
 
 [[cone]] # cap on back-left column: stone
 albedo = [1.0, 1.0, 1.0]
-cx = -3.5
-cz = -3.5
+pos_x = -3.95
+pos_y = 4.4
+pos_z = -3.95
+width = 0.9
+height = 0.9
 material = "diffuse"
-rbase = 0.45
 texture = "stone"
-ybase = 4.4
-ytip = 5.3
 
 # (back-right column cap removed along with its column.)
 
 [[cone]] # cap on front-left column (metal)
 albedo = [0.8, 0.82, 0.85]
-cx = -3.5
-cz = 3.5
+pos_x = -3.95
+pos_y = 4.4
+pos_z = 3.05
+width = 0.9
+height = 0.9
 material = "metal"
-rbase = 0.45
 rough = 0.05
-ybase = 4.4
-ytip = 5.3
 
 [[cone]] # cap on front-right column (metal)
 albedo = [0.8, 0.82, 0.85]
-cx = 3.5
-cz = 3.5
+pos_x = 3.05
+pos_y = 4.4
+pos_z = 3.05
+width = 0.9
+height = 0.9
 material = "metal"
-rbase = 0.45
 rough = 0.05
-ybase = 4.4
-ytip = 5.3
 
 [[cone]] # dunce hat on stepped platform: brick
 albedo = [1.0, 1.0, 1.0]
-cx = -2.75
-cz = -4.25
+pos_x = -3.35
+pos_y = 1.6
+pos_z = -4.85
+width = 1.2
+height = 1.2
 material = "diffuse"
-rbase = 0.6
 texture = "brick"
-ybase = 1.6
-ytip = 2.8
 
 # ----------------------------------------------------------------- tori ----
 

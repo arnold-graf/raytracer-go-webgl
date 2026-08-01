@@ -36,13 +36,27 @@ width = 40.0
 height = 8.0
 depth = 0.2
 
-# west wall (ventilation grille)
+# west wall (grid)
 [[include]]
 file = "../objects/grid.toml"
 transform_origin = [0, 0, 0]
 at = [0.0, 0.0, 20.0]
 rotate_y = 90
 params = { width = 20.0, height = 8.0, depth = 0.2, unit_size = 1, albedo = [1, 1, 1], material = "diffuse", texture = "cement"}
+
+# glass wall (west)
+[[box]]
+material = "glass"
+ior = 1.05
+rough = 0.005
+transmit = 0.75
+albedo = [1.2, 1.2, 1.2]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 0.01
+height = 8.0
+depth = 20
 
 # west wall (solid top)
 [[box]]
@@ -54,7 +68,7 @@ pos_y = 4.2
 pos_z = 0.0
 width = 0.2
 height = 4
-depth = 40.0
+depth = 20.0
 
 # south wall
 [[box]]
@@ -71,7 +85,6 @@ depth = 0.2
 # east wall (glass bottom)
 [[box]]
 material = "glass"
-reflect = 2
 rough = 0.005
 albedo = [0.7, 0.7, 0.7]
 pos_x = 40
@@ -92,10 +105,11 @@ depth = 5
 
 # Door frame
 [[box]]
-material = "glass"
-reflect = 2
+material = "diffuse"
+texture = "marble"
+reflect = 0.05
 rough = 0.005
-albedo = [0.1, 0.1, 0.1]
+albedo = [0.7, 0.7, 0.7]
 pos_x = 40
 pos_y = 0
 pos_z = 8
@@ -104,10 +118,11 @@ height = 4
 depth = 0.5
 
 [[box]]
-material = "glass"
-reflect = 2
+material = "diffuse"
+texture = "marble"
+reflect = 0.05
 rough = 0.005
-albedo = [0.1, 0.1, 0.1]
+albedo = [0.7, 0.7, 0.7]
 pos_x = 40
 pos_y = 3.5
 pos_z = 8
@@ -116,10 +131,11 @@ height = 0.5
 depth = 5
 
 [[box]]
-material = "glass"
-reflect = 2
+material = "diffuse"
+texture = "marble"
+reflect = 0.05
 rough = 0.005
-albedo = [0.1, 0.1, 0.1]
+albedo = [0.7, 0.7, 0.7]
 pos_x = 40
 pos_y = 0
 pos_z = 12.5
@@ -307,7 +323,7 @@ params = { stem_len = 2.3, brightness = 0.05, range = 20, orb_radius = 0.5 }
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
 at = [8.0, 6.17, 9.0]
-params = { stem_len = 3, brightness = 0.05, range = 20 }
+params = { stem_len = 3, brightness = 0.1, range = 10 }
 
 # Lamp 4 (above the door)
 [[include]]

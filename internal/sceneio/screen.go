@@ -58,7 +58,7 @@ func (d screenDTO) build(parentDir string, slot int) (scene.ScreenSpec, error) {
 		}
 		mat = m
 	}
-	paras := texture.NormalizeParagraphs(d.Paragraphs)
+	paras := texture.NormalizeLines(d.Paragraphs)
 
 	pos := vec.New(d.PosX, d.PosY, d.PosZ)
 	rest := scene.DocumentRestTransform(pos, w, h, dep, d.RotateX, d.RotateY, d.RotateZ, nil)

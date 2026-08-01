@@ -127,11 +127,12 @@ material = "diffuse"
 albedo = 'albedo'
 reflect = 'reflect'
 rough = 'chrome_rough'
-cx = 0.0
-cz = 0.24
-ybase = 0.350
-ytip = 0.475
-rbase = 0.1
+capped = false
+pos_x = -0.1
+pos_y = 0.350
+pos_z = 0.14
+width = 0.2
+height = 0.125
 rotate_x = -22
 
 [[sphere]] # warm bulb

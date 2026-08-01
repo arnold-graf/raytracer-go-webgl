@@ -30,7 +30,7 @@ const (
 // silently corrupting the buffer.
 const maxPrims = 4096
 
-const maxLights = 256
+const maxLights = 1024
 
 const (
 	maxTerrains        = 8
@@ -59,8 +59,8 @@ const (
 //	GeoA: sphere -> (center.xyz, radius); plane -> (n.xyz, d); box -> (min.xyz, _)
 //	      cylinder -> (cx, cz, radius, ymin); cone -> (cx, cz, rbase, ybase)
 //	      torus -> (center.xyz, majorR)
-//	GeoB: box -> (max.xyz, _); sphere -> (cut_off,..); cylinder -> (ymax, radius_top,..); cone -> (ytip,..);
-//	      torus -> (minorR,..); unused otherwise
+//	GeoB: box -> (max.xyz, _); sphere -> (cut_off,..); cylinder -> (ymax, radius_top,..);
+//	      cone -> (ytip, capped_flag,..); torus -> (minorR,..); unused otherwise
 //	Albedo: linear rgb in xyz
 //	Albedo2: checker second color (MatChecker)
 //	Params: (rough, ior, reflect, transmit)
@@ -273,9 +273,13 @@ func cylinderPrim(c *scene.Cylinder) GPUPrimitive {
 
 func conePrim(c *scene.Cone) GPUPrimitive {
 	alb, alb2 := surfaceColors(c.Surface)
+	capFlag := float32(0)
+	if c.Capped {
+		capFlag = 1
+	}
 	p := GPUPrimitive{
 		GeoA:    [4]float32{f(c.CX), f(c.CZ), f(c.RBase), f(c.YBase)},
-		GeoB:    [4]float32{f(c.YTip), 0, 0, 0},
+		GeoB:    [4]float32{f(c.YTip), capFlag, 0, 0},
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(c.Surface),

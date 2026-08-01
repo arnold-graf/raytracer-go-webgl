@@ -10,7 +10,7 @@ import (
 func invertedSiliconCone() Cone {
 	center := vec.New(30, (12+15)/2, 30)
 	return Cone{
-		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10,
+		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10, Capped: true,
 		Surface: Surface{Xform: PlacementTransform(0, 0, 180, center, center)},
 	}
 }

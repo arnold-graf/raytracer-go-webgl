@@ -21,10 +21,17 @@ ambient_ground = [0.018, 0.020, 0.026]
 sun_dir = [1, -1.2, 0.90]
 sun_color = [0.16, 0.19, 0.27]
 
-[environment.sun]
-color = [0.4, 0.45, 1.5]     # disc radiance (>1 reads as bright/HDR)
-size  = 5.0                  # angular diameter in degrees
-glow  = 0.1                  # halo strength (omit/0 -> 1.0)
+# [environment.sun]
+# color = [0.4, 0.45, 1.5]     # disc radiance (>1 reads as bright/HDR)
+# size  = 5.0                  # angular diameter in degrees
+# glow  = 0.1                  # halo strength (omit/0 -> 1.0)
+
+[[sphere]]
+center = [-100.0, 500.0, 0]
+radius = 40.0
+material = "diffuse"
+texture = "cement"
+albedo = [30.0, 30.0, 35.0]
 
 # Moonlight as a distant point light (shadows only come from [[light]]/campfire;
 # sun_dir and [environment.sun] are sky-only). Placed along -sun_dir so shadow
@@ -163,30 +170,6 @@ file = "objects/pine-tree-cluster.toml"
 at = [-1.331, 6.7, -9.336]
 instance = true
 
-# ----------------------------------------------------------------- campfire ----
-# A campfire on the lake shore (replaces the old lantern orb). The visible part
-# is just three glowing orbs (which also reflect in the water); the light is a
-# [[light_flickering]] -- a cluster of warm point lights that flicker in intensity and
-# position over time, so the surrounding shadows dance.
-
-[[sphere]] # orb 1 (red-orange)
-center = [-6.0, 0.24, 5]
-radius = 0.18
-material = "emit"
-albedo = [3.6, 1.3, 0.35]
-
-[[sphere]] # orb 2 (orange)
-center = [-6.0, 0.22, 4.86]
-radius = 0.16
-material = "emit"
-albedo = [4.0, 1.9, 0.6]
-
-[[sphere]] # orb 3 (yellow)
-center = [-6.0, 0.22, 4.9]
-radius = 0.16
-material = "emit"
-albedo = [3.8, 2.6, 0.95]
-
 # The flickering light cluster. center sits just above the orbs.
 # color sets the warm hue; brightness scales the overall intensity (so you can
 # tune how bright the fire glows without touching its color or its reach).
@@ -196,21 +179,19 @@ albedo = [3.8, 2.6, 0.95]
 #   flicker    - intensity wobble amount in [0,1]
 #   speed      - flicker speed multiplier
 #   seed       - phase offset (use different values for multiple fires)
-[[light_flickering]]
-center = [-6.0, 3, 5.0]
-color = [3.6, 1.7, 0.55]
-brightness = 1.0
-range = 25.0
-jitter = 0.4
-flicker = 0.45
-speed = 1.0
-lights = 3
 
-[[npc]]
-rig = "data/rigs/spider.yaml"
-at = [0.0, 5, 5]
-yaw = 0
-speed = 5
-patrol = [[0, 0, 5], [0, 0, 40]]
+
+[[include]]
+file = "objects/campfire.toml"
+at = [-9.0, 0, 5.0]
+params = {
+  brightness = 1.0,
+  range = 25.0,
+  flicker = 0.45,
+  speed = 1.0,
+  flame_ember = [3.0, 0.2, 0.0],
+  flame_mid = [3.5, 1.6, 0.05],
+  flame_tip = [2.0, 1.4, 0.2],
+}
 
 

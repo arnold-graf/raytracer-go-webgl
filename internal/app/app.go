@@ -20,12 +20,12 @@ import (
 	"raytracer/internal/camera"
 	"raytracer/internal/document"
 	"raytracer/internal/door"
-	"raytracer/internal/screen"
 	"raytracer/internal/npc"
 	"raytracer/internal/probe"
 	"raytracer/internal/render"
 	"raytracer/internal/scene"
 	"raytracer/internal/sceneio"
+	"raytracer/internal/screen"
 	"raytracer/internal/vec"
 )
 
@@ -50,9 +50,9 @@ type Game struct {
 	// basePlayerCfg is the global player.toml tuning; scene [player.movement]
 	// overrides are merged on top when the scene is (re)loaded.
 	basePlayerCfg camera.Config
-	shadow bool
-	mirror bool
-	ao     bool
+	shadow        bool
+	mirror        bool
+	ao            bool
 	// colorQuant: 0 = 8-bit (default), 1 = 15-bit, 2 = 256-color 3-3-2. Key 5 cycles.
 	colorQuant uint32
 
@@ -128,7 +128,8 @@ type Game struct {
 	lastTraceAt time.Time
 	traceFPS    float64
 
-	npcs *npc.Manager
+	npcs   *npc.Manager
+	flames scene.FlameSystem
 
 	doors *door.Manager
 
@@ -154,16 +155,16 @@ func New(rw, rh int, sc *scene.Scene, basePlayerCfg camera.Config, scenePath, pl
 		ren:           ren,
 		cam:           camera.New(),
 		basePlayerCfg: basePlayerCfg,
-		shadow:     true,
-		mirror:     true,
-		ao:         true,
-		colorQuant: 0,
-		buf:        make([]byte, rw*rh*4),
-		frame:      ebiten.NewImage(rw, rh),
-		pixSize:    1,
-		fpsCap:     60, // default cap: cuts GPU power vs uncapped, still smooth
-		scenePath:  scenePath,
-		playerPath: playerPath,
+		shadow:        true,
+		mirror:        true,
+		ao:            true,
+		colorQuant:    0,
+		buf:           make([]byte, rw*rh*4),
+		frame:         ebiten.NewImage(rw, rh),
+		pixSize:       1,
+		fpsCap:        60, // default cap: cuts GPU power vs uncapped, still smooth
+		scenePath:     scenePath,
+		playerPath:    playerPath,
 	}
 	g.setScene(sc) // builds the probe, bakes AO, binds the camera's world
 	g.applyPlayerConfig()
@@ -229,6 +230,7 @@ func (g *Game) setScene(sc *scene.Scene) {
 	if err := g.spyglass.Init(); err != nil {
 		fmt.Fprintf(os.Stderr, "spyglass: %v\n", err)
 	}
+	g.flames.Reset(scene.FlameCampfires(sc.Campfires))
 	g.aoMu.Lock()
 	g.aoOK = false
 	g.aoData = probe.AOData{}
@@ -267,7 +269,8 @@ func (g *Game) view() *render.View {
 		AOok:           aoOK,
 		AOVersion:      aoVer,
 		ColorQuant:     g.colorQuant,
-		MaxBounceDepth: g.spyglass.MaxBounceDepth(),
+		MaxBounceDepth: 4,
+		Flames:         &g.flames,
 	}
 }
 
@@ -565,6 +568,11 @@ func (g *Game) Update() error {
 	// Advance the animation clock (Update runs at a fixed 60 Hz). view() reads
 	// it each frame, so there is nothing else to push.
 	g.elapsed += 1.0 / 60.0
+	if g.sc != nil {
+		if fires := scene.FlameCampfires(g.sc.Campfires); len(fires) > 0 {
+			g.flames.Update(fires, g.elapsed, 1.0/60.0)
+		}
+	}
 
 	return nil
 }

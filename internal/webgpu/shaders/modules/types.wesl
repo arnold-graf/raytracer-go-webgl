@@ -60,6 +60,7 @@ struct Params {
     // so the tracer iterates only planes instead of scanning every primitive.
     plane_count: u32,
     blocker_plane_count: u32,
+    flame_particle_count: u32,
 };
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).
@@ -93,6 +94,12 @@ struct CampfireParams {
     color: vec4<f32>, // base color (r, g, b, 0) — tints applied per sub-light
     param: vec4<f32>, // brightness, jitter, flicker, speed
     phase: vec4<f32>,  // seed phase, 0, 0, 0
+};
+
+// FlameParticle mirrors GPUFlameParticle in flame.go (std430, 32-byte stride).
+struct FlameParticle {
+    pos: vec4<f32>,   // xyz, radius (0 = inactive)
+    color: vec4<f32>, // linear HDR rgb
 };
 
 // Light mirrors GPULight in scene.go (std430, 48-byte stride).
@@ -222,6 +229,9 @@ var<storage, read> terrain_pads: array<TerrainPad>;
 @group(0) @binding(23)
 var<storage, read> terrain_mip: array<vec2<f32>>;
 
+@group(0) @binding(24)
+var<storage, read> flame_particles: array<FlameParticle>;
+
 @group(0) @binding(14)
 var<storage, read> inst_templates: array<TemplateRecord>;
 
@@ -329,6 +339,11 @@ struct Hit {
 };
 
 const HIT_NO_INSTANCE: u32 = 0xffffffffu;
+
+
+
+
+
 
 
 

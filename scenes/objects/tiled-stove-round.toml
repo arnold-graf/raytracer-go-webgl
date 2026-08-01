@@ -147,15 +147,15 @@ texture = "marble"
 
 [[cone]] # domed top
 albedo = [0.98, 0.97, 0.94]
-cx = 0.0
-cz = 0.0
+pos_x = -0.42
+pos_y = 2.72
+pos_z = -0.42
+width = 0.84
+height = 0.28
 material = "diffuse"
-rbase = 0.42
 reflect = 0.22
 rough = 0.08
 texture = "marble"
-ybase = 2.72
-ytip = 3
 
 # ----------------------------------------------------------- urn finial ----
 

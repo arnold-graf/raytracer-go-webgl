@@ -34,6 +34,8 @@ type Style struct {
 	BodyColor     color.Color
 	// PostFill runs after the background fill (e.g. paper grain).
 	PostFill func(img *image.RGBA)
+	// PreserveSpace keeps literal spaces and skips word-wrap (for monospace tables).
+	PreserveSpace bool
 }
 
 // PaperStyle returns defaults for a readable document page at the given size.
@@ -114,14 +116,14 @@ func Rasterize(headline string, paragraphs []string, fontPath string, style Styl
 
 	y := margin + headlineHeight(headFace, headline)
 	if headline != "" {
-		y = drawWrapped(img, headline, headFace, margin, y, maxWidth, lineGap, headCol)
+		y = drawWrapped(img, headline, headFace, margin, y, maxWidth, lineGap, headCol, style.PreserveSpace)
 		y += paraGap
 	}
 	for i, para := range paragraphs {
 		if strings.TrimSpace(para) == "" {
 			continue
 		}
-		y = drawWrapped(img, para, face, margin, y, maxWidth, lineGap, bodyCol)
+		y = drawWrapped(img, para, face, margin, y, maxWidth, lineGap, bodyCol, style.PreserveSpace)
 		if i+1 < len(paragraphs) {
 			y += paraGap
 		}
@@ -162,6 +164,32 @@ func LoadFace(fontPath string, sizePx int) (font.Face, error) {
 	return face, nil
 }
 
+// NormalizeLines expands paragraph strings into display lines without collapsing
+// internal whitespace (for preformatted screen text and monospace tables).
+func NormalizeLines(ps []string) []string {
+	if len(ps) == 0 {
+		return ps
+	}
+	var out []string
+	for _, p := range ps {
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
+		for _, chunk := range strings.Split(p, "\n\n") {
+			if strings.TrimSpace(chunk) == "" {
+				continue
+			}
+			for _, line := range strings.Split(chunk, "\n") {
+				if strings.TrimSpace(line) == "" {
+					continue
+				}
+				out = append(out, line)
+			}
+		}
+	}
+	return out
+}
+
 // NormalizeParagraphs splits long strings on blank lines when authors use a single string.
 func NormalizeParagraphs(ps []string) []string {
 	if len(ps) == 0 {
@@ -190,8 +218,14 @@ func headlineHeight(face font.Face, headline string) int {
 	return face.Metrics().Ascent.Ceil()
 }
 
-func drawWrapped(img *image.RGBA, text string, face font.Face, x, y, maxWidth, lineGap int, col color.Color) int {
-	for _, line := range WrapText(text, face, maxWidth) {
+func drawWrapped(img *image.RGBA, text string, face font.Face, x, y, maxWidth, lineGap int, col color.Color, preserveSpace bool) int {
+	var lines []string
+	if preserveSpace {
+		lines = strings.Split(text, "\n")
+	} else {
+		lines = WrapText(text, face, maxWidth)
+	}
+	for _, line := range lines {
 		d := &font.Drawer{
 			Dst:  img,
 			Src:  image.NewUniform(col),

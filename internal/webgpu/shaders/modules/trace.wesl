@@ -3,7 +3,7 @@
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
-import package::types::{HIT_NO_INSTANCE, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_TRANSFORMED, SURFACE_EPSILON, params, pixels, prims, waters};
+import package::types::{HIT_NO_INSTANCE, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_TRANSFORMED, SURFACE_EPSILON, flame_particles, params, pixels, prims, waters};
 import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc};
 import package::math::{clamp01};
 import package::texture::{plane_albedo, texture_eval, texture_eval_box};
@@ -100,7 +100,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
             if (depth == 0u) {
                 prof_inc(PROF_PRI_HIT_TERRAIN, 1u);
             }
-        } else {
+        } else if (hit.kind == 2u) {
             prof_inc(PROF_HIT_WATER, 1u);
             if (depth == 0u) {
                 prof_inc(PROF_PRI_HIT_WATER, 1u);
@@ -133,7 +133,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
             if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
                 lhp = xf_to_local_point(p, tpl_hp);
             }
-            let cone_cap = p.info.x == PRIM_CONE && abs(lhp.y - p.geo_a.w) < 0.02;
+            let cone_cap = p.info.x == PRIM_CONE && p.geo_b.y > 0.5 && abs(lhp.y - p.geo_a.w) < 0.02;
             if (cone_cap) {
                 n = cone_cap_normal_world(p, ro, hp);
                 tex_n = normal_at(p, lhp, lrd);
@@ -166,6 +166,11 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> vec3<f32> {
             mat = MAT_DIFFUSE;
             n = terrain_normal(hit.idx, hp);
             alb = terrain_albedo(hit.idx, hp, n);
+        } else if (hit.kind == 3u) {
+            let fp = flame_particles[hit.idx];
+            mat = MAT_EMIT;
+            alb = fp.color.xyz;
+            n = normalize(hp - fp.pos.xyz);
         } else {
             let wp = waters[hit.idx];
             mat = wp.info.x;
@@ -330,6 +335,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Host reads little-endian bytes as RGBA.
     pixels[gid.y * params.width + gid.x] = r | (g << 8u) | (b << 16u) | (a << 24u);
 }
+
+
+
+
+
 
 
 

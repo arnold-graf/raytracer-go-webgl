@@ -808,11 +808,11 @@ func TestFollowTerrainOnSlope(t *testing.T) {
 	tree := filepath.Join(dir, "tree.toml")
 	if err := os.WriteFile(tree, []byte(`
 [[cone]]
-cx = 0.0
-cz = 0.0
-ybase = 0.0
-ytip = 5.0
-rbase = 1.0
+pos_x = -1.0
+pos_y = 0.0
+pos_z = -1.0
+width = 2.0
+height = 5.0
 material = "diffuse"
 albedo = [0.5, 0.8, 0.5]
 `), 0o644); err != nil {
@@ -862,11 +862,11 @@ func TestFollowTerrainInheritsToNestedIncludes(t *testing.T) {
 	pine := filepath.Join(dir, "pine.toml")
 	if err := os.WriteFile(pine, []byte(`
 [[cone]]
-cx = 0.0
-cz = 0.0
-ybase = 0.0
-ytip = 4.0
-rbase = 0.8
+pos_x = -0.8
+pos_y = 0.0
+pos_z = -0.8
+width = 1.6
+height = 4.0
 material = "diffuse"
 albedo = [0.5, 0.8, 0.5]
 `), 0o644); err != nil {
@@ -1098,11 +1098,11 @@ func TestFollowTerrainWithFeatureStub(t *testing.T) {
 	tree := filepath.Join(dir, "tree.toml")
 	if err := os.WriteFile(tree, []byte(`
 [[cone]]
-cx = 0.0
-cz = 0.0
-ybase = 0.0
-ytip = 4.0
-rbase = 0.8
+pos_x = -0.8
+pos_y = 0.0
+pos_z = -0.8
+width = 1.6
+height = 4.0
 material = "diffuse"
 albedo = [0.5, 0.8, 0.5]
 `), 0o644); err != nil {
@@ -1166,7 +1166,7 @@ func TestOutdoorsNightVillaTreesFollowTerrain(t *testing.T) {
 	if len(s.Cones) < 15 {
 		t.Fatalf("expected many tree cones, got %d", len(s.Cones))
 	}
-	// Root-flare cones (ybase ≈ -0.7, wide rbase) mark each pine's ground anchor.
+	// Root-flare cones (pos_y ≈ -0.7, wide base) mark each pine's ground anchor.
 	const eps = 0.35
 	checked, spreadMin, spreadMax := 0, 0.0, 0.0
 	firstSpread := true
@@ -1214,10 +1214,10 @@ func TestFrontOfficeDeskScreenHeadlines(t *testing.T) {
 	}
 	wantHeadline := "void water (int x, int y) {"
 	wantParas := []string{
-		"if (x < 0 || x >= width || y < 0 || y >= height) {",
-		"return 0;",
-		"}",
-		"return water[x][y];",
+		"    if (x < 0 || x >= width || y < 0 || y >= height) {",
+		"        return 0;",
+		"    }",
+		"    return water[x][y];",
 		"}",
 	}
 	for i, spec := range s.ScreenSpecs[:2] {

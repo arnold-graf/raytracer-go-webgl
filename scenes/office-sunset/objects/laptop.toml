@@ -1,7 +1,7 @@
 # base box
 [[box]]
 material = "diffuse"
-reflect = 0.005
+reflect = 0.01
 albedo = [0.1, 0.1, 0.1]
 pos_x = 0.0
 pos_y = 0.0
@@ -37,10 +37,10 @@ rotate_z = 90
 # screen
 [[screen]]
 id = "laptop_display"
-material = "emit"
-albedo = [0.5, 0.5, 1.0]
+material = "diffuse"
+albedo = [0.01, 0.01, 0.1]
 reflect = 0.1
-rough = 0.02
+rough = 0.1
 rotate_x = -10
 pos_x = 0.06
 pos_y = 0.12
@@ -49,15 +49,23 @@ width = 0.28
 height = 0.23
 depth = 0.001
 hint = "WORKSTATION"
-headline = "SERVER ROOM"
+headline = "Session Report"
 paragraphs = [
-  "Status: ONLINE",
-  "Cube lift: READY",
-  "Auth: session active",
+  "1 hr 2 min, 15 seconds",
+  "----------- KPIS -----------",
+  "Avg Dopamine ... 0.521 µg/ml",
+  "Avg Cortisol ... 0.99 µg/ml",
+  "Med Adrenaline ... 0.21 µg/ml",
+  "Med Serotonin ...  0.75 µg/ml",
+  "GABA level ... 0.99 µg/ml",
+  "---------- Debug ---------",
+  "Errors ... 7",
+  "Warnings ... 3",
+  "Critical ... 0",
 ]
 font = "M42.ttf"
-font_size_px = 16
-font_color = [0.1, 0.1, 0.2]
+font_size_px = 14
+font_color = [1, 1, 1]
 
 # trackball
 [[sphere]]
@@ -72,7 +80,7 @@ radius = 0.03
 pos = [0.2, 0.25, 0.05]
 color = [1, 1, 6]
 range = 1
-brightness = 0.2
+brightness = 0.3
 
 # keyboard
 [[box]]

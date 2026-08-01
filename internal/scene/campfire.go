@@ -25,6 +25,54 @@ type Campfire struct {
 	Speed      float64 // flicker speed multiplier (1 = default)
 	Seed       float64 // phase offset so multiple fires look different
 	Lights     int     // sub-light count (renderer currently supports 3)
+	Flame      bool    // ray-traced particle flame at the core
+	// FlameEmber/Mid/Tip/Ash are linear HDR colors for particle life stages.
+	// Unset in TOML defaults to DefaultFlameEmber etc.
+	FlameEmber vec.V
+	FlameMid   vec.V
+	FlameTip   vec.V
+	FlameAsh   vec.V
+}
+
+// Default flame particle colors (linear HDR). Override per [[light_flickering]].
+var (
+	DefaultFlameEmber = vec.V{X: 2.2, Y: 0.32, Z: 0.04}
+	DefaultFlameMid   = vec.V{X: 2.0, Y: 0.85, Z: 0.08}
+	DefaultFlameTip   = vec.V{X: 1.6, Y: 1.2, Z: 0.14}
+	DefaultFlameAsh   = vec.V{X: 0.9, Y: 0.32, Z: 0.12}
+)
+
+// flamePalette returns this campfire's particle colors, filling defaults for
+// any channel left unset (all-zero vec).
+func (f Campfire) flamePalette() (ember, mid, tip, ash vec.V) {
+	ember, mid, tip, ash = DefaultFlameEmber, DefaultFlameMid, DefaultFlameTip, DefaultFlameAsh
+	if f.FlameEmber != (vec.V{}) {
+		ember = f.FlameEmber
+	}
+	if f.FlameMid != (vec.V{}) {
+		mid = f.FlameMid
+	}
+	if f.FlameTip != (vec.V{}) {
+		tip = f.FlameTip
+	}
+	if f.FlameAsh != (vec.V{}) {
+		ash = f.FlameAsh
+	}
+	return ember, mid, tip, ash
+}
+
+// FlameCampfires returns campfires that emit visible particle flames.
+func FlameCampfires(fires []Campfire) []Campfire {
+	if len(fires) == 0 {
+		return nil
+	}
+	out := make([]Campfire, 0, len(fires))
+	for _, f := range fires {
+		if f.Flame {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // campfireTint warms each sub-light differently: the low ember is red-orange,

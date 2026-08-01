@@ -698,11 +698,13 @@ func (c *Cylinder) Normal(p vec.V, r vec.Ray, t float64) vec.V {
 	return vec.V{X: dx, Y: -ry * alpha, Z: dz}.Normalize()
 }
 
-// Cone is a finite Y-axis-aligned cone with its tip at the top and a base cap.
+// Cone is a finite Y-axis-aligned cone with its tip at the top. When Capped is
+// true (the default), the base is a solid disk; when false the base is open.
 type Cone struct {
 	CX, CZ      float64
 	YBase, YTip float64
 	RBase       float64
+	Capped      bool
 	Surface
 }
 
@@ -738,6 +740,9 @@ func (c *Cone) capUpNormal() vec.V {
 // worldYOnBaseCap returns the world Y of the base cap under (wx,wz), or ok=false
 // when the column misses the cap disk or the cap is too steep to walk on.
 func (c *Cone) worldYOnBaseCap(wx, wz float64) (wy float64, ok bool) {
+	if !c.Capped {
+		return 0, false
+	}
 	h := c.YTip - c.YBase
 	if h <= 0 || c.RBase <= 0 {
 		return 0, false
@@ -855,9 +860,9 @@ func (c *Cone) Intersect(r vec.Ray) float64 {
 		}
 	}
 
-	// Base disk cap — always considered so rays that enter through the open
-	// tip or hit the flat base are not swallowed by a farther side hit.
-	if math.Abs(dy) > 1e-6 {
+	// Base disk cap — only when Capped so open cones (e.g. tree foliage) have
+	// no bottom surface.
+	if c.Capped && math.Abs(dy) > 1e-6 {
 		tc := (c.YBase - r.Origin.Y) / dy
 		if tc >= eps && tc < best {
 			hx := r.Origin.X + dx*tc
@@ -888,7 +893,7 @@ func (c *Cone) CapNormalWorld(ro, hp vec.V) vec.V {
 // Normal returns the outward unit normal at surface point p for hit distance t.
 func (c *Cone) Normal(p vec.V, r vec.Ray, t float64) vec.V {
 	hy := r.Origin.Y + r.Dir.Y*t
-	if math.Abs(hy-c.YBase) < 0.01 {
+	if c.Capped && math.Abs(hy-c.YBase) < 0.01 {
 		if c.Xform != nil {
 			hp := c.Xform.ToWorld(p)
 			ro := c.Xform.ToWorld(r.Origin)

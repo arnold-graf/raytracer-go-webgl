@@ -7,6 +7,11 @@
 #   range       cull / falloff distance             (default 50.0)
 #   flicker     intensity wobble in [0, 1]          (default 0.45)
 #   speed       flicker speed multiplier            (default 1.0)
+#   flame       ray-traced particle flame             (default false)
+#   flame_ember flame HDR color at birth [r,g,b]      (default warm red)
+#   flame_mid   flame HDR color mid-life              (default orange)
+#   flame_tip   flame HDR color before fade           (default yellow)
+#   flame_ash   flame HDR color at end of life        (default dim red-brown)
 #
 #   [[include]]
 #   file = "objects/campfire.toml"
@@ -21,6 +26,10 @@ flicker = 0.45
 speed = 1.0
 albedo = [0.34, 0.22, 0.14]
 reflect = 0.01
+flame_ember = [2.2, 0.32, 0.04]
+flame_mid = [2.0, 0.85, 0.08]
+flame_tip = [1.6, 1.2, 0.14]
+flame_ash = [0.9, 0.32, 0.12]
 
 [[light_flickering]]
 center = [0.0, 0.5, 0.0]
@@ -31,6 +40,11 @@ jitter = 0.4
 flicker = 'flicker'
 speed = 'speed'
 lights = 3
+flame = true
+flame_ember = 'flame_ember'
+flame_mid = 'flame_mid'
+flame_tip = 'flame_tip'
+flame_ash = 'flame_ash'
 
 # Three logs in a teepee — tapered cylinders leaning toward the centre.
 
@@ -38,38 +52,30 @@ lights = 3
 pos_x = 0.14
 pos_y = 0.0
 pos_z = -0.04
-width_bottom = 0.2
-width_top = 0.17
+width = 0.2
 height = 0.52
 rotate_z = 67.0
 material = "diffuse"
 albedo = 'albedo'
 texture = "wood"
-reflect = 'reflect'
-rough = 0.04
-
 
 [[cylinder]] # log (+X)
 pos_x = -0.4
 pos_y = 0.0
 pos_z = -0.04
-width_bottom = 0.17
-width_top = 0.1
+width = 0.2
 height = 0.3
 rotate_z = -40.0
 rotate_x = -14.0
 material = "diffuse"
 albedo = 'albedo'
 texture = "wood"
-reflect = 'reflect'
-rough = 0.04
 
 [[cylinder]] # log (back-left)
 pos_x = -0.12
 pos_y = 0.0
 pos_z = 0.12
-width_bottom = 0.10
-width_top = 0.065
+width = 0.2
 height = 0.50
 rotate_x = 87.0
 rotate_y = 148.0
@@ -77,15 +83,12 @@ rotate_z = 54.0
 material = "diffuse"
 albedo = 'albedo'
 texture = "wood"
-reflect = 'reflect'
-rough = 0.04
 
 [[cylinder]] # log (back-right)
 pos_x = -0.04
 pos_y = 0.0
 pos_z = -0.14
-width_bottom = 0.105
-width_top = 0.068
+width = 0.2
 height = 0.48
 rotate_x = -64.0
 rotate_y = -38.0
@@ -93,5 +96,3 @@ rotate_z = -56.0
 material = "diffuse"
 albedo = 'albedo'
 texture = "wood"
-reflect = 'reflect'
-rough = 0.04

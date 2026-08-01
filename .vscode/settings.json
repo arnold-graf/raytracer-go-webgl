@@ -9,5 +9,6 @@
   },
   "[wesl]": {
     "editor.defaultFormatter": "wgsl-analyzer.wgsl-analyzer"
-  }
+  },
+  "makefile.configureOnOpen": true
 }

@@ -39,6 +39,7 @@ func ScreenStyle(width, height, bodySizePx int, bg, fontColor vec.V) textlayout.
 	style.HeadlineColor = vecToRGBA(fontColor, 210, 235, 255)
 	style.BodyColor = vecToRGBA(fontColor, 210, 235, 255)
 	style.PostFill = nil
+	style.PreserveSpace = true
 	return style
 }
 
@@ -75,6 +76,9 @@ func RasterizeText(headline string, paragraphs []string, fontPath string, style 
 
 // NormalizeParagraphs splits long strings on blank lines when authors use a single string.
 func NormalizeParagraphs(ps []string) []string { return textlayout.NormalizeParagraphs(ps) }
+
+// NormalizeLines expands lines without collapsing internal whitespace.
+func NormalizeLines(ps []string) []string { return textlayout.NormalizeLines(ps) }
 
 // addPaperGrain lightly modulates the flat fill so the page is not perfectly uniform.
 func addPaperGrain(img *image.RGBA) {

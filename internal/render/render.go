@@ -38,6 +38,9 @@ type View struct {
 	// MaxBounceDepth caps mirror/glass/water recursion in the tracer (default 2 when 0).
 	// Raised while the spyglass is up so rays can pass through its lenses and scene glass.
 	MaxBounceDepth uint32
+
+	// Flames holds simulated campfire particles (optional; nil disables flame geometry).
+	Flames *scene.FlameSystem
 }
 
 // Renderer is the drawing backend the app depends on. Render fills buf

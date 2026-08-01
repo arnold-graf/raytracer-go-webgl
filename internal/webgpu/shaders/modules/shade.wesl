@@ -115,7 +115,7 @@ fn cone_normal(p: Prim, hp: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
     let rbase = p.geo_a.z;
     let ybase = p.geo_a.w;
     let ytip = p.geo_b.x;
-    if (abs(hp.y - ybase) < 0.01) {
+    if (abs(hp.y - ybase) < 0.01 && p.geo_b.y > 0.5) {
         // Untransformed cones only; transformed caps use cone_cap_normal_world.
         if (rd.y > 0.0) {
             return vec3<f32>(0.0, -1.0, 0.0);
@@ -488,6 +488,11 @@ fn terrain_albedo(i: u32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     }
     return c;
 }
+
+
+
+
+
 
 
 

@@ -117,12 +117,12 @@ texture = "wood"
 
 [[cone]] # cabin roof
 albedo = [0.42, 0.13, 0.10]
-cx = -3.5
-cz = 0.0
+pos_x = -6.1
+pos_y = 1.9
+pos_z = -2.4
+width = 4.8
+height = 1.8
 material = "diffuse"
-rbase = 2.4
-ybase = 1.9
-ytip = 3.7
 
 [[box]] # stone house walls
 albedo = [1.0, 1.0, 1.0]
@@ -137,12 +137,12 @@ texture = "stone"
 
 [[cone]] # stone house roof
 albedo = [0.35, 0.16, 0.11]
-cx = 4.0
-cz = -0.5
+pos_x = 1.4
+pos_y = 2.1
+pos_z = -3.1
+width = 5.2
+height = 1.9
 material = "diffuse"
-rbase = 2.6
-ybase = 2.1
-ytip = 4.0
 
 # ------------------------------------------------------------------ trees ----
 
@@ -158,13 +158,13 @@ texture = "wood"
 
 [[cone]] # pine 1 foliage
 albedo = [0.8, 1.0, 0.8]
-cx = -9.0
-cz = 2.0
+pos_x = -10.3
+pos_y = 0.8
+pos_z = 0.7
+width = 2.6
+height = 3.8
 material = "diffuse"
-rbase = 1.3
 texture = "grass"
-ybase = 0.8
-ytip = 4.6
 
 [[cylinder]] # pine 2 trunk
 pos_x = 7.78
@@ -178,13 +178,13 @@ texture = "wood"
 
 [[cone]] # pine 2 foliage
 albedo = [0.8, 1.0, 0.8]
-cx = 8.0
-cz = 2.5
+pos_x = 6.6
+pos_y = 0.9
+pos_z = 1.1
+width = 2.8
+height = 4.0
 material = "diffuse"
-rbase = 1.4
 texture = "grass"
-ybase = 0.9
-ytip = 4.9
 
 [[cylinder]] # round tree trunk
 pos_x = -14.28

@@ -136,8 +136,12 @@ X→Y→Z order:
 
 ```toml
 [[box]]
-min = [-1.0, 0.0, -1.0]
-max = [ 1.0, 2.0,  1.0]
+pos_x = -1.0
+pos_y = 0.0
+pos_z = -1.0
+width = 2.0
+height = 2.0
+depth = 2.0
 material = "diffuse"
 albedo = [0.8, 0.8, 0.8]
 rotate_y = 30.0
@@ -183,8 +187,12 @@ for floors so they don't slice through the open world.)
 ### Box (with optional CSG holes)
 ```toml
 [[box]]
-min = [-4.9, 0.0, -5.9]
-max = [-4.5, 6.3,  5.9]
+pos_x = -4.9
+pos_y = 0.0
+pos_z = -5.9
+width = 0.4
+height = 6.3
+depth = 11.8
 material = "diffuse"
 albedo = [1.0, 1.0, 1.0]
 texture = "brick"
@@ -192,8 +200,12 @@ texture = "brick"
 # A real see-through opening cut through the box (constructive solid geometry).
 # Make it overshoot the wall thickness so it pierces both faces cleanly.
 [[box.hole]]
-min = [-5.0, 1.5, -1.0]
-max = [-4.4, 3.5,  1.0]
+pos_x = -5.0
+pos_y = 1.5
+pos_z = -1.0
+width = 0.6
+height = 2.0
+depth = 2.0
 ```
 `[[box.hole]]` sub-tables subtract rectangular volumes from the box — used for
 windows and doorways. A box may have multiple holes.
@@ -229,13 +241,17 @@ texture = "wood"
 ```
 
 ### Cone (finite, axis = Y)
+Defined like a cylinder footprint: `pos_*` is the minimum corner of the square
+bounding the base disk; `width` is the base diameter; `height` is the span from
+base to tip (the tip is always a point).
+
 ```toml
 [[cone]]
-cx = 0.0
-cz = 0.0
-rbase = 0.45    # radius at ybase; tapers to a point at ytip
-ybase = 4.4
-ytip  = 5.3
+pos_x = -0.45
+pos_y = 4.4
+pos_z = -0.45
+width = 0.9
+height = 0.9
 material = "metal"
 ```
 

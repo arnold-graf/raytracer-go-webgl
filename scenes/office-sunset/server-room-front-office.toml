@@ -8,16 +8,32 @@ pos_z = 0
 width = 10
 height = 0.2
 depth = 20
-albedo = [6,6,5]
+albedo = [2,2,2]
 
-# north wall (grid)
-[[include]]
-file = "../objects/grid.toml"
-transform_origin = [0, 0, 0]
-at = [0.0, 0.0, 0.0]
-rotate_y = 0
-params = { width = 10.0, height = 4.5, depth = 0.2, unit_size = 0.7, albedo = [4, 4, 4], material = "diffuse", texture = "cement"}
+# north wall (glass)
+[[box]]
+material = "glass"
+rough = 0.005
+transmit = 0.5
+albedo = [1, 1, 1]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 10
+height = 4.5
+depth = 0.1
 
+# north wall sil
+[[box]]
+material = "diffuse"
+texture = "cement"
+albedo = [2,2,2]
+pos_x = 0
+pos_y = 0
+pos_z = 0.2
+width = 10
+height = 1
+depth = 0.3
 
 # east wall (grid)
 [[include]]
@@ -25,12 +41,59 @@ file = "../objects/grid.toml"
 transform_origin = [0, 0, 0]
 at = [10.0, 0.0, 0.0]
 rotate_y = -90
-params = { width = 20.0, height = 4.5, depth = 0.2, unit_size = 0.7, albedo = [4, 4, 4], material = "diffuse", texture = "cement"}
+params = { width = 20.0, height = 4.5, depth = 0.2, unit_size = 0.7, albedo = [3.2,3,3], material = "diffuse", texture = "cement"}
+
+# east wall sun blinds
+[[box]]
+material = "diffuse"
+texture = "cement"
+albedo = [2,2,2]
+pos_x = 11
+pos_y = 2.5
+pos_z = 0
+width = 0.2
+depth = 20
+height = 2
+
+# glass wall
+[[box]]
+material = "glass"
+ior = 1.05
+rough = 0.005
+albedo = [1, 1, 1]
+pos_x = 10
+pos_y = 0
+pos_z = 0
+width = 0.01
+height = 4.5
+depth = 20
+
+# south wall
+[[box]]
+material = "diffuse"
+texture = "cement"
+albedo = [1,1,1]
+pos_x = 0.0
+pos_y = 0
+pos_z = 20.0
+width = 10
+height = 4.5
+depth = 0.3
+
+# door
+[[box.hole]]
+pos_x = 3.5
+pos_y = 0
+pos_z = 20
+width = 4
+height = 3.5
+depth = 1
 
 # ceiling
 [[box]]
-material = "checker"
-albedo = [2,2,2]
+material = "diffuse"
+texture = "cement"
+albedo = [1,1,1]
 albedo2 = [1.5,1.5,1.5]
 pos_x = 1
 pos_y = 4.5
@@ -52,3 +115,32 @@ file = "../objects/office-chair.toml"
 transform_origin = [0, 0, 0]
 at = [4.0, 0.0, 3.0]
 rotate_y = 120
+
+# standing lamp (left)
+[[include]]
+file = "../objects/art-deco-uplight.toml"
+transform_origin = [0, 0, 0]
+at = [8.5, 0, 1.5]
+params = { color = [1, 1, 1], brightness = 0.05, range = 20, stem_len = 2 }
+
+# standing lamp (right)
+[[include]]
+file = "../objects/art-deco-uplight.toml"
+transform_origin = [0, 0, 0]
+at = [8.5, 0, 18]
+params = { color = [1, 1, 1], brightness = 0.05, range = 12, stem_len = 2}
+
+# standing lamp (right right)
+[[include]]
+file = "../objects/art-deco-uplight.toml"
+transform_origin = [0, 0, 0]
+at = [1.5, 0, 18]
+params = { color = [1, 1, 1], brightness = 0.05, range = 12, stem_len = 2}
+
+
+# skyway to office building
+[[include]]
+file = "objects/skyway.toml"
+transform_origin = [0, 0, 0]
+at = [1.0, 0.0, 20.0]
+params = { length = 20 }

@@ -1,0 +1,73 @@
+
+[props]
+stem_len = 2
+brightness = 0.1
+range = 16.0
+albedo = [0.66, 0.45, 0.24]
+
+
+# base
+
+[[cylinder]]
+material = "diffuse"
+reflect = 0.05
+rough = 0.1
+albedo = 'albedo'
+height = 0.1
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 0.8
+
+[[cylinder]]
+material = "diffuse"
+reflect = 0.05
+rough = 0.1
+albedo = 'albedo'
+height = 0.05
+pos_x = 0.1
+pos_y = 0.1
+pos_z = 0.1
+width = 0.6
+
+[[cylinder]]
+material = "diffuse"
+reflect = 0.05
+rough = 0.1
+albedo = 'albedo'
+height = 0.05
+pos_x = 0.2
+pos_y = 0.15
+pos_z = 0.2
+width = 0.4
+
+
+# stem
+[[cylinder]]
+material = "diffuse"
+reflect = 0.05
+albedo = 'albedo'
+height = 'stem_len'
+pos_x = 0.35
+pos_y = 0.0
+pos_z = 0.35
+width = 0.1
+
+[[cone]]
+material = "diffuse"
+reflect = 0.05
+albedo = 'albedo'
+height = 0.3
+width = 1
+pos_x = -0.1
+pos_y = 'stem_len'
+pos_z = -0.1
+rotate_x = 180
+capped = false
+
+[[light]]
+color = [2, 1.5, 1]
+pos = [0.3, 'stem_len + 0.1', 0.3]
+brightness = 'brightness'
+range = 'range'
+

@@ -24,11 +24,12 @@ sound = "crickets"
 # Wide, low cone sunk slightly below grade so the terrain hides the seam.
 
 [[cone]] # root flare
-cx = 0.0
-cz = 0.0
-ybase = -0.7
-ytip = 0.9
-rbase = 2
+pos_x = -2.0
+pos_y = -0.7
+pos_z = -2.0
+width = 4.0
+height = 1.6
+capped = false
 material = "diffuse"
 albedo = [0.92, 0.88, 0.82]
 texture = "wood"
@@ -51,41 +52,45 @@ texture = "wood"
 # Four overlapping cones — classic layered pine silhouette.
 
 [[cone]] # lower crown
-cx = 0.0
-cz = 0.0
-ybase = 5.2
-ytip = 10.2
-rbase = 3.4
+pos_x = -3.4
+pos_y = 5.2
+pos_z = -3.4
+width = 6.8
+height = 5.0
+capped = false
 material = "diffuse"
 albedo = [0.62, 0.85, 0.62]
 texture = "grass"
 
 [[cone]] # mid crown
-cx = 0.0
-cz = 0.0
-ybase = 7.8
-ytip = 12.6
-rbase = 2.7
+pos_x = -2.7
+pos_y = 7.8
+pos_z = -2.7
+width = 5.4
+height = 4.8
+capped = false
 material = "diffuse"
 albedo = [0.58, 0.82, 0.58]
 texture = "grass"
 
 [[cone]] # upper crown
-cx = 0.0
-cz = 0.0
-ybase = 10.4
-ytip = 14.6
-rbase = 2.0
+pos_x = -2.0
+pos_y = 10.4
+pos_z = -2.0
+width = 4.0
+height = 4.2
+capped = false
 material = "diffuse"
 albedo = [0.54, 0.78, 0.54]
 texture = "grass"
 
 [[cone]] # tip
-cx = 0.0
-cz = 0.0
-ybase = 12.6
-ytip = 15.1
-rbase = 1.15
+pos_x = -1.15
+pos_y = 12.6
+pos_z = -1.15
+width = 2.3
+height = 2.5
+capped = false
 material = "diffuse"
 albedo = [0.50, 0.74, 0.50]
 texture = "grass"

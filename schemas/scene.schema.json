@@ -60,7 +60,7 @@
     },
     "cone": {
       "type": "array",
-      "description": "TOML [[cone]]. Vertical cones along Y.",
+      "description": "TOML [[cone]]. Vertical cones along Y. Base disk is capped by default; set capped = false for open foliage cones.",
       "items": {
         "$ref": "#/definitions/cone"
       }
@@ -109,7 +109,7 @@
     },
     "light_flickering": {
       "type": "array",
-      "description": "TOML [[light_flickering]]. Flickering warm light cluster (no visible geometry).",
+      "description": "TOML [[light_flickering]]. Flickering warm light cluster; optional flame = true adds ray-traced particle flame geometry.",
       "items": {
         "$ref": "#/definitions/light_flickering"
       }
@@ -420,35 +420,9 @@
       ],
       "additionalProperties": false
     },
-    "box_extent_min_max": {
-      "type": "object",
-      "description": "Legacy box definition by opposite corners (min strictly less than max on each axis).",
-      "properties": {
-        "min": {
-          "$ref": "#/definitions/vec3",
-          "description": "Minimum corner [x, y, z]."
-        },
-        "max": {
-          "$ref": "#/definitions/vec3",
-          "description": "Maximum corner [x, y, z]."
-        }
-      },
-      "required": [
-        "min",
-        "max"
-      ],
-      "additionalProperties": false
-    },
     "box_hole": {
       "description": "TOML [[box.hole]] nested under a [[box]]. Rectangular void subtracted from the parent box; should pierce fully through the faces it cuts.",
-      "oneOf": [
-        {
-          "$ref": "#/definitions/box_extent_pos_size"
-        },
-        {
-          "$ref": "#/definitions/box_extent_min_max"
-        }
-      ]
+      "$ref": "#/definitions/box_extent_pos_size"
     },
     "sphere": {
       "allOf": [
@@ -513,35 +487,27 @@
           "properties": {
             "pos_x": {
               "$ref": "#/definitions/number_or_expr",
-              "description": "Minimum X corner (pos/size form)."
+              "description": "Minimum X corner."
             },
             "pos_y": {
               "$ref": "#/definitions/number_or_expr",
-              "description": "Minimum Y corner (pos/size form)."
+              "description": "Minimum Y corner."
             },
             "pos_z": {
               "$ref": "#/definitions/number_or_expr",
-              "description": "Minimum Z corner (pos/size form)."
+              "description": "Minimum Z corner."
             },
             "width": {
               "$ref": "#/definitions/number_or_expr",
-              "description": "Extent along +X (pos/size form)."
+              "description": "Extent along +X."
             },
             "height": {
               "$ref": "#/definitions/number_or_expr",
-              "description": "Extent along +Y (pos/size form)."
+              "description": "Extent along +Y."
             },
             "depth": {
               "$ref": "#/definitions/number_or_expr",
-              "description": "Extent along +Z (pos/size form)."
-            },
-            "min": {
-              "$ref": "#/definitions/vec3",
-              "description": "Minimum corner (legacy min/max form)."
-            },
-            "max": {
-              "$ref": "#/definitions/vec3",
-              "description": "Maximum corner (legacy min/max form)."
+              "description": "Extent along +Z."
             },
             "hole": {
               "type": "array",
@@ -569,20 +535,10 @@
               "$ref": "#/definitions/texture_or_expr"
             }
           },
-          "oneOf": [
-            {
-              "required": [
-                "width",
-                "height",
-                "depth"
-              ]
-            },
-            {
-              "required": [
-                "min",
-                "max"
-              ]
-            }
+          "required": [
+            "width",
+            "height",
+            "depth"
           ],
           "additionalProperties": true
         },
@@ -660,33 +616,34 @@
         {
           "type": "object",
           "properties": {
-            "cx": {
+            "pos_x": {
               "$ref": "#/definitions/number_or_expr",
-              "description": "Center X at the base."
+              "description": "Minimum X corner of the base footprint square."
             },
-            "cz": {
-              "$ref": "#/definitions/number_or_expr",
-              "description": "Center Z at the base."
-            },
-            "ybase": {
+            "pos_y": {
               "$ref": "#/definitions/number_or_expr",
               "description": "Y of the wide base."
             },
-            "ytip": {
+            "pos_z": {
               "$ref": "#/definitions/number_or_expr",
-              "description": "Y of the tip."
+              "description": "Minimum Z corner of the base footprint square."
             },
-            "rbase": {
+            "width": {
               "$ref": "#/definitions/number_or_expr",
-              "description": "Radius at the base."
+              "description": "Base diameter."
+            },
+            "height": {
+              "$ref": "#/definitions/number_or_expr",
+              "description": "Vertical span from base to tip."
+            },
+            "capped": {
+              "type": "boolean",
+              "description": "Solid base disk. Defaults to true when omitted. Set false for open-bottom cones (e.g. pine foliage)."
             }
           },
           "required": [
-            "cx",
-            "cz",
-            "ybase",
-            "ytip",
-            "rbase"
+            "width",
+            "height"
           ],
           "additionalProperties": true
         },
@@ -1093,7 +1050,7 @@
     },
     "light_flickering": {
       "type": "object",
-      "description": "Animated flickering point-light cluster without geometry.",
+      "description": "Animated flickering point-light cluster. With flame = true, also emits ray-traced particle flame spheres at the core.",
       "properties": {
         "center": {
           "$ref": "#/definitions/vec3",
@@ -1130,6 +1087,26 @@
         "lights": {
           "$ref": "#/definitions/number_or_expr",
           "description": "Sub-light count. Defaults to 3 (the only value currently supported by the renderer)."
+        },
+        "flame": {
+          "type": "boolean",
+          "description": "Emit a ray-traced particle flame at the core. Defaults to false."
+        },
+        "flame_ember": {
+          "$ref": "#/definitions/rgb_or_expr",
+          "description": "Linear HDR RGB for particles at birth (base of the flame). Defaults to warm red when omitted."
+        },
+        "flame_mid": {
+          "$ref": "#/definitions/rgb_or_expr",
+          "description": "Linear HDR RGB for mid-life particles. Defaults to orange when omitted."
+        },
+        "flame_tip": {
+          "$ref": "#/definitions/rgb_or_expr",
+          "description": "Linear HDR RGB for particles near the tip before fade. Defaults to yellow when omitted."
+        },
+        "flame_ash": {
+          "$ref": "#/definitions/rgb_or_expr",
+          "description": "Linear HDR RGB for particles at end of life. Defaults to dim red-brown when omitted."
         }
       },
       "required": [

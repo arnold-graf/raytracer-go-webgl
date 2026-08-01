@@ -1,0 +1,105 @@
+# Glass-enclosed skyway bridge in local coordinates.
+#
+# Origin (0,0,0) is the bottom-left-near corner where the skyway meets the
+# parent building (floor sits at y = -0.2). The bridge runs along +Z for
+# `length` units; floor width is `width` in +X.
+#
+# Parameterized via [[include]] params (all optional):
+#   length   span along +Z                         (default 20)
+#   width    interior width in +X                 (default 8)
+#   height   floor-to-ceiling clearance            (default 4.5)
+#   spacing  column spacing along +Z              (default 5)
+#
+# Example — connect from a south wall at z = 20:
+#
+#   [[include]]
+#   file = "objects/skyway.toml"
+#   transform_origin = [0, 0, 0]
+#   at = [1.0, 0.0, 20.0]
+#   params = { length = 20 }
+
+[props]
+length = 20
+width = 8
+height = 4.5
+spacing = 5
+
+[const]
+column_count = 'floor((length - 1) / spacing) + 1'
+
+# columns (pairs along the span)
+# for i in range(column_count)
+[[cylinder]]
+material = "diffuse"
+texture = "cement"
+reflect = 0.05
+albedo = [4, 4, 4]
+height = 5
+pos_x = 0.5
+pos_y = 0.0
+pos_z = '1 + (i * spacing)'
+width = 0.7
+
+[[cylinder]]
+material = "diffuse"
+texture = "cement"
+reflect = 0.05
+albedo = [4, 4, 4]
+height = 5
+pos_x = 7
+pos_y = 0.0
+pos_z = '1 + (i * spacing)'
+width = 0.7
+# endfor
+
+# floor
+[[box]]
+material = "diffuse"
+texture = "cement"
+pos_x = 0
+pos_y = -0.2
+pos_z = 0
+width = 'width'
+height = 0.2
+depth = 'length'
+albedo = [7, 7, 7]
+
+# roof
+[[box]]
+material = "diffuse"
+texture = "cement"
+pos_x = 0
+pos_y = 'height'
+pos_z = 0
+width = 'width'
+height = 0.2
+depth = 'length'
+albedo = [5, 5, 5]
+
+# glass wall (west)
+[[box]]
+material = "glass"
+ior = 1.01
+rough = 0.005
+transmit = 0.8
+albedo = [1, 1, 1]
+pos_x = 0
+pos_y = 0
+pos_z = 0.1
+width = 0.1
+height = 'height'
+depth = 'length'
+
+# glass wall (east)
+[[box]]
+material = "glass"
+transmit = 0.7
+ior = 1.005
+rough = 0.005
+albedo = [1, 1, 1]
+pos_x = 'width - 0.1'
+pos_y = 0
+pos_z = 0.1
+width = 0.1
+height = 'height'
+depth = 'length'

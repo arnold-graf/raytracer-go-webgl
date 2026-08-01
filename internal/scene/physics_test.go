@@ -309,7 +309,7 @@ func TestBlockedHonorsConeTransform(t *testing.T) {
 
 func TestGroundHeightConeBaseCap(t *testing.T) {
 	s := &Scene{Cones: []Cone{{
-		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10,
+		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10, Capped: true,
 	}}}
 	if g := s.GroundHeight(30, 30, 20); math.Abs(g-12) > 1e-9 {
 		t.Fatalf("cap center = %v, want 12", g)
@@ -324,7 +324,7 @@ func TestGroundHeightConeBaseCap(t *testing.T) {
 
 func TestStandingOnConeCapNotBlocked(t *testing.T) {
 	s := &Scene{Cones: []Cone{{
-		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10,
+		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10, Capped: true,
 	}}}
 	feetY, headY, r, step := 12.0, 13.6, 0.3, 0.45
 	if s.Blocked(30, 30, feetY, headY, r, step) {
@@ -334,7 +334,7 @@ func TestStandingOnConeCapNotBlocked(t *testing.T) {
 
 func TestConeInteriorBlocksAboveCap(t *testing.T) {
 	s := &Scene{Cones: []Cone{{
-		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10,
+		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10, Capped: true,
 	}}}
 	feetY, headY, r, step := 13.0, 14.6, 0.3, 0.45
 	if !s.Blocked(34, 30, feetY, headY, r, step) {
@@ -346,7 +346,7 @@ func TestGroundHeightInvertedConeCap(t *testing.T) {
 	center := vec.New(30, (12+15)/2, 30)
 	xf := PlacementTransform(180, 0, 0, center, center)
 	s := &Scene{Cones: []Cone{{
-		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10,
+		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10, Capped: true,
 		Surface: Surface{Xform: xf},
 	}}}
 	if g := s.GroundHeight(30, 30, 20); math.Abs(g-14) > 0.05 {
@@ -358,7 +358,7 @@ func TestGroundHeightConeCapWithRotateZ(t *testing.T) {
 	center := vec.New(30, (12+15)/2, 30)
 	xf := PlacementTransform(0, 0, 180, center, center)
 	s := &Scene{Cones: []Cone{{
-		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10,
+		CX: 30, CZ: 30, YBase: 12, YTip: 15, RBase: 10, Capped: true,
 		Surface: Surface{Xform: xf},
 	}}}
 	// rotate_z=180 about the cone midpoint flips base and tip in world Y.

@@ -206,11 +206,11 @@ func Default() *Scene {
 			{CX: 0, CZ: -3.8, Radius: 0.18, YMin: 0, YMax: 3.5, Surface: surf(MatMirror, 0.9, 0.88, 0.92, 0.02, 1.5)},
 		},
 		Cones: []Cone{
-			{CX: -3.5, CZ: -3.5, YBase: 4, YTip: 4.9, RBase: 0.45, Surface: surf(MatDiffuse, 0.72, 0.68, 0.75, 0, 1.5)},
-			{CX: 3.5, CZ: -3.5, YBase: 4, YTip: 4.9, RBase: 0.45, Surface: surf(MatDiffuse, 0.72, 0.68, 0.75, 0, 1.5)},
-			{CX: -3.5, CZ: 3.5, YBase: 4, YTip: 4.9, RBase: 0.45, Surface: surf(MatMetal, 0.8, 0.82, 0.85, 0.05, 1.5)},
-			{CX: 3.5, CZ: 3.5, YBase: 4, YTip: 4.9, RBase: 0.45, Surface: surf(MatMetal, 0.8, 0.82, 0.85, 0.05, 1.5)},
-			{CX: -2.75, CZ: -4.25, YBase: 1.2, YTip: 2.4, RBase: 0.6, Surface: surf(MatDiffuse, 0.9, 0.2, 0.15, 0, 1.5)},
+			{CX: -3.5, CZ: -3.5, YBase: 4, YTip: 4.9, RBase: 0.45, Capped: true, Surface: surf(MatDiffuse, 0.72, 0.68, 0.75, 0, 1.5)},
+			{CX: 3.5, CZ: -3.5, YBase: 4, YTip: 4.9, RBase: 0.45, Capped: true, Surface: surf(MatDiffuse, 0.72, 0.68, 0.75, 0, 1.5)},
+			{CX: -3.5, CZ: 3.5, YBase: 4, YTip: 4.9, RBase: 0.45, Capped: true, Surface: surf(MatMetal, 0.8, 0.82, 0.85, 0.05, 1.5)},
+			{CX: 3.5, CZ: 3.5, YBase: 4, YTip: 4.9, RBase: 0.45, Capped: true, Surface: surf(MatMetal, 0.8, 0.82, 0.85, 0.05, 1.5)},
+			{CX: -2.75, CZ: -4.25, YBase: 1.2, YTip: 2.4, RBase: 0.6, Capped: true, Surface: surf(MatDiffuse, 0.9, 0.2, 0.15, 0, 1.5)},
 		},
 		Tori: []Torus{
 			{Center: vec.New(0, 1.5, -3.0), R: 0.8, Rm: 0.22, Surface: surf(MatMetal, 1.0, 0.6, 0.1, 0.05, 1.5)},

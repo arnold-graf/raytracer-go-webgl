@@ -7,6 +7,7 @@ import package::types::{BVH_TAG_TLAS, HIT_NO_INSTANCE, Hit, RAY_EPSILON, T_MISS,
 import package::profile::{prof_step, prof_tests};
 import package::intersect::{intersect, intersect_blocker, slab_hit};
 import package::terrain::{hit_terrain, hit_water};
+import package::flame::{nearest_flame_hit};
 import package::instance::{inst_local_dir, inst_local_origin};
 
 fn bvh_nearest_subtree(root: u32, ro: vec3<f32>, rd: vec3<f32>, best_t: f32, blockers: bool) -> f32 {
@@ -271,6 +272,7 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
             h.kind = 2u;
         }
     }
+    h = nearest_flame_hit(ro, rd, h);
     return h;
 }
 
@@ -326,6 +328,11 @@ fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool {
     }
     return false;
 }
+
+
+
+
+
 
 
 

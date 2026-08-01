@@ -77,6 +77,7 @@ type Renderer struct {
 	instRecs  *wgpu.Buffer
 	planeIdx  *wgpu.Buffer
 	blkPlane  *wgpu.Buffer
+	flames    *wgpu.Buffer
 	output    *wgpu.Buffer
 	read      *wgpu.Buffer
 	pipeline  *wgpu.ComputePipeline
@@ -349,6 +350,14 @@ func (r *Renderer) init() error {
 	if err != nil {
 		return fmt.Errorf("create blocker plane indices buffer: %w", err)
 	}
+	r.flames, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "flame particles",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  maxFlameParticles * flameParticleStride,
+	})
+	if err != nil {
+		return fmt.Errorf("create flame particles buffer: %w", err)
+	}
 	r.profile, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "profile counters",
 		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopySrc | wgpu.BufferUsage_CopyDst,
@@ -498,6 +507,7 @@ func (r *Renderer) init() error {
 			{Binding: 21, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainFeatureStride}},
 			{Binding: 22, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainPadStride}},
 			{Binding: 23, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 8}},
+			{Binding: 24, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: flameParticleStride}},
 		},
 	})
 	if err != nil {
@@ -554,6 +564,7 @@ func (r *Renderer) init() error {
 			{Binding: 21, Buffer: r.terrFeat, Size: maxTerrainFeatures * terrainFeatureStride},
 			{Binding: 22, Buffer: r.terrPads, Size: maxTerrainPads * terrainPadStride},
 			{Binding: 23, Buffer: r.terrMips, Size: maxTerrainMipVals * 8},
+			{Binding: 24, Buffer: r.flames, Size: maxFlameParticles * flameParticleStride},
 		},
 	})
 	if err != nil {
@@ -700,6 +711,9 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 	if v != nil {
 		rp.colorQuant = v.ColorQuant
 		rp.maxBounceDepth = v.MaxBounceDepth
+		if v.Flames != nil {
+			rp.flameParticles = PackFlameParticles(v.Flames.ActiveParticles())
+		}
 	}
 	if v == nil || v.Scene == nil {
 		rp = renderParams{}
@@ -747,6 +761,7 @@ type renderParams struct {
 	terrainMips      []float32
 	waters           []GPUWater
 	campfireParams   []CampfireParams
+	flameParticles   []GPUFlameParticle
 	holes            []GPUHole
 	boxFaceTex       []uint32
 	ao               AOVolume
@@ -789,6 +804,13 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 	}
 	params := r.paramsBytes(cam, p, fw, fh)
 	if err := r.queue.WriteBuffer(r.params, 0, params[:]); err != nil {
+		return err
+	}
+	if data := flameBytes(p.flameParticles); len(data) > 0 {
+		if err := r.queue.WriteBuffer(r.flames, 0, data); err != nil {
+			return err
+		}
+	} else if err := r.queue.WriteBuffer(r.flames, 0, make([]byte, flameParticleStride)); err != nil {
 		return err
 	}
 	// Static scene buffers are re-sent only when the cache was rebuilt this
@@ -1196,6 +1218,7 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	}
 	putU32(out[276:280], uint32(len(p.planeIdx)))
 	putU32(out[280:284], uint32(len(p.blockerPlaneIdx)))
+	putU32(out[284:288], uint32(len(p.flameParticles)))
 	return out
 }
 
@@ -1272,6 +1295,9 @@ func (r *Renderer) Release() {
 	}
 	if r.blkPlane != nil {
 		r.blkPlane.Release()
+	}
+	if r.flames != nil {
+		r.flames.Release()
 	}
 	if r.output != nil {
 		r.output.Release()

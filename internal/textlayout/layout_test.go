@@ -24,6 +24,33 @@ func TestNormalizeParagraphs(t *testing.T) {
 	if strings.Contains(got[0], "\n") {
 		t.Fatalf("expected collapsed space, got %q", got[0])
 	}
+	if got[0] != "one two" {
+		t.Fatalf("expected collapsed spaces, got %q", got[0])
+	}
+}
+
+func TestNormalizeLinesPreservesSpace(t *testing.T) {
+	got := NormalizeLines([]string{"Duration:       1 hr", "Avg Dopamine:   0.521"})
+	if len(got) != 2 {
+		t.Fatalf("got %d lines: %v", len(got), got)
+	}
+	if got[0] != "Duration:       1 hr" {
+		t.Fatalf("spaces collapsed: got %q", got[0])
+	}
+	if got[1] != "Avg Dopamine:   0.521" {
+		t.Fatalf("spaces collapsed: got %q", got[1])
+	}
+}
+
+func TestWrapTextCollapsesSpaces(t *testing.T) {
+	face, err := LoadFace("", 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := WrapText("A       B", face, 400)
+	if len(got) != 1 || got[0] != "A B" {
+		t.Fatalf("WrapText collapsed spaces: %v", got)
+	}
 }
 
 func TestRasterizePaper(t *testing.T) {

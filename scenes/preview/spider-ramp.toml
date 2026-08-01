@@ -16,15 +16,23 @@ reflect = 0.12
 rough = 0.03
 
 [[box]]
-min = [-4.0, 0.0, -12.0]
-max = [4.0, 0.08, 0.0]
+pos_x = -4.0
+pos_y = 0.0
+pos_z = -12.0
+width = 8.0
+height = 0.08
+depth = 12.0
 material = "diffuse"
 albedo = [0.35, 0.32, 0.30]
 rough = 0.85
 
 [[box]]
-min = [-4.0, 0.0, -12.0]
-max = [4.0, 5.4, -11.5]
+pos_x = -4.0
+pos_y = 0.0
+pos_z = -12.0
+width = 8.0
+height = 5.4
+depth = 0.5
 material = "diffuse"
 albedo = [0.40, 0.38, 0.36]
 rough = 0.85

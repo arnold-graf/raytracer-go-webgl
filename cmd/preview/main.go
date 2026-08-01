@@ -88,6 +88,14 @@ func main() {
 	defer ren.Release()
 
 	aoData, aoOK := probe.New(sc).BakeAO()
+	var flames scene.FlameSystem
+	flameTime := *atTime
+	if fires := scene.FlameCampfires(sc.Campfires); len(fires) > 0 {
+		if flameTime < 1.5 {
+			flameTime = 1.5 // pre-warm so still previews show a lively fire
+		}
+		flames.SimulateTo(fires, flameTime)
+	}
 	view := &render.View{
 		Scene:  sc,
 		Time:   *atTime,
@@ -96,6 +104,7 @@ func main() {
 		AO:     true,
 		AOData: aoData,
 		AOok:   aoOK,
+		Flames: &flames,
 	}
 
 	buf := make([]byte, (*w)*(*h)*4)

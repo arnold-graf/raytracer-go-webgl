@@ -251,9 +251,8 @@ fn hit_cone(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
         }
     }
 
-    // Base disk cap — always considered so the nearer of side vs cap wins
-    // (entering through the flat base must not pick a farther side exit).
-    if (abs(dy) > 1e-6) {
+    // Base disk cap — only when geo_b.y marks capped cones.
+    if (p.geo_b.y > 0.5 && abs(dy) > 1e-6) {
         let tc = (ybase - ro.y) / dy;
         if (tc >= RAY_EPSILON && tc < best) {
             let hx = ro.x + dx * tc;
@@ -539,6 +538,11 @@ fn slab_hit(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, inv: vec3<f32>, t_m
     let tf = min(min(t2, t4), t6);
     return !(tf < tn || tf < RAY_EPSILON || tn > t_max);
 }
+
+
+
+
+
 
 
 

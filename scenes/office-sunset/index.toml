@@ -12,6 +12,13 @@ color = [1.4, 0.55, 0.22]
 brightness = 10.0
 range = 0
 
+# Sun in a high position to the right of the server-room
+# [[light]]
+# pos = [100.35, 250, 0]
+# color = [0.5, 0.55, 1.2]
+# brightness = 10.0
+# range = 0
+
 [camera]
 # Eye height on the server-room floor (y=200.2 + 1.6), facing the cube (-Z).
 pos = [10.0, 201.8, 8.0]
@@ -28,7 +35,23 @@ file = "server-room-front-office.toml"
 transform_origin = [0, 0, 0]
 at = [40, 200, 0]
 
+[[box]]
+material = "diffuse"
+reflect = 0.05
+albedo = [0.5, 0.5, 0.5]
+width = 50.0
+height = 200.0
+depth = 20.0
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+
 [[include]]
 file = "objects/skyscrapers-distance.toml"
 transform_origin = [0, 0, 0]
 at = [0, 0, 0]
+
+[[include]]
+file = "objects/skyscrapers-distance.toml"
+transform_origin = [0, 0, 0]
+at = [300, 0, 0]

@@ -104,8 +104,7 @@ type planeDTO struct {
 
 // holeDTO is a rectangular opening subtracted from a box (see scene.AABB). It
 // is authored as a [[box.hole]] sub-table and should pierce fully through the
-// faces it cuts. Define with pos_x/pos_y/pos_z and width/height/depth (legacy
-// min/max still accepted).
+// faces it cuts. Define with pos_x/pos_y/pos_z and width/height/depth.
 type holeDTO struct {
 	boxExtentDTO
 }
@@ -119,8 +118,8 @@ type boxDTO struct {
 	interactPropsDTO
 }
 
-// boxExtentDTO accepts either a min corner + size (pos_x, pos_y, pos_z,
-// width, height, depth) or legacy opposite corners (min, max).
+// boxExtentDTO defines a box by minimum corner (pos_x, pos_y, pos_z) and
+// positive extents (width, height, depth) along +X, +Y, +Z.
 type boxExtentDTO struct {
 	PosX   float64 `toml:"pos_x"`
 	PosY   float64 `toml:"pos_y"`
@@ -128,24 +127,19 @@ type boxExtentDTO struct {
 	Width  float64 `toml:"width"`
 	Height float64 `toml:"height"`
 	Depth  float64 `toml:"depth"`
-	Min    vec3    `toml:"min"`
-	Max    vec3    `toml:"max"`
 }
 
 func (d boxExtentDTO) bounds() (min, max vec.V, err error) {
-	if d.Width != 0 || d.Height != 0 || d.Depth != 0 {
-		w := math.Abs(d.Width)
-		h := math.Abs(d.Height)
-		dep := math.Abs(d.Depth)
-		if w <= 0 || h <= 0 || dep <= 0 {
-			return vec.V{}, vec.V{}, fmt.Errorf("width, height, and depth must be positive")
-		}
-		return normalizeBounds(
-			vec.New(d.PosX, d.PosY, d.PosZ),
-			vec.New(d.PosX+w, d.PosY+h, d.PosZ+dep),
-		)
+	w := math.Abs(d.Width)
+	h := math.Abs(d.Height)
+	dep := math.Abs(d.Depth)
+	if w <= 0 || h <= 0 || dep <= 0 {
+		return vec.V{}, vec.V{}, fmt.Errorf("width, height, and depth must be positive")
 	}
-	return normalizeBounds(d.Min.toV(), d.Max.toV())
+	return normalizeBounds(
+		vec.New(d.PosX, d.PosY, d.PosZ),
+		vec.New(d.PosX+w, d.PosY+h, d.PosZ+dep),
+	)
 }
 
 func normalizeBounds(a, b vec.V) (vec.V, vec.V, error) {
@@ -223,13 +217,40 @@ func (d cylinderDTO) specs() (cx, cz, ymin, ymax, radius, radiusTop float64, err
 }
 
 type coneDTO struct {
-	CX    float64 `toml:"cx"`
-	CZ    float64 `toml:"cz"`
-	YBase float64 `toml:"ybase"`
-	YTip  float64 `toml:"ytip"`
-	RBase float64 `toml:"rbase"`
+	PosX   float64 `toml:"pos_x"`
+	PosY   float64 `toml:"pos_y"`
+	PosZ   float64 `toml:"pos_z"`
+	Width  float64 `toml:"width"`
+	Height float64 `toml:"height"`
+	Capped *bool   `toml:"capped"`
 	transformDTO
 	surfaceDTO
+}
+
+// specs resolves the engine cone from box-style placement fields. pos_* is the
+// minimum corner of the base footprint square (side = width); the cone axis runs
+// through the center of that square. width is the base diameter; height spans
+// base to tip.
+func (d coneDTO) specs() (cx, cz, ybase, ytip, rbase float64, err error) {
+	if d.Width <= 0 {
+		return 0, 0, 0, 0, 0, fmt.Errorf("width must be positive")
+	}
+	if d.Height <= 0 {
+		return 0, 0, 0, 0, 0, fmt.Errorf("height must be positive")
+	}
+	cx = d.PosX + d.Width/2
+	cz = d.PosZ + d.Width/2
+	ybase = d.PosY
+	ytip = d.PosY + d.Height
+	rbase = d.Width / 2
+	return cx, cz, ybase, ytip, rbase, nil
+}
+
+func coneCappedFromDTO(d *bool) bool {
+	if d == nil {
+		return true
+	}
+	return *d
 }
 
 type torusDTO struct {
@@ -293,6 +314,11 @@ type lightFlickeringDTO struct {
 	Speed      float64 `toml:"speed"`
 	Seed       float64 `toml:"seed"`
 	Lights     int     `toml:"lights"`
+	Flame      *bool   `toml:"flame"`
+	FlameEmber *vec3   `toml:"flame_ember"`
+	FlameMid   *vec3   `toml:"flame_mid"`
+	FlameTip   *vec3   `toml:"flame_tip"`
+	FlameAsh   *vec3   `toml:"flame_ash"`
 }
 
 type soundDTO struct {
@@ -337,6 +363,21 @@ func (d lightFlickeringDTO) build() scene.Campfire {
 		Speed:      d.Speed,
 		Seed:       d.Seed,
 		Lights:     d.Lights,
+	}
+	if d.Flame != nil {
+		c.Flame = *d.Flame
+	}
+	if d.FlameEmber != nil {
+		c.FlameEmber = d.FlameEmber.toV()
+	}
+	if d.FlameMid != nil {
+		c.FlameMid = d.FlameMid.toV()
+	}
+	if d.FlameTip != nil {
+		c.FlameTip = d.FlameTip.toV()
+	}
+	if d.FlameAsh != nil {
+		c.FlameAsh = d.FlameAsh.toV()
 	}
 	if c.Color == (vec.V{}) {
 		c.Color = vec.New(3.6, 1.7, 0.55) // warm default
@@ -827,9 +868,16 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cone[%d]: %w", i, err)
 		}
-		center := vec.New(d.CX, (d.YBase+d.YTip)/2, d.CZ)
+		cx, cz, ybase, ytip, rbase, err := d.specs()
+		if err != nil {
+			return nil, fmt.Errorf("cone[%d]: %w", i, err)
+		}
+		center := vec.New(cx, (ybase+ytip)/2, cz)
 		surf.Xform = d.transformDTO.buildPlacement(center)
-		s.Cones = append(s.Cones, scene.Cone{CX: d.CX, CZ: d.CZ, YBase: d.YBase, YTip: d.YTip, RBase: d.RBase, Surface: surf})
+		s.Cones = append(s.Cones, scene.Cone{
+			CX: cx, CZ: cz, YBase: ybase, YTip: ytip, RBase: rbase,
+			Capped: coneCappedFromDTO(d.Capped), Surface: surf,
+		})
 	}
 	for i, d := range dto.Torus {
 		surf, err := d.toSurface()
