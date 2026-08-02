@@ -34,13 +34,25 @@ at = [0, 200, 0]
 # building below the server-room
 [[box]]
 material = "diffuse"
-reflect = 0.05
+reflect = 0.15
 albedo = [0.5, 0.5, 0.5]
 width = 50.0
 height = 200.0
 depth = 20.0
 pos_x = 0.0
 pos_y = 0.0
+pos_z = 0.0
+
+# building above the server-room
+[[box]]
+material = "diffuse"
+reflect = 0.4
+albedo = [0.5, 0.5, 0.5]
+width = 50.0
+height = 25
+depth = 20.0
+pos_x = 0.0
+pos_y = 208.1
 pos_z = 0.0
 
 [[include]]
@@ -58,7 +70,7 @@ params = { length = 30 }
 # building below the main office building
 [[box]]
 material = "diffuse"
-reflect = 0.05
+reflect = 0.25
 albedo = [0.5, 0.5, 0.5]
 width = 100
 height = 200.0

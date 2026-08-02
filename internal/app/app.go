@@ -117,6 +117,10 @@ type Game struct {
 
 	hudSmooth hudSmoother
 
+	// hudPos is the throttled world-position string shown on the dev overlay.
+	hudPos     string
+	hudPosAt   time.Time
+
 	// fpsCap throttles how often a new frame is ray-traced (0 = uncapped). The
 	// H key cycles uncapped -> 60 -> 30. Between traces the last frame is
 	// re-presented, so the GPU idles instead of tracing back-to-back (cooler
@@ -540,6 +544,7 @@ func (g *Game) Update() error {
 		if !readingDoc && !viewingScreen {
 			g.cam.Update(mv, dt)
 		}
+		g.updateHUDPos()
 
 		// Footsteps, room reverb, and spatial ambients derive from the post-move state.
 		g.updateReverb()
@@ -893,6 +898,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			g.frameBudgetLine(smoothGPU, smoothFPS), g.statusLine())
 		ebitenutil.DebugPrintAt(screen, hud, 4, y)
 		y += 14
+		if g.hudPos != "" {
+			ebitenutil.DebugPrintAt(screen, g.hudPos, 4, y)
+			y += 14
+		}
 
 		if wl, ok := g.ren.(render.GPUWorkloadProvider); ok {
 			if w := wl.LastGPUWorkload(); w.Ready {

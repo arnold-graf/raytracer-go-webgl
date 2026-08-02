@@ -1,0 +1,111 @@
+# Low, wide open bookshelf with four vertical metal posts.
+#
+# Origin (0, 0, 0) is the centre of the footprint on the floor. Shelves span
+# between the corner posts; sitters / readers face -Z.
+#
+# Parameterized via [[include]] params (all optional):
+#   width         overall width in X                    (default 2.0)
+#   depth         overall depth in Z                    (default 0.36)
+#   shelf_height  top of the unit above the floor        (default 0.88)
+#   leg_height    floor clearance under the bottom shelf (default 0.12)
+#   shelves       number of horizontal shelf boards      (default 3)
+#   albedo        shelf / frame tint                     (default [0.46, 0.40, 0.34])
+#   texture       shelf surface texture                  (default "wood")
+#   metal_albedo  vertical post tint                     (default [0.52, 0.54, 0.56])
+#
+# Shelf boards and posts use ground = false so stacked shelves do not become
+# walkable platforms via GroundHeight.
+#
+# Example:
+#
+#   [[include]]
+#   file = "objects/bookshelf.toml"
+#   at = [0.0, 0.0, 0.0]
+#   params = { width = 2.2, shelf_height = 0.75, shelves = 4, albedo = [0.55, 0.48, 0.40] }
+
+[props]
+width = 2.0
+depth = 0.36
+shelf_height = 0.88
+leg_height = 0.12
+shelves = 3
+texture = "wood"
+albedo = [0.46, 0.40, 0.34]
+reflect = 0
+rough = 0.18
+metal_albedo = [0.52, 0.54, 0.56]
+metal_reflect = 0.45
+metal_rough = 0.12
+post_d = 0.035
+post_inset = 0.05
+shelf_th = 0.032
+
+[const]
+half_w = 'width / 2'
+half_d = 'depth / 2'
+off = 'half_w - post_inset - post_d / 2'
+off_z = 'half_d - post_inset - post_d / 2'
+shelf_span = 'shelf_height - leg_height - 2 * shelf_th'
+shelf_step = 'shelf_span / (shelves + 1)'
+
+# bottom deck
+[[box]]
+ground = false
+material = "diffuse"
+texture = 'texture'
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'rough'
+pos_x = '-half_w'
+pos_y = 'leg_height'
+pos_z = '-half_d'
+width = 'width'
+height = 'shelf_th'
+depth = 'depth'
+
+# for i in range(shelves)
+# let n = i + 1
+[[box]]
+ground = false
+material = "diffuse"
+texture = 'texture'
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'rough'
+pos_x = '-half_w'
+pos_y = 'leg_height + shelf_th + shelf_step * n'
+pos_z = '-half_d'
+width = 'width'
+height = 'shelf_th'
+depth = 'depth'
+# endfor
+
+# top cap
+[[box]]
+ground = false
+material = "diffuse"
+texture = 'texture'
+albedo = 'albedo'
+reflect = 'reflect'
+rough = 'rough'
+pos_x = '-half_w'
+pos_y = 'shelf_height - shelf_th'
+pos_z = '-half_d'
+width = 'width'
+height = 'shelf_th'
+depth = 'depth'
+
+# four vertical metal posts
+# for i in range(4)
+[[cylinder]]
+ground = false
+material = "metal"
+albedo = 'metal_albedo'
+reflect = 'metal_reflect'
+rough = 'metal_rough'
+pos_x = 'leg_x(i, off, post_d / 2)'
+pos_y = 0.0
+pos_z = 'leg_z(i, off_z, post_d / 2)'
+width = 'post_d'
+height = 'shelf_height'
+# endfor

@@ -250,3 +250,19 @@ func TestGroundFollowing(t *testing.T) {
 		t.Fatalf("eye after descent = %v, want %v", c.Pos.Y, c.cfg.EyeHeight)
 	}
 }
+
+func TestGroundSnapRespectsStepHeight(t *testing.T) {
+	c := New()
+	c.SetWorld(mockWorld{height: func(x, z, headY float64) float64 {
+		if x*x+z*z < 0.5 {
+			return 1.5 // stacked-shelf-like top inside a small footprint
+		}
+		return 0
+	}})
+	c.Pos.Y = c.cfg.EyeHeight
+	c.onGround = true
+	c.Update(Move{MoveX: 1}, 0.1) // slide into the tall footprint
+	if c.Pos.Y > c.cfg.EyeHeight+c.cfg.StepHeight+1e-6 {
+		t.Fatalf("stepped onto tall surface: eye Y=%v, max step=%v", c.Pos.Y, c.cfg.StepHeight)
+	}
+}

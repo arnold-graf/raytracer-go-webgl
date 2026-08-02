@@ -103,45 +103,12 @@ width = 4
 height = 4.0
 depth = 5
 
-# Door frame
-[[box]]
-material = "diffuse"
-texture = "marble"
-reflect = 0.1
-rough = 0.005
-albedo = [0.7, 0.7, 0.7]
-pos_x = 40
-pos_y = 0
-pos_z = 8
-width = 1
-height = 4
-depth = 0.5
-
-[[box]]
-material = "diffuse"
-texture = "marble"
-reflect = 0.1
-rough = 0.005
-albedo = [0.7, 0.7, 0.7]
-pos_x = 40
-pos_y = 3.5
-pos_z = 8
-width = 1
-height = 0.5
-depth = 5
-
-[[box]]
-material = "diffuse"
-texture = "marble"
-reflect = 0.1
-rough = 0.005
-albedo = [0.7, 0.7, 0.7]
-pos_x = 40
-pos_y = 0
-pos_z = 12.5
-width = 1
-height = 4
-depth = 0.5
+# Art deco door frame
+[[include]]
+file = "objects/art-deco-door-frame.toml"
+transform_origin = [0, 0, 0]
+at = [39.9, 0, 8]
+params = { width = 5, height = 4, depth = 1, texture = "marble", albedo = [0.7, 0.7, 0.7]}
 
 # east wall (top cover)
 [[box]]
@@ -323,7 +290,7 @@ params = { stem_len = 2.3, brightness = 0.05, range = 20, orb_radius = 0.5 }
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
 at = [8.0, 6.17, 9.0]
-params = { stem_len = 3, brightness = 0.1, range = 10 }
+params = { stem_len = 4, brightness = 0.1, range = 10 }
 
 # Lamp 4 (above the door)
 [[include]]

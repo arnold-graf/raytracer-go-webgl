@@ -30,6 +30,10 @@ type Surface struct {
 	// NoCollision opts the primitive out of player capsule tests (walking,
 	// ground height, footsteps). Ray tracing is unaffected. Defaults to false.
 	NoCollision bool
+	// NoGround opts the primitive out of GroundHeight / footstep surface
+	// queries while still participating in Blocked when Collides is true.
+	// Use for thin furniture shelves, props, etc. Defaults to false.
+	NoGround bool
 	// Xform, when non-nil, maps the primitive from local space into world space.
 	// Intersection and normals are evaluated in local space and transformed back.
 	Xform *Transform
@@ -209,7 +213,15 @@ func (b *Box) TopOpenAt(x, z float64) bool {
 	if len(b.Holes) == 0 {
 		return false
 	}
-	p := b.Xform.ToLocal(vec.V{X: x, Y: b.Max.Y, Z: z})
+	wy := b.Max.Y
+	if b.Xform != nil {
+		var ok bool
+		wy, ok = b.Xform.WorldYForLocalY(x, z, b.Max.Y)
+		if !ok {
+			return false
+		}
+	}
+	p := b.Xform.ToLocal(vec.V{X: x, Y: wy, Z: z})
 	const eps = 1e-4
 	for i := range b.Holes {
 		h := b.Holes[i]

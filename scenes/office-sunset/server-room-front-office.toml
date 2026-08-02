@@ -51,9 +51,9 @@ depth = 0.3
 [[include]]
 file = "../objects/grid.toml"
 transform_origin = [0, 0, 0]
-at = [10.0, 0.0, 0.0]
+at = [10.7, -0.4, 0.0]
 rotate_y = -90
-params = { width = 20.0, height = 4.5, depth = 0.2, unit_size = 0.7, albedo = [2,2,2], material = "diffuse", texture = "cement"}
+params = { width = 20.0, height = 5, depth = 1, unit_size = 1, albedo = [2,2,2], material = "diffuse", texture = "cement"}
 
 # east wall top
 [[box]]
@@ -79,7 +79,7 @@ width = 0.2
 depth = 20
 height = 1.5
 
-# glass wall
+# east glass wall
 [[box]]
 material = "glass"
 ior = 1.05
@@ -130,28 +130,43 @@ height = 0.2
 [[include]]
 file = "../objects/office-light-grid.toml"
 transform_origin = [0, 0, 0]
-at = [0.0, 0.0, 0.0]
+at = [0, 4.4, 0.0]
 
 # ceiling lights
 [[include]]
 file = "../objects/office-light-grid.toml"
 transform_origin = [0, 0, 0]
-at = [0.0, 0.0, 12.0]
+at = [0.0, 4.4, 12.0]
 
 
-# desk in the corner
+# desk near glass wall
 [[include]]
 file = "objects/front-office-desk.toml"
 transform_origin = [0, 0, 0]
-at = [2.0, 0.0, 3.0]
+at = [2.3, 0.0, 6.0]
 rotate_y = -95
+
+# low bookshelf to the right of the desk (desk local -Z, toward the chair)
+[[include]]
+file = "../objects/bookshelf.toml"
+transform_origin = [0, 0, 0]
+at = [2, 0.0, 2.12]
+rotate_y = -110
+params = { width = 1.9, shelf_height = 1.5, leg_height = 0.15, shelves = 2, depth = 0.6, albedo = [0.48, 0.42, 0.36], texture = "wood" }
 
 # office chair
 [[include]]
 file = "../objects/office-chair.toml"
 transform_origin = [0, 0, 0]
-at = [4.0, 0.0, 3.0]
+at = [4.0, 0.0, 6.0]
 rotate_y = 120
+
+# table in the corner
+[[include]]
+file = "../objects/simple-table.toml"
+transform_origin = [0, 0, 0]
+at = [8.5, 0.0, 5.0]
+params = { width = 1.0, depth = 2.0, height = 0.7, texture = "wood", albedo = [1, 1, 1] }
 
 # standing lamp (left)
 [[include]]

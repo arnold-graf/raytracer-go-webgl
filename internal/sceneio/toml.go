@@ -55,6 +55,7 @@ type surfaceDTO struct {
 	Reflect   float64  `toml:"reflect"`
 	Transmit  float64  `toml:"transmit"`
 	Collision *bool    `toml:"collision"`
+	Ground    *bool    `toml:"ground"`
 }
 
 func (s surfaceDTO) toSurface() (scene.Surface, error) {
@@ -76,9 +77,13 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 	if s.Collision != nil && !*s.Collision {
 		noCollision = true
 	}
+	noGround := false
+	if s.Ground != nil && !*s.Ground {
+		noGround = true
+	}
 	return scene.Surface{
 		Mat: mat, Albedo: s.Albedo.toV(), Albedo2: s.Albedo2.toV(), Rough: s.Rough, IOR: ior, Tex: tex,
-		Reflect: s.Reflect, Transmit: s.Transmit, NoCollision: noCollision,
+		Reflect: s.Reflect, Transmit: s.Transmit, NoCollision: noCollision, NoGround: noGround,
 	}, nil
 }
 

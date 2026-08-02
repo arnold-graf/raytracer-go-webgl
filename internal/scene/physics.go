@@ -71,27 +71,41 @@ func (s *Scene) groundHeight(x, z, headY float64, skipBox, skipCylinder func(int
 			continue
 		}
 		b := &s.Boxes[i]
-		if !b.Collides() {
+		if !b.Collides() || b.NoGround {
 			continue
 		}
 		_, mx := b.WorldBounds()
 		if mx.Y > headY {
 			continue
 		}
-		// For rotated floors the world AABB is loose; require the point to lie
-		// over the top face in the box's local frame.
-		p := vec.V{X: x, Y: b.Max.Y, Z: z}
+		// Require (x,z) to lie over the top face in the box's local frame.
+		// For transformed boxes, map world (x,z) to the world Y on that top
+		// face before converting to local — using local Max.Y as world Y
+		// projects the surface across the room (phantom platforms).
+		wy := b.Max.Y
+		if b.Xform != nil {
+			var ok bool
+			wy, ok = b.Xform.WorldYForLocalY(x, z, b.Max.Y)
+			if !ok {
+				continue
+			}
+		}
+		p := vec.V{X: x, Y: wy, Z: z}
 		if b.Xform != nil {
 			p = b.Xform.ToLocal(p)
 		}
 		if p.X < b.Min.X || p.X > b.Max.X || p.Z < b.Min.Z || p.Z > b.Max.Z {
 			continue
 		}
+		const topEps = 1e-4
+		if p.Y < b.Max.Y-topEps {
+			continue
+		}
 		// A hole that breaches the top face (a stairwell/trap opening) means
 		// there's no standing surface here, so the player falls through to
 		// whatever lies below.
 		if mx.Y > g && !b.TopOpenAt(x, z) {
-			g = mx.Y
+			g = wy
 		}
 	}
 
@@ -108,7 +122,7 @@ func (s *Scene) groundHeight(x, z, headY float64, skipBox, skipCylinder func(int
 		if skipCylinder != nil && skipCylinder(i) {
 			continue
 		}
-		if !s.Cylinders[i].Collides() {
+		if !s.Cylinders[i].Collides() || s.Cylinders[i].NoGround {
 			continue
 		}
 		if h, ok := s.Cylinders[i].capGroundHeight(x, z, headY); ok && h > g {

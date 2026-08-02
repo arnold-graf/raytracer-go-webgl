@@ -87,6 +87,21 @@ func TestBlockedHonorsBoxTransform(t *testing.T) {
 	}
 }
 
+func TestRotatedFloorNoPhantomGround(t *testing.T) {
+	// Horizontal slab rotated 45° about Y: the old groundHeight path treated
+	// local Max.Y as world Y and projected the top across the whole XZ plane.
+	xf := NewTransform(0, 45, 0, vec.V{})
+	s := &Scene{Boxes: []Box{
+		{Min: vec.New(-1, 0.4, -1), Max: vec.New(1, 0.44, 1), Surface: Surface{Xform: xf}},
+	}}
+	if g := s.GroundHeight(20, 20, 5); g > 0.01 {
+		t.Fatalf("phantom ground at distance: GroundHeight=%v, want ~0", g)
+	}
+	if g := s.GroundHeight(0, 0, 5); g < 0.39 || g > 0.45 {
+		t.Fatalf("slab top at centre: GroundHeight=%v, want ~0.44", g)
+	}
+}
+
 // TestSlantedRoofDoesNotBlock checks hypothesis B: a high tilted roof box stays
 // above the player's head in world space and never blocks walking.
 func TestSlantedRoofDoesNotBlock(t *testing.T) {
@@ -413,5 +428,19 @@ func TestNoCollisionPrimitiveIgnored(t *testing.T) {
 	}
 	if g := s.GroundHeight(0, 0, 2); g > 0.01 {
 		t.Fatalf("collision=false box should not be ground, got %v", g)
+	}
+}
+
+func TestNoGroundBoxBlocksButNotWalkable(t *testing.T) {
+	s := &Scene{Boxes: []Box{
+		{Min: vec.New(-2, 0, -2), Max: vec.New(2, 0.05, 2)},
+		{Min: vec.New(-1, 0, -1), Max: vec.New(1, 1.5, 1), Surface: Surface{Mat: MatDiffuse, NoGround: true}},
+	}}
+	feetY, headY, r, step := 0.0, 1.7, 0.3, 0.45
+	if g := s.GroundHeight(0, 0, headY); math.Abs(g-0.05) > 1e-9 {
+		t.Fatalf("NoGround shelf ignored: GroundHeight=%v, want 0.05", g)
+	}
+	if !s.Blocked(0, 0, feetY, headY, r, step) {
+		t.Fatal("NoGround shelf should still block the player capsule")
 	}
 }

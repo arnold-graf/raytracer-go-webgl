@@ -28,6 +28,7 @@ spacing = 5
 column_count = 'floor((length - 1) / spacing) + 1'
 
 # columns (pairs along the span)
+
 # for i in range(column_count)
 [[include]]
 file = "../../objects/marble-column.toml"
@@ -35,11 +36,10 @@ transform_origin = [0, 0, 0]
 at = [0.5, 0, '1 + (i * spacing)']
 params = { height = 4.5, width = 0.7, albedo = [3,3,3], reflect = 0.2 }
 
-
 [[include]]
 file = "../../objects/marble-column.toml"
 transform_origin = [0, 0, 0]
-at = [7, 0, '1 + (i * spacing)']
+at = [6.8, 0, '1 + (i * spacing)']
 params = { height = 4.5, width = 0.7, albedo = [3,3,3], reflect = 0.2 }
 # endfor
 
@@ -70,8 +70,7 @@ albedo = [5, 5, 5]
 # glass wall (west)
 [[box]]
 material = "glass"
-ior = 1.01
-rough = 0.005
+ior = 1.05
 transmit = 0.8
 albedo = [1, 1, 1]
 pos_x = 0
@@ -85,8 +84,7 @@ depth = 'length'
 [[box]]
 material = "glass"
 transmit = 0.7
-ior = 1.005
-rough = 0.005
+ior = 1.05
 albedo = [1, 1, 1]
 pos_x = 'width - 0.1'
 pos_y = 0

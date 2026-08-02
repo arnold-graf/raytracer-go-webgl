@@ -253,7 +253,15 @@ func (c *Camera) Update(m Move, dt float64) {
 	// and back up instead of snapping.
 	standEye := eye
 	if c.world != nil {
-		standEye = c.world.GroundHeight(c.Pos.X, c.Pos.Z, c.Pos.Y) + eye
+		feetY := c.Pos.Y - eye
+		groundFeet := c.world.GroundHeight(c.Pos.X, c.Pos.Z, c.Pos.Y)
+		// Step height limits horizontal ledges in Blocked, but GroundHeight
+		// returns the highest top face at (x,z). Stacked shelves share one
+		// footprint, so without this clamp the player teleports to the top.
+		if groundFeet > feetY+c.cfg.StepHeight {
+			groundFeet = feetY
+		}
+		standEye = groundFeet + eye
 	}
 	if m.Jump {
 		if c.onGround {
