@@ -30,10 +30,6 @@ type Surface struct {
 	// NoCollision opts the primitive out of player capsule tests (walking,
 	// ground height, footsteps). Ray tracing is unaffected. Defaults to false.
 	NoCollision bool
-	// NoGround opts the primitive out of GroundHeight / footstep surface
-	// queries while still participating in Blocked when Collides is true.
-	// Use for thin furniture shelves, props, etc. Defaults to false.
-	NoGround bool
 	// Xform, when non-nil, maps the primitive from local space into world space.
 	// Intersection and normals are evaluated in local space and transformed back.
 	Xform *Transform
@@ -295,6 +291,58 @@ func (b *Box) localPointInsideSolid(p vec.V, radius float64) bool {
 	return p.X >= b.Min.X-radius-eps && p.X <= b.Max.X+radius+eps &&
 		p.Y >= b.Min.Y-eps && p.Y <= b.Max.Y+eps &&
 		p.Z >= b.Min.Z-radius-eps && p.Z <= b.Max.Z+radius+eps
+}
+
+// worldYOnLocalY maps a point on a horizontal plane at local Y to world Y at
+// the column (wx, wz).
+func (b *Box) worldYOnLocalY(wx, wz, localY float64) (float64, bool) {
+	if b.Xform == nil {
+		return localY, true
+	}
+	return b.Xform.WorldYForLocalY(wx, wz, localY)
+}
+
+// isFloorConnectedStep reports whether this box is a ground-anchored tread the
+// player can walk onto in one stride (stairs), as opposed to a floating slab.
+func (b *Box) isFloorConnectedStep(wx, wz, feetY, step float64) bool {
+	const floorEps = 0.05
+	if b.Min.Y > floorEps {
+		return false
+	}
+	wy, ok := b.worldYOnLocalY(wx, wz, b.Max.Y)
+	if !ok {
+		return false
+	}
+	return wy <= feetY+step
+}
+
+// boxBlocksPlayer reports whether the player's capsule at (wx,wz) intersects
+// this box in world space. Floor-connected steps are excluded so stairs remain
+// walkable; floating slabs such as furniture shelves still block passage.
+// Evaluated in the box's local frame so instance rotation is honored.
+func (b *Box) boxBlocksPlayer(wx, wz, feetY, headY, playerR, step float64) bool {
+	if b.isFloorConnectedStep(wx, wz, feetY, step) {
+		return false
+	}
+	if b.blocksColumn(wx, wz, feetY, headY, playerR) {
+		return true
+	}
+	// Thin slabs can fall between the few blocksColumn sample heights; probe the
+	// oriented top and bottom faces on the player column.
+	for _, ly := range []float64{b.Min.Y, b.Max.Y} {
+		wy, ok := b.worldYOnLocalY(wx, wz, ly)
+		if !ok || wy < feetY || wy > headY {
+			continue
+		}
+		p := vec.V{X: wx, Y: wy, Z: wz}
+		if b.Xform != nil {
+			p = b.Xform.ToLocal(p)
+		}
+		if b.localPointInsideSolid(p, playerR) {
+			return true
+		}
+	}
+	return false
 }
 
 // PlayerOverlapsBox reports whether a vertical player capsule overlaps the box

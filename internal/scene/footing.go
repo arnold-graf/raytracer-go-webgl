@@ -64,7 +64,7 @@ func (s *Scene) StepMaterialAt(x, z, headY float64) StepMaterial {
 
 	for i := range s.Boxes {
 		mn, mx := s.Boxes[i].WorldBounds()
-		if !s.Boxes[i].Collides() || s.Boxes[i].NoGround {
+		if !s.Boxes[i].Collides() {
 			continue
 		}
 		if mx.Y <= headY && x >= mn.X && x <= mx.X && z >= mn.Z && z <= mx.Z {
@@ -86,7 +86,7 @@ func (s *Scene) StepMaterialAt(x, z, headY float64) StepMaterial {
 	}
 
 	for i := range s.Cylinders {
-		if !s.Cylinders[i].Collides() || s.Cylinders[i].NoGround {
+		if !s.Cylinders[i].Collides() {
 			continue
 		}
 		if h, ok := s.Cylinders[i].capGroundHeight(x, z, headY); ok && h > bestY {

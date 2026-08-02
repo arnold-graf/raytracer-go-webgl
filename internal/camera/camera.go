@@ -56,9 +56,12 @@ func DefaultConfig() Config {
 // World supplies the collision/terrain queries the camera needs to walk the
 // scene. Coordinates are world-space; it is implemented by *scene.Scene.
 type World interface {
-	// GroundHeight returns the height of the highest walkable surface at (x,z)
-	// whose top is at or below headY (so ceilings/overhangs are ignored).
+	// GroundHeight returns the highest walkable surface at (x,z) at or below
+	// headY with no step-up cap (used when spawning).
 	GroundHeight(x, z, headY float64) float64
+	// WalkGroundHeight returns the highest surface reachable within one step
+	// above feetY and at or below headY.
+	WalkGroundHeight(x, z, feetY, headY, step float64) float64
 	// Blocked reports whether a vertical capsule of the given radius, standing on
 	// feetY with its head at headY, intersects solid geometry at (x,z). Surfaces
 	// no taller than feetY+step are treated as walkable (steps), not walls.
@@ -254,14 +257,7 @@ func (c *Camera) Update(m Move, dt float64) {
 	standEye := eye
 	if c.world != nil {
 		feetY := c.Pos.Y - eye
-		groundFeet := c.world.GroundHeight(c.Pos.X, c.Pos.Z, c.Pos.Y)
-		// Step height limits horizontal ledges in Blocked, but GroundHeight
-		// returns the highest top face at (x,z). Stacked shelves share one
-		// footprint, so without this clamp the player teleports to the top.
-		if groundFeet > feetY+c.cfg.StepHeight {
-			groundFeet = feetY
-		}
-		standEye = groundFeet + eye
+		standEye = c.world.WalkGroundHeight(c.Pos.X, c.Pos.Z, feetY, c.Pos.Y, c.cfg.StepHeight) + eye
 	}
 	if m.Jump {
 		if c.onGround {

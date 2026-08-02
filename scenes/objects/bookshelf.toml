@@ -13,9 +13,6 @@
 #   texture       shelf surface texture                  (default "wood")
 #   metal_albedo  vertical post tint                     (default [0.52, 0.54, 0.56])
 #
-# Shelf boards and posts use ground = false so stacked shelves do not become
-# walkable platforms via GroundHeight.
-#
 # Example:
 #
 #   [[include]]
@@ -50,7 +47,6 @@ shelf_step = 'shelf_span / (shelves + 1)'
 
 # bottom deck
 [[box]]
-ground = false
 material = "diffuse"
 texture = 'texture'
 albedo = 'albedo'
@@ -66,7 +62,6 @@ depth = 'depth'
 # for i in range(shelves)
 # let n = i + 1
 [[box]]
-ground = false
 material = "diffuse"
 texture = 'texture'
 albedo = 'albedo'
@@ -82,7 +77,6 @@ depth = 'depth'
 
 # top cap
 [[box]]
-ground = false
 material = "diffuse"
 texture = 'texture'
 albedo = 'albedo'
@@ -98,7 +92,6 @@ depth = 'depth'
 # four vertical metal posts
 # for i in range(4)
 [[cylinder]]
-ground = false
 material = "metal"
 albedo = 'metal_albedo'
 reflect = 'metal_reflect'

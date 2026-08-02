@@ -18,6 +18,17 @@ func (m mockWorld) GroundHeight(x, z, headY float64) float64 {
 	return 0
 }
 
+func (m mockWorld) WalkGroundHeight(x, z, feetY, headY, step float64) float64 {
+	if m.height != nil {
+		h := m.height(x, z, headY)
+		if h <= feetY+step {
+			return h
+		}
+		return feetY
+	}
+	return 0
+}
+
 func (m mockWorld) Blocked(x, z, feetY, headY, radius, step float64) bool {
 	if m.blocked != nil {
 		return m.blocked(x, z)
@@ -232,8 +243,8 @@ func TestGroundFollowing(t *testing.T) {
 	height := 2.0
 	c := New()
 	c.SetWorld(mockWorld{height: func(x, z, headY float64) float64 { return height }})
+	c.SnapToGround()
 
-	c.Update(Move{}, 0.1)
 	if math.Abs(c.Pos.Y-(2.0+c.cfg.EyeHeight)) > 1e-9 {
 		t.Fatalf("eye on raised ground = %v, want %v", c.Pos.Y, 2.0+c.cfg.EyeHeight)
 	}

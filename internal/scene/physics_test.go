@@ -431,16 +431,51 @@ func TestNoCollisionPrimitiveIgnored(t *testing.T) {
 	}
 }
 
-func TestNoGroundBoxBlocksButNotWalkable(t *testing.T) {
+func TestWalkGroundHeightIgnoresStackedTops(t *testing.T) {
 	s := &Scene{Boxes: []Box{
-		{Min: vec.New(-2, 0, -2), Max: vec.New(2, 0.05, 2)},
-		{Min: vec.New(-1, 0, -1), Max: vec.New(1, 1.5, 1), Surface: Surface{Mat: MatDiffuse, NoGround: true}},
+		{Min: vec.New(-1, 0, -1), Max: vec.New(1, 0.05, 1)},
+		{Min: vec.New(-1, 0.50, -1), Max: vec.New(1, 0.53, 1)},
+		{Min: vec.New(-1, 0.95, -1), Max: vec.New(1, 0.98, 1)},
+		{Min: vec.New(-1, 1.45, -1), Max: vec.New(1, 1.48, 1)},
+	}}
+	const feetY, step, headY = 0.0, 0.45, 2.0
+	if g := s.WalkGroundHeight(0, 0, feetY, headY, step); g > 0.06 {
+		t.Fatalf("walk ground = %v, want floor (not stacked tops)", g)
+	}
+	if g := s.GroundHeight(0, 0, headY); math.Abs(g-1.48) > 1e-9 {
+		t.Fatalf("full ground = %v, want top shelf 1.48", g)
+	}
+}
+
+func TestFloatingShelfBlocksPlayer(t *testing.T) {
+	s := &Scene{Boxes: []Box{
+		{Min: vec.New(-0.95, 0.15, -0.3), Max: vec.New(0.95, 0.182, 0.3)},
 	}}
 	feetY, headY, r, step := 0.0, 1.7, 0.3, 0.45
-	if g := s.GroundHeight(0, 0, headY); math.Abs(g-0.05) > 1e-9 {
-		t.Fatalf("NoGround shelf ignored: GroundHeight=%v, want 0.05", g)
-	}
 	if !s.Blocked(0, 0, feetY, headY, r, step) {
-		t.Fatal("NoGround shelf should still block the player capsule")
+		t.Fatal("floating shelf should block walking through at floor level")
+	}
+}
+
+func TestRotatedShelfBlocksInLocalFrame(t *testing.T) {
+	xf := NewInstanceTransform(0, -110, 0, vec.New(2, 0, 2))
+	shelf := Box{
+		Min:     vec.New(-0.95, 0.15, -0.3),
+		Max:     vec.New(0.95, 0.182, 0.3),
+		Surface: Surface{Xform: xf},
+	}
+	s := &Scene{Boxes: []Box{shelf}}
+	feetY, headY, r, step := 0.0, 1.7, 0.3, 0.45
+
+	// Through the shelf footprint in world space.
+	center := xf.ToWorld(vec.New(0, 0.16, 0))
+	if !s.Blocked(center.X, center.Z, feetY, headY, r, step) {
+		t.Fatalf("rotated shelf should block at center (%.2f, %.2f)", center.X, center.Z)
+	}
+
+	// Outside the oriented slab but inside its loose world AABB.
+	outside := xf.ToWorld(vec.New(-1.5, 0.16, -1.5))
+	if s.Blocked(outside.X, outside.Z, feetY, headY, r, step) {
+		t.Fatalf("point outside rotated shelf (%.2f, %.2f) must not block", outside.X, outside.Z)
 	}
 }
