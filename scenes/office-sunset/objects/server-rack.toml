@@ -1,3 +1,11 @@
+# Server-rack frame (local origin at the left pole base). Each [[include]] of
+# this file gets its own looping fan hum at the rack center.
+
+[[sound]]
+at = [0.05, 1.35, 0.3]
+gain = 0.04
+radius = 20
+sound = "fan"
 
 # Left Pole 1
 [[box]]

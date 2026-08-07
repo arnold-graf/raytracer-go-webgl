@@ -67,18 +67,6 @@ width = 0.3
 height = 1
 depth = 20
 
-# east wall sun blinds
-[[box]]
-material = "diffuse"
-texture = "cement"
-albedo = [0.1,0.1,0.1]
-pos_x = 11
-pos_y = 3.4
-pos_z = 0
-width = 0.2
-depth = 20
-height = 1.5
-
 # east glass wall
 [[box]]
 material = "glass"
@@ -146,13 +134,28 @@ transform_origin = [0, 0, 0]
 at = [2.3, 0.0, 6.0]
 rotate_y = -95
 
-# low bookshelf to the right of the desk (desk local -Z, toward the chair)
+# bookshelf to the right of the desk (desk local -Z, toward the chair)
 [[include]]
 file = "../objects/bookshelf.toml"
 transform_origin = [0, 0, 0]
 at = [2, 0.0, 2.12]
 rotate_y = -110
 params = { width = 1.9, shelf_height = 1.5, leg_height = 0.15, shelves = 2, depth = 0.6, albedo = [0.48, 0.42, 0.36], texture = "wood" }
+
+[[include]]
+file = "../objects/book-cluster.toml"
+at = [2, 1.05, 2.12]
+rotate_y = -110
+transform_origin = [0, 0, 0]
+params = { width = 1, min_height = 0.16, max_height = 0.26, seed = 42 }
+
+[[include]]
+file = "../objects/book-cluster.toml"
+at = [2, 0.65, 2.12]
+rotate_y = -110
+transform_origin = [-0.2, 0, 0.05]
+params = { width = 0.8, min_height = 0.16, max_height = 0.26, seed = 40 }
+
 
 # office chair
 [[include]]

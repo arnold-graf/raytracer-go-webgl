@@ -3,27 +3,22 @@ package audio
 import "math/rand"
 
 // synthHard generates a footstep on a hard surface (stone, marble, tile): a
-// bright, short "tick" with a little high-mid ring and almost no body. It is a
-// fast noise burst shaped by a high-pass (kill the low rumble) and a peaking
-// resonance around 1.2 kHz, matching the marble filter chain in the reference.
+// crisp "tock" with body in the low mids and a short ring, but without the
+// separate high heel-click layer that made earlier versions too sharp.
 func synthHard(sr int, rng *rand.Rand) []float32 {
-	n := int(0.07 * float64(sr)) // ~70 ms
-	sig := noiseBurst(n, 0.04, rng)
+	n := int(0.09 * float64(sr)) // ~90 ms
+	sig := noiseBurst(n, 0.06, rng)
 
-	hp := highpass(600, 0.8, float64(sr))
-	peak := peaking(1200, 2, 6, float64(sr))
-	runChain(sig, hp, peak)
+	body := peaking(180, 5, 8, float64(sr))
+	ring := peaking(900, 4, 6, float64(sr))
+	tick := peaking(1450, 3, 4, float64(sr))
+	hp := highpass(380, 0.5, float64(sr))
+	lp := lowpass(3800, 0.55, float64(sr))
+	runChain(sig, body, ring, tick, hp, lp)
 
-	// A second, very short click adds the initial heel "snap".
-	click := noiseBurst(int(0.012*float64(sr)), 0.02, rng)
-	hp2 := highpass(2500, 0.7, float64(sr))
-	runChain(click, hp2)
-	for i := range click {
-		sig[i] += click[i] * 0.6
-	}
-
-	normalize(sig, 0.5)
-	applyFadeOut(sig, int(0.01*float64(sr)))
+	softenAttack(sig, int(0.008*float64(sr)))
+	normalize(sig, 0.4)
+	applyFadeOut(sig, int(0.012*float64(sr)))
 	return toF32(sig)
 }
 

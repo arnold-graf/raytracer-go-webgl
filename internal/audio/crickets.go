@@ -53,7 +53,9 @@ func SynthesizeCrickets(sr int, rng *rand.Rand) []float32 {
 }
 
 // loopCrossfade blends the tail of sig into its head so circular playback is
-// seamless.
+// seamless. Only the head is rewritten; the tail is ramped to match the head at
+// the wrap point. Earlier versions also attenuated the start of the tail region
+// to zero, which caused a periodic pop mid-buffer on steady drones like fans.
 func loopCrossfade(sig []float64, fade int) {
 	if fade <= 0 || fade*2 > len(sig) {
 		return
@@ -61,9 +63,29 @@ func loopCrossfade(sig []float64, fade int) {
 	n := len(sig)
 	for i := 0; i < fade; i++ {
 		t := float64(i) / float64(fade)
-		head := sig[i]
-		tail := sig[n-fade+i]
-		sig[i] = head*(1-t) + tail*t
-		sig[n-fade+i] *= t
+		w := 0.5 - 0.5*math.Cos(math.Pi*t)
+		sig[i] = sig[i]*(1-w) + sig[n-fade+i]*w
 	}
+	blendTailToHead(sig, fade)
+}
+
+// blendTailToHead pulls the last fade samples toward sig[0] so circular playback
+// is sample-continuous at the wrap point.
+func blendTailToHead(sig []float64, fade int) {
+	if fade <= 0 || fade >= len(sig) {
+		return
+	}
+	n := len(sig)
+	target := sig[0]
+	for i := 0; i < fade; i++ {
+		w := 1 - float64(i)/float64(fade) // n-1 gets w=1, earlier tail samples blend less
+		idx := n - 1 - i
+		sig[idx] = sig[idx]*(1-w) + target*w
+	}
+}
+
+// repairLoopSeam re-applies blendTailToHead after processing that may have
+// reopened a wrap discontinuity (e.g. peak normalization).
+func repairLoopSeam(sig []float64, fade int) {
+	blendTailToHead(sig, fade)
 }

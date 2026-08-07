@@ -32,10 +32,10 @@ type View struct {
 	AOok      bool
 	AOVersion uint64 // bumps when AOData is replaced (e.g. after an async bake)
 
-	// ColorQuant selects the post-dither color depth: 0 = 8-bit, 1 = 15-bit, 2 = 256 (3-3-2).
+	// ColorQuant selects the post-dither color depth: 0 = 8-bit dither, 1 = 15-bit (default), 2 = crush (24 levels/ch).
 	ColorQuant uint32
 
-	// AdaptiveAA enables edge-detected 2×2 supersampling on primary rays.
+	// AdaptiveAA enables neighbor-detected edge supersampling (two-pass).
 	AdaptiveAA bool
 
 	// MaxBounceDepth caps mirror/glass/water recursion in the tracer (default 2 when 0).

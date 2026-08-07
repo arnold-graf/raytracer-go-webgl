@@ -58,3 +58,11 @@ fn inst_world_normal(i: u32, ln: vec3<f32>) -> vec3<f32> {
 
 
 
+
+
+
+
+
+
+
+

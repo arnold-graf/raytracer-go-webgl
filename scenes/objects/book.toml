@@ -1,0 +1,93 @@
+# Single standing book for shelf clusters.
+#
+# Origin (0, 0, 0) is the centre of the footprint on the shelf; +Y is up; spines
+# face -Z (back of shelf); page edges face +Z.
+#
+# Geometry: three thin cover boxes (spine, front, top) plus one off-white paper
+# block inset between them.
+#
+# Parameterized via [[include]] params (all optional):
+#   height       spine-to-top in metres              (default 0.24)
+#   thickness    width along X (book thickness)      (default 0.03)
+#   depth        spine-to-fore-edge in Z             (default 0.18)
+#   cover_t      cover board thickness               (default 0.002)
+#   albedo_r/g/b cover colour channels               (defaults warm red-brown)
+#   reflect      cover specular                      (default 0.05)
+#   rough        cover roughness                     (default 0.35)
+#
+# Example:
+#
+#   [[include]]
+#   file = "objects/book.toml"
+#   at = [0.0, 0.0, 0.0]
+#   params = { height = 0.26, albedo_r = 0.2, albedo_g = 0.35, albedo_b = 0.55 }
+
+[props]
+height = 0.24
+thickness = 0.03
+depth = 0.18
+cover_t = 0.002
+albedo_r = 0.48
+albedo_g = 0.28
+albedo_b = 0.16
+reflect = 0.05
+rough = 0.35
+
+[const]
+half_t = 'thickness / 2'
+paper_w = 'thickness - 2 * cover_t'
+paper_h = 'height - cover_t'
+paper_d = 'depth - 2 * cover_t'
+
+# Paper block (page edges)
+[[box]]
+material = "diffuse"
+albedo = [0.92, 0.90, 0.86]
+reflect = 0.02
+rough = 0.92
+pos_x = '-half_t + cover_t'
+pos_y = 0.0
+pos_z = 'cover_t'
+width = 'paper_w'
+height = 'paper_h'
+depth = 'paper_d'
+
+# back cover (-X)
+[[box]]
+material = "diffuse"
+albedo = ['albedo_r', 'albedo_g', 'albedo_b']
+reflect = 0.02
+rough = 0.92
+pos_x = 0
+pos_y = 0.0
+pos_z = 'cover_t'
+width = 'paper_w'
+height = 'paper_h'
+depth = 'paper_d'
+
+# front cover (+X)
+[[box]]
+material = "diffuse"
+albedo = ['albedo_r', 'albedo_g', 'albedo_b']
+reflect = 0.02
+rough = 0.92
+pos_x = '-thickness + 0.01'
+pos_y = 0.0
+pos_z = 'cover_t'
+width = '0.01'
+height = 'paper_h'
+depth = 'paper_d'
+
+# Spine cover (-Z)
+[[box]]
+material = "diffuse"
+albedo = ['albedo_r', 'albedo_g', 'albedo_b']
+reflect = 'reflect'
+rough = 'rough'
+pos_x = '-half_t'
+pos_y = 0.0
+pos_z = 0.0
+width = 'thickness'
+height = 'height'
+depth = 'cover_t'
+

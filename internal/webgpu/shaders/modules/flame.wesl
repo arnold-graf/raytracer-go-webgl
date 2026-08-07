@@ -48,3 +48,11 @@ fn nearest_flame_hit(ro: vec3<f32>, rd: vec3<f32>, h: Hit) -> Hit {
 
 
 
+
+
+
+
+
+
+
+

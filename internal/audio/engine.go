@@ -34,6 +34,8 @@ type Engine struct {
 	// →0 = fully muffled behind walls), eased over time to avoid popping when the
 	// listener crosses a doorway.
 	occ []float64
+	// ambAtn is the smoothed distance attenuation per ambient (0 outside radius).
+	ambAtn []float64
 }
 
 // NewEngine initializes the audio context and starts the streaming player. It
@@ -68,6 +70,47 @@ func (e *Engine) Footstep(mat Surface, gain, pitch float64) {
 	e.mixer.Add(buf, gain, pitch)
 }
 
+const slideDoorSynthDur = 2.5
+
+// PlaySlideDoor plays a synthesized sci-fi sliding-door sound at pos. travelTime
+// stretches playback to roughly match the door animation; opening=false plays
+// the buffer reversed.
+func (e *Engine) PlaySlideDoor(opening bool, travelTime float64, pos, listenerPos, listenerRight vec.V, gain float64) {
+	if e == nil {
+		return
+	}
+	buf := SynthesizeSlideDoor(sampleRate, e.rng)
+	if !opening {
+		buf = reverseF32(buf)
+	}
+	pitch := slideDoorSynthDur / travelTime
+	if pitch < 0.2 {
+		pitch = 0.2
+	}
+	if pitch > 2 {
+		pitch = 2
+	}
+	gainL, gainR := panGains(pos, listenerPos, listenerRight, gain)
+	e.mixer.AddPan(buf, gainL, gainR, pitch)
+}
+
+func panGains(src, listenerPos, listenerRight vec.V, gain float64) (l, r float64) {
+	if gain <= 0 {
+		return 0, 0
+	}
+	dx := src.X - listenerPos.X
+	dz := src.Z - listenerPos.Z
+	horiz := vec.V{X: dx, Z: dz}
+	if horiz.LenSq() < 1e-12 {
+		return gain * 0.707, gain * 0.707
+	}
+	horiz = horiz.Normalize()
+	pan := horiz.Dot(listenerRight)
+	rW := clampPan((pan + 1) * 0.5)
+	lW := 1 - rW
+	return gain * math.Sqrt(lW), gain * math.Sqrt(rW)
+}
+
 // SetReverb updates the room reverb (see Mixer.SetReverb). wetL/wetR are the
 // per-ear reverb levels for directional reflections.
 func (e *Engine) SetReverb(feedback, damp, wetL, wetR float64) {
@@ -92,6 +135,8 @@ func (e *Engine) SetAmbients(emitters []AmbientEmitter) {
 		switch em.Sound {
 		case "crickets":
 			buf = SynthesizeCrickets(sampleRate, sub)
+		case "fan":
+			buf = SynthesizeFan(sampleRate, sub)
 		default:
 			continue
 		}
@@ -100,19 +145,29 @@ func (e *Engine) SetAmbients(emitters []AmbientEmitter) {
 		}
 		kept = append(kept, em)
 
-		// Three read heads at slightly different, mutually-incommensurate speeds
-		// and random phases. Their sum drifts continuously so the chirp pattern
-		// never repeats on the buffer's period, killing the obvious loop.
 		n := float64(len(buf))
-		heads := []*ambientHead{
-			{pos: sub.Float64() * n, speed: 1.000, gain: 0.62},
-			{pos: sub.Float64() * n, speed: 0.937 + sub.Float64()*0.02, gain: 0.5},
-			{pos: sub.Float64() * n, speed: 1.063 + sub.Float64()*0.02, gain: 0.42},
+		var heads []*ambientHead
+		switch em.Sound {
+		case "crickets":
+			// Three read heads at slightly different, mutually-incommensurate speeds
+			// and random phases. Their sum drifts continuously so the chirp pattern
+			// never repeats on the buffer's period, killing the obvious loop.
+			heads = []*ambientHead{
+				{pos: sub.Float64() * n, speed: 1.000, gain: 0.62},
+				{pos: sub.Float64() * n, speed: 0.937 + sub.Float64()*0.02, gain: 0.5},
+				{pos: sub.Float64() * n, speed: 1.063 + sub.Float64()*0.02, gain: 0.42},
+			}
+		case "fan":
+			// Single head: a steady loop avoids extra wrap points that can click on drones.
+			heads = []*ambientHead{
+				{pos: sub.Float64() * n, speed: 1.0, gain: 1.0},
+			}
 		}
 		voices = append(voices, &ambientVoice{buf: buf, heads: heads})
 	}
 	e.ambients = kept
 	e.occ = make([]float64, len(kept))
+	e.ambAtn = make([]float64, len(kept))
 	e.mixer.SetAmbients(voices)
 }
 
@@ -130,6 +185,9 @@ func (e *Engine) UpdateAmbients(listenerPos, listenerRight vec.V, occFn Occlusio
 	if len(e.occ) != len(e.ambients) {
 		e.occ = make([]float64, len(e.ambients))
 	}
+	if len(e.ambAtn) != len(e.ambients) {
+		e.ambAtn = make([]float64, len(e.ambients))
+	}
 	gL := make([]float64, len(e.ambients))
 	gR := make([]float64, len(e.ambients))
 	const occEase = 0.25 // ~0.4 s to settle at 60 Hz polls
@@ -138,12 +196,18 @@ func (e *Engine) UpdateAmbients(listenerPos, listenerRight vec.V, occFn Occlusio
 		dy := em.Pos.Y - listenerPos.Y
 		dz := em.Pos.Z - listenerPos.Z
 		dist := math.Sqrt(dx*dx + dy*dy + dz*dz)
-		if em.Radius <= 0 || dist >= em.Radius {
+		targetAtn := 0.0
+		if em.Radius > 0 && dist < em.Radius {
+			t := 1 - dist/em.Radius
+			targetAtn = t * t * em.Gain
+		}
+		e.ambAtn[i] += (targetAtn - e.ambAtn[i]) * occEase
+		if e.ambAtn[i] < 1e-6 {
+			e.ambAtn[i] = 0
 			e.occ[i] += (0 - e.occ[i]) * occEase
 			continue
 		}
-		t := 1 - dist/em.Radius
-		atten := t * t * em.Gain
+		atten := e.ambAtn[i]
 
 		// Ray-traced occlusion: walls between listener and emitter muffle the
 		// sound. Eased so stepping through a doorway fades rather than pops.

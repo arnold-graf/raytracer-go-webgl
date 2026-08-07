@@ -46,6 +46,7 @@ func main() {
 	profile := flag.Bool("profile", false, "collect GPU shader workload counters (one profiled frame)")
 	dump := flag.String("dump", "", "write the final RGBA frame buffer to this file (for A/B pixel diffs)")
 	mountains := flag.Bool("mountains", false, "use mountain-view camera preset (yaw=0°, villa valley view)")
+	aa := flag.Bool("aa", false, "enable adaptive anti-aliasing (two-pass)")
 	flag.Parse()
 
 	renderW, renderH := *width, *height
@@ -99,12 +100,13 @@ func main() {
 
 	aoData, aoOK := probe.New(sc).BakeAO()
 	view := &render.View{
-		Scene:  sc,
-		Shadow: true,
-		Mirror: true,
-		AO:     true,
-		AOData: aoData,
-		AOok:   aoOK,
+		Scene:      sc,
+		Shadow:     true,
+		Mirror:     true,
+		AO:         true,
+		AOData:     aoData,
+		AOok:       aoOK,
+		AdaptiveAA: *aa,
 	}
 
 	buf := make([]byte, renderW*renderH*4)

@@ -16,21 +16,18 @@ type ambientHead struct {
 
 func (h *ambientHead) sample(buf []float32) float64 {
 	n := len(buf)
+	if n == 0 {
+		return 0
+	}
+	h.pos = math.Mod(h.pos, float64(n))
+	if h.pos < 0 {
+		h.pos += float64(n)
+	}
 	i := int(h.pos)
-	if i >= n {
-		i = n - 1
-	}
 	frac := h.pos - float64(i)
-	var s float64
-	if i < n-1 {
-		s = float64(buf[i])*(1-frac) + float64(buf[i+1])*frac
-	} else {
-		s = float64(buf[i])*(1-frac) + float64(buf[0])*frac // wrap interpolation
-	}
+	j := (i + 1) % n
+	s := float64(buf[i])*(1-frac) + float64(buf[j])*frac
 	h.pos += h.speed
-	if h.pos >= float64(n) {
-		h.pos -= float64(n)
-	}
 	return s * h.gain
 }
 
@@ -61,7 +58,8 @@ type voice struct {
 	buf   []float32
 	pos   float64
 	speed float64 // playback rate; >1 raises pitch and shortens duration
-	gain  float64
+	gainL float64
+	gainR float64
 }
 
 // done reports whether the voice has played past the end of its buffer.
@@ -69,15 +67,15 @@ func (v *voice) done() bool { return v.pos >= float64(len(v.buf)-1) }
 
 // sample reads the buffer at the current fractional position with linear
 // interpolation and advances by speed.
-func (v *voice) sample() float64 {
+func (v *voice) sample() (l, r float64) {
 	i := int(v.pos)
 	if i >= len(v.buf)-1 {
-		return 0
+		return 0, 0
 	}
 	frac := v.pos - float64(i)
 	s := float64(v.buf[i])*(1-frac) + float64(v.buf[i+1])*frac
 	v.pos += v.speed
-	return s * v.gain
+	return s * v.gainL, s * v.gainR
 }
 
 // Mixer is the streaming audio source handed to Ebiten. It sums all active
@@ -97,9 +95,13 @@ func NewMixer(sr int) *Mixer {
 	return &Mixer{sr: sr, rev: newReverb(sr)}
 }
 
-// Add queues a sound for playback. speed scales pitch/length (1 = as recorded);
-// gain scales amplitude. Safe to call from the game loop.
+// Add queues a centered mono sound for playback.
 func (m *Mixer) Add(buf []float32, gain, speed float64) {
+	m.AddPan(buf, gain, gain, speed)
+}
+
+// AddPan queues a one-shot with independent left/right gain.
+func (m *Mixer) AddPan(buf []float32, gainL, gainR, speed float64) {
 	if len(buf) == 0 {
 		return
 	}
@@ -107,7 +109,7 @@ func (m *Mixer) Add(buf []float32, gain, speed float64) {
 		speed = 1
 	}
 	m.mu.Lock()
-	m.voices = append(m.voices, &voice{buf: buf, speed: speed, gain: gain})
+	m.voices = append(m.voices, &voice{buf: buf, speed: speed, gainL: gainL, gainR: gainR})
 	m.mu.Unlock()
 }
 
@@ -150,9 +152,11 @@ func (m *Mixer) Read(p []byte) (int, error) {
 	frames := len(p) / 8
 	m.mu.Lock()
 	for f := 0; f < frames; f++ {
-		var dry, ambL, ambR float64
+		var dryL, dryR, ambL, ambR float64
 		for _, v := range m.voices {
-			dry += v.sample()
+			l, r := v.sample()
+			dryL += l
+			dryR += r
 		}
 		for _, a := range m.ambients {
 			l, r := a.sample()
@@ -162,9 +166,9 @@ func (m *Mixer) Read(p []byte) (int, error) {
 		// The dry footstep stays centered (it's at the player's feet); the reverb
 		// tail is panned per ear so reflections favor the side with nearby walls.
 		// Ambients are already panned and bypass reverb (outdoor insect chorus).
-		wl, wr := m.rev.process(dry)
-		sL := clip(dry + m.rev.wetL*wl + ambL)
-		sR := clip(dry + m.rev.wetR*wr + ambR)
+		wl, wr := m.rev.process((dryL + dryR) * 0.5)
+		sL := clip(dryL + m.rev.wetL*wl + softClip(ambL))
+		sR := clip(dryR + m.rev.wetR*wr + softClip(ambR))
 		lb := math.Float32bits(float32(sL))
 		rb := math.Float32bits(float32(sR))
 		o := f * 8
@@ -191,6 +195,12 @@ func clip(s float64) float64 {
 		return -1
 	}
 	return s
+}
+
+// softClip gently limits dense ambient sums (many overlapping fans) before the
+// hard clipper so overload sounds like compression, not digital crackle.
+func softClip(s float64) float64 {
+	return math.Tanh(s)
 }
 
 // reap removes finished voices in place (caller holds mu).

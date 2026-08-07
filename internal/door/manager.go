@@ -11,7 +11,16 @@ import (
 
 // Manager owns runtime door agents and writes panel transforms into the scene.
 type Manager struct {
-	agents []Agent
+	agents    []Agent
+	onAnimate AnimateHook
+}
+
+// SetAnimateHook registers a callback for door open/close sounds. Optional.
+func (m *Manager) SetAnimateHook(h AnimateHook) {
+	if m == nil {
+		return
+	}
+	m.onAnimate = h
 }
 
 // NewManager returns an empty door manager.
@@ -91,6 +100,7 @@ func (m *Manager) Instantiate(sc *scene.Scene) error {
 			a.Interact = &sc.Interactables[iaIdx]
 		}
 		m.agents = append(m.agents, *a)
+		m.agents[len(m.agents)-1].SoundCenter = panelWorldCenter(sc, a.Panels[0].Geom)
 	}
 	if len(m.agents) > 0 {
 		m.applyAll(sc)
@@ -197,15 +207,54 @@ func (m *Manager) ToggleInteract(ia *scene.Interactable, playerPos vec.V) bool {
 		}
 		return m.ToggleNearest(nil, playerPos)
 	}
-	best.toggle(playerPos)
+	m.agentToggle(best, playerPos)
 	return true
+}
+
+func (m *Manager) agentToggle(a *Agent, playerPos vec.V) {
+	if a == nil {
+		return
+	}
+	before := a.State
+	a.toggle(playerPos)
+	m.afterToggle(a, before)
+}
+
+func (m *Manager) afterToggle(a *Agent, before string) {
+	switch a.State {
+	case stateOpening:
+		if before != stateOpening {
+			m.fireAnimate(a, true)
+		}
+	case stateClosing:
+		if before != stateClosing {
+			m.fireAnimate(a, false)
+		}
+	}
+}
+
+func (m *Manager) fireAnimate(a *Agent, opening bool) {
+	if m == nil || m.onAnimate == nil || a == nil {
+		return
+	}
+	travel := a.panelMaxTravel() / a.Speed
+	if travel <= 0 {
+		travel = 1
+	}
+	m.onAnimate(AnimateEvent{
+		ID:         a.ID,
+		Kind:       a.Kind,
+		Opening:    opening,
+		Center:     a.SoundCenter,
+		TravelTime: travel,
+	})
 }
 
 // Toggle opens or closes the door with the given id.
 func (m *Manager) Toggle(sc *scene.Scene, id string, playerPos vec.V) bool {
 	for i := range m.agents {
 		if m.agents[i].ID == id {
-			m.agents[i].toggle(playerPos)
+			m.agentToggle(&m.agents[i], playerPos)
 			return true
 		}
 	}
@@ -238,7 +287,7 @@ func (m *Manager) ToggleNearest(sc *scene.Scene, pos vec.V) bool {
 	if best == nil {
 		return false
 	}
-	best.toggle(pos)
+	m.agentToggle(best, pos)
 	return true
 }
 
@@ -323,6 +372,7 @@ func (m *Manager) stepAgent(sc *scene.Scene, a *Agent, playerPos vec.V, feetY, h
 		a.OpenElapsed += dt
 		if a.OpenElapsed >= a.AutocloseTimeout {
 			a.beginClose()
+			m.fireAnimate(a, false)
 			changed = true
 		}
 	}

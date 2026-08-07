@@ -452,6 +452,30 @@ func evalCall(name string, args []value) (value, error) {
 			return value{}, err
 		}
 		return value{kind: valNumber, number: ringLerp(int(ns[0]), int(ns[1]), ns[2], ns[3])}, nil
+	case "hash01":
+		ns, err := nums(2)
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valNumber, number: hash01(ns[0], ns[1])}, nil
+	case "book_thickness":
+		ns, err := nums(4)
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valNumber, number: bookThickness(ns[0], ns[1], ns[2], ns[3])}, nil
+	case "book_cluster_count":
+		ns, err := nums(5)
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valNumber, number: float64(bookClusterCount(ns[0], ns[1], ns[2], ns[3], ns[4]))}, nil
+	case "book_cluster_x":
+		ns, err := nums(6)
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valNumber, number: bookClusterX(ns[0], ns[1], ns[2], ns[3], ns[4], ns[5])}, nil
 	default:
 		return value{}, fmt.Errorf("unknown function %q", name)
 	}

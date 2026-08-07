@@ -248,7 +248,8 @@
     "sound_id": {
       "type": "string",
       "enum": [
-        "crickets"
+        "crickets",
+        "fan"
       ],
       "description": "Named ambient sound loop synthesized at load time."
     },

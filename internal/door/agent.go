@@ -49,6 +49,7 @@ type Agent struct {
 	State          string
 	PanelCollision bool
 	Interact       *scene.Interactable
+	SoundCenter    vec.V
 }
 
 func (a *Agent) isSliding() bool {

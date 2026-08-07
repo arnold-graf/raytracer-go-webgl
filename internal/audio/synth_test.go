@@ -86,6 +86,49 @@ func TestSynthesizeCrickets(t *testing.T) {
 	}
 }
 
+func TestSynthesizeFan(t *testing.T) {
+	rng := rand.New(rand.NewSource(11))
+	buf := SynthesizeFan(44100, rng)
+	if len(buf) < 44100 {
+		t.Fatalf("fan buffer too short (%d)", len(buf))
+	}
+	if !allFinite(buf) {
+		t.Fatal("fan buffer has NaN/Inf/out-of-range samples")
+	}
+	buf2 := SynthesizeFan(44100, rand.New(rand.NewSource(99)))
+	if len(buf2) != len(buf) {
+		t.Fatalf("fan length mismatch %d vs %d", len(buf), len(buf2))
+	}
+	same := true
+	for i := range buf {
+		if buf[i] != buf2[i] {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Fatal("fan synthesis should vary with RNG seed")
+	}
+}
+
+func TestSynthesizeSlideDoor(t *testing.T) {
+	rng := rand.New(rand.NewSource(17))
+	buf := SynthesizeSlideDoor(44100, rng)
+	if len(buf) < 44100 {
+		t.Fatalf("slide door buffer too short (%d)", len(buf))
+	}
+	if !allFinite(buf) {
+		t.Fatal("slide door buffer has NaN/Inf/out-of-range samples")
+	}
+	rev := reverseF32(buf)
+	if len(rev) != len(buf) {
+		t.Fatalf("reverse length %d != %d", len(rev), len(buf))
+	}
+	if rev[0] == buf[0] && rev[len(rev)-1] == buf[len(buf)-1] {
+		t.Fatal("reversed buffer should differ from original")
+	}
+}
+
 func TestReverbStable(t *testing.T) {
 	r := newReverb(44100)
 	r.setParams(0.9, 0.3, 0.5, 0.5)

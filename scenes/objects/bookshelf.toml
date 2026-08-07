@@ -32,8 +32,8 @@ reflect = 0
 rough = 0.18
 metal_albedo = [0.52, 0.54, 0.56]
 metal_reflect = 0.45
-metal_rough = 0.12
-post_d = 0.035
+metal_rough = 0.0
+post_d = 0.05
 post_inset = 0.05
 shelf_th = 0.032
 

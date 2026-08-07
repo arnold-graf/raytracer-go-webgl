@@ -54,7 +54,7 @@ type Game struct {
 	mirror        bool
 	ao            bool
 	adaptiveAA    bool
-	// colorQuant: 0 = 8-bit (default), 1 = 15-bit, 2 = 256-color 3-3-2. Key 5 cycles.
+	// colorQuant: 0 = 8-bit dither, 1 = 15-bit (default), 2 = crush (24 levels/ch). Key 5 cycles.
 	colorQuant uint32
 
 	buf   []byte
@@ -119,8 +119,8 @@ type Game struct {
 	hudSmooth hudSmoother
 
 	// hudPos is the throttled world-position string shown on the dev overlay.
-	hudPos     string
-	hudPosAt   time.Time
+	hudPos   string
+	hudPosAt time.Time
 
 	// fpsCap throttles how often a new frame is ray-traced (0 = uncapped). The
 	// H key cycles uncapped -> 60 -> 30. Between traces the last frame is
@@ -145,7 +145,7 @@ type Game struct {
 	// npcDebug draws skeleton/foot overlay segments (key 6).
 	npcDebug bool
 
-	spyglass Spyglass
+	spyglass   Spyglass
 	flashlight Flashlight
 }
 
@@ -165,7 +165,7 @@ func New(rw, rh int, sc *scene.Scene, basePlayerCfg camera.Config, scenePath, pl
 		mirror:        true,
 		ao:            true,
 		adaptiveAA:    true,
-		colorQuant:    0,
+		colorQuant:    1,
 		buf:           make([]byte, rw*rh*4),
 		frame:         ebiten.NewImage(rw, rh),
 		pixSize:       1,
@@ -217,6 +217,7 @@ func (g *Game) setScene(sc *scene.Scene) {
 	if err := g.doors.Instantiate(sc); err != nil {
 		fmt.Fprintf(os.Stderr, "doors: %v\n", err)
 	}
+	g.wireDoorSounds()
 	g.documents = document.NewManager()
 	if err := g.documents.Instantiate(sc); err != nil {
 		fmt.Fprintf(os.Stderr, "documents: %v\n", err)
@@ -304,7 +305,7 @@ func (g *Game) updateFootsteps() {
 
 	// Landing thud: airborne → grounded transition.
 	if onGround && !g.wasGround {
-		g.playStep(pos, 1.0, -0.15)
+		g.playStep(pos, 0.4, -0.15)
 		g.strideAccum = 0
 	} else if onGround {
 		dx := pos.X - g.prevPos.X
@@ -326,7 +327,7 @@ func (g *Game) playStep(pos vec.V, extraGain, pitchBias float64) {
 	headY := pos.Y
 	mat := surfaceToAudio(g.sc.StepMaterialAt(pos.X, pos.Z, headY))
 	pitch := 1 + pitchBias + (rand.Float64()*2-1)*pitchJitter
-	gain := 0.9 + extraGain + (rand.Float64()*2-1)*0.1
+	gain := 0.1 + extraGain + (rand.Float64()*2-1)*0.05
 	g.snd.Footstep(mat, gain, pitch)
 }
 
@@ -973,7 +974,7 @@ func quantLabel(q uint32) string {
 	case 1:
 		return "15bit"
 	case 2:
-		return "256"
+		return "crush"
 	default:
 		return "?"
 	}

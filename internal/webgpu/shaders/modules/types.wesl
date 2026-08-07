@@ -43,7 +43,7 @@ struct Params {
     body_glow: f32,
     body_dir: vec4<f32>,
     body_color: vec4<f32>,
-    // color_quant: 0 = 8-bit dither only, 1 = 15-bit (5-5-5), 2 = 256-color (3-3-2).
+    // color_quant: 0 = 8-bit dither only, 1 = 15-bit (5-5-5), 2 = crush (24 levels/ch).
     color_quant: u32,
     capture_loaded: u32,
     capture_w: u32,
@@ -241,7 +241,7 @@ var<storage, read> flame_particles: array<FlameParticle>;
 var<storage, read_write> hdr_pixels: array<vec4<f32>>;
 
 @group(0) @binding(26)
-var<storage, read_write> aa_hits: array<Hit>;
+var<storage, read_write> aa_hits: array<u32>;
 
 @group(0) @binding(14)
 var<storage, read> inst_templates: array<TemplateRecord>;
@@ -350,6 +350,13 @@ struct Hit {
 };
 
 const HIT_NO_INSTANCE: u32 = 0xffffffffu;
+
+
+
+
+
+
+
 
 
 

@@ -23,7 +23,7 @@ const (
 	fovScale    = 0.5773502691896257 // tan(60deg / 2)
 	// WGSL Params size; must match trace_linked.wgsl (struct is padded to 16-byte alignment).
 	paramsSize   = 352
-	aaHitStride  = 16 // WGSL Hit struct (std430)
+	aaHitStride  = 4  // packed u32 fingerprint per pixel
 	hdrPixStride = 16 // vec4<f32> per pixel
 	workgroupXY  = 8
 	// Six square portal captures (see texture.MaxCaptureDim).
@@ -429,7 +429,7 @@ func (r *Renderer) init() error {
 	r.aaHits, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "aa hit scratch",
 		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
-		Size:  hdrSize, // same pixel count as hdr (16 bytes/pixel)
+		Size:  uint64(r.maxDim * r.maxDim * aaHitStride),
 	})
 	if err != nil {
 		return fmt.Errorf("create aa hit scratch buffer: %w", err)
@@ -603,7 +603,7 @@ func (r *Renderer) init() error {
 			{Binding: 23, Buffer: r.terrMips, Size: maxTerrainMipVals * 8},
 			{Binding: 24, Buffer: r.flames, Size: maxFlameParticles * flameParticleStride},
 			{Binding: 25, Buffer: r.hdrPixels, Size: hdrSize},
-			{Binding: 26, Buffer: r.aaHits, Size: hdrSize},
+			{Binding: 26, Buffer: r.aaHits, Size: uint64(r.maxDim * r.maxDim * aaHitStride)},
 		},
 	})
 	if err != nil {

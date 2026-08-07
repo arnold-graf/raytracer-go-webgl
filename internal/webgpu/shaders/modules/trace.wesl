@@ -281,7 +281,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
 }
 
 // quantize_rgb reduces dithered 0..255 RGB to a retro color depth. mode 1 is
-// classic 15-bit (5-5-5, 32768 colors); mode 2 is the PC 256-color cube (3-3-2).
+// classic 15-bit (5-5-5); mode 2 is crush — 24 levels per channel with heavy dither.
 fn quantize_rgb(rgb: vec3<f32>, mode: u32) -> vec3<f32> {
     if mode == 3u {
         return rgb;
@@ -293,10 +293,24 @@ fn quantize_rgb(rgb: vec3<f32>, mode: u32) -> vec3<f32> {
         let q = floor(rgb * 31.0 / 255.0 + 0.5);
         return q * (255.0 / 31.0);
     }
-    let rq = floor(rgb.x * 7.0 / 255.0 + 0.5);
-    let gq = floor(rgb.y * 7.0 / 255.0 + 0.5);
-    let bq = floor(rgb.z * 3.0 / 255.0 + 0.5);
-    return vec3(rq * (255.0 / 7.0), gq * (255.0 / 7.0), bq * (255.0 / 3.0));
+    let q = floor(rgb * 23.0 / 255.0 + 0.5);
+    return q * (255.0 / 23.0);
+}
+
+// bayer_offset returns a per-pixel dither nudge in 0..255 space before quantize.
+fn bayer_offset(gid: vec2<u32>, quant_mode: u32) -> f32 {
+    var bayer = array<u32, 16>(
+        0u, 8u, 2u, 10u,
+        12u, 4u, 14u, 6u,
+        3u, 11u, 1u, 9u,
+        15u, 7u, 13u, 5u,
+    );
+    let bayer_idx = (gid.y & 3u) * 4u + (gid.x & 3u);
+    let n = f32(bayer[bayer_idx]) / 16.0 - 0.5;
+    if (quant_mode == 2u) {
+        return n * (255.0 / 23.0) * 1.5;
+    }
+    return n * 6.0;
 }
 
 // pixel_ray_dir builds a normalized camera ray through fractional pixel coords
@@ -311,72 +325,88 @@ fn pixel_ray_dir(gx: f32, gy: f32, sx: f32, sy: f32) -> vec3<f32> {
     );
 }
 
-// hits_edge is true when two primary hits belong to different surfaces (or one
-// misses geometry). Same primitive/terrain/water instance is treated as flat.
-fn hits_edge(a: Hit, b: Hit) -> bool {
-    if (a.idx == 0xffffffffu && b.idx == 0xffffffffu) {
-        return false;
-    }
-    return a.idx != b.idx || a.kind != b.kind || a.inst_idx != b.inst_idx;
-}
-
 fn pixel_index(x: u32, y: u32) -> u32 {
     return y * params.width + x;
 }
 
-// neighbors_need_aa compares the primary hit against the four in-screen neighbors.
-fn neighbors_need_aa(gid: vec2<u32>, h: Hit) -> bool {
+// hits_edge is true when two packed primary hits belong to different surfaces.
+fn hits_edge_packed(a: u32, b: u32) -> bool {
+    if (a == b) {
+        return false;
+    }
+    if (a == 0xffffffffu && b == 0xffffffffu) {
+        return false;
+    }
+    return true;
+}
+
+fn pack_hit(h: Hit) -> u32 {
+    if (h.idx == 0xffffffffu) {
+        return 0xffffffffu;
+    }
+    return h.kind | (h.idx << 4u) | (h.inst_idx << 20u);
+}
+
+// analyze_edge finds which neighbors differ and picks a sub-pixel tap toward them
+// (corner when two axes disagree, edge midpoint when only one does).
+// Returns vec4(tap.x, tap.y, _, active) with active = 1 when supersampling is needed.
+fn analyze_edge(gid: vec2<u32>, fp: u32) -> vec4<f32> {
+    var dx = 0;
+    var dy = 0;
     let w = params.width;
     let hgt = params.height;
     if (gid.x > 0u) {
-        let n = aa_hits[pixel_index(gid.x - 1u, gid.y)];
-        if (hits_edge(h, n)) {
-            return true;
+        if (hits_edge_packed(fp, aa_hits[pixel_index(gid.x - 1u, gid.y)])) {
+            dx = dx - 1;
         }
     }
     if (gid.x + 1u < w) {
-        let n = aa_hits[pixel_index(gid.x + 1u, gid.y)];
-        if (hits_edge(h, n)) {
-            return true;
+        if (hits_edge_packed(fp, aa_hits[pixel_index(gid.x + 1u, gid.y)])) {
+            dx = dx + 1;
         }
     }
     if (gid.y > 0u) {
-        let n = aa_hits[pixel_index(gid.x, gid.y - 1u)];
-        if (hits_edge(h, n)) {
-            return true;
+        if (hits_edge_packed(fp, aa_hits[pixel_index(gid.x, gid.y - 1u)])) {
+            dy = dy - 1;
         }
     }
     if (gid.y + 1u < hgt) {
-        let n = aa_hits[pixel_index(gid.x, gid.y + 1u)];
-        if (hits_edge(h, n)) {
-            return true;
+        if (hits_edge_packed(fp, aa_hits[pixel_index(gid.x, gid.y + 1u)])) {
+            dy = dy + 1;
         }
     }
-    return false;
+    if (dx == 0 && dy == 0) {
+        return vec4<f32>(0.5, 0.5, 0.0, 0.0);
+    }
+    var sx = 0.5;
+    var sy = 0.5;
+    if (dx < 0) {
+        sx = 0.25;
+    } else if (dx > 0) {
+        sx = 0.75;
+    }
+    if (dy < 0) {
+        sy = 0.25;
+    } else if (dy > 0) {
+        sy = 0.75;
+    }
+    return vec4<f32>(sx, sy, 0.0, 1.0);
 }
 
-// supersample_edge blends the pass-1 center sample with one corner tap (2×
-// cheaper than a full 2×2 grid on edge pixels).
-fn supersample_edge(gx: f32, gy: f32, center: vec3<f32>) -> vec3<f32> {
+// supersample_edge blends the pass-1 center sample with one tap toward the edge.
+fn supersample_edge(gx: f32, gy: f32, center: vec3<f32>, tap: vec2<f32>) -> vec3<f32> {
     let ro = params.cam_pos.xyz;
-    let extra = ray_color(ro, pixel_ray_dir(gx, gy, 0.25, 0.25)).color;
+    let extra = ray_color(ro, pixel_ray_dir(gx, gy, tap.x, tap.y)).color;
     return (center + extra) * 0.5;
 }
 
 fn write_pixel(gid: vec2<u32>, col: vec3<f32>) {
     let toned = tonemap(col);
-    var bayer = array<u32, 16>(
-        0u, 8u, 2u, 10u,
-        12u, 4u, 14u, 6u,
-        3u, 11u, 1u, 9u,
-        15u, 7u, 13u, 5u,
-    );
-    let bayer_idx = (gid.y & 3u) * 4u + (gid.x & 3u);
     var rgb: vec3<f32>;
     if (params.color_quant == 3u) {
         rgb = clamp(toned * 255.0, vec3(0.0), vec3(255.0));
     } else {
-        let bdt = (f32(bayer[bayer_idx]) / 16.0 - 0.5) * 6.0;
+        let bdt = bayer_offset(gid, params.color_quant);
         rgb = clamp(toned * 255.0 + vec3(bdt), vec3(0.0), vec3(255.0));
     }
     rgb = quantize_rgb(rgb, params.color_quant);
@@ -406,7 +436,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (params.adaptive_aa != 0u) {
         let idx = pixel_index(gid.x, gid.y);
         hdr_pixels[idx] = vec4<f32>(tr.color, 0.0);
-        aa_hits[idx] = tr.primary;
+        aa_hits[idx] = pack_hit(tr.primary);
+        write_pixel(g2, tr.color);
         return;
     }
 
@@ -423,12 +454,20 @@ fn aa_resolve(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let g2 = vec2<u32>(gid.xy);
     let idx = pixel_index(gid.x, gid.y);
-    let h = aa_hits[idx];
-    var col = hdr_pixels[idx].xyz;
-    if (neighbors_need_aa(g2, h)) {
-        col = supersample_edge(f32(gid.x), f32(gid.y), col);
+    let fp = aa_hits[idx];
+    let edge = analyze_edge(g2, fp);
+    if (edge.w < 0.5) {
+        return;
     }
+    let col = supersample_edge(f32(gid.x), f32(gid.y), hdr_pixels[idx].xyz, edge.xy);
     write_pixel(g2, col);
 }
+
+
+
+
+
+
+
 
 

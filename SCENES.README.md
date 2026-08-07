@@ -304,10 +304,16 @@ fields default). Pair with `objects/campfire.toml` for logs plus light.
 ### Sound (spatial ambience)
 ```toml
 [[sound]]
-sound = "crickets"   # only registered ambient sound currently
+sound = "crickets"   # night insects
 at = [-9.0, 2.7, 2.0]
 gain = 0.32          # default 0.3
 radius = 20.0        # default 20; audible falloff radius
+
+[[sound]]
+sound = "fan"        # old computer / server-rack hum (attach to server-rack.toml)
+at = [0.05, 1.35, 0.3]
+gain = 0.14
+radius = 5.0
 ```
 Ambient emitters are ray-occluded: a wall between you and the emitter muffles
 it (so crickets outside go quiet indoors). Footstep sounds are derived
@@ -516,7 +522,8 @@ Syntax:
 - **Comment directives** — `# for i in range(steps)` … `# endfor`, `# let n = i + 1`,
   `# if texture` … `# endif`.
 - **Helpers** — `leg_x(i, off, r)`, `leg_z(i, off, r)`, `ring_lerp(i, n, top, bot)`,
-  `floor(x)`.
+  `floor(x)`, `hash01(seed, i)`, `book_thickness(seed, i, min, max)`,
+  `book_cluster_count(seed, width, gap, min_t, max_t)`, `book_cluster_x(seed, i, width, gap, min_t, max_t)`.
 
 Example — staircase steps:
 
