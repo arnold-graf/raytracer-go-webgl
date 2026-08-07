@@ -35,6 +35,9 @@ type View struct {
 	// ColorQuant selects the post-dither color depth: 0 = 8-bit, 1 = 15-bit, 2 = 256 (3-3-2).
 	ColorQuant uint32
 
+	// AdaptiveAA enables edge-detected 2×2 supersampling on primary rays.
+	AdaptiveAA bool
+
 	// MaxBounceDepth caps mirror/glass/water recursion in the tracer (default 2 when 0).
 	// Raised while the spyglass is up so rays can pass through its lenses and scene glass.
 	MaxBounceDepth uint32

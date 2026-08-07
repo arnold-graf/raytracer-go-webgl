@@ -21,8 +21,11 @@ import (
 
 const (
 	fovScale    = 0.5773502691896257 // tan(60deg / 2)
-	paramsSize  = 336
-	workgroupXY = 8
+	// WGSL Params size; must match trace_linked.wgsl (struct is padded to 16-byte alignment).
+	paramsSize   = 352
+	aaHitStride  = 16 // WGSL Hit struct (std430)
+	hdrPixStride = 16 // vec4<f32> per pixel
+	workgroupXY  = 8
 	// Six square portal captures (see texture.MaxCaptureDim).
 	maxCaptureDim = texture.MaxCaptureDim
 
@@ -80,8 +83,11 @@ type Renderer struct {
 	blkPlane  *wgpu.Buffer
 	flames    *wgpu.Buffer
 	output    *wgpu.Buffer
+	hdrPixels *wgpu.Buffer
+	aaHits    *wgpu.Buffer
 	read      *wgpu.Buffer
 	pipeline  *wgpu.ComputePipeline
+	aaPipeline *wgpu.ComputePipeline
 	bind      *wgpu.BindGroup
 
 	// Frame pipelining: when enabled (SetPipelined), Render submits the current
@@ -199,6 +205,7 @@ func (r *Renderer) init() error {
 	r.queue = r.device.GetQueue()
 
 	size := uint64(r.maxDim * r.maxDim * 4)
+	hdrSize := uint64(r.maxDim * r.maxDim * hdrPixStride)
 	r.params, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "trace params",
 		Usage: wgpu.BufferUsage_Uniform | wgpu.BufferUsage_CopyDst,
@@ -411,6 +418,22 @@ func (r *Renderer) init() error {
 	if err != nil {
 		return fmt.Errorf("create output buffer: %w", err)
 	}
+	r.hdrPixels, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "aa hdr scratch",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  hdrSize,
+	})
+	if err != nil {
+		return fmt.Errorf("create hdr scratch buffer: %w", err)
+	}
+	r.aaHits, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "aa hit scratch",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  hdrSize, // same pixel count as hdr (16 bytes/pixel)
+	})
+	if err != nil {
+		return fmt.Errorf("create aa hit scratch buffer: %w", err)
+	}
 	r.read, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "sky readback",
 		Usage: wgpu.BufferUsage_MapRead | wgpu.BufferUsage_CopyDst,
@@ -509,6 +532,8 @@ func (r *Renderer) init() error {
 			{Binding: 22, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainPadStride}},
 			{Binding: 23, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 8}},
 			{Binding: 24, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: flameParticleStride}},
+			{Binding: 25, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: hdrPixStride}},
+			{Binding: 26, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: aaHitStride}},
 		},
 	})
 	if err != nil {
@@ -535,6 +560,17 @@ func (r *Renderer) init() error {
 	})
 	if err != nil {
 		return fmt.Errorf("create compute pipeline: %w", err)
+	}
+	r.aaPipeline, err = r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
+		Label:  "aa resolve pipeline",
+		Layout: pipelineLayout,
+		Compute: wgpu.ProgrammableStageDescriptor{
+			Module:     shader,
+			EntryPoint: "aa_resolve",
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("create aa resolve pipeline: %w", err)
 	}
 
 	r.bind, err = r.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
@@ -566,6 +602,8 @@ func (r *Renderer) init() error {
 			{Binding: 22, Buffer: r.terrPads, Size: maxTerrainPads * terrainPadStride},
 			{Binding: 23, Buffer: r.terrMips, Size: maxTerrainMipVals * 8},
 			{Binding: 24, Buffer: r.flames, Size: maxFlameParticles * flameParticleStride},
+			{Binding: 25, Buffer: r.hdrPixels, Size: hdrSize},
+			{Binding: 26, Buffer: r.aaHits, Size: hdrSize},
 		},
 	})
 	if err != nil {
@@ -716,6 +754,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 	}
 	if v != nil {
 		rp.colorQuant = v.ColorQuant
+		rp.adaptiveAA = v.AdaptiveAA
 		rp.maxBounceDepth = v.MaxBounceDepth
 		if v.Flames != nil {
 			rp.flameParticles = PackFlameParticles(v.Flames.ActiveParticles())
@@ -788,6 +827,7 @@ type renderParams struct {
 	ambientGround  vec.V
 	colorQuant     uint32
 	maxBounceDepth uint32
+	adaptiveAA     bool
 	profileEnabled bool
 	// uploadStatic is set when the cached scene buffers changed this frame and
 	// must be re-sent to the GPU. When false, render() uploads only the per-frame
@@ -970,7 +1010,7 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 // submitTrace encodes and submits one compute dispatch, copying the rendered
 // output (and, when profiling, the atomic counters) into dst. It does not wait
 // on the GPU; the returned submission index lets the caller poll for it later.
-func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled bool) (wgpu.SubmissionIndex, error) {
+func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveAA bool) (wgpu.SubmissionIndex, error) {
 	encoder, err := r.device.CreateCommandEncoder(&wgpu.CommandEncoderDescriptor{Label: "trace encoder"})
 	if err != nil {
 		return 0, err
@@ -980,7 +1020,13 @@ func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled bool) (wgp
 	pass := encoder.BeginComputePass(&wgpu.ComputePassDescriptor{Label: "trace pass"})
 	pass.SetPipeline(r.pipeline)
 	pass.SetBindGroup(0, r.bind, nil)
-	pass.DispatchWorkgroups(uint32((fw+workgroupXY-1)/workgroupXY), uint32((fh+workgroupXY-1)/workgroupXY), 1)
+	gx := uint32((fw + workgroupXY - 1) / workgroupXY)
+	gy := uint32((fh + workgroupXY - 1) / workgroupXY)
+	pass.DispatchWorkgroups(gx, gy, 1)
+	if adaptiveAA {
+		pass.SetPipeline(r.aaPipeline)
+		pass.DispatchWorkgroups(gx, gy, 1)
+	}
 	if err := pass.End(); err != nil {
 		pass.Release()
 		return 0, err
@@ -1068,7 +1114,7 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 		return err
 	}
 	gpuStart := time.Now()
-	sub, err := r.submitTrace(r.read, fw, fh, p.profileEnabled)
+	sub, err := r.submitTrace(r.read, fw, fh, p.profileEnabled, p.adaptiveAA)
 	if err != nil {
 		return err
 	}
@@ -1107,7 +1153,7 @@ func (r *Renderer) renderPipelined(buf []byte, cam *camera.Camera, p renderParam
 	size := uint64(r.w * r.h * 4)
 	curSlot := r.pipeParity
 
-	sub, err := r.submitTrace(r.reads[curSlot], r.w, r.h, p.profileEnabled)
+	sub, err := r.submitTrace(r.reads[curSlot], r.w, r.h, p.profileEnabled, p.adaptiveAA)
 	if err != nil {
 		return err
 	}
@@ -1249,6 +1295,9 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	putU32(out[324:328], uint32(len(p.planeIdx)))
 	putU32(out[328:332], uint32(len(p.blockerPlaneIdx)))
 	putU32(out[332:336], uint32(len(p.flameParticles)))
+	if p.adaptiveAA {
+		putU32(out[336:340], 1)
+	}
 	return out
 }
 
@@ -1306,6 +1355,9 @@ func (r *Renderer) Release() {
 	if r.pipeline != nil {
 		r.pipeline.Release()
 	}
+	if r.aaPipeline != nil {
+		r.aaPipeline.Release()
+	}
 	if r.profileRead != nil {
 		r.profileRead.Release()
 	}
@@ -1331,6 +1383,12 @@ func (r *Renderer) Release() {
 	}
 	if r.output != nil {
 		r.output.Release()
+	}
+	if r.hdrPixels != nil {
+		r.hdrPixels.Release()
+	}
+	if r.aaHits != nil {
+		r.aaHits.Release()
 	}
 	if r.holes != nil {
 		r.holes.Release()

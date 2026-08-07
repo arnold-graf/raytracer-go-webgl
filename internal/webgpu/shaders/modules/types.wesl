@@ -62,6 +62,9 @@ struct Params {
     plane_count: u32,
     blocker_plane_count: u32,
     flame_particle_count: u32,
+    // adaptive_aa: when set, primary rays at pixel edges are compared; mismatches
+    // trigger a 2×2 supersample for that pixel.
+    adaptive_aa: u32,
 };
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).
@@ -233,6 +236,13 @@ var<storage, read> terrain_mip: array<vec2<f32>>;
 @group(0) @binding(24)
 var<storage, read> flame_particles: array<FlameParticle>;
 
+// Adaptive AA pass-1 scratch: linear HDR color and the primary-ray hit fingerprint.
+@group(0) @binding(25)
+var<storage, read_write> hdr_pixels: array<vec4<f32>>;
+
+@group(0) @binding(26)
+var<storage, read_write> aa_hits: array<Hit>;
+
 @group(0) @binding(14)
 var<storage, read> inst_templates: array<TemplateRecord>;
 
@@ -340,6 +350,10 @@ struct Hit {
 };
 
 const HIT_NO_INSTANCE: u32 = 0xffffffffu;
+
+
+
+
 
 
 

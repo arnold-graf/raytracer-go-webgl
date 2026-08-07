@@ -53,6 +53,7 @@ type Game struct {
 	shadow        bool
 	mirror        bool
 	ao            bool
+	adaptiveAA    bool
 	// colorQuant: 0 = 8-bit (default), 1 = 15-bit, 2 = 256-color 3-3-2. Key 5 cycles.
 	colorQuant uint32
 
@@ -163,6 +164,7 @@ func New(rw, rh int, sc *scene.Scene, basePlayerCfg camera.Config, scenePath, pl
 		shadow:        true,
 		mirror:        true,
 		ao:            true,
+		adaptiveAA:    true,
 		colorQuant:    0,
 		buf:           make([]byte, rw*rh*4),
 		frame:         ebiten.NewImage(rw, rh),
@@ -277,6 +279,7 @@ func (g *Game) view() *render.View {
 		AOok:           aoOK,
 		AOVersion:      aoVer,
 		ColorQuant:     g.colorQuant,
+		AdaptiveAA:     g.adaptiveAA,
 		MaxBounceDepth: 4,
 		Flames:         &g.flames,
 	}
@@ -803,6 +806,9 @@ func (g *Game) handleToggles() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit5) {
 		g.colorQuant = (g.colorQuant + 1) % 3
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyDigit7) {
+		g.adaptiveAA = !g.adaptiveAA
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit0) {
 		g.hudHidden = !g.hudHidden
 		if g.hudHidden {
@@ -943,8 +949,8 @@ func (g *Game) backendName() string {
 
 func (g *Game) statusLine() string {
 	if g.locked {
-		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s npc[6]:%s px[-/+]:%d fps[H]:%s  HUD[0]  ESC release",
-			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), g.pixSize, capLabel(g.fpsCap))
+		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s npc[6]:%s AA[7]:%s px[-/+]:%d fps[H]:%s  HUD[0]  ESC release",
+			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), onOff(g.adaptiveAA), g.pixSize, capLabel(g.fpsCap))
 	}
 	return "click to capture mouse"
 }
