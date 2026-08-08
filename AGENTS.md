@@ -1,5 +1,13 @@
 # Agent notes
 
+## Scene schema
+
+When you add or change TOML tables or fields in `internal/sceneio/toml.go` (or
+other scene loaders), **always update** the matching JSON Schema in
+`schemas/scene.schema.json` (and `schemas/player.schema.json` for player
+config). IDE diagnostics and `schemas/cmd/validate` depend on it — if the
+schema lags the parser, authors see false squiggles or miss real errors.
+
 ## Visual verification
 
 When creating or editing scene objects (`scenes/objects/*.toml`, included props,

@@ -4,7 +4,7 @@
 # parent building (floor sits at y = -0.2). The bridge runs along +Z for
 # `length` units; floor width is `width` in +X.
 #
-# Parameterized via [[include]] params (all optional):
+# Parameterized via [[include]] props (all optional):
 #   length   span along +Z                         (default 20)
 #   width    interior width in +X                 (default 8)
 #   height   floor-to-ceiling clearance            (default 4.5)
@@ -16,7 +16,7 @@
 #   file = "objects/skyway.toml"
 #   transform_origin = [0, 0, 0]
 #   at = [1.0, 0.0, 20.0]
-#   params = { length = 20 }
+#   props = { length = 20 }
 
 [props]
 length = 20
@@ -34,13 +34,13 @@ column_count = 'floor((length - 1) / spacing) + 1'
 file = "../../objects/marble-column.toml"
 transform_origin = [0, 0, 0]
 at = [0.5, 0, '1 + (i * spacing)']
-params = { height = 4.5, width = 0.7, albedo = [3,3,3], reflect = 0.2 }
+props = { height = 4.5, width = 0.7, albedo = [3,3,3], reflect = 0.2 }
 
 [[include]]
 file = "../../objects/marble-column.toml"
 transform_origin = [0, 0, 0]
-at = [6.8, 0, '1 + (i * spacing)']
-params = { height = 4.5, width = 0.7, albedo = [3,3,3], reflect = 0.2 }
+at = ['width - 1.2', 0, '1 + (i * spacing)']
+props = { height = 4.5, width = 0.7, albedo = [3,3,3], reflect = 0.2 }
 # endfor
 
 # floor

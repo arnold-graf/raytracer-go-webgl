@@ -4,7 +4,7 @@
 # A short copper canopy and stem suspend a stack of horizontal rings whose
 # radius tapers from top to bottom, with a warm bulb at the shade centre.
 #
-# Parameterized via [[include]] params (all optional):
+# Parameterized via [[include]] props (all optional):
 #   stem_len      stem length below the canopy        (default 2.1)
 #   top_radius    widest ring radius                  (default 0.48)
 #   bottom_radius narrowest ring radius                (default 0.22)
@@ -17,7 +17,7 @@
 #   [[include]]
 #   file = "objects/art-deco-ring-lamp.toml"
 #   at = [26.0, 8.0, 15.0]
-#   params = { stem_len = 2.1, brightness = 0.1, range = 20 }
+#   props = { stem_len = 2.1, brightness = 0.1, range = 20 }
 
 [props]
 stem_len = 2.1

@@ -9,7 +9,7 @@
 #   file = "objects/workstation.toml"
 #   at = [0.0, 0.9, 0.0]
 #
-# Optional [[include]] params (monitor screen / text):
+# Optional [[include]] props (monitor screen / text):
 #   screen_id        screen element id              (default "workstation_display")
 #   screen_pos_x/y/z screen placement               (default -0.15, 0.28, 0.205)
 #   screen_width     screen panel width             (default 0.30)

@@ -1,7 +1,7 @@
 # Simple blocky wooden chair in local coordinates.
 #
 # Origin (0,0,0) is the centre of the footprint on the floor. Front faces -Z.
-# Optional [[include]] params: albedo, reflect (defaults below).
+# Optional [[include]] props: albedo, reflect (defaults below).
 #
 #   [[include]]
 #   file = "objects/simple-chair.toml"

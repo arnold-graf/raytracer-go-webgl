@@ -20,4 +20,4 @@ depth = 4.0
 [[include]]
 file = "../objects/campfire.toml"
 at = [0.0, 0.0, 0.0]
-params = { brightness = 2.0, range = 12.0, flicker = 0.65, speed = 1.0 }
+props = { brightness = 2.0, range = 12.0, flicker = 0.65, speed = 1.0 }

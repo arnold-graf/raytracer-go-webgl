@@ -5,7 +5,7 @@
 # mount on the front face (z = 0) and swing outward toward -Z.
 # open_sign = -1 because door panels extend in -Z from the hinge plane.
 #
-# Parameterized via [[include]] params (all optional):
+# Parameterized via [[include]] props (all optional):
 #   width, height, depth   outer dimensions in metres (default 1.6, 2.2, 0.6)
 #   shelves                count of interior shelves, evenly spaced (default 3)
 #   door_gap               centre gap between closed door leaves in metres (default 0.005)
@@ -16,7 +16,7 @@
 #   [[include]]
 #   file = "objects/cupboard-double-door.toml"
 #   at = [12.0, 0.0, 18.8]
-#   params = { width = 4.7, height = 3.0, depth = 1.0, shelves = 4, albedo = [0.01, 0.01, 0.01] }
+#   props = { width = 4.7, height = 3.0, depth = 1.0, shelves = 4, albedo = [0.01, 0.01, 0.01] }
 
 [props]
 width = 1.6

@@ -103,7 +103,7 @@ func migrateFile(path string, extraOrigin map[string]bool) (int, error) {
 			continue
 		}
 		incPath := sceneio.ResolveIncludePath(parentDir, inc.File)
-		sub, err := sceneio.LoadIncludeSubScene(incPath, inc.Params)
+		sub, err := sceneio.LoadIncludeSubScene(incPath, inc.Props)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warn: %s include %q: load: %v\n", path, inc.File, err)
 			continue

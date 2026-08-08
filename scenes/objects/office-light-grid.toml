@@ -4,7 +4,7 @@
 # of those same panels (roughly one per panels_per_light), always centered
 # under a panel on the X/Z plane.
 #
-# Parameterized via [[include]] params (all optional):
+# Parameterized via [[include]] props (all optional):
 #   x_count          panels along X              (default 4)
 #   z_count          panels along Z              (default 3)
 #   panels_per_light target panels per point light (default 3)
@@ -25,7 +25,7 @@
 #   [[include]]
 #   file = "objects/office-light-grid.toml"
 #   at = [0.0, 0.0, 0.0]
-#   params = { x_count = 4, z_count = 3 }
+#   props = { x_count = 4, z_count = 3 }
 
 [props]
 x_count = 4

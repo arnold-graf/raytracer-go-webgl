@@ -26,4 +26,4 @@ range = 5
 [[include]]
 file = "../objects/book-cluster.toml"
 at = [0.0, 0.0, 0.0]
-params = { width = 0.55, min_height = 0.16, max_height = 0.30, seed = 7 }
+props = { width = 0.55, min_height = 0.16, max_height = 0.30, seed = 7 }

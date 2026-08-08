@@ -26,4 +26,4 @@ range = 6
 [[include]]
 file = "../objects/bookshelf.toml"
 at = [0.0, 0.0, 0.0]
-params = { width = 2.1, shelf_height = 0.82, shelves = 3, albedo = [0.50, 0.44, 0.38] }
+props = { width = 2.1, shelf_height = 0.82, shelves = 3, albedo = [0.50, 0.44, 0.38] }

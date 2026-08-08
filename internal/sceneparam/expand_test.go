@@ -42,7 +42,7 @@ func TestStaircaseExpand(t *testing.T) {
 
 	custom := filepath.Join(dir, "custom.toml")
 	if err := os.WriteFile(custom, []byte(
-		"[[include]]\nfile = "+strconv.Quote(abs)+"\nat = [0.0, 0.0, 0.0]\nparams = { steps = 4, run = 1.0, rise = 0.5, width = 2.0, texture = \"wood\" }\n"), 0o644); err != nil {
+		"[[include]]\nfile = "+strconv.Quote(abs)+"\nat = [0.0, 0.0, 0.0]\nprops = { steps = 4, run = 1.0, rise = 0.5, width = 2.0, texture = \"wood\" }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s2, err := sceneio.Load(custom)

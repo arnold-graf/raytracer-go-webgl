@@ -115,7 +115,7 @@ albedo = [1.0, 1.0, 1.0]
 transform_origin = [0, 0, 0]
 file = "lamp.toml"
 at = [10.0, 5.0, 0.0]
-params = { stem_len = 2.0, orb_radius = 0.5 }
+props = { stem_len = 2.0, orb_radius = 0.5 }
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ at = [0.0, 0.0, 0.0]
 }
 
 // TestSphereLampDefaultsUnchanged pins the real lamp object's geometry when
-// included with no params, so parameterizing it didn't shift the existing
+// included with no props, so parameterizing it didn't shift the existing
 // indoor-outdoor lamps.
 func TestSphereLampDefaultsUnchanged(t *testing.T) {
 	dir := t.TempDir()
@@ -286,7 +286,7 @@ func TestFloppyDiskObjectLoads(t *testing.T) {
 	parent := filepath.Join(dir, "scene.toml")
 	if err := os.WriteFile(parent, []byte(
 		"[[include]]\nfile = "+strconv.Quote(path)+"\nat = [0.0, 0.9, 0.0]\n"+
-			"params = { albedo = [0.2, 0.3, 0.4], label = \"BACKUP\" }\n"), 0o644); err != nil {
+			"props = { albedo = [0.2, 0.3, 0.4], label = \"BACKUP\" }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s, err := Load(parent)
@@ -350,7 +350,7 @@ func TestWorkstationScreenParams(t *testing.T) {
 	parent := filepath.Join(dir, "scene.toml")
 	if err := os.WriteFile(parent, []byte(
 		"[[include]]\nfile = "+strconv.Quote(path)+"\nat = [0.0, 0.9, 0.0]\n"+
-			"params = { headline = \"FRONT OFFICE\", paragraphs = [\"Line A\", \"Line B\"], font_size_px = 18 }\n"), 0o644); err != nil {
+			"props = { headline = \"FRONT OFFICE\", paragraphs = [\"Line A\", \"Line B\"], font_size_px = 18 }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s, err := Load(parent)
@@ -379,7 +379,7 @@ func TestSimpleTableDepthParam(t *testing.T) {
 	t.Run("square default", func(t *testing.T) {
 		parent := filepath.Join(dir, "square.toml")
 		if err := os.WriteFile(parent, []byte(
-			"[[include]]\nfile = "+strconv.Quote(tablePath)+"\nat = [0.0, 0.0, 0.0]\nparams = { width = 2.0 }\n"), 0o644); err != nil {
+			"[[include]]\nfile = "+strconv.Quote(tablePath)+"\nat = [0.0, 0.0, 0.0]\nprops = { width = 2.0 }\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		s, err := Load(parent)
@@ -398,7 +398,7 @@ func TestSimpleTableDepthParam(t *testing.T) {
 	t.Run("rectangular", func(t *testing.T) {
 		parent := filepath.Join(dir, "rect.toml")
 		if err := os.WriteFile(parent, []byte(
-			"[[include]]\nfile = "+strconv.Quote(tablePath)+"\nat = [0.0, 0.0, 0.0]\nparams = { width = 2.0, depth = 1.0 }\n"), 0o644); err != nil {
+			"[[include]]\nfile = "+strconv.Quote(tablePath)+"\nat = [0.0, 0.0, 0.0]\nprops = { width = 2.0, depth = 1.0 }\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		s, err := Load(parent)
@@ -441,7 +441,7 @@ func TestStaircaseSeqTemplate(t *testing.T) {
 	// Custom step count and string texture via params.
 	custom := filepath.Join(dir, "custom.toml")
 	if err := os.WriteFile(custom, []byte(
-		"[[include]]\nfile = "+strconv.Quote(stairPath)+"\nat = [0.0, 0.0, 0.0]\nparams = { steps = 4, run = 1.0, rise = 0.5, width = 2.0, texture = \"wood\" }\n"), 0o644); err != nil {
+		"[[include]]\nfile = "+strconv.Quote(stairPath)+"\nat = [0.0, 0.0, 0.0]\nprops = { steps = 4, run = 1.0, rise = 0.5, width = 2.0, texture = \"wood\" }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s2, err := Load(custom)
@@ -506,7 +506,7 @@ albedo = 'albedo'
 transform_origin = [0, 0, 0]
 file = "obj.toml"
 at = [0.0, 0.0, 0.0]
-params = { albedo = [0.8, 0.7, 0.6] }
+props = { albedo = [0.8, 0.7, 0.6] }
 `), 0o644); err != nil {
 			t.Fatal(err)
 		}

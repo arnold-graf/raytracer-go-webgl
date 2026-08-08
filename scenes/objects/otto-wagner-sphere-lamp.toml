@@ -5,14 +5,14 @@
 # glass orb hangs at the bottom with a small warm filament emitter inside it
 # (plus a real point light) so it glows like an incandescent bulb.
 #
-# Parameterized via [[include]] params (all optional; defaults below):
+# Parameterized via [[include]] props (all optional; defaults below):
 #   stem_len   stem length in units            (default 1.5)
 #   orb_radius glass orb radius                 (default 0.4)
 #
 #   [[include]]
 #   file = "objects/otto-wagner-sphere-lamp.toml"
 #   at = [14.5, 5.7, -2.0]
-#   params = { stem_len = 2.0, orb_radius = 0.5 }
+#   props = { stem_len = 2.0, orb_radius = 0.5 }
 #
 # The orb, filament and light hang just below the stem end, so they follow
 # stem_len/orb_radius automatically. The stem/canopy are "metal" with moderate

@@ -3,7 +3,7 @@
 # Origin (0, 0, 0) is the centre of the cluster footprint on the shelf; books
 # are placed along +X with their bottoms aligned at y = 0. Spines face -Z.
 #
-# Parameterized via [[include]] params (all optional):
+# Parameterized via [[include]] props (all optional):
 #   width           shelf span occupied along X        (default 0.42)
 #   min_height      shortest book spine height         (default 0.18)
 #   max_height      tallest book spine height          (default 0.28)
@@ -18,7 +18,7 @@
 #   [[include]]
 #   file = "objects/book-cluster.toml"
 #   at = [0.0, 0.88, 0.0]
-#   params = { width = 0.5, min_height = 0.16, max_height = 0.26, seed = 42 }
+#   props = { width = 0.5, min_height = 0.16, max_height = 0.26, seed = 42 }
 
 [props]
 width = 0.42
@@ -45,5 +45,5 @@ book_count = 'book_cluster_count(seed, width, gap, min_thickness, max_thickness)
 file = "book.toml"
 at = ['bx', 0, 0]
 transform_origin = [0, 0, 0]
-params = { height = 'book_h', thickness = 'book_t', depth = 'book_depth', albedo_r = 'cr', albedo_g = 'cg', albedo_b = 'cb' }
+props = { height = 'book_h', thickness = 'book_t', depth = 'book_depth', albedo_r = 'cr', albedo_g = 'cg', albedo_b = 'cb' }
 # endfor

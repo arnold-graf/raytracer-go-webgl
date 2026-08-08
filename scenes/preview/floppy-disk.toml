@@ -19,7 +19,7 @@ depth = 1.6
 [[include]]
 file = "../objects/simple-table.toml"
 at = [0.0, 0.0, 0.0]
-params = { width = 1.2, depth = 0.8, height = 0.9, texture = "wood" }
+props = { width = 1.2, depth = 0.8, height = 0.9, texture = "wood" }
 
 [[include]]
 file = "../objects/floppy-disk-3.5.toml"
@@ -34,4 +34,4 @@ rotate_y = -18
 file = "../objects/floppy-disk-3.5.toml"
 at = [-0.22, 0.9, 0.18]
 rotate_y = 64
-params = { albedo = [0.12, 0.12, 0.13] }
+props = { albedo = [0.12, 0.12, 0.13] }

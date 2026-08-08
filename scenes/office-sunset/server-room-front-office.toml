@@ -53,7 +53,7 @@ file = "../objects/grid.toml"
 transform_origin = [0, 0, 0]
 at = [10.7, -0.4, 0.0]
 rotate_y = -90
-params = { width = 20.0, height = 5, depth = 1, unit_size = 1, albedo = [2,2,2], material = "diffuse", texture = "cement"}
+props = { width = 20.0, height = 5, depth = 1, unit_size = 1, albedo = [2,2,2], material = "diffuse", texture = "cement"}
 
 # east wall top
 [[box]]
@@ -140,21 +140,21 @@ file = "../objects/bookshelf.toml"
 transform_origin = [0, 0, 0]
 at = [2, 0.0, 2.12]
 rotate_y = -110
-params = { width = 1.9, shelf_height = 1.5, leg_height = 0.15, shelves = 2, depth = 0.6, albedo = [0.48, 0.42, 0.36], texture = "wood" }
+props = { width = 1.9, shelf_height = 1.5, leg_height = 0.15, shelves = 2, depth = 0.6, albedo = [0.48, 0.42, 0.36], texture = "wood" }
 
 [[include]]
 file = "../objects/book-cluster.toml"
 at = [2, 1.05, 2.12]
 rotate_y = -110
 transform_origin = [0, 0, 0]
-params = { width = 1, min_height = 0.16, max_height = 0.26, seed = 42 }
+props = { width = 1, min_height = 0.16, max_height = 0.26, seed = 42 }
 
 [[include]]
 file = "../objects/book-cluster.toml"
 at = [2, 0.65, 2.12]
 rotate_y = -110
 transform_origin = [-0.2, 0, 0.05]
-params = { width = 0.8, min_height = 0.16, max_height = 0.26, seed = 40 }
+props = { width = 0.8, min_height = 0.16, max_height = 0.26, seed = 40 }
 
 
 # office chair
@@ -169,28 +169,28 @@ rotate_y = 120
 file = "../objects/simple-table.toml"
 transform_origin = [0, 0, 0]
 at = [8.5, 0.0, 5.0]
-params = { width = 1.0, depth = 2.0, height = 0.7, texture = "wood", albedo = [1, 1, 1] }
+props = { width = 1.0, depth = 2.0, height = 0.7, texture = "wood", albedo = [1, 1, 1] }
 
 # standing lamp (left)
 [[include]]
 file = "../objects/art-deco-uplight.toml"
 transform_origin = [0, 0, 0]
 at = [8.5, 0, 1.5]
-params = { color = [1, 1, 1], brightness = 0.05, range = 20, stem_len = 2 }
+props = { color = [1, 1, 1], brightness = 0.05, range = 20, stem_len = 2 }
 
 # standing lamp (right)
 [[include]]
 file = "../objects/art-deco-uplight.toml"
 transform_origin = [0, 0, 0]
 at = [8.5, 0, 18]
-params = { color = [1, 1, 1], brightness = 0.05, range = 12, stem_len = 2}
+props = { color = [1, 1, 1], brightness = 0.05, range = 12, stem_len = 2}
 
 # standing lamp (right right)
 [[include]]
 file = "../objects/art-deco-uplight.toml"
 transform_origin = [0, 0, 0]
 at = [1.5, 0, 18]
-params = { color = [1, 1, 1], brightness = 0.05, range = 12, stem_len = 2}
+props = { color = [1, 1, 1], brightness = 0.05, range = 12, stem_len = 2}
 
 # lounge couch along the north wall, facing the room
 [[include]]
@@ -198,5 +198,5 @@ file = "../objects/comfy-couch.toml"
 transform_origin = [0, 0, 0]
 at = [6.05, 0.0, 1.5]
 rotate_y = 180
-params = { width = 2.4, seat_count = 2, texture = "wallpaper_rose", albedo = [1.2, 1.1, 1.15] }
+props = { width = 2.4, seat_count = 2, texture = "wallpaper_rose", albedo = [1.2, 1.1, 1.15] }
 

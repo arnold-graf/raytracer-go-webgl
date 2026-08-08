@@ -24,7 +24,7 @@ func Expand(path string, raw []byte, params map[string]any) ([]byte, error) {
 }
 
 // ExpandWithResolved is Expand and also returns resolved [props] values after
-// merging include params (nil when the file has no [props] table).
+// merging include props (nil when the file has no [props] table).
 func ExpandWithResolved(path string, raw []byte, params map[string]any) ([]byte, map[string]any, error) {
 	if bytes.Contains(raw, []byte("{{")) {
 		return nil, nil, fmt.Errorf("%s: Go template syntax is not allowed in parameterized objects", path)

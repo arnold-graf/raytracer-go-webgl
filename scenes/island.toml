@@ -558,4 +558,4 @@ instance = true
 file = "objects/campfire.toml"
 at = [48.0, 0.0, -64.0]
 follow_terrain = true
-params = { brightness = 1.0, range = 50.0, flicker = 0.45, speed = 1.0 }
+props = { brightness = 1.0, range = 50.0, flicker = 0.45, speed = 1.0 }

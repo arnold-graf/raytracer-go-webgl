@@ -18,7 +18,7 @@ func TestLoadWorkstationMonitorWithParams(t *testing.T) {
 	dir := t.TempDir()
 	parent := filepath.Join(dir, "scene.toml")
 	if err := os.WriteFile(parent, []byte(
-		"[[include]]\nfile = "+strconv.Quote(abs)+"\nat = [0,0,0]\nparams = { screen_id = \"monitor_2\" }\n"), 0o644); err != nil {
+		"[[include]]\nfile = "+strconv.Quote(abs)+"\nat = [0,0,0]\nprops = { screen_id = \"monitor_2\" }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s, err := sceneio.Load(parent)

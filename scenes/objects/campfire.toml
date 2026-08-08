@@ -2,7 +2,7 @@
 #
 # Origin (0,0,0) is the ground centre of the fire ring. Front faces -Z.
 #
-# Optional [[include]] params (defaults below):
+# Optional [[include]] props (defaults below):
 #   brightness  overall light intensity multiplier  (default 10.0)
 #   range       cull / falloff distance             (default 50.0)
 #   flicker     intensity wobble in [0, 1]          (default 0.45)
@@ -17,7 +17,7 @@
 #   file = "objects/campfire.toml"
 #   at = [8.0, 0.0, 58.0]
 #   follow_terrain = true
-#   params = { brightness = 1.0, range = 25.0, flicker = 0.45, speed = 1.0 }
+#   props = { brightness = 1.0, range = 25.0, flicker = 0.45, speed = 1.0 }
 
 [props]
 brightness = 10.0

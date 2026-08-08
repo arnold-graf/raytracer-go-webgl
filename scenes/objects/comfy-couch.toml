@@ -3,7 +3,7 @@
 # Origin (0, 0, 0) is the centre of the footprint on the floor.
 # Sitters face -Z; the back rests against +Z.
 #
-# Parameterized via [[include]] params (all optional):
+# Parameterized via [[include]] props (all optional):
 #   width             overall width in X                 (default 2.2)
 #   depth             overall depth in Z                 (default 0.92)
 #   seat_height       top of the seat cushions           (default 0.44)
@@ -23,7 +23,7 @@
 #   [[include]]
 #   file = "objects/comfy-couch.toml"
 #   at = [0.0, 0.0, 0.0]
-#   params = { width = 2.6, seat_count = 3, texture = "wallpaper_navy" }
+#   props = { width = 2.6, seat_count = 3, texture = "wallpaper_navy" }
 
 [props]
 width = 2.2

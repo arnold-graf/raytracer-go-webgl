@@ -21,7 +21,7 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
 	}
-	dto, resolved, err := decodeSceneFile(incPath, inc.Params)
+	dto, resolved, err := decodeSceneFile(incPath, inc.Props)
 	if err != nil {
 		return err
 	}
@@ -37,7 +37,7 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 			childPath = filepath.Join(filepath.Dir(incPath), childPath)
 		}
 		childFollow := child.FollowTerrain
-		childParams := mergeIncludeParams(resolved, child.Params)
+		childParams := mergeIncludeProps(resolved, child.Props)
 		childSub, err := load(childPath, childParams, seen, deps, nil)
 		if err != nil {
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
@@ -70,13 +70,13 @@ func registerLeafInstance(dst *scene.Scene, inc includeDTO, parentDir string, se
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
 	}
-	dto, _, err := decodeSceneFile(incPath, inc.Params)
+	dto, _, err := decodeSceneFile(incPath, inc.Props)
 	if err != nil {
 		return err
 	}
 	follow := inc.FollowTerrain
 	if isLayoutDTO(dto) {
-		sub, err := load(incPath, inc.Params, seen, deps, nil)
+		sub, err := load(incPath, inc.Props, seen, deps, nil)
 		if err != nil {
 			return err
 		}
@@ -97,7 +97,7 @@ func registerLeafInstance(dst *scene.Scene, inc includeDTO, parentDir string, se
 	if err := mergeTerrainFromDTO(dst, dto, xf); err != nil {
 		return err
 	}
-	return registerInstancePlacement(dst, incPath, inc.Params, xf, follow, inc.At.toV().Y, seen, deps)
+	return registerInstancePlacement(dst, incPath, inc.Props, xf, follow, inc.At.toV().Y, seen, deps)
 }
 
 func registerInstancePlacement(dst *scene.Scene, absPath string, params map[string]any, xf *scene.Transform, follow bool, yOffset float64, seen map[string]bool, deps *[]string) error {

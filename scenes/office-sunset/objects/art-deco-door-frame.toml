@@ -14,7 +14,7 @@ transform_origin = ['depth', 'height', 0]
 at = [0, 0, 0]
 rotate_x = 180
 rotate_y = 180
-params = { width = 'width', albedo = 'albedo', reflect = 'reflect', steps = 'steps', step_size = 'step_size', run = 0.2, rise = 0.2}
+props = { width = 'width', albedo = 'albedo', reflect = 'reflect', steps = 'steps', step_size = 'step_size', run = 0.2, rise = 0.2}
 
 [[include]]
 file = "../../objects/staircase.toml"
@@ -22,7 +22,7 @@ transform_origin = ['depth', 0, 0]
 at = [0, 0, 0]
 rotate_y = 180
 rotate_x = -90
-params = { width = 'height', albedo = 'albedo', reflect = 'reflect', steps = 'steps', step_size = 'step_size', run = 0.2, rise = 0.2}
+props = { width = 'height', albedo = 'albedo', reflect = 'reflect', steps = 'steps', step_size = 'step_size', run = 0.2, rise = 0.2}
 
 [[include]]
 file = "../../objects/staircase.toml"
@@ -30,5 +30,5 @@ transform_origin = ['depth', 0, 'width - step_size * steps']
 at = [0, 0, 'width']
 rotate_y = 180
 rotate_x = 90
-params = { width = 'height', albedo = 'albedo', reflect = 'reflect', steps = 'steps', step_size = 'step_size', run = 0.2, rise = 0.2}
+props = { width = 'height', albedo = 'albedo', reflect = 'reflect', steps = 'steps', step_size = 'step_size', run = 0.2, rise = 0.2}
 

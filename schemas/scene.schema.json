@@ -1703,9 +1703,9 @@
           "type": "boolean",
           "description": "When true, identical geometry from the included file is merged into a GPU instancing batch (TLAS/BLAS). The included file may be a layout of multiple [[include]] children; each unique mesh is instanced separately. Imposes an instance count limit."
         },
-        "params": {
+        "props": {
           "$ref": "#/definitions/meta_table",
-          "description": "Parameters merged into the included file's [props] table."
+          "description": "Properties merged into the included file's [props] table."
         }
       },
       "required": [
@@ -1758,7 +1758,7 @@
     },
     "meta_table": {
       "type": "object",
-      "description": "Parameterized object table ([props] defaults or [const] derived values). Merged with [[include]] params for [props]. Single-quoted string values are expressions.",
+      "description": "Parameterized object table ([props] defaults or [const] derived values). Merged with [[include]] props for [props]. Single-quoted string values are expressions.",
       "additionalProperties": {
         "$ref": "#/definitions/param_value"
       }

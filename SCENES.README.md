@@ -482,14 +482,14 @@ Real objects live in `scenes/objects/` — `building.toml`, `staircase.toml`,
 Objects can be parameterized so one file produces variants. Files remain **valid
 TOML**; expansion is handled by `internal/sceneparam` before decode.
 
-Pass parameters from the include with an inline `params` table (merged into
+Pass parameters from the include with an inline `props` table (merged into
 `[props]`):
 
 ```toml
 [[include]]
 file = "objects/otto-wagner-sphere-lamp.toml"
 at = [14.5, 5.7, -2.0]
-params = { stem_len = 2.0, orb_radius = 0.5 }
+props = { stem_len = 2.0, orb_radius = 0.5 }
 ```
 
 In the object file:
@@ -515,7 +515,7 @@ radius = 'orb_radius'
 ```
 
 Syntax:
-- **`[props]`** — overridable defaults; `params` from `[[include]]` shallow-merge on top.
+- **`[props]`** — overridable defaults; `props` from `[[include]]` shallow-merge on top.
 - **`[const]`** — derived values (`half = 'width / 2'`); evaluated after merge.
 - **Single-quoted strings** at use sites — expressions (`pos_x = '-half'`,
   `albedo = 'albedo'`). Double-quoted strings and bare numbers are literals.
@@ -556,7 +556,7 @@ When you pass `-scene <file>` (and/or `-player <file>`), the app watches those
 files **and everything they reach** through `extends` and `[[include]]`, and
 rebuilds the scene live when any of them changes:
 
-- Editing an included object (e.g. `objects/building.toml`) or its params in the
+- Editing an included object (e.g. `objects/building.toml`) or its props in the
   parent triggers a reload — the watcher tracks the full dependency set.
 - Reloads are polled a few times per second; the camera pose and feature
   toggles are preserved across a reload.

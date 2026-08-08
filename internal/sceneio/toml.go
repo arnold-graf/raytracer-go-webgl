@@ -530,9 +530,9 @@ type sunDTO struct {
 // move rigidly with the parent assembly. For scattered props (e.g. a tree row),
 // set follow_terrain on each child include, not on the layout file.
 //
-// Params are merged into an object's [props] table (see internal/sceneparam).
+// Props are merged into an object's [props] table (see internal/sceneparam).
 // Resolved [props] from the included file are forwarded to nested [[include]]
-// tables (merged with each child's explicit params; explicit keys win).
+// tables (merged with each child's explicit props; explicit keys win).
 // Object files use valid TOML with [props], [const], single-quoted expressions,
 // and comment directives (# for, # if, # let). Files without [props]/[const] are
 // passed through verbatim.
@@ -545,7 +545,7 @@ type includeDTO struct {
 	TransformOrigin *transformOriginDTO `toml:"transform_origin"`
 	FollowTerrain   bool                `toml:"follow_terrain"`
 	Instance        bool                `toml:"instance"`
-	Params          map[string]any      `toml:"params"`
+	Props           map[string]any      `toml:"props"`
 }
 
 
@@ -666,7 +666,7 @@ func recordDep(deps *[]string, path string) {
 }
 
 // load reads, expands parameterized objects when needed, and decodes the scene
-// at path. params are merged into the included object's [props] table.
+// at path. props from a parent [[include]] are merged into the object's [props] table.
 // data supplied by a parent [[include]] (nil for the top-level file and for
 // "extends" bases, which take no parameters).
 func load(path string, params map[string]any, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
@@ -733,9 +733,9 @@ func decodeSceneFile(path string, params map[string]any) (sceneDTO, map[string]a
 	return dto, resolved, nil
 }
 
-// mergeIncludeParams combines parent resolved props with explicit include params;
+// mergeIncludeProps combines parent resolved props with explicit include props;
 // explicit keys win.
-func mergeIncludeParams(parent, explicit map[string]any) map[string]any {
+func mergeIncludeProps(parent, explicit map[string]any) map[string]any {
 	if len(parent) == 0 && len(explicit) == 0 {
 		return nil
 	}
@@ -1049,7 +1049,7 @@ func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int,
 	if follow {
 		fp = nil
 	}
-	sub, err := load(incPath, mergeIncludeParams(parentResolved, inc.Params), seen, deps, fp)
+	sub, err := load(incPath, mergeIncludeProps(parentResolved, inc.Props), seen, deps, fp)
 	if err != nil {
 		return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
 	}

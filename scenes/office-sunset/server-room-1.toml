@@ -42,7 +42,7 @@ file = "../objects/grid.toml"
 transform_origin = [0, 0, 0]
 at = [0.0, 0.0, 20.0]
 rotate_y = 90
-params = { width = 20.0, height = 8.0, depth = 0.2, unit_size = 1, albedo = [1, 1, 1], material = "diffuse", texture = "cement"}
+props = { width = 20.0, height = 8.0, depth = 0.2, unit_size = 1, albedo = [1, 1, 1], material = "diffuse", texture = "cement"}
 
 # glass wall (west)
 [[box]]
@@ -108,7 +108,7 @@ depth = 5
 file = "objects/art-deco-door-frame.toml"
 transform_origin = [0, 0, 0]
 at = [39.9, 0, 8]
-params = { width = 5, height = 4, depth = 1, texture = "marble", albedo = [0.7, 0.7, 0.7]}
+props = { width = 5, height = 4, depth = 1, texture = "marble", albedo = [0.7, 0.7, 0.7]}
 
 # east wall (top cover)
 [[box]]
@@ -267,7 +267,7 @@ file = "../objects/staircase.toml"
 transform_origin = [0, 0, 0]
 at = [9.7, 0, 7.5]
 rotate_y = 90
-params = { steps = 6, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.5 }
+props = { steps = 6, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.5 }
 
 # Lamp 1 (in the middle of the room)
 [[include]]
@@ -275,7 +275,7 @@ instance = true
 file = "../objects/otto-wagner-sphere-lamp.toml"
 # migrated-center-at
 at = [25.0, 6.52, 16.0]
-params = { stem_len = 2.3, brightness = 0.05, range = 10, orb_radius = 0.5 }
+props = { stem_len = 2.3, brightness = 0.05, range = 10, orb_radius = 0.5 }
 
 # Lamp 2 (middle of the room)
 [[include]]
@@ -283,14 +283,14 @@ instance = true
 file = "../objects/otto-wagner-sphere-lamp.toml"
 # migrated-center-at
 at = [25.0, 6.52, 3.5]
-params = { stem_len = 2.3, brightness = 0.05, range = 20, orb_radius = 0.5 }
+props = { stem_len = 2.3, brightness = 0.05, range = 20, orb_radius = 0.5 }
 
 # Lamp 3 (very dim) above the desk
 [[include]]
 instance = true
 file = "../objects/art-deco-ring-lamp.toml"
 at = [8.0, 6.17, 9.0]
-params = { stem_len = 4, brightness = 0.1, range = 10 }
+props = { stem_len = 4, brightness = 0.1, range = 10 }
 
 # Lamp 4 (above the door)
 [[include]]
@@ -298,7 +298,7 @@ instance = true
 file = "../objects/art-deco-ring-lamp.toml"
 # migrated-center-at
 at = [35.0, 6.52, 10.5]
-params = { stem_len = 3, brightness = 0.2, range = 20, top_radius = 1.5, bottom_radius = 0.5, rings = 7 }
+props = { stem_len = 3, brightness = 0.2, range = 20, top_radius = 1.5, bottom_radius = 0.5, rings = 7 }
 
 
 # desk to the left of the cube
@@ -311,7 +311,7 @@ at = [8.0, 0.845, 9.498]
 [[include]]
 file = "../objects/cupboard-double-door.toml"
 at = [15.0, 1.5, 19]
-params = { width = 2, height = 3.0, depth = 0.5, shelves = 4, albedo = [0.5, 0.5, 0.7 ], reflect = 0.1, rough = 0.01, handle_radius = 0.1 }
+props = { width = 2, height = 3.0, depth = 0.5, shelves = 4, albedo = [0.5, 0.5, 0.7 ], reflect = 0.1, rough = 0.01, handle_radius = 0.1 }
 
 # table to the right of the cube
 [[include]]
@@ -319,7 +319,7 @@ file = "../objects/simple-table.toml"
 # migrated-center-at
 at = [14.7, 0.65, 7.0]
 rotate_y = -20
-params = { width = 1.5, height = 0.9, texture = "wood" }
+props = { width = 1.5, height = 0.9, texture = "wood" }
 # glass bottle on the table
 [[include]]
 instance = true

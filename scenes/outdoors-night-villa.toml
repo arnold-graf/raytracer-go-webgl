@@ -185,7 +185,7 @@ instance = true
 [[include]]
 file = "objects/campfire.toml"
 at = [-9.0, 0, 5.0]
-params = {
+props = {
   brightness = 1.0,
   range = 25.0,
   flicker = 0.45,

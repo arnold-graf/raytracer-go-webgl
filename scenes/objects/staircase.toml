@@ -4,7 +4,7 @@
 # is a solid block from the flight base up to that step's top (a filled
 # staircase, not floating treads).
 #
-# Parameterized via [[include]] params (all optional):
+# Parameterized via [[include]] props (all optional):
 #   steps  number of treads              (default 8)
 #   run    horizontal depth per step     (default 0.5)
 #   rise   vertical height per step     (default 0.375)
@@ -13,7 +13,7 @@
 # With defaults the flight climbs 3.0 units over a 4.0 run (8 × 0.375 rise,
 # 8 × 0.5 run). Override for taller/shorter flights, e.g.:
 #
-#   params = { steps = 12, run = 0.45, rise = 0.25, width = 1.8 }
+#   props = { steps = 12, run = 0.45, rise = 0.25, width = 1.8 }
 #
 # Place it with [[include]] and an instance transform. The include's rotate_y
 # turns the whole flight about the object file's origin (bottom-front corner), so

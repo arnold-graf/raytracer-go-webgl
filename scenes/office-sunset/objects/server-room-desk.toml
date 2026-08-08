@@ -4,7 +4,7 @@ file = "../../objects/simple-table.toml"
 # migrated-center-at
 at = [0.0, 0.45, 0.0]
 rotate_y = 20
-params = { width = 2, height = 0.9, reflect = 0.01, texture = "wood" }
+props = { width = 2, height = 0.9, reflect = 0.01, texture = "wood" }
 
 # Laptop on the desk
 [[include]]
@@ -19,7 +19,7 @@ file = "../../objects/simple-chair.toml"
 # migrated-center-at
 at = [0.465, 0.495, 1.955]
 rotate_y = -7
-params = { reflect = 0.1 }
+props = { reflect = 0.1 }
 
 # glass bottle on the desk
 [[include]]
@@ -42,7 +42,7 @@ file = "../../objects/desk-anglepoise-lamp.toml"
 # migrated-center-at
 at = [-0.327, 1.154, 0.076]
 rotate_y = 35
-params = { brightness = 0.06, range = 5 }
+props = { brightness = 0.06, range = 5 }
 
 # access memo on the desk (flat, beside the laptop)
 [[document]]

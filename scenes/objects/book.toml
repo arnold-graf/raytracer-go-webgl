@@ -6,7 +6,7 @@
 # Geometry: three thin cover boxes (spine, front, top) plus one off-white paper
 # block inset between them.
 #
-# Parameterized via [[include]] params (all optional):
+# Parameterized via [[include]] props (all optional):
 #   height       spine-to-top in metres              (default 0.24)
 #   thickness    width along X (book thickness)      (default 0.03)
 #   depth        spine-to-fore-edge in Z             (default 0.18)
@@ -20,7 +20,7 @@
 #   [[include]]
 #   file = "objects/book.toml"
 #   at = [0.0, 0.0, 0.0]
-#   params = { height = 0.26, albedo_r = 0.2, albedo_g = 0.35, albedo_b = 0.55 }
+#   props = { height = 0.26, albedo_r = 0.2, albedo_g = 0.35, albedo_b = 0.55 }
 
 [props]
 height = 0.24

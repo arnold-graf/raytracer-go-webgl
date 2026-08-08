@@ -3,7 +3,7 @@
 # Origin (0,0,0) is the centre of the footprint on the floor. The top surface
 # sits at y = height; four tapered legs sit inset from each corner.
 #
-# Parameterized via [[include]] params (all optional):
+# Parameterized via [[include]] props (all optional):
 #   width      table size in X                      (default 1.6)
 #   depth      table size in Z                      (default: same as width)
 #   height     top-surface height above the floor   (default 0.75)
@@ -15,7 +15,7 @@
 #   [[include]]
 #   file = "objects/simple-table.toml"
 #   at = [0.0, 0.0, 0.0]
-#   params = { width = 1.6, depth = 0.8, height = 0.75, texture = "wood" }
+#   props = { width = 1.6, depth = 0.8, height = 0.75, texture = "wood" }
 
 [props]
 width = 1.6

@@ -73,7 +73,7 @@ file = "staircase.toml"
 transform_origin = [0, 0, 0]
 at = [-3, 0.0, 10.0]
 rotate_y = 90
-params = { steps = 5, run = 0.5, rise = 0.3, width = 6, texture = "marble" }
+props = { steps = 5, run = 0.5, rise = 0.3, width = 6, texture = "marble" }
 
 # ---- left wing front (+Z), pair of tall windows ----
 
@@ -711,7 +711,7 @@ file = "staircase.toml"
 transform_origin = [0, 0, 0]
 at = [-3, 1.25, 2.0]
 rotate_y = 90
-params = { steps = 10, run = 0.5, rise = 0.45, width = 1.8, texture = "marble" }
+props = { steps = 10, run = 0.5, rise = 0.45, width = 1.8, texture = "marble" }
 
 # ================================================================ ROOFS ====
 
@@ -813,22 +813,22 @@ texture = "cement"
 file = "otto-wagner-sphere-lamp.toml"
 # migrated-center-at
 at = [0.0, 7.625, 1.0]
-params = { stem_len = 4.0, orb_radius = 0.4, brightness = 0.3, range = 10 }
+props = { stem_len = 4.0, orb_radius = 0.4, brightness = 0.3, range = 10 }
 
 [[include]]
 file = "otto-wagner-sphere-lamp.toml"
 # migrated-center-at
 at = [-0.5, 8.125, 0.0]
-params = { stem_len = 3, orb_radius = 0.4, brightness = 0.2, range = 7 }
+props = { stem_len = 3, orb_radius = 0.4, brightness = 0.2, range = 7 }
 
 [[include]]
 file = "otto-wagner-sphere-lamp.toml"
 # migrated-center-at
 at = [0.5, 8.275, -0.5]
-params = { stem_len = 2.7, orb_radius = 0.4, brightness = 0.3, range = 7 }
+props = { stem_len = 2.7, orb_radius = 0.4, brightness = 0.3, range = 7 }
 
 [[include]]
 file = "simple-table.toml"
 # migrated-center-at
 at = [0.0, 1.7, 0.0]
-params = { width = 1.6, texture = "wood", albedo = [0.15, 0.12, 0.18] }
+props = { width = 1.6, texture = "wood", albedo = [0.15, 0.12, 0.18] }

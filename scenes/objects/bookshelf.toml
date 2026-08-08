@@ -3,7 +3,7 @@
 # Origin (0, 0, 0) is the centre of the footprint on the floor. Shelves span
 # between the corner posts; sitters / readers face -Z.
 #
-# Parameterized via [[include]] params (all optional):
+# Parameterized via [[include]] props (all optional):
 #   width         overall width in X                    (default 2.0)
 #   depth         overall depth in Z                    (default 0.36)
 #   shelf_height  top of the unit above the floor        (default 0.88)
@@ -18,7 +18,7 @@
 #   [[include]]
 #   file = "objects/bookshelf.toml"
 #   at = [0.0, 0.0, 0.0]
-#   params = { width = 2.2, shelf_height = 0.75, shelves = 4, albedo = [0.55, 0.48, 0.40] }
+#   props = { width = 2.2, shelf_height = 0.75, shelves = 4, albedo = [0.55, 0.48, 0.40] }
 
 [props]
 width = 2.0

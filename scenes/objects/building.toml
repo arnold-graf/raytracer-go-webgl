@@ -486,10 +486,10 @@ rotate_y = -45
 at = [-1.5, 4.681, 2.0]
 file = "otto-wagner-sphere-lamp.toml"
 # migrated-center-at
-params = { stem_len = 2.1, orb_radius = 0.5 }
+props = { stem_len = 2.1, orb_radius = 0.5 }
 
 [[include]]
 at = [1.5, 4.481, 0.0]
 file = "otto-wagner-sphere-lamp.toml"
 # migrated-center-at
-params = { orb_radius = 0.5 }
+props = { orb_radius = 0.5 }

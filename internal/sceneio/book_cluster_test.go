@@ -56,12 +56,12 @@ func TestBookClusterSeedChangesLayout(t *testing.T) {
 	write("a.toml", `[[include]]
 file = `+quote(cluster)+`
 at = [0,0,0]
-params = { seed = 1, width = 0.42 }
+props = { seed = 1, width = 0.42 }
 `)
 	write("b.toml", `[[include]]
 file = `+quote(cluster)+`
 at = [0,0,0]
-params = { seed = 99, width = 0.42 }
+props = { seed = 99, width = 0.42 }
 `)
 	sa, err := sceneio.Load(filepath.Join(dir, "a.toml"))
 	if err != nil {

@@ -34,7 +34,7 @@ lights = 3
 transform_origin = [0, 0, 0]
 file = "fire.toml"
 at = [0.0, 0.0, 0.0]
-params = { brightness = 0.5, range = 30.0, flicker = 0.75, speed = 2.0 }
+props = { brightness = 0.5, range = 30.0, flicker = 0.75, speed = 2.0 }
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}

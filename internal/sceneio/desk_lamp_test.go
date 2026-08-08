@@ -56,7 +56,7 @@ func TestDeskLampAlbedoParam(t *testing.T) {
 	parent := filepath.Join(dir, "scene.toml")
 	if err := os.WriteFile(parent, []byte(
 		"[[include]]\nfile = "+strconv.Quote(abs)+"\nat = [0.0, 0.9, 0.0]\n"+
-			"params = { albedo = [0.2, 0.3, 0.4] }\n"), 0o644); err != nil {
+			"props = { albedo = [0.2, 0.3, 0.4] }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	sc, err := sceneio.Load(parent)

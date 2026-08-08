@@ -4,7 +4,7 @@
 # +X/+Y plane; depth runs in +Z. Vertical beams are unit_size wide; horizontal
 # beams are unit_size tall; gaps between beams are also unit_size (square holes).
 #
-# Parameterized via [[include]] params (all optional):
+# Parameterized via [[include]] props (all optional):
 #   width      panel width in X                  (default 4.0)
 #   height     panel height in Y                 (default 4.0)
 #   depth      panel thickness in Z              (default 0.1)
@@ -18,7 +18,7 @@
 #   [[include]]
 #   file = "objects/grid.toml"
 #   at = [0.0, 0.0, 0.0]
-#   params = { width = 8.0, height = 6.0, depth = 0.15, unit_size = 0.4,
+#   props = { width = 8.0, height = 6.0, depth = 0.15, unit_size = 0.4,
 #              albedo = [0.35, 0.35, 0.38], material = "metal", reflect = 0.45 }
 
 [props]
