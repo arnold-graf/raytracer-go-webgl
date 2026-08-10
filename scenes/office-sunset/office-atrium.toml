@@ -1,0 +1,102 @@
+[props]
+width = 100
+depth = 100
+height = 25
+glass_transmit = 0.9
+show_sun = true
+
+[const]
+wall_thickness = 1
+
+# local sun
+# if show_sun
+[[light]]
+color = [1.4, 0.55, 0.22]
+brightness = 40.0
+range = 200
+pos = [30, 30, -25]
+# endif
+
+# floor
+[[box]]
+pos_x = 0
+pos_y = -0.005
+pos_z = 0
+texture = "marble"
+material = "diffuse"
+width = 'width'
+depth = 'depth'
+height = 0.01
+albedo = [0.2,0.2,0.2]
+reflect = 0.05
+rough = 0.01
+
+# north wall (glass)
+[[box]]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 'width'
+height = 'height'
+depth = 'wall_thickness'
+transmit = 0.7
+material = "glass"
+thin = true
+albedo = [0.9, 0.9, 0.9]
+
+# north wall (grid)
+[[include]]
+file = "../objects/grid.toml"
+at = [1.5, 0, 0]
+transform_origin = [0, 0, 0]
+rotate_y = -90
+props = { depth = 0.5, width = 'width', height = 25, unit_size = 3, beam_size = '0.2'}
+
+# east wall (glass)
+[[box]]
+pos_x = 'width - wall_thickness'
+pos_y = 0
+pos_z = 0
+width = 'wall_thickness'
+thin = true
+height = 'height'
+depth = 'depth'
+ior = 1.05
+transmit = 0.8
+material = "glass"
+albedo = [0.7, 0.7, 0.7]
+
+# south wall (glass)
+[[box]]
+pos_x = 0
+pos_y = 0
+pos_z = 'depth'
+width = 'width'
+height = 'height'
+depth = 1
+ior = 1.05
+material = "glass"
+thin = true
+albedo = [0.9, 0.9, 0.9]
+
+# west wall (glass)
+[[box]]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 'wall_thickness'
+height = 'height'
+depth = 'depth'
+ior = 1.05
+material = "glass"
+thin = true
+albedo = [0.9, 0.9, 0.9]
+
+# for i in range(5)
+[[include]]
+file = "objects/steel-beam.toml"
+at = ['15 * i + 5', 0, 10]
+transform_origin = [0,0,0]
+rotate_z = 90
+props = { width = 20, rough = 0.01, reflect = 0.02, albedo = [0.4,0.5,1] }
+# endfor

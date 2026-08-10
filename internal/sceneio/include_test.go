@@ -165,6 +165,99 @@ at = [0.0, 0.0, 0.0]
 	}
 }
 
+// TestIncludePropsDoNotInheritParentProps ensures a parent's [props] keys are
+// not cascaded into nested [[include]] children. Only explicit include props
+// are passed (expressions in those props still evaluate in the parent env).
+func TestIncludePropsDoNotInheritParentProps(t *testing.T) {
+	dir := t.TempDir()
+	child := filepath.Join(dir, "panel.toml")
+	if err := os.WriteFile(child, []byte(`
+[props]
+width = 4.0
+height = 4.0
+depth = 0.1
+
+[[box]]
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+width = 'width'
+height = 'height'
+depth = 'depth'
+material = "diffuse"
+albedo = [0.5, 0.5, 0.5]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Parent shares prop names with the child but does not pass props.
+	noPass := filepath.Join(dir, "no_pass.toml")
+	if err := os.WriteFile(noPass, []byte(`
+[props]
+width = 100.0
+height = 25.0
+depth = 100.0
+
+[[include]]
+transform_origin = [0, 0, 0]
+file = "panel.toml"
+at = [0.0, 0.0, 0.0]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(noPass)
+	if err != nil {
+		t.Fatalf("load without props: %v", err)
+	}
+	if len(s.Boxes) != 1 {
+		t.Fatalf("boxes = %d, want 1", len(s.Boxes))
+	}
+	b := s.Boxes[0]
+	if math.Abs(b.Max.X-b.Min.X-4.0) > 1e-9 {
+		t.Fatalf("width = %v, want child default 4 (not parent 100)", b.Max.X-b.Min.X)
+	}
+	if math.Abs(b.Max.Y-b.Min.Y-4.0) > 1e-9 {
+		t.Fatalf("height = %v, want child default 4 (not parent 25)", b.Max.Y-b.Min.Y)
+	}
+	if math.Abs(b.Max.Z-b.Min.Z-0.1) > 1e-9 {
+		t.Fatalf("depth = %v, want child default 0.1 (not parent 100)", b.Max.Z-b.Min.Z)
+	}
+
+	// Explicit props still pass; expressions resolve against the parent env.
+	pass := filepath.Join(dir, "pass.toml")
+	if err := os.WriteFile(pass, []byte(`
+[props]
+width = 100.0
+height = 25.0
+depth = 100.0
+
+[[include]]
+transform_origin = [0, 0, 0]
+file = "panel.toml"
+at = [0.0, 0.0, 0.0]
+props = { width = 'width', height = 10.0, depth = 1.0 }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := Load(pass)
+	if err != nil {
+		t.Fatalf("load with props: %v", err)
+	}
+	if len(s2.Boxes) != 1 {
+		t.Fatalf("boxes = %d, want 1", len(s2.Boxes))
+	}
+	b2 := s2.Boxes[0]
+	if math.Abs(b2.Max.X-b2.Min.X-100.0) > 1e-9 {
+		t.Fatalf("width = %v, want 100 from parent expr", b2.Max.X-b2.Min.X)
+	}
+	if math.Abs(b2.Max.Y-b2.Min.Y-10.0) > 1e-9 {
+		t.Fatalf("height = %v, want 10 from explicit prop", b2.Max.Y-b2.Min.Y)
+	}
+	if math.Abs(b2.Max.Z-b2.Min.Z-1.0) > 1e-9 {
+		t.Fatalf("depth = %v, want 1 from explicit prop", b2.Max.Z-b2.Min.Z)
+	}
+}
+
 // TestSphereLampDefaultsUnchanged pins the real lamp object's geometry when
 // included with no props, so parameterizing it didn't shift the existing
 // indoor-outdoor lamps.

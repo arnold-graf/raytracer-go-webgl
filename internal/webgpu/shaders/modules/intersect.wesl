@@ -472,6 +472,30 @@ fn xf_to_world_normal(p: Prim, ln: vec3<f32>) -> vec3<f32> {
     );
 }
 
+// thin_glass_exit_t returns the ray parameter of the far side of a thin glass
+// slab along rd, given t_enter on the near side. Boxes use the AABB span;
+// other primitives fall back to a small offset past the entry hit.
+fn thin_glass_exit_t(p: Prim, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32) -> f32 {
+    var lro = ro;
+    var lrd = rd;
+    if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
+        lro = xf_to_local_point(p, ro);
+        lrd = xf_to_local_dir(p, rd);
+    }
+    if (p.info.x == PRIM_BOX) {
+        let s = slab_interval(p.geo_a.xyz, p.geo_b.xyz, lro, lrd);
+        if (s.z != 0.0) {
+            if (s.y > t_enter + RAY_EPSILON) {
+                return s.y;
+            }
+            if (s.x > t_enter + RAY_EPSILON) {
+                return s.x;
+            }
+        }
+    }
+    return t_enter + 0.002;
+}
+
 fn hit_prim(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
     var lro = ro;
     var lrd = rd;
@@ -538,38 +562,3 @@ fn slab_hit(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, inv: vec3<f32>, t_m
     let tf = min(min(t2, t4), t6);
     return !(tf < tn || tf < RAY_EPSILON || tn > t_max);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

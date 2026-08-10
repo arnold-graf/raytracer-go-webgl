@@ -140,7 +140,7 @@ def assemble_module(header: str, imports: str, body: str) -> str:
     imp = imports.strip()
     if imp:
         parts.append(imp)
-    b = body.lstrip("\n")
+    b = body.strip()
     if b:
         parts.append(b)
     if not parts:

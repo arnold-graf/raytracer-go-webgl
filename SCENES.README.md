@@ -118,11 +118,14 @@ same shading fields:
 | `ior` | float | `1.5` | Index of refraction (glass) |
 | `reflect` | float | `0.0` | `0..1` mirror reflection blended on top of a diffuse/textured surface |
 | `transmit` | float | `0.0` | `0..1` glass transparency (tint from `albedo`) |
+| `thin` | bool | `false` | On `glass` only: single-sheet transmission (one pass through the slab) |
 
 Notes:
 - `reflect` adds a mirror layer to an otherwise diffuse surface; it's ignored by
   materials that are already reflective/refractive (`mirror`, `metal`, `glass`,
   `emit`).
+- On `glass`, `thin = true` skips the second refraction at the back face — use
+  for window panes and other single-sheet geometry.
 - `texture` multiplies/tints by `albedo`; if `albedo` is omitted the texture
   shows its natural colors.
 
@@ -516,6 +519,11 @@ radius = 'orb_radius'
 
 Syntax:
 - **`[props]`** — overridable defaults; `props` from `[[include]]` shallow-merge on top.
+  Parent `[props]` are **not** inherited by nested includes — only keys listed in the
+  include's `props` table are passed. Use expressions like `width = 'width'` to
+  pass a parent value explicitly (evaluated in the parent env during expansion).
+  Door `panel_file` loads are an exception: they still receive the parent's
+  resolved `[props]`.
 - **`[const]`** — derived values (`half = 'width / 2'`); evaluated after merge.
 - **Single-quoted strings** at use sites — expressions (`pos_x = '-half'`,
   `albedo = 'albedo'`). Double-quoted strings and bare numbers are literals.
@@ -586,7 +594,7 @@ generated on the CPU (`internal/texture`) and ported to the WebGPU shader.
 - `metal` — glossy reflective; tinted by `albedo`, blurred by `rough`.
 - `mirror` — near-perfect reflection.
 - `glass` — refraction (tint from `albedo`, `transmit`, `ior`) blended with a
-  Fresnel reflection.
+  Fresnel reflection. Set `thin = true` for a single-sheet pane (one transmission).
 - `emit` — light-emitting; `albedo` values `> 1` set brightness.
 - `checker` — diffuse checkerboard using `albedo` + `albedo2` (planes).
 

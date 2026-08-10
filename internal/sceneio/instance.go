@@ -21,7 +21,7 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
 	}
-	dto, resolved, err := decodeSceneFile(incPath, inc.Props)
+	dto, _, err := decodeSceneFile(incPath, inc.Props)
 	if err != nil {
 		return err
 	}
@@ -37,8 +37,7 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 			childPath = filepath.Join(filepath.Dir(incPath), childPath)
 		}
 		childFollow := child.FollowTerrain
-		childParams := mergeIncludeProps(resolved, child.Props)
-		childSub, err := load(childPath, childParams, seen, deps, nil)
+		childSub, err := load(childPath, child.Props, seen, deps, nil)
 		if err != nil {
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 		}
@@ -47,7 +46,7 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 		}
 		childXf = parentXf.Compose(childXf)
-		childDTO, _, err := decodeSceneFile(childPath, childParams)
+		childDTO, _, err := decodeSceneFile(childPath, child.Props)
 		if err != nil {
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 		}
@@ -57,7 +56,7 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 			}
 			continue
 		}
-		if err := registerInstancePlacement(dst, childPath, childParams, childXf, childFollow, child.At.toV().Y, seen, deps); err != nil {
+		if err := registerInstancePlacement(dst, childPath, child.Props, childXf, childFollow, child.At.toV().Y, seen, deps); err != nil {
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 		}
 	}

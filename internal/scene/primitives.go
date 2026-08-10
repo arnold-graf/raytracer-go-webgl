@@ -27,6 +27,9 @@ type Surface struct {
 	// Transmit (0..1) is the glass transparency: 0 is opaque, 1 is fully
 	// transparent. The glass tint comes from Albedo. Ignored by other materials.
 	Transmit float64
+	// Thin marks glass as a single sheet: one transmission through the slab
+	// (no separate enter/exit refraction). Ignored by non-glass materials.
+	Thin bool
 	// NoCollision opts the primitive out of player capsule tests (walking,
 	// ground height, footsteps). Ray tracing is unaffected. Defaults to false.
 	NoCollision bool

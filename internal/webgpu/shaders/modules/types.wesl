@@ -77,7 +77,7 @@ struct Prim {
     albedo: vec4<f32>,  // linear rgb in xyz
     albedo2: vec4<f32>, // checker second color
     surf: vec4<f32>,    // rough, ior, reflect, transmit
-    info: vec4<u32>,    // kind, material, texture, flags (bit0 = transformed)
+    info: vec4<u32>,    // kind, material, texture, flags (bit0 = transformed, bit1 = thin glass)
     xf0: vec4<f32>,     // world->local rotation row0 (xyz) + translation t.x (w)
     xf1: vec4<f32>,     // world->local rotation row1 (xyz) + translation t.y (w)
     xf2: vec4<f32>,     // world->local rotation row2 (xyz) + translation t.z (w)
@@ -263,6 +263,7 @@ var<storage, read> blocker_plane_idx: array<u32>;
 const BVH_TAG_TLAS: u32 = 1u;
 
 const PRIM_FLAG_TRANSFORMED: u32 = 1u;
+const PRIM_FLAG_GLASS_THIN: u32 = 2u;
 
 const PRIM_SPHERE: u32 = 0u;
 const PRIM_PLANE: u32 = 1u;
@@ -350,38 +351,3 @@ struct Hit {
 };
 
 const HIT_NO_INSTANCE: u32 = 0xffffffffu;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

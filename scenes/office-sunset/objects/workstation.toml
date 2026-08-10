@@ -99,6 +99,20 @@ depth = 0.11
 file = "workstation-monitor.toml"
 at = [0.0, 0.3, 0.0]
 rotate_x = -8
+props = {
+  screen_id = 'screen_id',
+  material = 'material',
+  albedo = 'albedo',
+  reflect = 'reflect',
+  rough = 'rough',
+  hint = 'hint',
+  use_range = 'use_range',
+  headline = 'headline',
+  paragraphs = 'paragraphs',
+  font = 'font',
+  font_size_px = 'font_size_px',
+  font_color = 'font_color',
+}
 
 # --- keyboard (slight tilt toward user) ---
 [[box]]

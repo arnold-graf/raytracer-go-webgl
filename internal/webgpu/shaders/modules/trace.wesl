@@ -3,12 +3,12 @@
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
-import package::types::{HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_TRANSFORMED, SURFACE_EPSILON, aa_hits, flame_particles, hdr_pixels, params, pixels, prims, waters};
+import package::types::{HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SURFACE_EPSILON, aa_hits, flame_particles, hdr_pixels, params, pixels, prims, waters};
 import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc};
 import package::math::{clamp01};
 import package::texture::{plane_albedo, texture_eval, texture_eval_box};
 import package::sky::{sky};
-import package::intersect::{xf_to_local_dir, xf_to_local_point, xf_to_world_normal};
+import package::intersect::{thin_glass_exit_t, xf_to_local_dir, xf_to_local_point, xf_to_world_normal};
 import package::terrain::{terrain_normal, water_normal};
 import package::instance::{inst_local_point, inst_world_normal};
 import package::bvh::{nearest_hit};
@@ -232,6 +232,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             r0 = r0 * r0;
             let fres = r0 + (1.0 - r0) * pow(1.0 - cosi, 5.0);
             let reflectance = fres + (1.0 - fres) * (1.0 - transmit);
+            let thin = hit.kind == 0u && (prims[hit.idx].info.w & PRIM_FLAG_GLASS_THIN) != 0u;
             let eta = 1.0 / ior;
             let k = 1.0 - eta * eta * (1.0 - cosi * cosi);
             let tir = k < 0.0;
@@ -240,14 +241,26 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                 w_refl = 1.0;
             }
 
-            // Transmitted (see-through) lobe, tinted by albedo and weighted by
-            // (1 - reflectance). Skipped under TIR and near grazing angles where
-            // it is almost fully reflected anyway.
-            if (!tir && w_refl < 0.98 && sp < MAX_SEGS) {
-                let cost = sqrt(k);
-                let rr = jitter_dir(normalize(rd * eta + n * (eta * cosi - cost)), hp, rough * 0.35);
-                stack[sp] = RaySeg(hp - n * SURFACE_EPSILON, rr, tw * alb * (1.0 - reflectance), depth + 1u);
-                sp = sp + 1u;
+            if (thin) {
+                // Single-sheet glass: one transmission through the slab (no
+                // separate enter/exit refraction). The ray continues in the
+                // same direction, exiting at the far AABB face.
+                if (!tir && w_refl < 0.98 && sp < MAX_SEGS) {
+                    let t_exit = thin_glass_exit_t(prims[hit.idx], ro, rd, hit.t);
+                    let exit_hp = ro + rd * t_exit;
+                    let exit_n = -n;
+                    stack[sp] = RaySeg(exit_hp + exit_n * SURFACE_EPSILON, rd, tw * alb * (1.0 - reflectance), depth + 1u);
+                    sp = sp + 1u;
+                }
+            } else {
+                // Thick glass: refract at this interface; the back face is a
+                // separate hit with its own Fresnel/refraction lobes.
+                if (!tir && w_refl < 0.98 && sp < MAX_SEGS) {
+                    let cost = sqrt(k);
+                    let rr = jitter_dir(normalize(rd * eta + n * (eta * cosi - cost)), hp, rough * 0.35);
+                    stack[sp] = RaySeg(hp - n * SURFACE_EPSILON, rr, tw * alb * (1.0 - reflectance), depth + 1u);
+                    sp = sp + 1u;
+                }
             }
 
             // Reflected lobe (the world in front of the pane). Its weight is the
@@ -462,12 +475,3 @@ fn aa_resolve(@builtin(global_invocation_id) gid: vec3<u32>) {
     let col = supersample_edge(f32(gid.x), f32(gid.y), hdr_pixels[idx].xyz, edge.xy);
     write_pixel(g2, col);
 }
-
-
-
-
-
-
-
-
-

@@ -54,6 +54,7 @@ type surfaceDTO struct {
 	Texture   string   `toml:"texture"`
 	Reflect   float64  `toml:"reflect"`
 	Transmit  float64  `toml:"transmit"`
+	Thin      *bool    `toml:"thin"`
 	Collision *bool    `toml:"collision"`
 }
 
@@ -76,9 +77,13 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 	if s.Collision != nil && !*s.Collision {
 		noCollision = true
 	}
+	thin := false
+	if s.Thin != nil {
+		thin = *s.Thin
+	}
 	return scene.Surface{
 		Mat: mat, Albedo: s.Albedo.toV(), Albedo2: s.Albedo2.toV(), Rough: s.Rough, IOR: ior, Tex: tex,
-		Reflect: s.Reflect, Transmit: s.Transmit, NoCollision: noCollision,
+		Reflect: s.Reflect, Transmit: s.Transmit, Thin: thin, NoCollision: noCollision,
 	}, nil
 }
 
@@ -530,12 +535,15 @@ type sunDTO struct {
 // move rigidly with the parent assembly. For scattered props (e.g. a tree row),
 // set follow_terrain on each child include, not on the layout file.
 //
-// Props are merged into an object's [props] table (see internal/sceneparam).
-// Resolved [props] from the included file are forwarded to nested [[include]]
-// tables (merged with each child's explicit props; explicit keys win).
-// Object files use valid TOML with [props], [const], single-quoted expressions,
-// and comment directives (# for, # if, # let). Files without [props]/[const] are
-// passed through verbatim.
+// Props listed on the [[include]] are merged into the child's [props] table
+// (see internal/sceneparam). Parent [props] are not inherited: only keys in the
+// include's props table are passed. Expressions in those props (e.g.
+// width = 'width') are evaluated in the parent env during expansion, so values
+// can still be derived from parent props without cascading the whole map.
+// Door panel_file loads still receive the parent's resolved [props] (there is
+// no per-panel props table). Object files use valid TOML with [props], [const],
+// single-quoted expressions, and comment directives (# for, # if, # let).
+// Files without [props]/[const] are passed through verbatim.
 type includeDTO struct {
 	File            string              `toml:"file"`
 	At              vec3                `toml:"at"`
@@ -698,7 +706,7 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		}
 		var extendPlacements []scene.TerrainFollowPlacement
 		for i, inc := range dto.Include {
-			if err := mergeInclude(base, inc, filepath.Dir(path), i, resolved, seen, deps, &extendPlacements); err != nil {
+			if err := mergeInclude(base, inc, filepath.Dir(path), i, seen, deps, &extendPlacements); err != nil {
 				return nil, err
 			}
 		}
@@ -716,7 +724,8 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 
 // decodeSceneFile reads the file at path, expands parameterized object syntax
 // when present, and decodes the resulting TOML into a sceneDTO. resolved holds
-// merged [props] values for forwarding to nested [[include]] tables.
+// merged [props] values (used for door panel loads; [[include]] children only
+// receive their own explicit props).
 func decodeSceneFile(path string, params map[string]any) (sceneDTO, map[string]any, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -731,22 +740,6 @@ func decodeSceneFile(path string, params map[string]any) (sceneDTO, map[string]a
 		return sceneDTO{}, nil, fmt.Errorf("load scene %q: %w", path, err)
 	}
 	return dto, resolved, nil
-}
-
-// mergeIncludeProps combines parent resolved props with explicit include props;
-// explicit keys win.
-func mergeIncludeProps(parent, explicit map[string]any) map[string]any {
-	if len(parent) == 0 && len(explicit) == 0 {
-		return nil
-	}
-	out := make(map[string]any, len(parent)+len(explicit))
-	for k, v := range parent {
-		out[k] = v
-	}
-	for k, v := range explicit {
-		out[k] = v
-	}
-	return out
 }
 
 // Decode decodes a TOML scene from an in-memory byte slice (used for the
@@ -1023,14 +1016,14 @@ func (dto sceneDTO) buildWithIncludes(path string, parentResolved map[string]any
 		return nil, err
 	}
 	for i, inc := range dto.Include {
-		if err := mergeInclude(s, inc, filepath.Dir(path), i, parentResolved, seen, deps, followPlacements); err != nil {
+		if err := mergeInclude(s, inc, filepath.Dir(path), i, seen, deps, followPlacements); err != nil {
 			return nil, err
 		}
 	}
 	return s, nil
 }
 
-func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int, parentResolved map[string]any, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) error {
+func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) error {
 	incPath := inc.File
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
@@ -1049,7 +1042,7 @@ func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int,
 	if follow {
 		fp = nil
 	}
-	sub, err := load(incPath, mergeIncludeProps(parentResolved, inc.Props), seen, deps, fp)
+	sub, err := load(incPath, inc.Props, seen, deps, fp)
 	if err != nil {
 		return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
 	}

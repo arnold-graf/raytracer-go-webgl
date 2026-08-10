@@ -64,7 +64,7 @@ const (
 //	Albedo: linear rgb in xyz
 //	Albedo2: checker second color (MatChecker)
 //	Params: (rough, ior, reflect, transmit)
-//	Meta: (kind, material, texture, flags); flags bit0 = transformed
+//	Meta: (kind, material, texture, flags); bit0 = transformed, bit1 = thin glass
 //	Xf0/Xf1/Xf2: world->local rotation rows (xyz) + translation t in .w, valid
 //	      only when flags bit0 is set (see scene.Transform.GPUData)
 //
@@ -88,6 +88,16 @@ const primStride = 144
 // primFlagTransformed marks a primitive whose Xf0..Xf2 hold a valid
 // world->local transform (mirrored by PRIM_FLAG_TRANSFORMED in trace.wgsl).
 const primFlagTransformed uint32 = 1
+
+// primFlagGlassThin marks glass as a single sheet (one transmission event).
+const primFlagGlassThin uint32 = 2
+
+func surfaceFlags(s scene.Surface) uint32 {
+	if s.Mat == scene.MatGlass && s.Thin {
+		return primFlagGlassThin
+	}
+	return 0
+}
 
 // maxHoles caps the shared box-hole CSG buffer.
 const maxHoles = 1024
@@ -182,7 +192,7 @@ func PackPrimitives(s *scene.Scene) []GPUPrimitive {
 			Albedo:  albedo(pl.Albedo),
 			Albedo2: albedo(pl.Albedo2),
 			Params:  surfaceParams(pl.Surface),
-			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), 0},
+			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), surfaceFlags(pl.Surface)},
 		})
 	}
 	holeStart := uint32(0)
@@ -233,7 +243,7 @@ func spherePrim(sp *scene.Sphere) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(sp.Surface),
-		Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), 0},
+		Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), surfaceFlags(sp.Surface)},
 	}
 	setXform(&p, sp.Xform)
 	return p
@@ -248,7 +258,7 @@ func boxPrim(bx *scene.Box, holeStart uint32) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(bx.Surface),
-		Meta:    [4]uint32{primBox, uint32(bx.Mat), uint32(bx.Tex), 0},
+		Meta:    [4]uint32{primBox, uint32(bx.Mat), uint32(bx.Tex), surfaceFlags(bx.Surface)},
 	}
 	setXform(&p, bx.Xform)
 	return p
@@ -266,7 +276,7 @@ func cylinderPrim(c *scene.Cylinder) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(c.Surface),
-		Meta:    [4]uint32{primCylinder, uint32(c.Mat), uint32(c.Tex), 0},
+		Meta:    [4]uint32{primCylinder, uint32(c.Mat), uint32(c.Tex), surfaceFlags(c.Surface)},
 	}
 	setXform(&p, c.Xform)
 	return p
@@ -284,7 +294,7 @@ func conePrim(c *scene.Cone) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(c.Surface),
-		Meta:    [4]uint32{primCone, uint32(c.Mat), uint32(c.Tex), 0},
+		Meta:    [4]uint32{primCone, uint32(c.Mat), uint32(c.Tex), surfaceFlags(c.Surface)},
 	}
 	setXform(&p, c.Xform)
 	return p
@@ -298,7 +308,7 @@ func torusPrim(t *scene.Torus) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(t.Surface),
-		Meta:    [4]uint32{primTorus, uint32(t.Mat), uint32(t.Tex), 0},
+		Meta:    [4]uint32{primTorus, uint32(t.Mat), uint32(t.Tex), surfaceFlags(t.Surface)},
 	}
 	setXform(&p, t.Xform)
 	return p
@@ -316,7 +326,7 @@ func ringPrim(r *scene.Ring) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(r.Surface),
-		Meta:    [4]uint32{primRing, uint32(r.Mat), uint32(r.Tex), 0},
+		Meta:    [4]uint32{primRing, uint32(r.Mat), uint32(r.Tex), surfaceFlags(r.Surface)},
 	}
 	setXform(&p, r.Xform)
 	return p
@@ -334,7 +344,7 @@ func lensPrim(l *scene.Lens) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(l.Surface),
-		Meta:    [4]uint32{primLens, uint32(l.Mat), uint32(l.Tex), 0},
+		Meta:    [4]uint32{primLens, uint32(l.Mat), uint32(l.Tex), surfaceFlags(l.Surface)},
 	}
 	setXform(&p, l.Xform)
 	return p
@@ -386,7 +396,7 @@ func PackBlockers(s *scene.Scene) []GPUPrimitive {
 			Albedo:  albedo(pl.Albedo),
 			Albedo2: albedo(pl.Albedo2),
 			Params:  surfaceParams(pl.Surface),
-			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), 0},
+			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), surfaceFlags(pl.Surface)},
 		})
 	}
 	// holeStart accumulates over every box (even skipped glass ones) so the

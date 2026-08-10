@@ -1,14 +1,16 @@
 # Vertical grid panel (lattice wall) in local coordinates.
 #
 # Origin (0,0,0) is the bottom-left-front corner. The panel stands in the
-# +X/+Y plane; depth runs in +Z. Vertical beams are unit_size wide; horizontal
-# beams are unit_size tall; gaps between beams are also unit_size (square holes).
+# +X/+Y plane; depth runs in +Z. Vertical beams are beam_size wide; horizontal
+# beams are beam_size tall; gaps between beams are unit_size (square holes).
 #
 # Parameterized via [[include]] props (all optional):
 #   width      panel width in X                  (default 4.0)
 #   height     panel height in Y                 (default 4.0)
 #   depth      panel thickness in Z              (default 0.1)
-#   unit_size  beam width/height and gap size    (default 0.5)
+#   unit_size  hole / gap size between beams    (default 0.5)
+#   beam_size  vertical beam width and          (default: same as unit_size)
+#              horizontal beam height
 #   albedo     RGB colour                        (default [0.5, 0.5, 0.5])
 #   material   surface type                      (default "diffuse")
 #   reflect    specular reflectance              (default 0.05)
@@ -19,13 +21,15 @@
 #   file = "objects/grid.toml"
 #   at = [0.0, 0.0, 0.0]
 #   props = { width = 8.0, height = 6.0, depth = 0.15, unit_size = 0.4,
-#              albedo = [0.35, 0.35, 0.38], material = "metal", reflect = 0.45 }
+#              beam_size = 0.15, albedo = [0.35, 0.35, 0.38],
+#              material = "metal", reflect = 0.45 }
 
 [props]
 width = 4.0
 height = 4.0
 depth = 0.1
 unit_size = 0.5
+beam_size = 'unit_size'
 material = "diffuse"
 texture = "none"
 reflect = 0.0
@@ -41,7 +45,7 @@ h_count = 'floor((height + unit_size) / period)'
 pos_x = 'i * period'
 pos_y = 0.0
 pos_z = 0.0
-width = 'unit_size'
+width = 'beam_size'
 height = 'height'
 depth = 'depth'
 material = 'material'
@@ -56,7 +60,7 @@ pos_x = 0.0
 pos_y = 'j * period'
 pos_z = 0.0
 width = 'width'
-height = 'unit_size'
+height = 'beam_size'
 depth = 'depth'
 material = 'material'
 albedo = 'albedo'

@@ -346,6 +346,10 @@
         "transmit": {
           "$ref": "#/definitions/surface_transmit"
         },
+        "thin": {
+          "type": "boolean",
+          "description": "When true on glass, treat the surface as a single sheet: one transmission through the slab (no separate enter/exit refraction). Ignored for non-glass materials."
+        },
         "collision": {
           "type": "boolean",
           "description": "When false, the primitive is ignored by player movement, ground height, and footstep queries. Ray tracing is unaffected. Defaults to true."
@@ -1705,7 +1709,7 @@
         },
         "props": {
           "$ref": "#/definitions/meta_table",
-          "description": "Properties merged into the included file's [props] table."
+          "description": "Properties merged into the included file's [props] table. Only these keys are passed; the parent's [props] are not inherited. Expressions (e.g. width = 'width') are evaluated in the parent env during expansion."
         }
       },
       "required": [

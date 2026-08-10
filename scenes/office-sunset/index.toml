@@ -1,39 +1,39 @@
 
 # sunset
-# [environment]
-# sky = "sunset"
-# ambient_sky = [0.20, 0.12, 0.10]
-# sun_dir = [-0.35, -0.22, 0.90]
-# sun_color = [1.40, 0.55, 0.22]
-
-# Sun in a low position to the left of the server-room (sunset)
-# [[light]]
-# pos = [-10.35, 200, 0]
-# color = [1.4, 0.55, 0.22]
-# brightness = 20.0
-# range = 100
-
-# night storm
 [environment]
-sky = "night_storm"
-ambient_sky = [0.01, 0.01, 0.01]
+sky = "sunset"
+ambient_sky = [0.20, 0.12, 0.10]
 sun_dir = [-0.35, -0.22, 0.90]
 sun_color = [1.40, 0.55, 0.22]
 
-# Moonlight
+# Sun in a low position to the left of the server-room (sunset)
 [[light]]
-pos = [200, 350, 100]
-color = [0.5, 0.5, 1]
-brightness = 150
-range = 300
+pos = [-10.35, 200, 0]
+color = [1.4, 0.55, 0.22]
+brightness = 20.0
+range = 100
+
+# night storm
+# [environment]
+# sky = "night_storm"
+# ambient_sky = [0.035, 0.035, 0.035]
+# sun_dir = [-0.35, -0.22, 0.90]
+# sun_color = [1.40, 0.55, 0.22]
+
+# Moonlight
+# [[light]]
+# pos = [200, 350, 100]
+# color = [0.5, 0.5, 1]
+# brightness = 150
+# range = 300
 
 # Moon
-[[sphere]]
-material = "diffuse"
-texture = "cement"
-center = [260, 410, 150]
-albedo = [10,10,10]
-radius = 30
+# [[sphere]]
+# material = "diffuse"
+# texture = "cement"
+# center = [260, 410, 150]
+# albedo = [10,10,10]
+# radius = 30
 
 [camera]
 # Eye height on the server-room floor (y=200.2 + 1.6), facing the cube (-Z).
@@ -94,6 +94,11 @@ pos_x = 20.0
 pos_y = 0
 pos_z = 50.0
 
+[[include]]
+file = 'office-atrium.toml'
+at = [20, 200, 50]
+transform_origin = [0,0,0]
+props = {width = 100}
 
 [[include]]
 file = "objects/skyscrapers-distance.toml"

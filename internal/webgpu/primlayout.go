@@ -124,7 +124,7 @@ func repackGPUPrim(s *scene.Scene, l primLayout, gpuIdx int, dst *GPUPrimitive) 
 			Albedo:  albedo(pl.Albedo),
 			Albedo2: albedo(pl.Albedo2),
 			Params:  surfaceParams(pl.Surface),
-			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), 0},
+			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), surfaceFlags(pl.Surface)},
 		}
 		return
 	}
