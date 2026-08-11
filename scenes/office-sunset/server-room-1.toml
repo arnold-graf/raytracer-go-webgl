@@ -107,7 +107,7 @@ depth = 5
 [[include]]
 file = "objects/art-deco-door-frame.toml"
 transform_origin = [0, 0, 0]
-at = [39.9, 0, 8]
+at = [39, 0, 8]
 props = { width = 5, height = 4, depth = 1, texture = "marble", albedo = [0.7, 0.7, 0.7]}
 
 # east wall (top cover)

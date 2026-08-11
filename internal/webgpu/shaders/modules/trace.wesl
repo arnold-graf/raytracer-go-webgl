@@ -3,13 +3,14 @@
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
-import package::types::{HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SURFACE_EPSILON, aa_hits, flame_particles, hdr_pixels, params, pixels, prims, waters};
+import package::types::{HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SURFACE_EPSILON, aa_hits, hdr_pixels, params, pixels, prims, waters};
 import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc};
 import package::math::{clamp01};
 import package::texture::{plane_albedo, texture_eval, texture_eval_box};
 import package::sky::{sky};
 import package::intersect::{thin_glass_exit_t, xf_to_local_dir, xf_to_local_point, xf_to_world_normal};
 import package::terrain::{terrain_normal, water_normal};
+import package::flame::{accumulate_flame, heat_shimmer_dir};
 import package::instance::{inst_local_point, inst_world_normal};
 import package::bvh::{nearest_hit};
 import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, shade_diffuse, terrain_albedo};
@@ -76,16 +77,29 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         sp = sp - 1u;
         let seg = stack[sp];
         let ro = seg.ro;
-        let rd = seg.rd;
         let tw = seg.w;
         let depth = seg.depth;
+        var rd = seg.rd;
+        var hit: Hit;
+        if (depth == 0u) {
+            let pre = nearest_hit(ro, rd);
+            let occluded = pre.idx != 0xffffffffu;
+            let rd_new = heat_shimmer_dir(ro, rd, params.time, pre.t, occluded);
+            if (dot(rd_new, rd) < 0.99999) {
+                rd = rd_new;
+                hit = nearest_hit(ro, rd);
+            } else {
+                hit = pre;
+            }
+        } else {
+            hit = nearest_hit(ro, rd);
+        }
         prof_inc(PROF_PATH_SEGS, 1u);
-
-        let hit = nearest_hit(ro, rd);
         if (!got_primary) {
             primary = hit;
             got_primary = true;
         }
+        accum = accum + tw * accumulate_flame(ro, rd, hit.t, params.time);
         if (hit.idx == 0xffffffffu) {
             prof_inc(PROF_SKY, 1u);
             if (depth == 0u) {
@@ -177,11 +191,6 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             mat = MAT_DIFFUSE;
             n = terrain_normal(hit.idx, hp);
             alb = terrain_albedo(hit.idx, hp, n);
-        } else if (hit.kind == 3u) {
-            let fp = flame_particles[hit.idx];
-            mat = MAT_EMIT;
-            alb = fp.color.xyz;
-            n = normalize(hp - fp.pos.xyz);
         } else {
             let wp = waters[hit.idx];
             mat = wp.info.x;

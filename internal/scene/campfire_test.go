@@ -95,3 +95,15 @@ func TestCampfirePeakChannelBoundsColor(t *testing.T) {
 		}
 	}
 }
+
+func TestCampfireFlamePaletteDefaults(t *testing.T) {
+	e, m, ti, a := (Campfire{}).FlamePalette()
+	if e != DefaultFlameEmber || m != DefaultFlameMid || ti != DefaultFlameTip || a != DefaultFlameAsh {
+		t.Fatalf("defaults: ember=%v mid=%v tip=%v ash=%v", e, m, ti, a)
+	}
+	custom := Campfire{FlameMid: vec.V{1, 2, 3}}
+	_, m, _, _ = custom.FlamePalette()
+	if m != (vec.V{1, 2, 3}) {
+		t.Fatalf("custom mid = %v", m)
+	}
+}

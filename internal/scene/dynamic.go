@@ -57,6 +57,7 @@ type DynamicBody struct {
 	Spheres   [2]int
 	Lenses    [2]int
 	Lights    [2]int
+	Campfires [2]int
 }
 
 // IsDynamicCylinder reports whether cylinder index i belongs to a DynamicBody.
@@ -81,7 +82,8 @@ func (db DynamicBody) Attached(s *Scene) bool {
 		inRange(db.Cylinders, len(s.Cylinders)) &&
 		inRange(db.Spheres, len(s.Spheres)) &&
 		inRange(db.Lenses, len(s.Lenses)) &&
-		inRange(db.Lights, len(s.Lights))
+		inRange(db.Lights, len(s.Lights)) &&
+		inRange(db.Campfires, len(s.Campfires))
 }
 
 func inRange(span [2]int, n int) bool {
@@ -105,6 +107,7 @@ func (s *Scene) RemoveDynamicBody(db DynamicBody) {
 	s.Spheres = spliceRange(s.Spheres, db.Spheres[0], db.Spheres[1])
 	s.Lenses = spliceRange(s.Lenses, db.Lenses[0], db.Lenses[1])
 	s.Lights = spliceRange(s.Lights, db.Lights[0], db.Lights[1])
+	s.Campfires = spliceRange(s.Campfires, db.Campfires[0], db.Campfires[1])
 
 	out := s.DynamicBodies[:0]
 	for _, b := range s.DynamicBodies {
@@ -129,6 +132,7 @@ func shiftDynamicBody(b, removed DynamicBody) DynamicBody {
 	b.Spheres = shiftSpan(b.Spheres, removed.Spheres)
 	b.Lenses = shiftSpan(b.Lenses, removed.Lenses)
 	b.Lights = shiftSpan(b.Lights, removed.Lights)
+	b.Campfires = shiftSpan(b.Campfires, removed.Campfires)
 	return b
 }
 

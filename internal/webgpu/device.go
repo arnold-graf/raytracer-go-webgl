@@ -81,7 +81,6 @@ type Renderer struct {
 	instRecs  *wgpu.Buffer
 	planeIdx  *wgpu.Buffer
 	blkPlane  *wgpu.Buffer
-	flames    *wgpu.Buffer
 	output    *wgpu.Buffer
 	hdrPixels *wgpu.Buffer
 	aaHits    *wgpu.Buffer
@@ -358,14 +357,6 @@ func (r *Renderer) init() error {
 	if err != nil {
 		return fmt.Errorf("create blocker plane indices buffer: %w", err)
 	}
-	r.flames, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
-		Label: "flame particles",
-		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
-		Size:  maxFlameParticles * flameParticleStride,
-	})
-	if err != nil {
-		return fmt.Errorf("create flame particles buffer: %w", err)
-	}
 	r.profile, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "profile counters",
 		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopySrc | wgpu.BufferUsage_CopyDst,
@@ -531,9 +522,8 @@ func (r *Renderer) init() error {
 			{Binding: 21, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainFeatureStride}},
 			{Binding: 22, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainPadStride}},
 			{Binding: 23, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 8}},
-			{Binding: 24, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: flameParticleStride}},
-			{Binding: 25, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: hdrPixStride}},
-			{Binding: 26, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: aaHitStride}},
+			{Binding: 24, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: hdrPixStride}},
+			{Binding: 25, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: aaHitStride}},
 		},
 	})
 	if err != nil {
@@ -601,9 +591,8 @@ func (r *Renderer) init() error {
 			{Binding: 21, Buffer: r.terrFeat, Size: maxTerrainFeatures * terrainFeatureStride},
 			{Binding: 22, Buffer: r.terrPads, Size: maxTerrainPads * terrainPadStride},
 			{Binding: 23, Buffer: r.terrMips, Size: maxTerrainMipVals * 8},
-			{Binding: 24, Buffer: r.flames, Size: maxFlameParticles * flameParticleStride},
-			{Binding: 25, Buffer: r.hdrPixels, Size: hdrSize},
-			{Binding: 26, Buffer: r.aaHits, Size: uint64(r.maxDim * r.maxDim * aaHitStride)},
+			{Binding: 24, Buffer: r.hdrPixels, Size: hdrSize},
+			{Binding: 25, Buffer: r.aaHits, Size: uint64(r.maxDim * r.maxDim * aaHitStride)},
 		},
 	})
 	if err != nil {
@@ -708,7 +697,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 			uploadStatic = true
 		} else if !r.cache.transformsFresh(v) {
 			r.cache.updateDynamicTransforms(v.Scene)
-			uploadPartial = len(r.cache.partialPrimSpans) > 0 || len(r.cache.partialBlockerSpans) > 0 || r.cache.lightsDirty
+			uploadPartial = len(r.cache.partialPrimSpans) > 0 || len(r.cache.partialBlockerSpans) > 0 || r.cache.lightsDirty || r.cache.campfiresDirty
 		} else if v.AOok && v.AOVersion != r.cache.aoVersion {
 			r.cache.ao, r.cache.aoOK = PackAOVolume(v)
 			r.cache.aoVersion = v.AOVersion
@@ -749,6 +738,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		ambientSky: ambientSky, ambientGround: ambientGround,
 		uploadStatic: uploadStatic, uploadPartial: uploadPartial,
 		uploadLights:    c.lightsDirty,
+		uploadCampfires: c.campfiresDirty,
 		partialPrimSpans:    c.partialPrimSpans,
 		partialBlockerSpans: c.partialBlockerSpans,
 	}
@@ -756,9 +746,6 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		rp.colorQuant = v.ColorQuant
 		rp.adaptiveAA = v.AdaptiveAA
 		rp.maxBounceDepth = v.MaxBounceDepth
-		if v.Flames != nil {
-			rp.flameParticles = PackFlameParticles(v.Flames.ActiveParticles())
-		}
 	}
 	if v == nil || v.Scene == nil {
 		rp = renderParams{}
@@ -806,7 +793,6 @@ type renderParams struct {
 	terrainMips      []float32
 	waters           []GPUWater
 	campfireParams   []CampfireParams
-	flameParticles   []GPUFlameParticle
 	holes            []GPUHole
 	boxFaceTex       []uint32
 	ao               AOVolume
@@ -836,6 +822,7 @@ type renderParams struct {
 	// uploadPartial re-sends only dirty primitive spans + refit BVH after NPC pose updates.
 	uploadPartial       bool
 	uploadLights        bool
+	uploadCampfires     bool
 	partialPrimSpans    [][2]int
 	partialBlockerSpans [][2]int
 }
@@ -853,13 +840,6 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 	}
 	params := r.paramsBytes(cam, p, fw, fh)
 	if err := r.queue.WriteBuffer(r.params, 0, params[:]); err != nil {
-		return err
-	}
-	if data := flameBytes(p.flameParticles); len(data) > 0 {
-		if err := r.queue.WriteBuffer(r.flames, 0, data); err != nil {
-			return err
-		}
-	} else if err := r.queue.WriteBuffer(r.flames, 0, make([]byte, flameParticleStride)); err != nil {
 		return err
 	}
 	// Static scene buffers are re-sent only when the cache was rebuilt this
@@ -1001,6 +981,12 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 				return err
 			}
 			r.cache.lightsDirty = false
+		}
+		if p.uploadCampfires && len(p.campfireParams) > 0 {
+			if err := r.queue.WriteBuffer(r.campfires, 0, campfireBytes(p.campfireParams)); err != nil {
+				return err
+			}
+			r.cache.campfiresDirty = false
 		}
 	}
 	r.timing.Upload = time.Since(uploadStart)
@@ -1294,7 +1280,7 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	}
 	putU32(out[324:328], uint32(len(p.planeIdx)))
 	putU32(out[328:332], uint32(len(p.blockerPlaneIdx)))
-	putU32(out[332:336], uint32(len(p.flameParticles)))
+	putU32(out[332:336], 0) // flame_particle_count (legacy; volumetric flames use campfire params)
 	if p.adaptiveAA {
 		putU32(out[336:340], 1)
 	}
@@ -1377,9 +1363,6 @@ func (r *Renderer) Release() {
 	}
 	if r.blkPlane != nil {
 		r.blkPlane.Release()
-	}
-	if r.flames != nil {
-		r.flames.Release()
 	}
 	if r.output != nil {
 		r.output.Release()

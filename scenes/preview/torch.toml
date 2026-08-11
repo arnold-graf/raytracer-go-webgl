@@ -1,4 +1,4 @@
-# Flashlight mesh preview in a dim room (static placement; in-game it follows F).
+# Torch mesh preview in a dim room (static placement; in-game it follows F).
 [environment]
 sky = "night_stars"
 ambient_sky = [0.04, 0.05, 0.08]
@@ -37,6 +37,6 @@ height = 3.0
 depth = 0.02
 
 [[include]]
-file = "../objects/flashlight.toml"
-at = [0.0, 1.1, 0.6]
+file = "../objects/torch.toml"
+at = [0.0, 1.0, 0.6]
 rotate_y = 180

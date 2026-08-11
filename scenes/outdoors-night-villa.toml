@@ -16,7 +16,7 @@ pitch = 0.04
 
 [environment]
 sky = "night_stars"
-ambient_sky = [0.060, 0.075, 0.100]
+# ambient_sky = [0.060, 0.075, 0.100]
 ambient_ground = [0.018, 0.020, 0.026]
 sun_dir = [1, -1.2, 0.90]
 sun_color = [0.16, 0.19, 0.27]

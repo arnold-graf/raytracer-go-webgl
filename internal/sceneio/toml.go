@@ -339,6 +339,7 @@ type lightFlickeringDTO struct {
 	FlameMid   *vec3   `toml:"flame_mid"`
 	FlameTip   *vec3   `toml:"flame_tip"`
 	FlameAsh   *vec3   `toml:"flame_ash"`
+	FlameScale float64 `toml:"flame_scale"`
 }
 
 type soundDTO struct {
@@ -399,6 +400,7 @@ func (d lightFlickeringDTO) build() scene.Campfire {
 	if d.FlameAsh != nil {
 		c.FlameAsh = d.FlameAsh.toV()
 	}
+	c.FlameScale = d.FlameScale
 	if c.Color == (vec.V{}) {
 		c.Color = vec.New(3.6, 1.7, 0.55) // warm default
 	}

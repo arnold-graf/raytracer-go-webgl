@@ -133,8 +133,7 @@ type Game struct {
 	lastTraceAt time.Time
 	traceFPS    float64
 
-	npcs   *npc.Manager
-	flames scene.FlameSystem
+	npcs *npc.Manager
 
 	doors *door.Manager
 
@@ -145,8 +144,8 @@ type Game struct {
 	// npcDebug draws skeleton/foot overlay segments (key 6).
 	npcDebug bool
 
-	spyglass   Spyglass
-	flashlight Flashlight
+	spyglass Spyglass
+	torch    Torch
 }
 
 // New builds a game with the given internal render resolution rendering the
@@ -238,10 +237,9 @@ func (g *Game) setScene(sc *scene.Scene) {
 	if err := g.spyglass.Init(); err != nil {
 		fmt.Fprintf(os.Stderr, "spyglass: %v\n", err)
 	}
-	if err := g.flashlight.Init(); err != nil {
-		fmt.Fprintf(os.Stderr, "flashlight: %v\n", err)
+	if err := g.torch.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "torch: %v\n", err)
 	}
-	g.flames.Reset(scene.FlameCampfires(sc.Campfires))
 	g.aoMu.Lock()
 	g.aoOK = false
 	g.aoData = probe.AOData{}
@@ -282,7 +280,6 @@ func (g *Game) view() *render.View {
 		ColorQuant:     g.colorQuant,
 		AdaptiveAA:     g.adaptiveAA,
 		MaxBounceDepth: 4,
-		Flames:         &g.flames,
 	}
 }
 
@@ -574,7 +571,7 @@ func (g *Game) Update() error {
 			g.screens.Update(g.sc, g.cam, aspect, 1.0/60.0)
 		}
 		g.spyglass.Update(g.sc, g.cam, 1.0/60.0)
-		g.flashlight.Update(g.sc, g.cam, 1.0/60.0)
+		g.torch.Update(g.sc, g.cam, 1.0/60.0)
 	}
 	g.updateFade()
 	g.updatePortalTransition()
@@ -582,11 +579,6 @@ func (g *Game) Update() error {
 	// Advance the animation clock (Update runs at a fixed 60 Hz). view() reads
 	// it each frame, so there is nothing else to push.
 	g.elapsed += 1.0 / 60.0
-	if g.sc != nil {
-		if fires := scene.FlameCampfires(g.sc.Campfires); len(fires) > 0 {
-			g.flames.Update(fires, g.elapsed, 1.0/60.0)
-		}
-	}
 
 	return nil
 }
@@ -682,7 +674,7 @@ func expo(v float64) float64 { return v * math.Abs(v) }
 // rebuilds on change. A failed parse (e.g. caught mid-save) keeps the current
 // scene and is retried on the next poll, so the app never crashes on a bad edit.
 func (g *Game) checkReload() {
-	if g.scenePath == "" && g.playerPath == "" {
+	if g.scenePath == "" && g.playerPath == "" && g.torch.srcPath == "" {
 		return
 	}
 	// Poll ~4x/second rather than every frame; os.Stat is cheap but not free.
@@ -701,6 +693,11 @@ func (g *Game) checkReload() {
 				g.playerMod = mt
 			}
 		}
+	}
+	if reloaded, err := g.torch.ReloadIfDirty(g.sc); err != nil {
+		g.setReloadMsg("torch reload FAILED: " + err.Error())
+	} else if reloaded {
+		g.setReloadMsg("torch reloaded")
 	}
 }
 
@@ -820,7 +817,7 @@ func (g *Game) handleToggles() {
 		g.spyglass.Toggle()
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF) {
-		g.flashlight.Toggle()
+		g.torch.Toggle()
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyH) {
 		switch g.fpsCap {
@@ -957,7 +954,7 @@ func (g *Game) statusLine() string {
 }
 
 func (g *Game) helpLine() string {
-	return "WASD/arrows move   mouse look   Space jump   Shift sprint   C crouch   E/X use   F flashlight   Q spyglass   6 NPC debug   P pose dump+report   pad: sticks move/look, triggers crouch/run, A jump, X use"
+	return "WASD/arrows move   mouse look   Space jump   Shift sprint   C crouch   E/X use   F torch   Q spyglass   6 NPC debug   P pose dump+report   pad: sticks move/look, triggers crouch/run, A jump, X use"
 }
 
 func onOff(b bool) string {

@@ -38,7 +38,7 @@ const (
 	maxTerrainFeatures = 256
 	maxTerrainPads     = 64
 	maxTerrainMipVals  = 1 << 21 // min/max pairs as vec2 (8 bytes each)
-	maxWaters      = 64
+	maxWaters          = 64
 )
 
 const (
@@ -613,15 +613,19 @@ func PackWaters(s *scene.Scene) []GPUWater {
 // CampfireParams holds a campfire's constant parameters. The campfire shader
 // resolves sub-light positions and intensities from these each frame, so this
 // struct is uploaded once as part of the static scene cache. Mirrors struct
-// CampfireParams in trace.wgsl (std430, 64-byte stride).
+// CampfireParams in trace.wgsl (std430, 128-byte stride).
 type CampfireParams struct {
-	Core  [4]float32 // cx, cy, cz, range
-	Color [4]float32 // r, g, b, 0
-	Param [4]float32 // brightness, jitter, flicker, speed
-	Phase [4]float32 // seed phase, 0, 0, 0
+	Core       [4]float32 // cx, cy, cz, range
+	Color      [4]float32 // r, g, b, 0
+	Param      [4]float32 // brightness, jitter, flicker, speed
+	Phase      [4]float32 // seed, flame_enabled (1 or 0), flame_scale, 0
+	FlameEmber [4]float32
+	FlameMid   [4]float32
+	FlameTip   [4]float32
+	FlameAsh   [4]float32
 }
 
-const campfireStride = 64
+const campfireStride = 128
 
 // PackPerm returns Perlin's 512-entry permutation table for the GPU noise.
 func PackPerm() []uint32 {
@@ -651,18 +655,34 @@ func PackCampfireParams(s *scene.Scene) []CampfireParams {
 		if speed == 0 {
 			speed = 1
 		}
+		fs := float32(fr.FlameScale)
+		if fs <= 0 {
+			fs = 1
+		}
 		p := CampfireParams{
 			Core:  [4]float32{f(fr.Center.X), f(fr.Center.Y), f(fr.Center.Z), f(fr.Range)},
 			Color: albedo(fr.Color),
 			Param: [4]float32{f(bright), f(fr.Jitter), f(fr.Flicker), f(speed)},
-			Phase: [4]float32{f(fr.Seed), 0, 0, 0},
+			Phase: [4]float32{f(fr.Seed), flameEnabled(fr.Flame), fs, 0},
 		}
+		ember, mid, tip, ash := fr.FlamePalette()
+		p.FlameEmber = albedo(ember)
+		p.FlameMid = albedo(mid)
+		p.FlameTip = albedo(tip)
+		p.FlameAsh = albedo(ash)
 		out = append(out, p)
 		if len(out) >= maxCampfires {
 			break
 		}
 	}
 	return out
+}
+
+func flameEnabled(on bool) float32 {
+	if on {
+		return 1
+	}
+	return 0
 }
 
 // AOVolume is the GPU-side handle for a baked ambient-occlusion volume: scalar

@@ -109,7 +109,7 @@
     },
     "light_flickering": {
       "type": "array",
-      "description": "TOML [[light_flickering]]. Flickering warm light cluster; optional flame = true adds ray-traced particle flame geometry.",
+      "description": "TOML [[light_flickering]]. Flickering warm light cluster; optional flame = true adds a procedural volumetric flame at the core.",
       "items": {
         "$ref": "#/definitions/light_flickering"
       }
@@ -1067,7 +1067,7 @@
     },
     "light_flickering": {
       "type": "object",
-      "description": "Animated flickering point-light cluster. With flame = true, also emits ray-traced particle flame spheres at the core.",
+      "description": "Animated flickering point-light cluster. With flame = true, also renders a procedural volumetric flame and heat shimmer above the core.",
       "properties": {
         "center": {
           "$ref": "#/definitions/vec3",
@@ -1107,11 +1107,11 @@
         },
         "flame": {
           "type": "boolean",
-          "description": "Emit a ray-traced particle flame at the core. Defaults to false."
+          "description": "Render a procedural volumetric flame at the core (with heat shimmer above). Defaults to false."
         },
         "flame_ember": {
           "$ref": "#/definitions/rgb_or_expr",
-          "description": "Linear HDR RGB for particles at birth (base of the flame). Defaults to warm red when omitted."
+          "description": "Linear HDR RGB at the base of the volumetric flame. Defaults to warm red when omitted."
         },
         "flame_mid": {
           "$ref": "#/definitions/rgb_or_expr",
@@ -1124,6 +1124,10 @@
         "flame_ash": {
           "$ref": "#/definitions/rgb_or_expr",
           "description": "Linear HDR RGB for particles at end of life. Defaults to dim red-brown when omitted."
+        },
+        "flame_scale": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Volumetric flame size multiplier (1 = default campfire scale). Use ~0.25–0.35 for a handheld torch."
         }
       },
       "required": [

@@ -14,7 +14,7 @@ wall_thickness = 1
 color = [1.4, 0.55, 0.22]
 brightness = 40.0
 range = 200
-pos = [30, 30, -25]
+pos = [-20, 10, -25]
 # endif
 
 # floor
@@ -22,12 +22,13 @@ pos = [30, 30, -25]
 pos_x = 0
 pos_y = -0.005
 pos_z = 0
+material = "checker"
 texture = "marble"
-material = "diffuse"
 width = 'width'
 depth = 'depth'
 height = 0.01
-albedo = [0.2,0.2,0.2]
+albedo = [0.5,0.5,0.5]
+albedo2 = [0.7,0.7,0.7]
 reflect = 0.05
 rough = 0.01
 
@@ -43,14 +44,41 @@ transmit = 0.7
 material = "glass"
 thin = true
 albedo = [0.9, 0.9, 0.9]
+[[box.hole]]
+depth = 2
+height = 4.5
+width = 8
+pos_x = 21
+pos_y = 0
+pos_z = -1
+
+[[include]]
+file = "objects/art-deco-door-frame.toml"
+at = [30, 0, 0]
+rotate_y = -90
+transform_origin = [0, 0, 0]
+props = { width = 8, height = 4.5, depth = 1}
 
 # north wall (grid)
 [[include]]
 file = "../objects/grid.toml"
-at = [1.5, 0, 0]
+at = [0, 0, 1]
 transform_origin = [0, 0, 0]
-rotate_y = -90
-props = { depth = 0.5, width = 'width', height = 25, unit_size = 3, beam_size = '0.2'}
+props = { depth = 0.5, width = 21, height = 'height', unit_size = 3, beam_size = '0.2', albedo = [2,2,2], texture = "cement"}
+
+[[include]]
+file = "../objects/grid.toml"
+at = [21, 6, 1]
+transform_origin = [0, 0, 0]
+props = { depth = 0.5, width = 11, height = 'height - 6', unit_size = 3, beam_size = '0.2', albedo = [2,2,2], texture = "cement"}
+
+[[include]]
+file = "../objects/grid.toml"
+at = [32, 0, 1]
+transform_origin = [0, 0, 0]
+props = { depth = 0.5, width = 21, height = 'height', unit_size = 3, beam_size = '0.2', albedo = [2,2,2], texture = "cement"}
+
+
 
 # east wall (glass)
 [[box]]
@@ -92,11 +120,20 @@ material = "glass"
 thin = true
 albedo = [0.9, 0.9, 0.9]
 
+# west wall (grid)
+[[include]]
+file = "../objects/grid.toml"
+at = [1.5, 0, 0]
+transform_origin = [0, 0, 0]
+rotate_y = -90
+props = { depth = 0.5, width = 'width', height = 25, unit_size = 3, beam_size = '0.2', albedo = [1,1,1]}
+
+
 # for i in range(5)
 [[include]]
 file = "objects/steel-beam.toml"
 at = ['15 * i + 5', 0, 10]
 transform_origin = [0,0,0]
 rotate_z = 90
-props = { width = 20, rough = 0.01, reflect = 0.02, albedo = [0.4,0.5,1] }
+props = { width = 20, rough = 0.01, reflect = 0.01, albedo = [0.4,0.5,1] }
 # endfor

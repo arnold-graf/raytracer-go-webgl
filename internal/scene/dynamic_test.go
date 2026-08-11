@@ -7,9 +7,10 @@ func TestRemoveDynamicBodyShiftsLaterBodies(t *testing.T) {
 		Boxes:     make([]Box, 5),
 		Cylinders: make([]Cylinder, 6),
 		Lights:    make([]Light, 2),
+		Campfires: make([]Campfire, 2),
 		DynamicBodies: []DynamicBody{
-			{Name: "first", Cylinders: [2]int{2, 4}, Lights: [2]int{0, 1}},
-			{Name: "second", Cylinders: [2]int{4, 6}, Lights: [2]int{1, 2}},
+			{Name: "first", Cylinders: [2]int{2, 4}, Lights: [2]int{0, 1}, Campfires: [2]int{0, 1}},
+			{Name: "second", Cylinders: [2]int{4, 6}, Lights: [2]int{1, 2}, Campfires: [2]int{1, 2}},
 		},
 	}
 	sc.RemoveDynamicBody(sc.DynamicBodies[0])
@@ -18,6 +19,9 @@ func TestRemoveDynamicBodyShiftsLaterBodies(t *testing.T) {
 	}
 	if len(sc.Lights) != 1 {
 		t.Fatalf("lights = %d, want 1", len(sc.Lights))
+	}
+	if len(sc.Campfires) != 1 {
+		t.Fatalf("campfires = %d, want 1", len(sc.Campfires))
 	}
 	if len(sc.DynamicBodies) != 1 || sc.DynamicBodies[0].Name != "second" {
 		t.Fatalf("bodies = %#v", sc.DynamicBodies)
@@ -28,6 +32,9 @@ func TestRemoveDynamicBodyShiftsLaterBodies(t *testing.T) {
 	}
 	if got.Lights != [2]int{0, 1} {
 		t.Fatalf("shifted lights = %v, want [0 1]", got.Lights)
+	}
+	if got.Campfires != [2]int{0, 1} {
+		t.Fatalf("shifted campfires = %v, want [0 1]", got.Campfires)
 	}
 }
 

@@ -7,7 +7,7 @@
 #   range       cull / falloff distance             (default 50.0)
 #   flicker     intensity wobble in [0, 1]          (default 0.45)
 #   speed       flicker speed multiplier            (default 1.0)
-#   flame       ray-traced particle flame             (default false)
+#   flame       procedural volumetric flame             (default false)
 #   flame_ember flame HDR color at birth [r,g,b]      (default warm red)
 #   flame_mid   flame HDR color mid-life              (default orange)
 #   flame_tip   flame HDR color before fade           (default yellow)

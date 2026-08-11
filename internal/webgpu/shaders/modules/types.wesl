@@ -92,18 +92,16 @@ struct Hole {
 
 // CampfireParams holds a campfire's constant parameters. The campfire loop
 // in shade_diffuse resolves sub-light positions and intensities from these
-// each frame. Mirrors struct CampfireParams in scene.go (std430, 64-byte stride).
+// each frame. Mirrors struct CampfireParams in scene.go (std430, 128-byte stride).
 struct CampfireParams {
     core: vec4<f32>,  // cx, cy, cz, range
     color: vec4<f32>, // base color (r, g, b, 0) — tints applied per sub-light
     param: vec4<f32>, // brightness, jitter, flicker, speed
-    phase: vec4<f32>,  // seed phase, 0, 0, 0
-};
-
-// FlameParticle mirrors GPUFlameParticle in flame.go (std430, 32-byte stride).
-struct FlameParticle {
-    pos: vec4<f32>,   // xyz, radius (0 = inactive)
-    color: vec4<f32>, // linear HDR rgb
+    phase: vec4<f32>, // seed, flame_enabled (1/0), flame_scale, 0
+    flame_ember: vec4<f32>,
+    flame_mid: vec4<f32>,
+    flame_tip: vec4<f32>,
+    flame_ash: vec4<f32>,
 };
 
 // Light mirrors GPULight in scene.go (std430, 48-byte stride).
@@ -233,14 +231,11 @@ var<storage, read> terrain_pads: array<TerrainPad>;
 @group(0) @binding(23)
 var<storage, read> terrain_mip: array<vec2<f32>>;
 
-@group(0) @binding(24)
-var<storage, read> flame_particles: array<FlameParticle>;
-
 // Adaptive AA pass-1 scratch: linear HDR color and the primary-ray hit fingerprint.
-@group(0) @binding(25)
+@group(0) @binding(24)
 var<storage, read_write> hdr_pixels: array<vec4<f32>>;
 
-@group(0) @binding(26)
+@group(0) @binding(25)
 var<storage, read_write> aa_hits: array<u32>;
 
 @group(0) @binding(14)

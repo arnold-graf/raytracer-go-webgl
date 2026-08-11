@@ -24,6 +24,7 @@ type sceneCache struct {
 	partialPrimSpans    [][2]int // coalesced GPU prim index spans dirtied last partial update
 	partialBlockerSpans [][2]int
 	lightsDirty         bool
+	campfiresDirty      bool
 
 	prims    []GPUPrimitive
 	blockers []GPUPrimitive
@@ -124,6 +125,7 @@ afterPack:
 	c.partialPrimSpans = nil
 	c.partialBlockerSpans = nil
 	c.lightsDirty = false
+	c.campfiresDirty = false
 	c.valid = true
 }
 
@@ -173,6 +175,10 @@ func (c *sceneCache) updateDynamicTransforms(s *scene.Scene) {
 			c.lights = PackLights(s)
 			c.lightsDirty = true
 		}
+		if sceneHasDynamicCampfires(s) {
+			c.campfireParams = PackCampfireParams(s)
+			c.campfiresDirty = true
+		}
 		c.xformGen = s.TransformGeneration()
 		c.partialPrimSpans = nil
 		c.partialBlockerSpans = nil
@@ -197,7 +203,23 @@ func (c *sceneCache) updateDynamicTransforms(s *scene.Scene) {
 		c.lights = PackLights(s)
 		c.lightsDirty = true
 	}
+	if sceneHasDynamicCampfires(s) {
+		c.campfireParams = PackCampfireParams(s)
+		c.campfiresDirty = true
+	}
 	c.xformGen = s.TransformGeneration()
+}
+
+func sceneHasDynamicCampfires(s *scene.Scene) bool {
+	if s == nil {
+		return false
+	}
+	for _, db := range s.DynamicBodies {
+		if db.Campfires[1] > db.Campfires[0] {
+			return true
+		}
+	}
+	return false
 }
 
 func sceneHasDynamicLights(s *scene.Scene) bool {

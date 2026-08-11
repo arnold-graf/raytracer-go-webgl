@@ -304,23 +304,23 @@ func TestSpyglassObjectShape(t *testing.T) {
 	}
 }
 
-func TestFlashlightObjectShape(t *testing.T) {
-	s, err := Load(repoFile("scenes/objects/flashlight.toml"))
+func TestTorchObjectShape(t *testing.T) {
+	s, err := Load(repoFile("scenes/objects/torch.toml"))
 	if err != nil {
-		t.Fatalf("load flashlight: %v", err)
+		t.Fatalf("load torch: %v", err)
 	}
-	if len(s.Cylinders) != 3 {
-		t.Fatalf("flashlight: %d cylinders, want 3", len(s.Cylinders))
+	if len(s.Cylinders) != 2 {
+		t.Fatalf("torch: %d cylinders, want 2", len(s.Cylinders))
 	}
-	if len(s.Lights) != 1 {
-		t.Fatalf("flashlight: %d lights, want 1", len(s.Lights))
+	if len(s.Campfires) != 1 {
+		t.Fatalf("torch: %d campfires, want 1", len(s.Campfires))
 	}
-	l := s.Lights[0]
-	if !l.IsSpot() {
-		t.Fatal("flashlight beam should be a spot light")
+	cf := s.Campfires[0]
+	if !cf.Flame {
+		t.Fatal("torch should have procedural flame enabled")
 	}
-	if l.Range <= 0 || l.ConeDeg <= 0 {
-		t.Fatalf("flashlight range/cone: range=%v cone=%v", l.Range, l.ConeDeg)
+	if cf.FlameScale <= 0 || cf.FlameScale >= 1 {
+		t.Fatalf("torch flame_scale = %v, want handheld scale in (0,1)", cf.FlameScale)
 	}
 	for i, c := range s.Cylinders {
 		if c.Collides() {

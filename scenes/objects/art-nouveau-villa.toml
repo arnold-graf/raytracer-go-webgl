@@ -689,20 +689,25 @@ height = 7
 depth = 2.6
 texture = "stone_wall"
 
-[[light_flickering]] # open fire in the hearth
-brightness = 0.35
-center = [-6.35, 1.55, 2.35]
-color = [5.0, 2.2, 0.8]
-lights = 3
-speed = 0.5
-flicker = 0.6
-range = 14.0
+[[include]]
+file = 'campfire.toml'
+at = [-6.1, 1.5, 2.35]
+props = { brightness = 0.2, speed = 0.5, range = 5 }
 
-[[sphere]] # fire glow (visible embers)
-albedo = [4.0, 1.6, 0.5]
-center = [-6.35, 1.7, 2.35]
-material = "emit"
-radius = 0.25
+# [[light_flickering]] # open fire in the hearth
+# brightness = 0.35
+# center = [-6.35, 1.55, 2.35]
+# color = [5.0, 2.2, 0.8]
+# lights = 3
+# speed = 0.5
+# flicker = 0.6
+# range = 14.0
+
+# [[sphere]] # fire glow (visible embers)
+# albedo = [4.0, 1.6, 0.5]
+# center = [-6.35, 1.7, 2.35]
+# material = "emit"
+# radius = 0.25
 
 # ---- staircase to second floor (10 × 0.45 m rise = 4.5 m) ----
 

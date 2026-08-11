@@ -1,0 +1,50 @@
+# Handheld torch — wooden stick with a burning tip.
+#
+# +Y is up when raised. Origin (0,0,0) is the grip at the bottom of the handle.
+# The runtime attaches this with NewTransformYZ and animates it on F.
+#
+# collision = false: camera-attached handheld, must not block player movement.
+
+[[cylinder]] # handle
+pos_x = -0.15
+pos_y = -0.2
+pos_z = 0.0
+width_top = 0.07
+width_bottom = 0.04
+height = 0.42
+open_min = true
+open_max = true
+material = "diffuse"
+albedo = [0.31, 0.22, 0.12]
+texture = "wood"
+collision = false
+
+[[cylinder]] # charred binding at the tip
+pos_x = -0.15
+pos_y = 0.18
+pos_z = 0.0
+width = 0.07
+height = 0.05
+open_min = true
+open_max = true
+material = "diffuse"
+texture = "wood"
+reflect = 0.1
+albedo = [0.10, 0.07, 0.05]
+rough = 0.01
+collision = false
+
+[[light_flickering]]
+center = [-0.1, 0.35, 0.0]
+color = [3.2, 1.4, 0.45]
+brightness = 0.15
+range = 20.0
+jitter = 0.045
+flicker = 0.55
+speed = 1.1
+flame = true
+flame_scale = 0.28
+flame_ember = [2.4, 0.35, 0.05]
+flame_mid = [2.1, 0.9, 0.1]
+flame_tip = [1.7, 1.25, 0.16]
+flame_ash = [0.85, 0.3, 0.1]

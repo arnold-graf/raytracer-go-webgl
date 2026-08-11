@@ -9,6 +9,28 @@ import (
 	"raytracer/internal/vec"
 )
 
+func TestPackCampfireParamsFlame(t *testing.T) {
+	sc := &scene.Scene{
+		Campfires: []scene.Campfire{{
+			Center:     vec.New(1, 2, 3),
+			Color:      vec.New(3, 1, 0.5),
+			Flame:      true,
+			FlameEmber: vec.New(2, 0.3, 0.1),
+		}},
+	}
+	cf := PackCampfireParams(sc)[0]
+	if cf.Phase[1] != 1 {
+		t.Fatalf("flame enabled = %v, want 1", cf.Phase[1])
+	}
+	if cf.FlameEmber[0] != 2 || cf.FlameEmber[1] != 0.3 {
+		t.Fatalf("flame ember = %v", cf.FlameEmber)
+	}
+	_, mid, _, _ := sc.Campfires[0].FlamePalette()
+	if cf.FlameMid[0] != float32(mid.X) {
+		t.Fatalf("flame mid = %v, want %v", cf.FlameMid, mid)
+	}
+}
+
 func TestCampfireSublightMatchesLightAt(t *testing.T) {
 	fires := []scene.Campfire{
 		{

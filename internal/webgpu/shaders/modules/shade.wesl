@@ -412,6 +412,10 @@ fn campfire_cull(cf: CampfireParams) -> vec2<f32> {
 }
 
 fn campfire_sublight(cf: CampfireParams, j: u32, ts: f32) -> CampfireSample {
+    var fs = cf.phase.z;
+    if (fs <= 0.0) {
+        fs = 1.0;
+    }
     var base: vec3<f32>;
     var tint: vec3<f32>;
     if (j == 0u) {
@@ -424,6 +428,7 @@ fn campfire_sublight(cf: CampfireParams, j: u32, ts: f32) -> CampfireSample {
         base = vec3<f32>(0.03, 0.52, 0.16);
         tint = vec3<f32>(1.00, 0.92, 0.66);
     }
+    base = base * fs;
     let ph = cf.phase.x + f32(j) * 1.7;
     let fl = 0.6 * sin(ts * 7.0 + ph) + 0.3 * sin(ts * 13.0 + ph * 2.1) + 0.1 * sin(ts * 23.0 + ph * 3.7);
     let intensity = cf.param.x * (1.0 + cf.param.z * fl);
