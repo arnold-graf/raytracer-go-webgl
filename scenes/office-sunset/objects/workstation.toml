@@ -9,7 +9,8 @@
 #   file = "objects/workstation.toml"
 #   at = [0.0, 0.9, 0.0]
 #
-# Optional [[include]] props (monitor screen / text):
+# Optional [[include]] props:
+#   case_albedo      plastic case rgb for tower/monitor/keyboard (default [2.2, 2.2, 2])
 #   screen_id        screen element id              (default "workstation_display")
 #   screen_pos_x/y/z screen placement               (default -0.15, 0.28, 0.205)
 #   screen_width     screen panel width             (default 0.30)
@@ -28,6 +29,7 @@
 #   font_color       text rgb                       (default [5.2, 5.2, 5.2])
 
 [props]
+case_albedo = [2.2, 2.2, 2]
 screen_id = "workstation_display"
 screen_pos_x = -0.15
 screen_pos_y = 0.28
@@ -50,56 +52,17 @@ font = "M42.ttf"
 font_size_px = 14
 font_color = [5.2, 5.2, 5.2]
 
-# --- main computer unit (pizza-box case) ---
-[[box]]
-material = "diffuse"
-reflect = 0.005
-albedo = [2.2, 2.2, 2]
-pos_x = -0.25
-pos_y = 0.0
-pos_z = -0.17
-width = 0.50
-height = 0.17
-depth = 0.4
-
-# buttons
-[[box]]
-material = "diffuse"
-albedo = [2.2, 2.2, 2]
-pos_x = -0.22
-pos_y = 0.1
-pos_z = 0.14
-width = 0.05
-height = 0.05
-depth = 0.11
-
-# buttons
-[[box]]
-material = "diffuse"
-albedo = [2.2, 2.2, 2]
-pos_x = -0.22
-pos_y = 0.04
-pos_z = 0.14
-width = 0.05
-height = 0.05
-depth = 0.11
-
-# floppy
-[[box]]
-material = "diffuse"
-albedo = [0.08, 0.08, 0.08]
-pos_x = 0.04
-pos_y = 0.1
-pos_z = 0.15
-width = 0.11
-height = 0.01
-depth = 0.11
+[[include]]
+transform_origin = [0,0,0]
+file = "workstation-tower.toml"
+props = { case_albedo = 'case_albedo' }
 
 [[include]]
 file = "workstation-monitor.toml"
 at = [0.0, 0.3, 0.0]
 rotate_x = -8
 props = {
+  case_albedo = 'case_albedo',
   screen_id = 'screen_id',
   material = 'material',
   albedo = 'albedo',
@@ -114,72 +77,6 @@ props = {
   font_color = 'font_color',
 }
 
-# --- keyboard (slight tilt toward user) ---
-[[box]]
-material = "diffuse"
-albedo = [2.2, 2.2, 2]
-reflect = 0.005
-rotate_x = 9
-pos_x = -0.20
-pos_y = 0.012
-pos_z = 0.3
-width = 0.40
-height = 0.018
-depth = 0.16
-
-[[box]]
-material = "diffuse"
-albedo = [0.8, 0.8, 0.8]
-rotate_x = 9
-pos_x = -0.17
-pos_y = 0.04
-pos_z = 0.33
-width = 0.34
-height = 0.012
-depth = 0.02
-
-[[box]]
-material = "diffuse"
-albedo = [0.8, 0.8, 0.8]
-rotate_x = 9
-pos_x = -0.17
-pos_y = 0.032
-pos_z = 0.36
-width = 0.34
-height = 0.012
-depth = 0.02
-
-[[box]]
-material = "diffuse"
-albedo = [0.8, 0.8, 0.8]
-rotate_x = 9
-pos_x = -0.17
-pos_y = 0.028
-pos_z = 0.39
-width = 0.34
-height = 0.012
-depth = 0.02
-
-[[box]]
-material = "diffuse"
-albedo = [0.8, 0.8, 0.8]
-rotate_x = 9
-pos_x = -0.17
-pos_y = 0.023
-pos_z = 0.42
-width = 0.34
-height = 0.012
-depth = 0.02
-
-# space bar
-# [[box]]
-# material = "diffuse"
-# albedo = [1.2, 1.2, 1.4]
-# rotate_x = 9
-# pos_x = -0.14
-# pos_y = 0.028
-# pos_z = 0.305
-# width = 0.20
-# height = 0.014
-# depth = 0.035
-
+[[include]]
+transform_origin = [0,0,0]
+file = "workstation-keyboard.toml"

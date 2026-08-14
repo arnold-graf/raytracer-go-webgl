@@ -1305,6 +1305,10 @@ type Light struct {
 	Range   float64
 	Dir     vec.V
 	ConeDeg float64
+	// Interactive lights can be toggled with the use key; Hint is shown when
+	// the player aims at the light (default "lamp" when Interactive is true).
+	Interactive bool
+	Hint        string
 }
 
 // IsSpot reports whether the light casts a directional cone.

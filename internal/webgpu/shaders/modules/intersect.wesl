@@ -562,3 +562,34 @@ fn slab_hit(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, inv: vec3<f32>, t_m
     let tf = min(min(t2, t4), t6);
     return !(tf < tn || tf < RAY_EPSILON || tn > t_max);
 }
+
+// slab_near returns the ray entry parameter into the AABB, or T_MISS when absent.
+fn slab_near(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, inv: vec3<f32>) -> f32 {
+    var t1 = (bmin.x - ro.x) * inv.x;
+    var t2 = (bmax.x - ro.x) * inv.x;
+    if (t1 > t2) {
+        let tmp = t1;
+        t1 = t2;
+        t2 = tmp;
+    }
+    var t3 = (bmin.y - ro.y) * inv.y;
+    var t4 = (bmax.y - ro.y) * inv.y;
+    if (t3 > t4) {
+        let tmp = t3;
+        t3 = t4;
+        t4 = tmp;
+    }
+    var t5 = (bmin.z - ro.z) * inv.z;
+    var t6 = (bmax.z - ro.z) * inv.z;
+    if (t5 > t6) {
+        let tmp = t5;
+        t5 = t6;
+        t6 = tmp;
+    }
+    let tn = max(max(t1, t3), t5);
+    let tf = min(min(t2, t4), t6);
+    if (tf < tn || tf < RAY_EPSILON) {
+        return T_MISS;
+    }
+    return tn;
+}

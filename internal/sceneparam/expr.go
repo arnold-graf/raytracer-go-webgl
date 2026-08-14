@@ -476,6 +476,19 @@ func evalCall(name string, args []value) (value, error) {
 			return value{}, err
 		}
 		return value{kind: valNumber, number: bookClusterX(ns[0], ns[1], ns[2], ns[3], ns[4], ns[5])}, nil
+	case "vec3_scale":
+		if len(args) != 2 {
+			return value{}, fmt.Errorf("vec3_scale wants 2 args, got %d", len(args))
+		}
+		if args[0].kind != valVec3 {
+			return value{}, fmt.Errorf("vec3_scale arg 0: expected vec3, got %s", args[0].describe())
+		}
+		scale, err := args[1].asNumber()
+		if err != nil {
+			return value{}, fmt.Errorf("vec3_scale arg 1: %w", err)
+		}
+		v := args[0].vec3
+		return value{kind: valVec3, vec3: [3]float64{v[0] * scale, v[1] * scale, v[2] * scale}}, nil
 	default:
 		return value{}, fmt.Errorf("unknown function %q", name)
 	}

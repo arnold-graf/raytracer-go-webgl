@@ -31,7 +31,7 @@ After installing, open a scene file: you should get diagnostics (squiggles), hov
 
 **Even Better TOML / Taplo** (alternative): configure `evenBetterToml.schema.associations` or use `taplo.toml`. Taplo only supports [JSON Schema Draft 4](https://taplo.tamasfe.dev/configuration/developing-schemas.html); disable the Schema Store catalog (`evenBetterToml.schema.repositoryEnabled: false`) so catalog schemas do not override repo associations.
 
-**Tombi style lints:** `tombi.toml` disables `tables-out-of-order` and `dotted-keys-out-of-order` so scene files can group primitives however you like (e.g. interleaving `[[box]]` and `[[cylinder]]`).
+**Tombi style lints:** `tombi.toml` sets `toml-version = "v1.1.0"` (multi-line `props = { ... }` on `[[include]]` is valid in TOML 1.1) and disables `tables-out-of-order` and `dotted-keys-out-of-order` so scene files can group primitives however you like. If Tombi still reports those rules, check the output panel for `failed to parse config file` — an unknown key under `[lint.rules]` causes the whole file to be ignored.
 
 **Tombi strict mode:** Primitives use `allOf` to compose geometry fields with `primitive_transform`, `primitive_surface`, and optional `interact_props`. Tombi validates each `allOf` branch separately, so partial subschemas set `"additionalProperties": true` to avoid false positives on valid keys like `material` or `pos_z`. The root schema still uses `"additionalProperties": false` to reject unknown top-level tables.
 

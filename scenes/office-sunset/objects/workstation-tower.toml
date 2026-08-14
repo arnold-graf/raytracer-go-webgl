@@ -1,0 +1,50 @@
+# Main computer unit (pizza-box case) for the vintage workstation.
+# Local origin matches workstation.toml: centre of footprint on the desk.
+
+[props]
+case_albedo = [2.2, 2.2, 2]
+
+# --- main computer unit (pizza-box case) ---
+[[box]]
+material = "diffuse"
+reflect = 0.005
+albedo = 'case_albedo'
+pos_x = -0.25
+pos_y = 0.0
+pos_z = -0.17
+width = 0.50
+height = 0.17
+depth = 0.4
+
+# buttons
+[[box]]
+material = "diffuse"
+albedo = 'case_albedo'
+pos_x = -0.22
+pos_y = 0.1
+pos_z = 0.14
+width = 0.05
+height = 0.05
+depth = 0.11
+
+# buttons
+[[box]]
+material = "diffuse"
+albedo = 'case_albedo'
+pos_x = -0.22
+pos_y = 0.04
+pos_z = 0.14
+width = 0.05
+height = 0.05
+depth = 0.11
+
+# floppy
+[[box]]
+material = "diffuse"
+albedo = [0.08, 0.08, 0.08]
+pos_x = 0.04
+pos_y = 0.1
+pos_z = 0.15
+width = 0.11
+height = 0.01
+depth = 0.11

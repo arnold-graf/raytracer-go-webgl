@@ -19,6 +19,7 @@
 #   light_color      point light RGB             (default [0.5, 0.5, 1])
 #   light_brightness point light brightness      (default 0.3)
 #   light_range      point light range           (default 7.0)
+#   on               include point lights        (default true; panels always)
 #
 # Example:
 #
@@ -28,6 +29,7 @@
 #   props = { x_count = 4, z_count = 3 }
 
 [props]
+on = true
 x_count = 4
 z_count = 3
 panels_per_light = 3
@@ -56,6 +58,7 @@ stride_j = '(z_count - 1) * (light_z_count - 1)'
 
 # for i in range(x_count)
 # for j in range(z_count)
+# if on
 [[box]]
 material = "emit"
 albedo = 'emit_albedo'
@@ -65,9 +68,23 @@ depth = 'panel_depth'
 pos_x = 'origin_x + (i * spacing)'
 pos_y = 'y'
 pos_z = 'origin_z + (j * spacing)'
+# endif
+# if not on
+[[box]]
+reflect = 0.05
+width = 'panel_width'
+height = 'panel_height'
+depth = 'panel_depth'
+pos_x = 'origin_x + (i * spacing)'
+pos_y = 'y'
+pos_z = 'origin_z + (j * spacing)'
+material = "diffuse"
+albedo = [1, 1, 1]
+# endif 
 # endfor
 # endfor
 
+# if on
 # for li in range(light_x_count)
 # for lj in range(light_z_count)
 [[light]]
@@ -77,3 +94,4 @@ brightness = 'light_brightness'
 range = 'light_range'
 # endfor
 # endfor
+# endif

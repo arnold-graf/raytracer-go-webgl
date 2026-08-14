@@ -71,20 +71,22 @@ albedo = [5, 5, 5]
 [[box]]
 material = "glass"
 ior = 1.05
-transmit = 0.8
+transmit = 0.7
 albedo = [1, 1, 1]
 pos_x = 0
 pos_y = 0
 pos_z = 0.1
 width = 0.1
+rough = 0.001
 height = 'height'
 depth = 'length'
 
 # glass wall (east)
 [[box]]
 material = "glass"
-transmit = 0.7
+transmit = 0.6
 ior = 1.05
+rough = 0.001
 albedo = [1, 1, 1]
 pos_x = 'width - 0.1'
 pos_y = 0

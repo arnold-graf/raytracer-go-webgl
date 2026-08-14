@@ -1,20 +1,27 @@
 # Tombi configuration (formatter, linter, language server).
 # See schemas/README.md for schema maintenance.
 
-toml-version = "v1.0.0"
+toml-version = "v1.1.0"
 
+[lint]
 [lint.rules]
 tables-out-of-order = "off"
 dotted-keys-out-of-order = "off"
 
 [schema]
 enabled = true
-catalog.paths = []
+
+[schema.catalog]
+paths = []
 
 [[schemas]]
 path = "schemas/scene.schema.json"
 include = ["scenes/*.toml", "scenes/**/*.toml"]
+format.rules.table-keys-order.enabled = false
+format.rules.array-values-order.enabled = false
 
 [[schemas]]
 path = "schemas/player.schema.json"
 include = ["player.toml"]
+format.rules.table-keys-order.enabled = false
+format.rules.array-values-order.enabled = false

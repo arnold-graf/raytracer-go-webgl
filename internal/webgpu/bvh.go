@@ -164,7 +164,7 @@ func (b *gpuBVHBuilder) sahSplit(start, end int) (mid int, ok bool) {
 			if leftCnt[k] == 0 || rightCnt[k+1] == 0 {
 				continue
 			}
-			cost := leftArea[k]*float64(leftCnt[k]) + rightArea[k+1]*float64(rightCnt[k+1])
+			cost := gpuscene.BVHSAHTraverseCost + leftArea[k]*float64(leftCnt[k]) + rightArea[k+1]*float64(rightCnt[k+1])
 			if cost < bestCost {
 				bestCost, bestAxis, bestBin = cost, axis, k
 			}

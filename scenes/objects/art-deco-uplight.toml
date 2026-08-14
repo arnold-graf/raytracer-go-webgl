@@ -71,6 +71,7 @@ capped = false
 color = [2, 1.5, 1]
 pos = [0.3, 'stem_len + 0.1', 0.3]
 brightness = 'brightness'
+interactive = true
 range = 'range'
 radius = 0.5
 

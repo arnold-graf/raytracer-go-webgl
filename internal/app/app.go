@@ -20,6 +20,7 @@ import (
 	"raytracer/internal/camera"
 	"raytracer/internal/document"
 	"raytracer/internal/door"
+	"raytracer/internal/interactlight"
 	"raytracer/internal/npc"
 	"raytracer/internal/probe"
 	"raytracer/internal/render"
@@ -141,6 +142,8 @@ type Game struct {
 
 	screens *screen.Manager
 
+	interactLights *interactlight.Manager
+
 	// npcDebug draws skeleton/foot overlay segments (key 6).
 	npcDebug bool
 
@@ -225,6 +228,8 @@ func (g *Game) setScene(sc *scene.Scene) {
 	if err := g.screens.Instantiate(sc); err != nil {
 		fmt.Fprintf(os.Stderr, "screens: %v\n", err)
 	}
+	g.interactLights = interactlight.NewManager()
+	g.interactLights.Instantiate(sc)
 	sc.SetDoorGhost(func(i int) bool {
 		if g.doors != nil && g.doors.GhostBox(i) {
 			return true
@@ -569,6 +574,9 @@ func (g *Game) Update() error {
 		if g.screens != nil {
 			aspect := float64(g.rw) / float64(g.rh)
 			g.screens.Update(g.sc, g.cam, aspect, 1.0/60.0)
+		}
+		if g.interactLights != nil {
+			g.interactLights.Update(g.sc, 1.0/60.0)
 		}
 		g.spyglass.Update(g.sc, g.cam, 1.0/60.0)
 		g.torch.Update(g.sc, g.cam, 1.0/60.0)

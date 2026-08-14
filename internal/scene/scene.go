@@ -59,6 +59,8 @@ type Scene struct {
 
 	// boxInteract maps box index → interactables slice index for ray picking.
 	boxInteract map[int]int
+	// lightInteract maps light index → interactables slice index for ray picking.
+	lightInteract map[int]int
 
 	// staticCounts records flat-slice lengths before instance materialization.
 	staticCounts      PrimitiveCounts

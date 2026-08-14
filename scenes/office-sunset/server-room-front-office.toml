@@ -3,17 +3,18 @@
 material = "diffuse"
 texture = "cement"
 pos_x = 0
-pos_y = -0.2
+pos_y = 0
 pos_z = 0
 width = 10
-height = 0.2
+height = 0.01
 depth = 20
 albedo = [1,1,1]
 
 # north wall (glass)
 [[box]]
 material = "glass"
-rough = 0.005
+rough = 0.01
+thin = true
 transmit = 0.5
 albedo = [1, 1, 1]
 pos_x = 0
@@ -46,6 +47,14 @@ pos_z = 0.2
 width = 10
 height = 1
 depth = 0.3
+
+# north wall blinds
+
+[[include]]
+file = 'objects/blinds.toml'
+at = [1, 0.65, 0.7]
+instance = true
+transform_origin = [0,0,0]
 
 # east wall (grid)
 [[include]]
@@ -119,12 +128,14 @@ height = 0.2
 file = "../objects/office-light-grid.toml"
 transform_origin = [0, 0, 0]
 at = [0, 4.4, 0.0]
+props = {on = false}
 
 # ceiling lights
 [[include]]
 file = "../objects/office-light-grid.toml"
 transform_origin = [0, 0, 0]
 at = [0.0, 4.4, 12.0]
+props = {on = false}
 
 
 # desk near glass wall

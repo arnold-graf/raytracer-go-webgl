@@ -37,7 +37,7 @@ collision = false
 [[light_flickering]]
 center = [-0.1, 0.35, 0.0]
 color = [3.2, 1.4, 0.45]
-brightness = 0.15
+brightness = 0.05
 range = 20.0
 jitter = 0.045
 flicker = 0.55

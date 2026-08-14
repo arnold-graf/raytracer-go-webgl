@@ -5,9 +5,48 @@
 
 import package::types::{BVH_TAG_TLAS, HIT_NO_INSTANCE, Hit, RAY_EPSILON, T_MISS, blockers, bvh_nodes, inst_records, inst_templates, params, plane_idx};
 import package::profile::{prof_step, prof_tests};
-import package::intersect::{intersect, intersect_blocker, slab_hit};
+import package::intersect::{intersect, intersect_blocker, slab_hit, slab_near};
 import package::terrain::{hit_terrain, hit_water};
 import package::instance::{inst_local_dir, inst_local_origin};
+
+fn bvh_child_order(left: u32, right: u32, ro: vec3<f32>, inv: vec3<f32>) -> vec2<u32> {
+    let ln = bvh_nodes[left];
+    let rn = bvh_nodes[right];
+    let t_l = slab_near(ln.min_b.xyz, ln.max_b.xyz, ro, inv);
+    let t_r = slab_near(rn.min_b.xyz, rn.max_b.xyz, ro, inv);
+    if (t_l <= t_r) {
+        return vec2<u32>(left, right);
+    }
+    return vec2<u32>(right, left);
+}
+
+// Push near child on top (popped first). When cull_near is true, skip subtrees whose
+// AABB entry is already past best_t — valid only for nearest-hit search, not shadow
+// any-hit (which must still walk siblings that can occlude before max_t).
+fn bvh_child_push(left: u32, right: u32, ro: vec3<f32>, inv: vec3<f32>, best_t: f32, cull_near: bool, stack: ptr<function, array<u32, 64>>, sp: ptr<function, u32>) {
+    let order = bvh_child_order(left, right, ro, inv);
+    let near = order.x;
+    let far = order.y;
+    if (cull_near) {
+        let t_near = slab_near(bvh_nodes[near].min_b.xyz, bvh_nodes[near].max_b.xyz, ro, inv);
+        let t_far = slab_near(bvh_nodes[far].min_b.xyz, bvh_nodes[far].max_b.xyz, ro, inv);
+        if (t_far < best_t && (*sp) + 1u <= 64u) {
+            (*stack)[*sp] = far;
+            *sp = (*sp) + 1u;
+        }
+        if (t_near < best_t && (*sp) < 64u) {
+            (*stack)[*sp] = near;
+            *sp = (*sp) + 1u;
+        }
+        return;
+    }
+    if ((*sp) + 2u <= 64u) {
+        (*stack)[*sp] = far;
+        *sp = (*sp) + 1u;
+        (*stack)[*sp] = near;
+        *sp = (*sp) + 1u;
+    }
+}
 
 fn bvh_nearest_subtree(root: u32, ro: vec3<f32>, rd: vec3<f32>, best_t: f32, blockers: bool) -> f32 {
     let inv = vec3<f32>(1.0) / rd;
@@ -38,12 +77,7 @@ fn bvh_nearest_subtree(root: u32, ro: vec3<f32>, rd: vec3<f32>, best_t: f32, blo
                 }
             }
         } else if (n.info.z != BVH_TAG_TLAS) {
-            if (sp + 2u <= 64u) {
-                stack[sp] = n.info.x;
-                sp = sp + 1u;
-                stack[sp] = n.info.y;
-                sp = sp + 1u;
-            }
+            bvh_child_push(n.info.x, n.info.y, ro, inv, t, true, &stack, &sp);
         }
     }
     return t;
@@ -81,12 +115,7 @@ fn bvh_nearest_subtree_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, h: Hit, inst
                 }
             }
         } else if (n.info.z != BVH_TAG_TLAS) {
-            if (sp + 2u <= 64u) {
-                stack[sp] = n.info.x;
-                sp = sp + 1u;
-                stack[sp] = n.info.y;
-                sp = sp + 1u;
-            }
+            bvh_child_push(n.info.x, n.info.y, ro, inv, best.t, true, &stack, &sp);
         }
     }
     return best;
@@ -121,12 +150,7 @@ fn inst_bvh_any_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool
             continue;
         }
         if (n.info.z == BVH_TAG_TLAS && n.info.w == 0u) {
-            if (sp + 2u <= 64u) {
-                stack[sp] = n.info.x;
-                sp = sp + 1u;
-                stack[sp] = n.info.y;
-                sp = sp + 1u;
-            }
+            bvh_child_push(n.info.x, n.info.y, ro, inv, max_t, false, &stack, &sp);
             continue;
         }
         let count = n.info.w;
@@ -140,12 +164,7 @@ fn inst_bvh_any_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool
                 }
             }
         } else if (n.info.z != BVH_TAG_TLAS) {
-            if (sp + 2u <= 64u) {
-                stack[sp] = n.info.x;
-                sp = sp + 1u;
-                stack[sp] = n.info.y;
-                sp = sp + 1u;
-            }
+            bvh_child_push(n.info.x, n.info.y, ro, inv, max_t, false, &stack, &sp);
         }
     }
     return false;
@@ -181,12 +200,7 @@ fn inst_nearest_hit(ro: vec3<f32>, rd: vec3<f32>, h: Hit) -> Hit {
             continue;
         }
         if (n.info.z == BVH_TAG_TLAS && n.info.w == 0u) {
-            if (sp + 2u <= 64u) {
-                stack[sp] = n.info.x;
-                sp = sp + 1u;
-                stack[sp] = n.info.y;
-                sp = sp + 1u;
-            }
+            bvh_child_push(n.info.x, n.info.y, ro, inv, best.t, true, &stack, &sp);
         }
     }
     return best;
@@ -230,12 +244,7 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
                     }
                 }
             } else {
-                if (sp + 2u <= 64u) {
-                    stack[sp] = n.info.x;
-                    sp = sp + 1u;
-                    stack[sp] = n.info.y;
-                    sp = sp + 1u;
-                }
+                bvh_child_push(n.info.x, n.info.y, ro, inv, h.t, true, &stack, &sp);
             }
         }
     }
@@ -309,12 +318,7 @@ fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool {
                     }
                 }
             } else if (n.info.z != BVH_TAG_TLAS) {
-                if (sp + 2u <= 64u) {
-                    stack[sp] = n.info.x;
-                    sp = sp + 1u;
-                    stack[sp] = n.info.y;
-                    sp = sp + 1u;
-                }
+                bvh_child_push(n.info.x, n.info.y, ro, inv, max_t, false, &stack, &sp);
             }
         }
     }

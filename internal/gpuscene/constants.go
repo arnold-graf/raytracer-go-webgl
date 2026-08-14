@@ -30,8 +30,9 @@ const (
 
 	// BVH tuning constants. The CPU builds the tree, but WGSL traversal and
 	// packing tests need these to stay named and synchronized.
-	BVHLeafSize = 2
-	BVHSAHBins  = 12
+	BVHLeafSize        = 2
+	BVHSAHBins         = 32
+	BVHSAHTraverseCost = 1.0 // relative traversal vs intersection cost in SAH splits
 )
 
 // WGSLConstants emits the shader-side constants that must stay synchronized with

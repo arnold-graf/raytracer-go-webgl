@@ -136,14 +136,15 @@ height = 0.125
 rotate_x = -22
 
 [[sphere]] # warm bulb
-material = "emit"
+material = "glass"
 albedo = [6.0, 4.8, 3.2]
 center = [0.0, 0.37, 0.235]
-radius = 0.018
+radius = 0.024
 
 [[light]]
+interactive = true
 brightness = 'brightness'
 color = [2.8, 2.6, 2.0]
-pos = [0.0, 0.410, 0.235]
+pos = [0.0, 0.36, 0.235]
 radius = 0.12
 range = 'range'

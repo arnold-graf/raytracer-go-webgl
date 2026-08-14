@@ -1,0 +1,76 @@
+# Keyboard for the vintage workstation (slight tilt toward user).
+# Local origin matches workstation.toml: centre of footprint on the desk.
+
+[props]
+case_albedo = [2.2, 2.2, 2]
+
+[const]
+key_albedo = 'vec3_scale(case_albedo, 0.5)'
+
+[[box]]
+material = "diffuse"
+albedo = 'case_albedo'
+reflect = 0.005
+rotate_x = 9
+pos_x = -0.20
+pos_y = 0.012
+pos_z = 0.3
+width = 0.40
+height = 0.018
+depth = 0.16
+
+[[box]]
+material = "diffuse"
+albedo = 'key_albedo'
+rotate_x = 9
+pos_x = -0.17
+pos_y = 0.04
+pos_z = 0.33
+width = 0.34
+height = 0.012
+depth = 0.02
+
+[[box]]
+material = "diffuse"
+albedo = 'key_albedo'
+rotate_x = 9
+pos_x = -0.17
+pos_y = 0.032
+pos_z = 0.36
+width = 0.34
+height = 0.012
+depth = 0.02
+
+[[box]]
+material = "diffuse"
+albedo = 'key_albedo'
+rotate_x = 9
+pos_x = -0.17
+pos_y = 0.028
+pos_z = 0.39
+width = 0.34
+height = 0.012
+depth = 0.02
+
+[[box]]
+material = "diffuse"
+albedo = 'key_albedo'
+rotate_x = 9
+pos_x = -0.17
+pos_y = 0.023
+pos_z = 0.42
+width = 0.34
+height = 0.012
+depth = 0.02
+
+# space bar
+# [[box]]
+# material = "diffuse"
+# albedo = [1.2, 1.2, 1.4]
+# rotate_x = 9
+# pos_x = -0.14
+# pos_y = 0.028
+# pos_z = 0.305
+# width = 0.20
+# height = 0.014
+# depth = 0.035

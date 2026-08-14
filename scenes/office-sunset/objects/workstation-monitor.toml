@@ -1,5 +1,7 @@
 [props]
+case_albedo = [2.2, 2.2, 2]
 screen_id = "workstation_display"
+screen_brightness = 0.1
 material = "diffuse"
 albedo = [0.01, 0.01, 0.01]
 reflect = 0.03
@@ -12,11 +14,14 @@ font = "M42.ttf"
 font_size_px = 14
 font_color = [5.2, 5.2, 5.2]
 
+[const]
+ribs_albedo = 'vec3_scale(case_albedo, 0.3)'
+
 # --- CRT monitor housing ---
 [[box]]
 material = "diffuse"
 reflect = 0.005
-albedo = [2.2, 2.2, 2]
+albedo = 'case_albedo'
 pos_x = -0.19
 pos_y = 0.22
 pos_z = -0.1
@@ -27,7 +32,7 @@ depth = 0.3
 [[box]]
 material = "diffuse"
 reflect = 0.005
-albedo = [2.2, 2.2, 2]
+albedo = 'case_albedo'
 pos_x = -0.15
 pos_y = 0.27
 pos_z = -0.2
@@ -60,14 +65,14 @@ font_color = 'font_color'
 [[sphere]]
 material = "diffuse"
 reflect = 0.05
-albedo = [2.2, 2.2, 2]
+albedo = 'case_albedo'
 center = [0, 0.2, 0]
 radius = 0.1
 
 [[box]]
 material = "diffuse"
 reflect = 0.05
-albedo = [2.2, 2.2, 2]
+albedo = 'case_albedo'
 pos_x = -0.15
 pos_y = 0.13
 pos_z = -0.15
@@ -80,12 +85,12 @@ height = 0.02
 pos = [0, 0.4, 0.4]
 color = [1, 1, 6]
 range = 1
-brightness = 0.1
+brightness = 'screen_brightness'
 
 # side ventilation ribs (monitor)
 [[box]]
 material = "diffuse"
-albedo = [0.38, 0.36, 0.33]
+albedo = 'ribs_albedo'
 pos_x = -0.196
 pos_y = 0.3
 pos_z = -0.06
@@ -95,7 +100,7 @@ depth = 0.22
 
 [[box]]
 material = "diffuse"
-albedo = [0.38, 0.36, 0.33]
+albedo = 'ribs_albedo'
 pos_x = -0.196
 pos_y = 0.4
 pos_z = -0.06
@@ -105,7 +110,7 @@ depth = 0.22
 
 [[box]]
 material = "diffuse"
-albedo = [0.38, 0.36, 0.33]
+albedo = 'ribs_albedo'
 pos_x = -0.196
 pos_y = 0.35
 pos_z = -0.06
@@ -115,7 +120,7 @@ depth = 0.22
 
 [[box]]
 material = "diffuse"
-albedo = [0.38, 0.36, 0.33]
+albedo = 'ribs_albedo'
 pos_x = 0.190
 pos_y = 0.3
 pos_z = -0.06
@@ -125,7 +130,7 @@ depth = 0.22
 
 [[box]]
 material = "diffuse"
-albedo = [0.38, 0.36, 0.33]
+albedo = 'ribs_albedo'
 pos_x = 0.190
 pos_y = 0.35
 pos_z = -0.06
@@ -135,7 +140,7 @@ depth = 0.22
 
 [[box]]
 material = "diffuse"
-albedo = [0.38, 0.36, 0.33]
+albedo = 'ribs_albedo'
 pos_x = 0.190
 pos_y = 0.4
 pos_z = -0.06

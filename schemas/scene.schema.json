@@ -1057,6 +1057,16 @@
         "cone_angle": {
           "$ref": "#/definitions/number_or_expr",
           "description": "Full outer cone angle in degrees for spot lights (requires dir)."
+        },
+        "interactive": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the player can toggle this light with the use key."
+        },
+        "hint": {
+          "type": "string",
+          "default": "lamp",
+          "description": "Interaction hint shown when aiming at an interactive light."
         }
       },
       "required": [

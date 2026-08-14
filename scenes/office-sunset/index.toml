@@ -1,4 +1,3 @@
-
 # sunset
 [environment]
 sky = "sunset"
@@ -16,7 +15,7 @@ range = 100
 # night storm
 # [environment]
 # sky = "night_storm"
-# ambient_sky = [0.025, 0.025, 0.025]
+# ambient_sky = [0.003,0.003,0.005]
 # sun_dir = [-0.35, -0.22, 0.90]
 # sun_color = [1.40, 0.55, 0.22]
 
@@ -24,7 +23,7 @@ range = 100
 # [[light]]
 # pos = [200, 350, 100]
 # color = [0.5, 0.5, 1]
-# brightness = 150
+# brightness = 50
 # range = 300
 
 # Moon
@@ -32,7 +31,7 @@ range = 100
 # material = "diffuse"
 # texture = "cement"
 # center = [260, 410, 150]
-# albedo = [10,10,10]
+# albedo = [8,8,10]
 # radius = 30
 
 [camera]
@@ -98,7 +97,7 @@ pos_z = 50.0
 file = 'office-atrium.toml'
 at = [20, 200, 50]
 transform_origin = [0,0,0]
-props = {width = 100}
+props = {width = 100, show_sun = true}
 
 [[include]]
 file = "objects/skyscrapers-distance.toml"

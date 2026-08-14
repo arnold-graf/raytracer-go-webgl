@@ -67,3 +67,21 @@ func TestOfficeLightGridExpand(t *testing.T) {
 		t.Fatalf("light positions should align with panel centers, not gaps")
 	}
 }
+
+func TestOfficeLightGridOff(t *testing.T) {
+	raw, err := os.ReadFile("../../scenes/objects/office-light-grid.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := sceneparam.Expand("office-light-grid.toml", raw, map[string]any{"on": false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if strings.Count(s, "[[light]]") != 0 {
+		t.Fatalf("expected no lights when on=false, got:\n%s", s)
+	}
+	if strings.Count(s, `material = "emit"`) != 12 {
+		t.Fatalf("panels should remain when on=false")
+	}
+}

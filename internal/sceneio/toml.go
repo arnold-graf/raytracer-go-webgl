@@ -304,7 +304,9 @@ type lightDTO struct {
 	// Brightness scales the light's intensity independently of its color/range
 	// (1 = as authored), mirroring the campfire's brightness knob. It is folded
 	// into the color at load time, so culling and shading honor it for free.
-	Brightness float64 `toml:"brightness"`
+	Brightness  float64 `toml:"brightness"`
+	Interactive bool    `toml:"interactive"`
+	Hint        string  `toml:"hint"`
 }
 
 // build resolves a light, applying the brightness multiplier (default 1) to the
@@ -321,7 +323,19 @@ func (d lightDTO) build() scene.Light {
 	return scene.Light{
 		Pos: d.Pos.toV(), Color: d.Color.toV().Scale(b), Radius: d.Radius, Range: d.Range,
 		Dir: dir, ConeDeg: d.ConeAngle,
+		Interactive: d.Interactive,
+		Hint:        lightHint(d.Interactive, d.Hint),
 	}
+}
+
+func lightHint(interactive bool, hint string) string {
+	if hint != "" {
+		return hint
+	}
+	if interactive {
+		return "lamp"
+	}
+	return ""
 }
 
 type lightFlickeringDTO struct {

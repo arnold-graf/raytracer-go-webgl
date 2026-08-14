@@ -103,13 +103,6 @@ width = 4
 height = 4.0
 depth = 5
 
-# Art deco door frame
-[[include]]
-file = "objects/art-deco-door-frame.toml"
-transform_origin = [0, 0, 0]
-at = [39, 0, 8]
-props = { width = 5, height = 4, depth = 1, texture = "marble", albedo = [0.7, 0.7, 0.7]}
-
 # east wall (top cover)
 [[box]]
 material = "diffuse"
@@ -122,6 +115,48 @@ pos_z = 0.0
 width = 1
 height = 4.5
 depth = 20.0
+
+# Art deco door frame
+[[include]]
+file = "objects/art-deco-door-frame.toml"
+transform_origin = [0, 0, 0]
+at = [40, 0, 8]
+props = { width = 5, height = 4, depth = 1, texture = "marble", albedo = [0.7, 0.7, 0.7]}
+
+[[include]]
+transform_origin = [0,0,0]
+at = [31, 0.2, 18]
+file = "../objects/office-table.toml"
+
+[[include]]
+transform_origin = [0,0,0]
+rotate_y = 170
+file = "objects/workstation-monitor.toml"
+props = { case_albedo = [0.1, 0.1, 0.1], headline = "reality clstr 0.3.11", paragraphs = [
+  "---------- load ----------",
+  "      server 0 ... 23.9%",
+  "      server 1  ... 81.3%",
+  "      server 2 ... 31.2%",
+  "      server 3 ... 78.1%",
+  "      server 4 ... 80.0%",
+  "      server 5 ... 81.3%",
+  "      server 6 ... 31.2%",
+  "      server 7 ... 78.1%",
+]}
+at = [31, 1, 18]
+
+[[include]]
+transform_origin = [0,0,0]
+rotate_y = 170
+file = "objects/workstation-keyboard.toml"
+props = { case_albedo = [0.1, 0.1, 0.1]}
+at = [31, 1.1, 18]
+
+[[include]]
+file = "../objects/office-chair.toml"
+transform_origin = [0,0,0]
+rotate_y = 205
+at = [30.5, 0.2, 16.7]
 
 # left column (door side)
 [[cylinder]]
