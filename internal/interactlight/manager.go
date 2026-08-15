@@ -30,13 +30,17 @@ func NewManager() *Manager {
 }
 
 // Instantiate registers interactive lights from sc for ray picking and GPU updates.
-func (m *Manager) Instantiate(sc *scene.Scene) {
+// skip, when non-nil, returns true for light indices managed elsewhere (e.g. reactive state).
+func (m *Manager) Instantiate(sc *scene.Scene, skip func(int) bool) {
 	if m == nil || sc == nil {
 		return
 	}
 	m.agents = m.agents[:0]
 	for i, l := range sc.Lights {
 		if !l.Interactive {
+			continue
+		}
+		if skip != nil && skip(i) {
 			continue
 		}
 		hint := l.Hint
@@ -65,6 +69,46 @@ func (m *Manager) Instantiate(sc *scene.Scene) {
 	}
 	if len(m.agents) > 0 {
 		sc.TouchTransforms()
+	}
+}
+
+// Rebind rebuilds agents after structural scene edits shifted light indices.
+func (m *Manager) Rebind(sc *scene.Scene, skip func(int) bool) {
+	if m == nil || sc == nil {
+		return
+	}
+	prev := make(map[int]agent, len(m.agents))
+	for _, a := range m.agents {
+		if a.interact != nil {
+			prev[a.interact.Index()] = a
+		}
+	}
+	m.agents = m.agents[:0]
+	for i, l := range sc.Lights {
+		if !l.Interactive {
+			continue
+		}
+		if skip != nil && skip(i) {
+			continue
+		}
+		iaIdx, ok := sc.LightInteractIndex(i)
+		if !ok || iaIdx < 0 || iaIdx >= len(sc.Interactables) {
+			continue
+		}
+		sc.Interactables[iaIdx].LightIndex = i
+		a := agent{
+			lightIdx:  i,
+			baseColor: l.Color,
+			on:        true,
+			fade:      1,
+			interact:  &sc.Interactables[iaIdx],
+		}
+		if old, ok := prev[iaIdx]; ok {
+			a.on = old.on
+			a.fade = old.fade
+			a.baseColor = old.baseColor
+		}
+		m.agents = append(m.agents, a)
 	}
 }
 

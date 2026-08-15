@@ -26,9 +26,16 @@ import (
 	"raytracer/internal/webgpu"
 )
 
+// Defaults mirror the shipping app so a profile run measures the workload the
+// player actually sees. main.go renders at 512x320, and app.go builds its
+// render.View with MaxBounceDepth 4 and adaptiveAA on. Profiling against
+// anything cheaper (the old 400x250 / depth-2 / AA-off defaults) understates
+// glass-heavy scenes badly: bounce depth drives the ray tree exponentially, so
+// depth 2 hid most of the cost this tool exists to find.
 const (
-	defaultRenderW = 400
-	defaultRenderH = 250
+	defaultRenderW     = 512
+	defaultRenderH     = 320
+	defaultBounceDepth = 4
 )
 
 func main() {
@@ -46,7 +53,8 @@ func main() {
 	profile := flag.Bool("profile", false, "collect GPU shader workload counters (one profiled frame)")
 	dump := flag.String("dump", "", "write the final RGBA frame buffer to this file (for A/B pixel diffs)")
 	mountains := flag.Bool("mountains", false, "use mountain-view camera preset (yaw=0°, villa valley view)")
-	aa := flag.Bool("aa", false, "enable adaptive anti-aliasing (two-pass)")
+	aa := flag.Bool("aa", true, "enable adaptive anti-aliasing (two-pass), as the app does")
+	depth := flag.Uint("depth", defaultBounceDepth, "max mirror/glass bounce depth (app uses 4; 0 = shader default of 2)")
 	flag.Parse()
 
 	renderW, renderH := *width, *height
@@ -100,18 +108,20 @@ func main() {
 
 	aoData, aoOK := probe.New(sc).BakeAO()
 	view := &render.View{
-		Scene:      sc,
-		Shadow:     true,
-		Mirror:     true,
-		AO:         true,
-		AOData:     aoData,
-		AOok:       aoOK,
-		AdaptiveAA: *aa,
+		Scene:          sc,
+		Shadow:         true,
+		Mirror:         true,
+		AO:             true,
+		AOData:         aoData,
+		AOok:           aoOK,
+		AdaptiveAA:     *aa,
+		MaxBounceDepth: uint32(*depth),
 	}
 
 	buf := make([]byte, renderW*renderH*4)
 
-	fmt.Printf("GPU profile: %s  (%dx%d)  %s\n\n", *scenePath, renderW, renderH, camLabel)
+	fmt.Printf("GPU profile: %s  (%dx%d)  %s\n", *scenePath, renderW, renderH, camLabel)
+	fmt.Printf("  bounce depth %d, adaptive AA %v%s\n\n", *depth, *aa, appConfigNote(renderW, renderH, *depth, *aa))
 	printSceneContext(sc)
 
 	// Baseline at the configured camera.
@@ -194,6 +204,17 @@ func printSceneContext(s *scene.Scene) {
 		fmt.Printf("Terrain: %d volume(s)\n", n)
 	}
 	fmt.Println()
+}
+
+// appConfigNote flags a run that no longer matches the shipping app, so numbers
+// from a deliberately cheapened config are never mistaken for player-visible
+// frame times.
+func appConfigNote(w, h int, depth uint, aa bool) string {
+	if w == defaultRenderW && h == defaultRenderH && depth == defaultBounceDepth && aa {
+		return "  (matches the app)"
+	}
+	return fmt.Sprintf("  (app renders %dx%d at depth %d with AA on)",
+		defaultRenderW, defaultRenderH, defaultBounceDepth)
 }
 
 func bench(r *webgpu.Renderer, buf []byte, cam *camera.Camera, view *render.View, warmup, n int, profile bool) webgpu.FrameTiming {

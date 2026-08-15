@@ -1,0 +1,39 @@
+# Minimal desk lamp with reactive [state] for preview and tests.
+#
+# Params (optional):
+#   base_brightness  light intensity when on   (default 0.08)
+#   range            light reach in metres     (default 4.0)
+#   albedo           chrome body colour        (default [0.6, 0.6, 0.6])
+
+[props]
+base_brightness = 0.08
+range = 4.0
+albedo = [0.6, 0.6, 0.6]
+
+[state]
+lamp_on = true
+
+[[cylinder]]
+material = "diffuse"
+albedo = 'albedo'
+pos_x = -0.04
+pos_y = 0.04
+pos_z = -0.04
+width = 0.08
+height = 0.03
+
+[[sphere]]
+material = "glass"
+albedo = [6.0, 4.8, 3.2]
+center = [0.0, 0.37, 0.235]
+radius = 0.024
+
+[[light]]
+interactive = true
+on_use = 'toggle(lamp_on)'
+brightness = 'lamp_on ? base_brightness : 0'
+color = [2.8, 2.6, 2.0]
+pos = [0.0, 0.36, 0.235]
+radius = 0.12
+range = 'range'
+hint = "lamp"

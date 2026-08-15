@@ -82,7 +82,7 @@ func expandFor(lines []string, start int, varName, boundExpr string, env *Env) (
 					if err != nil {
 						return 0, nil, err
 					}
-					substituted, err := substituteExprs(expanded, iterEnv)
+					substituted, err := substituteExprs(expanded, iterEnv, nil)
 					if err != nil {
 						return 0, nil, err
 					}
@@ -147,7 +147,7 @@ func expandIf(lines []string, start int, env *Env) (end int, out []string, err e
 					if err != nil {
 						return 0, nil, err
 					}
-					substituted, err := substituteExprs(expanded, env)
+					substituted, err := substituteExprs(expanded, env, nil)
 					if err != nil {
 						return 0, nil, err
 					}

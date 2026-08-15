@@ -3,6 +3,7 @@ package webgpu
 import (
 	"unsafe"
 
+	"raytracer/internal/gpuscene"
 	"raytracer/internal/scene"
 	"raytracer/internal/vec"
 )
@@ -14,6 +15,9 @@ const (
 	instTemplateStride = 16
 
 	bvhTagTLAS uint32 = 1
+
+	// bvhStackSize mirrors BVH_STACK_SIZE in bvh.wesl.
+	bvhStackSize = gpuscene.BVHStackSize
 )
 
 // GPUTemplateRecord holds BLAS roots and prim-buffer offsets for one template

@@ -36,6 +36,7 @@ type Scene struct {
 	DocumentSpecs []DocumentSpec
 	ScreenSpecs   []ScreenSpec
 	DynamicBodies []DynamicBody
+	Reactive      *ReactiveSpec
 	Start         CameraStart
 	PlayerMovement PlayerMovement
 	Env            Environment
@@ -59,6 +60,8 @@ type Scene struct {
 
 	// boxInteract maps box index → interactables slice index for ray picking.
 	boxInteract map[int]int
+	// sphereInteract maps sphere index → interactables slice index for ray picking.
+	sphereInteract map[int]int
 	// lightInteract maps light index → interactables slice index for ray picking.
 	lightInteract map[int]int
 

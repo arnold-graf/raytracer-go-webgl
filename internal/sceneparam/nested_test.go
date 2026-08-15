@@ -81,7 +81,7 @@ func TestOfficeLightGridOff(t *testing.T) {
 	if strings.Count(s, "[[light]]") != 0 {
 		t.Fatalf("expected no lights when on=false, got:\n%s", s)
 	}
-	if strings.Count(s, `material = "emit"`) != 12 {
+	if strings.Count(s, `material = "diffuse"`) != 12 {
 		t.Fatalf("panels should remain when on=false")
 	}
 }

@@ -3,6 +3,7 @@ package sceneparam
 import (
 	"bytes"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -14,6 +15,7 @@ func NeedsExpand(raw []byte) bool {
 	s := string(raw)
 	return strings.Contains(s, "[props]") ||
 		strings.Contains(s, "[const]") ||
+		strings.Contains(s, "[state]") ||
 		strings.Contains(s, "# for ")
 }
 
@@ -26,36 +28,74 @@ func Expand(path string, raw []byte, params map[string]any) ([]byte, error) {
 // ExpandWithResolved is Expand and also returns resolved [props] values after
 // merging include props (nil when the file has no [props] table).
 func ExpandWithResolved(path string, raw []byte, params map[string]any) ([]byte, map[string]any, error) {
+	out, resolved, _, err := ExpandWithReactive(path, raw, params, "", nil)
+	return out, resolved, err
+}
+
+// ExpandWithReactive is ExpandWithResolved and also returns reactive metadata
+// when the file declares [state] or state-dependent bindings.
+func ExpandWithReactive(path string, raw []byte, params map[string]any, scopeID string, stateOverride map[string]StateValue) ([]byte, map[string]any, *ReactiveMeta, error) {
 	if bytes.Contains(raw, []byte("{{")) {
-		return nil, nil, fmt.Errorf("%s: Go template syntax is not allowed in parameterized objects", path)
+		return nil, nil, nil, fmt.Errorf("%s: Go template syntax is not allowed in parameterized objects", path)
 	}
 	if !NeedsExpand(raw) {
-		return raw, nil, nil
+		return raw, nil, nil, nil
 	}
 
-	props, consts, err := parseMetaTables(string(raw))
+	props, consts, state, err := parseMetaTables(string(raw))
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", path, err)
+		return nil, nil, nil, fmt.Errorf("%s: %w", path, err)
 	}
 	env := NewEnv()
 	if err := mergeParams(env, props, params); err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", path, err)
+		return nil, nil, nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if err := evalConsts(env, consts); err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", path, err)
+		return nil, nil, nil, fmt.Errorf("%s: %w", path, err)
+	}
+	stateKeys := map[string]struct{}{}
+	if err := evalState(env, state, stateKeys); err != nil {
+		return nil, nil, nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := applyStateOverride(env, stateKeys, stateOverride); err != nil {
+		return nil, nil, nil, fmt.Errorf("%s: %w", path, err)
 	}
 	resolved := resolvedPropsFromEnv(env, props)
 
+	meta := (*ReactiveMeta)(nil)
+	structural := map[string]struct{}{}
+	if len(stateKeys) > 0 {
+		if scopeID == "" {
+			scopeID = filepath.Base(path)
+		}
+		meta = &ReactiveMeta{
+			ScopeID:        scopeID,
+			SourcePath:     path,
+			State:          snapshotState(env, stateKeys),
+			Props:          snapshotProps(env, stateKeys),
+			StructuralDeps: nil,
+		}
+	}
+
 	body := stripMetaTables(string(raw))
-	body, err = expandDirectives(body, env)
-	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", path, err)
+	if meta != nil {
+		body, err = expandDirectivesReactive(body, env, stateKeys, &structural)
+	} else {
+		body, err = expandDirectives(body, env)
 	}
-	body, err = substituteExprs(body, env)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", path, err)
+		return nil, nil, nil, fmt.Errorf("%s: %w", path, err)
 	}
-	return []byte(body), resolved, nil
+	if meta != nil {
+		meta.StructuralDeps = structuralList(structural)
+		body, err = substituteExprsReactive(body, env, stateKeys, meta)
+	} else {
+		body, err = substituteExprs(body, env, stateKeys)
+	}
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return []byte(body), resolved, meta, nil
 }
 
 func resolvedPropsFromEnv(env *Env, props map[string]metaEntry) map[string]any {
@@ -77,9 +117,10 @@ type metaEntry struct {
 	isExpr bool
 }
 
-func parseMetaTables(raw string) (props map[string]metaEntry, consts map[string]metaEntry, err error) {
+func parseMetaTables(raw string) (props map[string]metaEntry, consts map[string]metaEntry, state map[string]metaEntry, err error) {
 	props = map[string]metaEntry{}
 	consts = map[string]metaEntry{}
+	state = map[string]metaEntry{}
 	section := ""
 	for _, line := range strings.Split(raw, "\n") {
 		trim := strings.TrimSpace(line)
@@ -89,6 +130,10 @@ func parseMetaTables(raw string) (props map[string]metaEntry, consts map[string]
 		}
 		if trim == "[const]" {
 			section = "const"
+			continue
+		}
+		if trim == "[state]" {
+			section = "state"
 			continue
 		}
 		if strings.HasPrefix(trim, "[") && trim != "" {
@@ -102,16 +147,18 @@ func parseMetaTables(raw string) (props map[string]metaEntry, consts map[string]
 		}
 		key, entry, err := parseMetaLine(trim)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		switch section {
 		case "props":
 			props[key] = entry
 		case "const":
 			consts[key] = entry
+		case "state":
+			state[key] = entry
 		}
 	}
-	return props, consts, nil
+	return props, consts, state, nil
 }
 
 func parseMetaLine(line string) (string, metaEntry, error) {
@@ -260,6 +307,82 @@ func evalConsts(env *Env, consts map[string]metaEntry) error {
 	return nil
 }
 
+func evalState(env *Env, state map[string]metaEntry, stateKeys map[string]struct{}) error {
+	pending := make(map[string]metaEntry, len(state))
+	for k, v := range state {
+		pending[k] = v
+	}
+	for len(pending) > 0 {
+		progress := false
+		for key, entry := range pending {
+			if entry.isExpr {
+				v, err := evalExpr(entry.expr, env)
+				if err != nil {
+					if isUnknownName(err) {
+						continue
+					}
+					return fmt.Errorf("state %s: %w", key, err)
+				}
+				env.Set(key, v)
+				stateKeys[key] = struct{}{}
+				delete(pending, key)
+				progress = true
+				continue
+			}
+			if err := applyMetaEntry(env, key, entry); err != nil {
+				return fmt.Errorf("state %s: %w", key, err)
+			}
+			stateKeys[key] = struct{}{}
+			delete(pending, key)
+			progress = true
+		}
+		if !progress {
+			names := make([]string, 0, len(pending))
+			for k := range pending {
+				names = append(names, k)
+			}
+			return fmt.Errorf("state cycle or unresolved refs: %s", strings.Join(names, ", "))
+		}
+	}
+	return nil
+}
+
+func snapshotState(env *Env, stateKeys map[string]struct{}) map[string]value {
+	out := make(map[string]value, len(stateKeys))
+	for key := range stateKeys {
+		if v, ok := env.Lookup(key); ok {
+			out[key] = v
+		}
+	}
+	return out
+}
+
+func snapshotProps(env *Env, stateKeys map[string]struct{}) map[string]value {
+	out := map[string]value{}
+	for key, v := range env.Vars() {
+		if _, isState := stateKeys[key]; isState {
+			continue
+		}
+		out[key] = v
+	}
+	return out
+}
+
+func applyStateOverride(env *Env, stateKeys map[string]struct{}, overrides map[string]StateValue) error {
+	if len(overrides) == 0 {
+		return nil
+	}
+	for key, sv := range overrides {
+		v, err := stateToValue(sv)
+		if err != nil {
+			return fmt.Errorf("state override %s: %w", key, err)
+		}
+		env.Set(key, v)
+		stateKeys[key] = struct{}{}
+	}
+	return nil
+}
+
 func isUnknownName(err error) bool {
 	return strings.Contains(err.Error(), "unknown name")
 }
@@ -270,7 +393,7 @@ func stripMetaTables(raw string) string {
 	section := ""
 	for _, line := range lines {
 		trim := strings.TrimSpace(line)
-		if trim == "[props]" || trim == "[const]" {
+		if trim == "[props]" || trim == "[const]" || trim == "[state]" {
 			section = trim
 			continue
 		}
@@ -286,14 +409,14 @@ func stripMetaTables(raw string) string {
 	return strings.Join(out, "\n")
 }
 
-func substituteExprs(text string, env *Env) (string, error) {
+func substituteExprs(text string, env *Env, stateKeys map[string]struct{}) (string, error) {
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
 		trim := strings.TrimSpace(line)
 		if trim == "" || strings.HasPrefix(trim, "#") {
 			continue
 		}
-		newLine, err := substituteLine(line, env)
+		newLine, err := substituteLine(line, env, stateKeys)
 		if err != nil {
 			return "", fmt.Errorf("line %d: %w", i+1, err)
 		}
@@ -302,9 +425,19 @@ func substituteExprs(text string, env *Env) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-func substituteLine(line string, env *Env) (string, error) {
+func substituteLine(line string, env *Env, stateKeys map[string]struct{}) (string, error) {
 	eq := strings.Index(line, "=")
 	if eq < 0 {
+		return line, nil
+	}
+	key := strings.TrimSpace(line[:eq])
+	if key == "props" {
+		return substitutePropsLine(line, eq, env, stateKeys)
+	}
+	if key == "on_use" {
+		if out, ok, err := substituteOnUseLine(line, eq, env); ok {
+			return out, err
+		}
 		return line, nil
 	}
 	prefix := line[:eq+1]
@@ -317,6 +450,80 @@ func substituteLine(line string, env *Env) (string, error) {
 		return "", err
 	}
 	return prefix + " " + replaced, nil
+}
+
+func substitutePropsLine(line string, eq int, env *Env, stateKeys map[string]struct{}) (string, error) {
+	prefix := line[:eq+1]
+	rest := strings.TrimSpace(line[eq+1:])
+	if !strings.Contains(rest, "'") {
+		return line, nil
+	}
+	replaced, err := substituteIncludePropExprs(rest, env, stateKeys)
+	if err != nil {
+		return "", err
+	}
+	return prefix + " " + replaced, nil
+}
+
+func substituteIncludePropExprs(s string, env *Env, stateKeys map[string]struct{}) (string, error) {
+	var out strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] != '\'' {
+			out.WriteByte(s[i])
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(s) && s[j] != '\'' {
+			j++
+		}
+		if j >= len(s) {
+			return "", fmt.Errorf("unterminated string in %q", s)
+		}
+		expr := s[i+1 : j]
+		if preserveIncludePropExpr(expr, stateKeys) {
+			out.WriteByte('\'')
+			out.WriteString(expr)
+			out.WriteByte('\'')
+			i = j + 1
+			continue
+		}
+		v, err := evalExpr(expr, env)
+		if err != nil {
+			return "", fmt.Errorf("%q: %w", expr, err)
+		}
+		formatted, err := formatTOML(v)
+		if err != nil {
+			return "", err
+		}
+		out.WriteString(formatted)
+		i = j + 1
+	}
+	return out.String(), nil
+}
+
+func preserveIncludePropExpr(expr string, stateKeys map[string]struct{}) bool {
+	_ = stateKeys
+	return strings.Contains(expr, "(") || strings.Contains(expr, "=")
+}
+
+func isSimpleIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, c := range s {
+		if i == 0 {
+			if c != '_' && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+				return false
+			}
+			continue
+		}
+		if c != '_' && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func replaceQuotedExprs(s string, env *Env) (string, error) {
@@ -348,4 +555,21 @@ func replaceQuotedExprs(s string, env *Env) (string, error) {
 		i = j + 1
 	}
 	return out.String(), nil
+}
+
+func substituteOnUseLine(line string, eq int, env *Env) (string, bool, error) {
+	rest := strings.TrimSpace(line[eq+1:])
+	expr := extractSingleQuotedExpr(rest)
+	if expr == "" {
+		return "", false, nil
+	}
+	v, ok := env.Lookup(expr)
+	if !ok || v.kind != valString {
+		return "", false, nil
+	}
+	formatted, err := formatTOML(v)
+	if err != nil {
+		return "", true, err
+	}
+	return strings.TrimSpace(line[:eq+1]) + " " + formatted, true, nil
 }

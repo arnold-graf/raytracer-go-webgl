@@ -33,6 +33,14 @@ const (
 	BVHLeafSize        = 2
 	BVHSAHBins         = 32
 	BVHSAHTraverseCost = 1.0 // relative traversal vs intersection cost in SAH splits
+
+	// BVHStackSize is the depth of each WGSL depth-first traversal stack. These
+	// stacks are per-thread scratch arrays and several are live at once along
+	// the trace call chain, so their size directly costs GPU occupancy. A DFS
+	// that pushes both children and pops one holds at most depth+1 entries;
+	// TestBVHTraversalStackDepth measures every packed tree in scenes/ against
+	// this bound.
+	BVHStackSize = 32
 )
 
 // WGSLConstants emits the shader-side constants that must stay synchronized with

@@ -1,0 +1,73 @@
+# Reactive variant of office-light-grid: `on` lives in [state] for runtime toggling.
+#
+# Smaller defaults for tests and previews.
+
+[props]
+x_count = 2
+z_count = 2
+panels_per_light = 2
+origin_x = 0.0
+origin_z = 0.0
+spacing = 1.0
+y = 2.0
+panel_width = 1.0
+panel_height = 0.01
+panel_depth = 1.0
+emit_albedo = [1, 0.5, 0.5]
+light_color = [0.5, 0.5, 1]
+light_brightness = 0.3
+light_range = 7.0
+
+[state]
+on = true
+
+[const]
+light_offset = 'panel_width / 2'
+light_x_count = 'floor((x_count + 1) / 2)'
+light_z_count = 'floor((z_count + 1) / 2)'
+single_x = '1 - (light_x_count - 1)'
+single_z = '1 - (light_z_count - 1)'
+center_i = 'floor((x_count - 1) / 2)'
+center_j = 'floor((z_count - 1) / 2)'
+stride_i = '(x_count - 1) * (light_x_count - 1)'
+stride_j = '(z_count - 1) * (light_z_count - 1)'
+
+# for i in range(x_count)
+# for j in range(z_count)
+# if on
+[[box]]
+material = "emit"
+albedo = 'emit_albedo'
+width = 'panel_width'
+height = 'panel_height'
+depth = 'panel_depth'
+pos_x = 'origin_x + (i * spacing)'
+pos_y = 'y'
+pos_z = 'origin_z + (j * spacing)'
+# endif
+# if not on
+[[box]]
+reflect = 0.05
+width = 'panel_width'
+height = 'panel_height'
+depth = 'panel_depth'
+pos_x = 'origin_x + (i * spacing)'
+pos_y = 'y'
+pos_z = 'origin_z + (j * spacing)'
+material = "diffuse"
+albedo = [1, 1, 1]
+# endif
+# endfor
+# endfor
+
+# if on
+# for li in range(light_x_count)
+# for lj in range(light_z_count)
+[[light]]
+pos = ['origin_x + light_offset + (center_i * single_x + li * stride_i) * spacing', 'y', 'origin_z + light_offset + (center_j * single_z + lj * stride_j) * spacing']
+color = 'light_color'
+brightness = 'light_brightness'
+range = 'light_range'
+# endfor
+# endfor
+# endif

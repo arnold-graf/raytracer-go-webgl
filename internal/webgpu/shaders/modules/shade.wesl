@@ -3,7 +3,7 @@
 // evaluates point lights and flickering campfires, samples baked ambient
 // occlusion, and assembles direct diffuse lighting (shade_diffuse).
 
-import package::types::{CampfireParams, LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_SKIP_EPS, ao_volume, blocker_plane_idx, campfires, holes, lights, params, terrains};
+import package::types::{CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_SKIP_EPS, ao_volume, blocker_plane_idx, campfires, holes, lights, params, terrains};
 import package::profile::{PROF_SHADOW_BLOCK, PROF_SHADOW_RAYS, prof_inc};
 import package::math::{mix3, perlin, smoothstepf};
 import package::texture::{texture_eval};
@@ -196,26 +196,29 @@ fn lens_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
 
 fn normal_at(p: Prim, hp: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
     let kind = p.info.x;
-    if (kind == PRIM_SPHERE) {
+    if (FEAT_PRIM_SPHERE && kind == PRIM_SPHERE) {
         return normalize(hp - p.geo_a.xyz);
     }
-    if (kind == PRIM_PLANE) {
+    if (FEAT_PRIM_PLANE && kind == PRIM_PLANE) {
         return p.geo_a.xyz;
     }
-    if (kind == PRIM_BOX) {
+    if (FEAT_PRIM_BOX && kind == PRIM_BOX) {
         return box_normal(p, hp);
     }
-    if (kind == PRIM_CYLINDER) {
+    if (FEAT_PRIM_CYLINDER && kind == PRIM_CYLINDER) {
         return cylinder_normal(p, hp);
     }
-    if (kind == PRIM_CONE) {
+    if (FEAT_PRIM_CONE && kind == PRIM_CONE) {
         return cone_normal(p, hp, rd);
     }
-    if (kind == PRIM_RING) {
+    if (FEAT_PRIM_RING && kind == PRIM_RING) {
         return ring_normal(p, hp);
     }
-    if (kind == PRIM_LENS) {
+    if (FEAT_PRIM_LENS && kind == PRIM_LENS) {
         return lens_normal(p, hp);
+    }
+    if (!FEAT_PRIM_TORUS) {
+        return vec3<f32>(0.0, 1.0, 0.0);
     }
     return torus_normal(p, hp);
 }
@@ -453,7 +456,10 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
     for (var i = 0u; i < params.light_count; i = i + 1u) {
         lit = add_point_light(lit, hp, alb, n, ep, lights[i], tw);
     }
-    for (var ci = 0u; ci < params.campfire_count; ci = ci + 1u) {
+    // FEAT_CAMPFIRE folds to false in scenes with no campfire, so the compiler
+    // drops this whole loop — including the sub-light and flame-cull helpers it
+    // would otherwise keep live.
+    for (var ci = 0u; FEAT_CAMPFIRE && ci < params.campfire_count; ci = ci + 1u) {
         let cf = campfires[ci];
         let core = cf.core.xyz;
         let cl = core - hp;
@@ -503,6 +509,7 @@ fn jitter_dir(d: vec3<f32>, p: vec3<f32>, rough: f32) -> vec3<f32> {
 }
 
 fn terrain_albedo(i: u32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    if (!FEAT_TERRAIN) { return vec3<f32>(0.5, 0.5, 0.5); }
     let tr = terrains[i];
     let slope = 1.0 - n.y;
     let j = 0.08 * perlin(p.x * 0.7, 0.0, p.z * 0.7);

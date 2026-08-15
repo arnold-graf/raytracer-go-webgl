@@ -107,6 +107,18 @@ func (e *Env) Lookup(name string) (value, bool) {
 	return v, ok
 }
 
+// Vars returns a copy of all variables in the env.
+func (e *Env) Vars() map[string]value {
+	if e == nil {
+		return nil
+	}
+	out := make(map[string]value, len(e.vars))
+	for k, v := range e.vars {
+		out[k] = v
+	}
+	return out
+}
+
 func (e *Env) Child() *Env {
 	child := NewEnv()
 	for k, v := range e.vars {
@@ -190,7 +202,11 @@ func toFloat64(v any) (float64, bool) {
 	}
 }
 
-func evalExpr(src string, env *Env) (value, error) {
+type envLookup interface {
+	Lookup(name string) (value, bool)
+}
+
+func evalExpr(src string, env envLookup) (value, error) {
 	p := &parser{src: strings.TrimSpace(src), env: env}
 	v, err := p.parseExpr()
 	if err != nil {
@@ -204,7 +220,7 @@ func evalExpr(src string, env *Env) (value, error) {
 
 type parser struct {
 	src string
-	env *Env
+	env envLookup
 }
 
 func (p *parser) skipSpace() {
@@ -212,7 +228,7 @@ func (p *parser) skipSpace() {
 }
 
 func (p *parser) parseExpr() (value, error) {
-	left, err := p.parseTerm()
+	left, err := p.parseConditional()
 	if err != nil {
 		return value{}, err
 	}
@@ -224,7 +240,7 @@ func (p *parser) parseExpr() (value, error) {
 		switch p.src[0] {
 		case '+':
 			p.src = p.src[1:]
-			right, err := p.parseTerm()
+			right, err := p.parseConditional()
 			if err != nil {
 				return value{}, err
 			}
@@ -239,7 +255,7 @@ func (p *parser) parseExpr() (value, error) {
 			left = value{kind: valNumber, number: a + b}
 		case '-':
 			p.src = p.src[1:]
-			right, err := p.parseTerm()
+			right, err := p.parseConditional()
 			if err != nil {
 				return value{}, err
 			}
@@ -256,6 +272,35 @@ func (p *parser) parseExpr() (value, error) {
 			return left, nil
 		}
 	}
+}
+
+func (p *parser) parseConditional() (value, error) {
+	left, err := p.parseTerm()
+	if err != nil {
+		return value{}, err
+	}
+	p.skipSpace()
+	if len(p.src) == 0 || p.src[0] != '?' {
+		return left, nil
+	}
+	p.src = p.src[1:]
+	trueVal, err := p.parseConditional()
+	if err != nil {
+		return value{}, err
+	}
+	p.skipSpace()
+	if len(p.src) == 0 || p.src[0] != ':' {
+		return value{}, fmt.Errorf("expected ':' in ternary")
+	}
+	p.src = p.src[1:]
+	falseVal, err := p.parseConditional()
+	if err != nil {
+		return value{}, err
+	}
+	if left.truthy() {
+		return trueVal, nil
+	}
+	return falseVal, nil
 }
 
 func (p *parser) parseTerm() (value, error) {
@@ -344,9 +389,31 @@ func (p *parser) parsePrimary() (value, error) {
 		return p.parseNumber()
 	}
 	if unicode.IsLetter(rune(p.src[0])) || p.src[0] == '_' {
+		if v, ok, n := p.parseBoolLiteral(); ok {
+			p.src = p.src[n:]
+			return v, nil
+		}
 		return p.parseIdentOrCall()
 	}
 	return value{}, fmt.Errorf("unexpected character %q", p.src[0])
+}
+
+func (p *parser) parseBoolLiteral() (value, bool, int) {
+	if strings.HasPrefix(p.src, "true") && identBoundary(p.src, 4) {
+		return value{kind: valBool, boolean: true}, true, 4
+	}
+	if strings.HasPrefix(p.src, "false") && identBoundary(p.src, 5) {
+		return value{kind: valBool, boolean: false}, true, 5
+	}
+	return value{}, false, 0
+}
+
+func identBoundary(s string, n int) bool {
+	if len(s) <= n {
+		return true
+	}
+	r := rune(s[n])
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
 }
 
 func (p *parser) parseNumber() (value, error) {

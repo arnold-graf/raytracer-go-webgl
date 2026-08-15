@@ -103,6 +103,7 @@ type sphereDTO struct {
 	CutOff float64 `toml:"cut_off"`
 	transformDTO
 	surfaceDTO
+	interactPropsDTO
 }
 
 type planeDTO struct {
@@ -304,17 +305,18 @@ type lightDTO struct {
 	// Brightness scales the light's intensity independently of its color/range
 	// (1 = as authored), mirroring the campfire's brightness knob. It is folded
 	// into the color at load time, so culling and shading honor it for free.
-	Brightness  float64 `toml:"brightness"`
+	Brightness  *float64 `toml:"brightness"`
 	Interactive bool    `toml:"interactive"`
 	Hint        string  `toml:"hint"`
+	OnUse       string  `toml:"on_use"`
 }
 
 // build resolves a light, applying the brightness multiplier (default 1) to the
 // color so the rest of the engine only sees a single effective intensity.
 func (d lightDTO) build() scene.Light {
-	b := d.Brightness
-	if b == 0 {
-		b = 1
+	b := 1.0
+	if d.Brightness != nil {
+		b = *d.Brightness
 	}
 	dir := d.Dir.toV()
 	if dir.LenSq() > 0 {
@@ -704,7 +706,7 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		defer delete(seen, abs)
 	}
 
-	dto, resolved, err := decodeSceneFile(path, params)
+	dto, resolved, reactive, err := decodeSceneFile(path, params)
 	if err != nil {
 		return nil, err
 	}
@@ -722,7 +724,7 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		}
 		var extendPlacements []scene.TerrainFollowPlacement
 		for i, inc := range dto.Include {
-			if err := mergeInclude(base, inc, filepath.Dir(path), i, seen, deps, &extendPlacements); err != nil {
+			if err := mergeInclude(base, path, inc, filepath.Dir(path), i, seen, deps, &extendPlacements); err != nil {
 				return nil, err
 			}
 		}
@@ -735,27 +737,27 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		base.FinalizeInstancing()
 		return base, nil
 	}
-	return dto.buildWithIncludes(path, resolved, seen, deps, followPlacements)
+	return dto.buildWithIncludes(path, resolved, reactive, seen, deps, followPlacements)
 }
 
 // decodeSceneFile reads the file at path, expands parameterized object syntax
 // when present, and decodes the resulting TOML into a sceneDTO. resolved holds
 // merged [props] values (used for door panel loads; [[include]] children only
 // receive their own explicit props).
-func decodeSceneFile(path string, params map[string]any) (sceneDTO, map[string]any, error) {
+func decodeSceneFile(path string, params map[string]any) (sceneDTO, map[string]any, *sceneparam.ReactiveMeta, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return sceneDTO{}, nil, fmt.Errorf("read scene %q: %w", path, err)
+		return sceneDTO{}, nil, nil, fmt.Errorf("read scene %q: %w", path, err)
 	}
-	rendered, resolved, err := sceneparam.ExpandWithResolved(path, raw, params)
+	rendered, resolved, reactive, err := sceneparam.ExpandWithReactive(path, raw, params, scopeIDForPath(path), nil)
 	if err != nil {
-		return sceneDTO{}, nil, err
+		return sceneDTO{}, nil, nil, err
 	}
 	var dto sceneDTO
 	if _, err := toml.Decode(string(rendered), &dto); err != nil {
-		return sceneDTO{}, nil, fmt.Errorf("load scene %q: %w", path, err)
+		return sceneDTO{}, nil, nil, fmt.Errorf("load scene %q: %w", path, err)
 	}
-	return dto, resolved, nil
+	return dto, resolved, reactive, nil
 }
 
 // Decode decodes a TOML scene from an in-memory byte slice (used for the
@@ -833,6 +835,10 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 		center := d.Center.toV()
 		surf.Xform = d.transformDTO.buildPlacement(center)
 		s.Spheres = append(s.Spheres, scene.Sphere{Center: center, Radius: d.Radius, CutOff: d.CutOff, Surface: surf})
+		if d.OnUse != "" {
+			iaIdx := s.RegisterInteractable(d.interactPropsDTO.build())
+			s.SetSphereInteract(len(s.Spheres)-1, iaIdx)
+		}
 	}
 	for i, d := range dto.Plane {
 		surf, err := d.toSurface()
@@ -967,6 +973,11 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 	}
 	for _, d := range dto.Light {
 		s.Lights = append(s.Lights, d.build())
+		if d.OnUse != "" && scene.IsStateAction(d.OnUse) {
+			ia := scene.InteractFromOnUse(lightHint(true, d.Hint), d.OnUse, 0)
+			iaIdx := s.RegisterInteractable(ia)
+			s.SetLightInteract(len(s.Lights)-1, iaIdx)
+		}
 	}
 	for _, d := range dto.LightFlickering {
 		s.Campfires = append(s.Campfires, d.build())
@@ -1017,11 +1028,12 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 	return s, nil
 }
 
-func (dto sceneDTO) buildWithIncludes(path string, parentResolved map[string]any, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
+func (dto sceneDTO) buildWithIncludes(path string, parentResolved map[string]any, reactive *sceneparam.ReactiveMeta, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) (*scene.Scene, error) {
 	s, err := dto.build()
 	if err != nil {
 		return nil, err
 	}
+	attachReactive(s, reactive, path, scene.PrimitiveCounts{}, 0)
 	if err := resolveDoors(s, dto.Door, filepath.Dir(path), parentResolved, seen, deps); err != nil {
 		return nil, err
 	}
@@ -1032,14 +1044,14 @@ func (dto sceneDTO) buildWithIncludes(path string, parentResolved map[string]any
 		return nil, err
 	}
 	for i, inc := range dto.Include {
-		if err := mergeInclude(s, inc, filepath.Dir(path), i, seen, deps, followPlacements); err != nil {
+		if err := mergeInclude(s, path, inc, filepath.Dir(path), i, seen, deps, followPlacements); err != nil {
 			return nil, err
 		}
 	}
 	return s, nil
 }
 
-func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) error {
+func mergeInclude(dst *scene.Scene, parentPath string, inc includeDTO, parentDir string, index int, seen map[string]bool, deps *[]string, followPlacements *[]scene.TerrainFollowPlacement) error {
 	incPath := inc.File
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
@@ -1067,7 +1079,14 @@ func mergeInclude(dst *scene.Scene, inc includeDTO, parentDir string, index int,
 		return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
 	}
 	before := scene.CountPrimitives(dst)
+	iaBefore := len(dst.Interactables)
 	mergeScene(dst, sub, xf)
+	after := scene.CountPrimitives(dst)
+	iaAfter := len(dst.Interactables)
+	mergeReactive(dst, sub, parentPath, index, incPath, inc.Props, before, after, iaBefore, iaAfter, xf)
+	if err := mergeBoundInclude(dst, parentPath, incPath, index, inc.Props, before, after, iaBefore, iaAfter, xf); err != nil {
+		return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
+	}
 	mergeInstancingCatalog(dst, sub, xf)
 	if followPlacements == nil {
 		return nil

@@ -13,6 +13,7 @@ func init() {
 		"document":    handleDocument,
 		"screen":       handleScreen,
 		"light_toggle": handleLightToggle,
+		"state":        handleState,
 	}
 	invokeHandler = func(name string, ctx *UseContext) error {
 		if name == "" {

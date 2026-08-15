@@ -4,6 +4,8 @@
 **Audience:** anyone deciding what to build next  
 **Constraint:** perceptual parity preferred; strict byte-parity no longer required for bounce-path shadow culls (see [B1 — shipped](#b1--shipped-accepted)).
 
+> ⚠️ **Timings below predate the 2026-08-15 `gpuprof` fix and understate the app.** Every GPU figure in this document was measured at 400×250 with bounce depth 2 and adaptive AA off, because `cmd/gpuprof` did not set `MaxBounceDepth` and fell through to the shader default. The app renders 512×320 at depth 4 with AA on — on the office scene that was the difference between 7.8 ms and 29.3 ms. The *conclusions* here still hold (reflections dominate; BVH quality is not the lever, since a balanced tree later measured 23% slower); the *numbers* do not. Re-measure before comparing. See [shader-specialization.md](shader-specialization.md).
+
 ---
 
 ## B1 — shipped (accepted)

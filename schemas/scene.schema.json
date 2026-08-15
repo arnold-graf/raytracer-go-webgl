@@ -163,6 +163,10 @@
     "const": {
       "$ref": "#/definitions/meta_table",
       "description": "TOML table [const]. Derived values (single-quoted expressions) evaluated after props merge."
+    },
+    "state": {
+      "$ref": "#/definitions/meta_table",
+      "description": "TOML table [state]. Runtime-mutable variables for reactive object files. Usable in expressions, loops, and conditions; passed to children via [[include]].state."
     }
   },
   "definitions": {
@@ -458,6 +462,9 @@
         },
         {
           "$ref": "#/definitions/primitive_surface"
+        },
+        {
+          "$ref": "#/definitions/interact_props"
         }
       ]
     },
@@ -1067,6 +1074,10 @@
           "type": "string",
           "default": "lamp",
           "description": "Interaction hint shown when aiming at an interactive light."
+        },
+        "on_use": {
+          "type": "string",
+          "description": "State mutation when the player uses this light, e.g. toggle(lamp_on) or lamp_on = true. Requires [state] in a parameterized object file; uses handler state instead of light_toggle."
         }
       },
       "required": [

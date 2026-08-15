@@ -21,11 +21,29 @@ import (
 type Probe struct {
 	s     *scene.Scene
 	accel *bvh.BVH
+	gen   uint64
 }
 
 // New builds a probe for s, constructing a BVH over its finite primitives once.
 func New(s *scene.Scene) *Probe {
-	return &Probe{s: s, accel: bvh.New(s)}
+	if s == nil {
+		return &Probe{}
+	}
+	return &Probe{s: s, gen: s.Generation(), accel: bvh.New(s)}
+}
+
+// Sync rebuilds the BVH when s's geometry generation has changed (e.g. reactive
+// state edits that add/remove primitives). Pose-only updates do not require this.
+func (p *Probe) Sync(s *scene.Scene) {
+	if p == nil || s == nil {
+		return
+	}
+	if p.s == s && p.gen == s.Generation() {
+		return
+	}
+	p.s = s
+	p.gen = s.Generation()
+	p.accel = bvh.New(s)
 }
 
 // Distance returns the distance to the nearest solid surface (finite primitives
@@ -45,6 +63,9 @@ func (p *Probe) Distance(origin, dir vec.V, maxT float64) float64 {
 // convex enough that self-occlusion is negligible, and marching it for every
 // query is expensive. Objects above still occlude normally.
 func (p *Probe) nearest(r vec.Ray, maxT float64) float64 {
+	if p == nil || p.accel == nil || p.s == nil {
+		return maxT
+	}
 	tmin := p.accel.NearestDist(r, maxT)
 	for i := range p.s.Planes {
 		if t := p.s.Planes[i].Intersect(r); t < tmin {

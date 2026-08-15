@@ -21,7 +21,7 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
 	}
-	dto, _, err := decodeSceneFile(incPath, inc.Props)
+	dto, _, _, err := decodeSceneFile(incPath, inc.Props)
 	if err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func expandInstancedInclude(dst *scene.Scene, inc includeDTO, parentDir string, 
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 		}
 		childXf = parentXf.Compose(childXf)
-		childDTO, _, err := decodeSceneFile(childPath, child.Props)
+		childDTO, _, _, err := decodeSceneFile(childPath, child.Props)
 		if err != nil {
 			return fmt.Errorf("include instance child[%d] %q: %w", i, child.File, err)
 		}
@@ -69,7 +69,7 @@ func registerLeafInstance(dst *scene.Scene, inc includeDTO, parentDir string, se
 	if !filepath.IsAbs(incPath) {
 		incPath = filepath.Join(parentDir, incPath)
 	}
-	dto, _, err := decodeSceneFile(incPath, inc.Props)
+	dto, _, _, err := decodeSceneFile(incPath, inc.Props)
 	if err != nil {
 		return err
 	}
@@ -134,6 +134,7 @@ func ensureTemplate(cat *scene.InstancingCatalog, key, absPath string, params ma
 	cat.Templates = append(cat.Templates, scene.InstanceTemplate{
 		Key:    key,
 		Source: absPath,
+		Params: params,
 		Scene:  tmpl,
 	})
 	return len(cat.Templates) - 1, nil

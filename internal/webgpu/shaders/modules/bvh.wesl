@@ -9,38 +9,44 @@ import package::intersect::{intersect, intersect_blocker, slab_hit, slab_near};
 import package::terrain::{hit_terrain, hit_water};
 import package::instance::{inst_local_dir, inst_local_origin};
 
-fn bvh_child_order(left: u32, right: u32, ro: vec3<f32>, inv: vec3<f32>) -> vec2<u32> {
-    let ln = bvh_nodes[left];
-    let rn = bvh_nodes[right];
-    let t_l = slab_near(ln.min_b.xyz, ln.max_b.xyz, ro, inv);
-    let t_r = slab_near(rn.min_b.xyz, rn.max_b.xyz, ro, inv);
-    if (t_l <= t_r) {
-        return vec2<u32>(left, right);
-    }
-    return vec2<u32>(right, left);
-}
+// BVH_STACK_SIZE is the depth of every depth-first traversal stack below. These
+// are per-thread scratch arrays and several are live at once along the trace
+// call chain, so the size costs GPU occupancy directly. A DFS that pushes both
+// children then pops one holds at most depth+1 entries; the deepest tree any
+// scene packs is far shallower. Keep in sync with gpuscene.BVHStackSize, which
+// TestBVHTraversalStackDepth checks against every packed scene.
+const BVH_STACK_SIZE: u32 = 32u;
 
 // Push near child on top (popped first). When cull_near is true, skip subtrees whose
 // AABB entry is already past best_t — valid only for nearest-hit search, not shadow
 // any-hit (which must still walk siblings that can occlude before max_t).
-fn bvh_child_push(left: u32, right: u32, ro: vec3<f32>, inv: vec3<f32>, best_t: f32, cull_near: bool, stack: ptr<function, array<u32, 64>>, sp: ptr<function, u32>) {
-    let order = bvh_child_order(left, right, ro, inv);
-    let near = order.x;
-    let far = order.y;
+fn bvh_child_push(left: u32, right: u32, ro: vec3<f32>, inv: vec3<f32>, best_t: f32, cull_near: bool, stack: ptr<function, array<u32, BVH_STACK_SIZE>>, sp: ptr<function, u32>) {
+    let ln = bvh_nodes[left];
+    let rn = bvh_nodes[right];
+    let t_l = slab_near(ln.min_b.xyz, ln.max_b.xyz, ro, inv);
+    let t_r = slab_near(rn.min_b.xyz, rn.max_b.xyz, ro, inv);
+    var near = left;
+    var far = right;
+    var t_near = t_l;
+    var t_far = t_r;
+    if (t_r < t_l) {
+        near = right;
+        far = left;
+        t_near = t_r;
+        t_far = t_l;
+    }
     if (cull_near) {
-        let t_near = slab_near(bvh_nodes[near].min_b.xyz, bvh_nodes[near].max_b.xyz, ro, inv);
-        let t_far = slab_near(bvh_nodes[far].min_b.xyz, bvh_nodes[far].max_b.xyz, ro, inv);
-        if (t_far < best_t && (*sp) + 1u <= 64u) {
+        if (t_far < best_t && (*sp) + 1u <= BVH_STACK_SIZE) {
             (*stack)[*sp] = far;
             *sp = (*sp) + 1u;
         }
-        if (t_near < best_t && (*sp) < 64u) {
+        if (t_near < best_t && (*sp) < BVH_STACK_SIZE) {
             (*stack)[*sp] = near;
             *sp = (*sp) + 1u;
         }
         return;
     }
-    if ((*sp) + 2u <= 64u) {
+    if ((*sp) + 2u <= BVH_STACK_SIZE) {
         (*stack)[*sp] = far;
         *sp = (*sp) + 1u;
         (*stack)[*sp] = near;
@@ -51,7 +57,7 @@ fn bvh_child_push(left: u32, right: u32, ro: vec3<f32>, inv: vec3<f32>, best_t: 
 fn bvh_nearest_subtree(root: u32, ro: vec3<f32>, rd: vec3<f32>, best_t: f32, blockers: bool) -> f32 {
     let inv = vec3<f32>(1.0) / rd;
     var t = best_t;
-    var stack: array<u32, 64>;
+    var stack: array<u32, BVH_STACK_SIZE>;
     var sp = 0u;
     stack[sp] = root;
     sp = sp + 1u;
@@ -86,7 +92,7 @@ fn bvh_nearest_subtree(root: u32, ro: vec3<f32>, rd: vec3<f32>, best_t: f32, blo
 fn bvh_nearest_subtree_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, h: Hit, inst_idx: u32) -> Hit {
     let inv = vec3<f32>(1.0) / rd;
     var best = h;
-    var stack: array<u32, 64>;
+    var stack: array<u32, BVH_STACK_SIZE>;
     var sp = 0u;
     stack[sp] = root;
     sp = sp + 1u;
@@ -124,7 +130,7 @@ fn bvh_nearest_subtree_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, h: Hit, inst
 fn inst_bvh_any_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool {
     let inv = vec3<f32>(1.0) / rd;
     let limit = max_t - 0.05;
-    var stack: array<u32, 64>;
+    var stack: array<u32, BVH_STACK_SIZE>;
     var sp = 0u;
     stack[sp] = root;
     sp = sp + 1u;
@@ -176,7 +182,7 @@ fn inst_nearest_hit(ro: vec3<f32>, rd: vec3<f32>, h: Hit) -> Hit {
     }
     let inv = vec3<f32>(1.0) / rd;
     var best = h;
-    var stack: array<u32, 64>;
+    var stack: array<u32, BVH_STACK_SIZE>;
     var sp = 0u;
     stack[sp] = params.inst_node_base;
     sp = sp + 1u;
@@ -215,7 +221,7 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
 
     if (params.bvh_node_count > 0u) {
         let inv = vec3<f32>(1.0) / rd;
-        var stack: array<u32, 64>;
+        var stack: array<u32, BVH_STACK_SIZE>;
         var sp = 0u;
         stack[sp] = 0u;
         sp = sp + 1u;
@@ -292,7 +298,7 @@ fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool {
     let blocker_off = select(params.bvh_node_count, params.blocker_section_start, params.inst_count > 0u);
 
     if (params.blocker_bvh_node_count > 0u) {
-        var stack: array<u32, 64>;
+        var stack: array<u32, BVH_STACK_SIZE>;
         var sp = 0u;
         stack[sp] = 0u;
         sp = sp + 1u;

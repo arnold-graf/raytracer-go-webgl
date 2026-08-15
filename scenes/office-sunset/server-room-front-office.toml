@@ -1,3 +1,6 @@
+[state]
+is_ceiling_light_on = true
+
 # floor
 [[box]]
 material = "diffuse"
@@ -51,7 +54,7 @@ depth = 0.3
 # north wall blinds
 
 [[include]]
-file = 'objects/blinds.toml'
+file = "objects/blinds.toml"
 at = [1, 0.65, 0.7]
 instance = true
 transform_origin = [0,0,0]
@@ -110,6 +113,16 @@ width = 4
 height = 3.5
 depth = 1
 
+
+# light switch next to door
+[[include]]
+file = "../objects/light-switch.toml"
+at = [3, 1, 20]
+transform_origin = [0,0,0]
+props = { on = 'is_ceiling_light_on', on_use = 'toggle(is_ceiling_light_on)'}
+rotate_y = 180
+
+
 # ceiling
 [[box]]
 material = "diffuse"
@@ -128,14 +141,14 @@ height = 0.2
 file = "../objects/office-light-grid.toml"
 transform_origin = [0, 0, 0]
 at = [0, 4.4, 0.0]
-props = {on = false}
+props = {on = 'is_ceiling_light_on'}
 
 # ceiling lights
 [[include]]
 file = "../objects/office-light-grid.toml"
 transform_origin = [0, 0, 0]
 at = [0.0, 4.4, 12.0]
-props = {on = false}
+props = {on = 'is_ceiling_light_on'}
 
 
 # desk near glass wall
@@ -187,21 +200,21 @@ props = { width = 1.0, depth = 2.0, height = 0.7, texture = "wood", albedo = [1,
 file = "../objects/art-deco-uplight.toml"
 transform_origin = [0, 0, 0]
 at = [8.5, 0, 1.5]
-props = { color = [1, 1, 1], brightness = 0.05, range = 20, stem_len = 2 }
+props = { color = [1, 1, 1], brightness = 0.1, range = 20, stem_len = 2 }
 
 # standing lamp (right)
 [[include]]
 file = "../objects/art-deco-uplight.toml"
 transform_origin = [0, 0, 0]
 at = [8.5, 0, 18]
-props = { color = [1, 1, 1], brightness = 0.05, range = 12, stem_len = 2}
+props = { color = [1, 1, 1], brightness = 0.1, range = 12, stem_len = 2}
 
 # standing lamp (right right)
 [[include]]
 file = "../objects/art-deco-uplight.toml"
 transform_origin = [0, 0, 0]
 at = [1.5, 0, 18]
-props = { color = [1, 1, 1], brightness = 0.05, range = 12, stem_len = 2}
+props = { color = [1, 1, 1], brightness = 0.1, range = 12, stem_len = 2}
 
 # lounge couch along the north wall, facing the room
 [[include]]

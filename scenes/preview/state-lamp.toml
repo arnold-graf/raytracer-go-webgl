@@ -1,0 +1,22 @@
+# Preview scene for reactive state-lamp object.
+
+[[plane]]
+normal = [0, 1, 0]
+d = 0
+material = "diffuse"
+albedo = [0.35, 0.34, 0.33]
+
+[[light]]
+pos = [2.0, 3.0, 2.0]
+color = [0.4, 0.4, 0.45]
+brightness = 0.5
+range = 12.0
+
+[[include]]
+file = "../objects/state-lamp.toml"
+at = [0.0, 0.84, 0.0]
+
+[camera]
+pos = [1.2, 1.5, 2.5]
+yaw = 210
+pitch = -8

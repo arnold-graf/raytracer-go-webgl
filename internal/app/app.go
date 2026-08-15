@@ -21,6 +21,7 @@ import (
 	"raytracer/internal/document"
 	"raytracer/internal/door"
 	"raytracer/internal/interactlight"
+	"raytracer/internal/scenestate"
 	"raytracer/internal/npc"
 	"raytracer/internal/probe"
 	"raytracer/internal/render"
@@ -143,6 +144,7 @@ type Game struct {
 	screens *screen.Manager
 
 	interactLights *interactlight.Manager
+	state          *scenestate.Manager
 
 	// npcDebug draws skeleton/foot overlay segments (key 6).
 	npcDebug bool
@@ -228,8 +230,19 @@ func (g *Game) setScene(sc *scene.Scene) {
 	if err := g.screens.Instantiate(sc); err != nil {
 		fmt.Fprintf(os.Stderr, "screens: %v\n", err)
 	}
+	stateMgr, err := scenestate.NewManager(sc.Reactive)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "state: %v\n", err)
+	}
+	g.state = stateMgr
+	if g.state != nil {
+		if err := g.state.Instantiate(sc); err != nil {
+			fmt.Fprintf(os.Stderr, "state instantiate: %v\n", err)
+		}
+	}
 	g.interactLights = interactlight.NewManager()
-	g.interactLights.Instantiate(sc)
+	skipStateLight := func(i int) bool { return g.state != nil && g.state.IsStateLight(i) }
+	g.interactLights.Instantiate(sc, skipStateLight)
 	sc.SetDoorGhost(func(i int) bool {
 		if g.doors != nil && g.doors.GhostBox(i) {
 			return true
@@ -551,6 +564,10 @@ func (g *Game) Update() error {
 			g.cam.Update(mv, dt)
 		}
 		g.updateHUDPos()
+
+		if g.pb != nil {
+			g.pb.Sync(g.sc)
+		}
 
 		// Footsteps, room reverb, and spatial ambients derive from the post-move state.
 		g.updateReverb()

@@ -3,7 +3,7 @@
 // fBm) in the near band keyed on camera distance. Ray marching samples
 // terrain_height, which blends the two over the configured fade band.
 
-import package::types::{RAY_EPSILON, T_MISS, params, terrain_features, terrain_mip, terrain_pads, terrain_samples, terrains, waters};
+import package::types::{FEAT_TERRAIN, FEAT_WATER, RAY_EPSILON, T_MISS, params, terrain_features, terrain_mip, terrain_pads, terrain_samples, terrains, waters};
 import package::profile::{PROF_TERRAIN_STEPS, prof_inc};
 import package::math::{fbm_xz, mix3, perlin_xz, smoothstepf};
 
@@ -223,6 +223,7 @@ fn terrain_normal_baked(i: u32, p: vec3<f32>) -> vec3<f32> {
 }
 
 fn terrain_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
+    if (!FEAT_TERRAIN) { return vec3<f32>(0.0, 1.0, 0.0); }
     let tr = terrains[i];
     let cam = params.cam_pos.xz;
     let dist = length(vec2<f32>(p.x, p.z) - cam);
@@ -256,6 +257,7 @@ fn terrain_slab(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> vec2<f32> {
 
 // terrain_shadow_skip reports whether a shadow ray cannot hit terrain before max_t.
 fn terrain_shadow_skip(i: u32, origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
+    if (!FEAT_TERRAIN) { return true; }
     let tr = terrains[i];
     if (dir.y >= -TERRAIN_SHADOW_UPWARD_EPS) {
         return true;
@@ -671,6 +673,7 @@ fn hit_terrain_mip(i: u32, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32, t_exit: f
 }
 
 fn hit_terrain(i: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32, refine: bool, shadow_ray: bool) -> f32 {
+    if (!FEAT_TERRAIN) { return T_MISS; }
     let te = terrain_slab(i, ro, rd);
     var t_exit = min(te.y, max_t);
     if (te.x >= t_exit || te.x >= T_MISS) {
@@ -684,6 +687,7 @@ fn hit_terrain(i: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32, refine: bool, s
 }
 
 fn hit_water(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
+    if (!FEAT_WATER) { return T_MISS; }
     let w = waters[i];
     if (abs(rd.y) < WATER_RAY_HORIZON_EPS) {
         return T_MISS;
@@ -712,6 +716,7 @@ fn hit_water(i: u32, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
 }
 
 fn water_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
+    if (!FEAT_WATER) { return vec3<f32>(0.0, 1.0, 0.0); }
     let w = waters[i];
     if (w.params.x <= 0.0) {
         return vec3<f32>(0.0, 1.0, 0.0);

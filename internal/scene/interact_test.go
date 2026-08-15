@@ -6,6 +6,75 @@ import (
 	"raytracer/internal/vec"
 )
 
+func TestMergeInteractablesReindexes(t *testing.T) {
+	dst := &Scene{
+		Interactables: []Interactable{{Hint: "first", Handler: "a"}},
+	}
+	sub := &Scene{
+		Interactables: []Interactable{
+			{Hint: "lamp", Handler: "state", StateAction: "toggle(is_on)"},
+		},
+	}
+	sub.SetSphereInteract(0, 0)
+	sub.Spheres = []Sphere{{Center: vec.New(0, 0.37, 0.235), Radius: 0.024}}
+	dst.Spheres = append(dst.Spheres, sub.Spheres...)
+	dst.MergeInteractables(sub, 0)
+
+	if dst.Interactables[0].Index() != 0 {
+		t.Fatalf("first Index() = %d, want 0", dst.Interactables[0].Index())
+	}
+	if dst.Interactables[1].Index() != 1 {
+		t.Fatalf("merged Index() = %d, want 1", dst.Interactables[1].Index())
+	}
+	if sphereIdx, ok := dst.InteractableSphereIndex(1); !ok || sphereIdx != 0 {
+		t.Fatalf("sphereInteract[1] = %d, ok=%v, want 0 true", sphereIdx, ok)
+	}
+}
+
+func TestApplyInteractBindingsInSpan(t *testing.T) {
+	dst := &Scene{}
+	local := &Scene{
+		Spheres: []Sphere{
+			{Center: vec.New(0, 0.30, -0.14), Radius: 0.03},
+			{Center: vec.New(0, 0.37, 0.235), Radius: 0.024},
+		},
+		Interactables: []Interactable{{Hint: "lamp", Handler: "state"}},
+	}
+	local.Interactables[0].index = 0
+	local.SetSphereInteract(1, 0)
+
+	dst.Spheres = append(dst.Spheres, local.Spheres...)
+	dst.Interactables = append(dst.Interactables, local.Interactables...)
+	dst.Interactables[0].index = 0
+
+	iaSpan := [2]int{0, 1}
+	dst.ApplyInteractBindings(local, InteractBindingOffsets{
+		Spheres:       0,
+		Interactables: 0,
+	}, &iaSpan)
+
+	if sphereIdx, ok := dst.InteractableSphereIndex(0); !ok || sphereIdx != 1 {
+		t.Fatalf("sphereInteract = %d, ok=%v, want 1 true", sphereIdx, ok)
+	}
+}
+
+func TestPickInteractableSphere(t *testing.T) {
+	s := &Scene{
+		Spheres: []Sphere{
+			{Center: vec.New(0, 0, 0), Radius: 0.05},
+		},
+		Interactables: []Interactable{
+			{Hint: "bulb", Handler: "state", StateAction: "toggle(on)"},
+		},
+	}
+	s.SetSphereInteract(0, 0)
+
+	ray := vec.Ray{Origin: vec.New(0, 0, -1), Dir: vec.New(0, 0, 1)}
+	if got := s.PickInteractable(ray); got == nil || got.Handler != "state" || got.SphereIndex != 0 {
+		t.Fatalf("pick = %+v", got)
+	}
+}
+
 func TestPickInteractable(t *testing.T) {
 	s := &Scene{
 		Boxes: []Box{

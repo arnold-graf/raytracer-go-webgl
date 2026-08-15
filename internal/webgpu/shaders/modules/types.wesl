@@ -334,6 +334,92 @@ const LIGHT_CULL_EPS: f32 = 0.0025;
 //   1/2048 = 0.00048828125 or ↓  → conservative; closer to exact, less perf gain
 const SHADOW_SKIP_EPS: f32 = 0.00390625;
 
+// optimization: drop a reflected/refracted child ray when the throughput it
+// would carry, tw_peak(tw) × lobe_weight, is below this. The existing lobe
+// gates (refl_min, the 0.98 transmit cutoff) only look at the *local* Fresnel
+// weight, so a segment already dimmed to a few percent by earlier bounces still
+// branched as if it were a primary ray. Multiplying in the accumulated
+// throughput prunes the faint tail of the ray tree, which is most of the work
+// in scenes with facing glass panes (light bouncing between parallel panes
+// spawns a deep, exponentially dimming tree).
+//
+// The bound is on *throughput*, not final radiance, so the safe value depends
+// on how bright a surface the dropped ray could have hit. Tonemap + gamma
+// amplify small values against a dark background, hence the conservative
+// default.
+//   0.0            → never drop (exact, slowest)
+//   1/1024 ≈ 0.001 → current default; verified pixel-identical on the office
+//                    scene's glass skyway
+//   1/256 ≈ 0.004  → faster still, but starts to lift faint reflections
+const SEG_MIN_CONTRIB: f32 = 0.0009765625;
+
+// Scene feature flags. Every FEAT_* below is true in the checked-in shader, so
+// the linked WGSL on disk is always the full-featured one and nothing changes if
+// specialization is off. shaders.Specialize rewrites these lines to `false` for
+// the features a scene does not use, before the module is compiled.
+//
+// Why this exists: the tracer is one megakernel, and register allocation is
+// global to it. Terrain marching, water, and flame each carry a large live
+// working set even in a scene that has none of them — the runtime `count == 0`
+// guards skip the *work* but not the *registers*, which cost occupancy on every
+// ray in every scene. Flipping a flag to false lets the compiler const-fold the
+// early return and drop the body entirely.
+//
+// These are `const`, not `override`, deliberately: go-webgpu v0.17.1 declares
+// ConstantEntry but leaves the Constants field commented out on every pipeline
+// descriptor, so pipeline-overridable constants cannot be plumbed through. A
+// source rewrite before CreateShaderModule needs no binding support.
+//
+// A flag may only be cleared when the feature is genuinely absent from the
+// scene, in which case the guarded code was unreachable anyway and the frame is
+// unchanged. See featuresFor in device.go for the mapping.
+//
+// Volumetric flame is deliberately NOT on this list. Stripping it is just as
+// unreachable on paper — both entry points loop over campfire_count — but it
+// measurably perturbed 8 pixels of scenes/default.toml (two of them by 9 and 18
+// levels). No logic reaches that code with no campfires, so the cause is the
+// compiler reallocating registers and flipping a hit decision at a silhouette.
+// It was worth 0.4 ms of 26.5; the bit-identical guarantee is worth more.
+//
+// Per-primitive-kind flags were tried too — gating each hit_* body on whether
+// the scene packs that kind — and made the office scene *slower*, 26.5 ms to
+// 48.2 ms, for stripping only plane, torus and lens. Frames stayed identical and
+// the pipeline was built once, so this is the Metal compiler restructuring the
+// hot hit_prim dispatch chain, not extra work. Do not re-add without measuring.
+const FEAT_TERRAIN: bool = true;
+const FEAT_WATER: bool = true;
+const FEAT_CAMPFIRE: bool = true;
+
+// Per-primitive-kind flags. hit_prim is the hottest function in the tracer —
+// roughly ten million calls a frame — and its dispatch chain keeps every kind's
+// intersection body reachable, and so live for register allocation, even in a
+// scene that packs none of them.
+//
+// These gate the *dispatch site*, not the function bodies. An earlier attempt
+// put `if (!FEAT_PRIM_X) { return T_MISS; }` at the top of each hit_X instead,
+// which left every call edge in place and merely made the callees trivial; that
+// measured 26.5 ms -> 48.2 ms on the office scene. The likely cause is that the
+// shrunken neighbours freed up inliner budget for hit_box, which carries two
+// dynamically indexed 8-element arrays for hole CSG and is called from every BVH
+// leaf loop. Gating the call edge leaves the kept arms byte-identical and simply
+// orphans the stripped ones: same office scene, 26.2 ms -> 25.4 ms.
+//
+// The gap between those two shapes is far larger than the win itself, so if a
+// kind ever needs gating somewhere new, gate where it is *called*, never inside
+// what is called.
+//
+// Both dispatches on primitive kind are covered: hit_prim in intersect.wesl and
+// normal_at in shade.wesl. A kind must stay enabled if it appears in prims or in
+// blockers; see featuresFor in device.go.
+const FEAT_PRIM_SPHERE: bool = true;
+const FEAT_PRIM_PLANE: bool = true;
+const FEAT_PRIM_BOX: bool = true;
+const FEAT_PRIM_CYLINDER: bool = true;
+const FEAT_PRIM_CONE: bool = true;
+const FEAT_PRIM_TORUS: bool = true;
+const FEAT_PRIM_RING: bool = true;
+const FEAT_PRIM_LENS: bool = true;
+
 // Point-light attenuation: att = 1 / (LIGHT_ATTEN_BASE + LIGHT_ATTEN_QUADRATIC × d²)
 const LIGHT_ATTEN_BASE: f32 = 0.5;        // Floor — stops singularity at d = 0
 const LIGHT_ATTEN_QUADRATIC: f32 = 0.08; // How quickly intensity falls off with distance

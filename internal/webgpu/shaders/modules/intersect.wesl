@@ -3,7 +3,7 @@
 // CSG box holes and local-space transforms. intersect() / intersect_blocker()
 // are the entry points called from BVH leaf nodes.
 
-import package::types::{PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, RING_SHELL, T_MISS, blockers, holes, prims};
+import package::types::{FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, RING_SHELL, T_MISS, blockers, holes, prims};
 
 fn sphere_cut_plane_y(center_y: f32, radius: f32, cut_off: f32) -> f32 {
     if (cut_off <= 0.0) {
@@ -504,26 +504,29 @@ fn hit_prim(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
         lrd = xf_to_local_dir(p, rd);
     }
     let kind = p.info.x;
-    if (kind == PRIM_SPHERE) {
+    if (FEAT_PRIM_SPHERE && kind == PRIM_SPHERE) {
         return hit_sphere(p, lro, lrd);
     }
-    if (kind == PRIM_PLANE) {
+    if (FEAT_PRIM_PLANE && kind == PRIM_PLANE) {
         return hit_plane(p, lro, lrd);
     }
-    if (kind == PRIM_BOX) {
+    if (FEAT_PRIM_BOX && kind == PRIM_BOX) {
         return hit_box(p, lro, lrd);
     }
-    if (kind == PRIM_CYLINDER) {
+    if (FEAT_PRIM_CYLINDER && kind == PRIM_CYLINDER) {
         return hit_cylinder(p, lro, lrd);
     }
-    if (kind == PRIM_CONE) {
+    if (FEAT_PRIM_CONE && kind == PRIM_CONE) {
         return hit_cone(p, lro, lrd);
     }
-    if (kind == PRIM_RING) {
+    if (FEAT_PRIM_RING && kind == PRIM_RING) {
         return hit_ring(p, lro, lrd);
     }
-    if (kind == PRIM_LENS) {
+    if (FEAT_PRIM_LENS && kind == PRIM_LENS) {
         return hit_lens(p, lro, lrd);
+    }
+    if (!FEAT_PRIM_TORUS) {
+        return T_MISS;
     }
     return hit_torus(p, lro, lrd);
 }

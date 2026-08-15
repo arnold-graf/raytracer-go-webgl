@@ -2,6 +2,7 @@ package scene
 
 import (
 	"math"
+	"path/filepath"
 
 	"raytracer/internal/vec"
 )
@@ -19,6 +20,7 @@ type InstancingCatalog struct {
 type InstanceTemplate struct {
 	Key    string // absolute path + params fingerprint
 	Source string // absolute path to the template TOML
+	Params map[string]any
 	Scene  *Scene // geometry in template-local space
 }
 
@@ -113,15 +115,47 @@ func (s *Scene) materializeInstances() {
 	if cat == nil {
 		return
 	}
-	for _, pl := range cat.Placements {
+	for pi, pl := range cat.Placements {
 		if pl.TemplateIndex < 0 || pl.TemplateIndex >= len(cat.Templates) {
 			continue
 		}
-		tmpl := cat.Templates[pl.TemplateIndex].Scene
-		if tmpl == nil {
+		tmpl := cat.Templates[pl.TemplateIndex]
+		if tmpl.Scene == nil {
 			continue
 		}
-		mergeSceneInto(s, tmpl, pl.Xform)
+		before := CountPrimitives(s)
+		iaBefore := len(s.Interactables)
+		mergeSceneInto(s, tmpl.Scene, pl.Xform)
+		after := CountPrimitives(s)
+		iaAfter := len(s.Interactables)
+		s.mergeInstanceReactive(tmpl, pi, before, after, iaBefore, iaAfter, pl.Xform)
+	}
+}
+
+func (s *Scene) mergeInstanceReactive(tmpl InstanceTemplate, placementIndex int, before, after PrimitiveCounts, iaBefore, iaAfter int, xf *Transform) {
+	if s == nil || tmpl.Scene == nil || tmpl.Scene.Reactive == nil {
+		return
+	}
+	if s.Reactive == nil {
+		s.Reactive = &ReactiveSpec{}
+	}
+	scope := InstanceScopeID(tmpl.Source, placementIndex)
+	for _, frag := range tmpl.Scene.Reactive.Fragments {
+		frag.SourcePath = tmpl.Source
+		if len(tmpl.Params) > 0 {
+			frag.IncludeProps = tmpl.Params
+		}
+		if frag.ScopeID == "" {
+			frag.ScopeID = ScopeIDForPath(tmpl.Source)
+		}
+		frag.ScopeID = scope
+		frag.Instanced = true
+		frag.Span = SpanFromMerge(before, after, iaBefore, iaAfter)
+		if xf != nil {
+			t := *xf
+			frag.Transform = &t
+		}
+		s.Reactive.MergeFragment(frag, 0)
 	}
 }
 
@@ -342,6 +376,96 @@ func mergeSceneInto(dst, sub *Scene, xf *Transform) {
 		dst.Ambiences = append(dst.Ambiences, a)
 	}
 	dst.MergeInteractables(sub, boxOffset)
+}
+
+// CloneLocalScene deep-copies finite geometry and interactables without applying
+// a placement transform. Used to refresh instancing BLAS templates after reactive edits.
+func CloneLocalScene(src *Scene) *Scene {
+	if src == nil {
+		return nil
+	}
+	dst := &Scene{}
+	mergeSceneInto(dst, src, nil)
+	if src.Reactive != nil {
+		spec := *src.Reactive
+		frags := append([]ReactiveFragment(nil), spec.Fragments...)
+		spec.Fragments = frags
+		dst.Reactive = &spec
+	}
+	return dst
+}
+
+// UpdateInstanceTemplate replaces a shared BLAS template when reactive state
+// re-expands an instanced object file. The GPU renders from templates, not the
+// materialized flat slices that SpliceFragment edits.
+func (s *Scene) UpdateInstanceTemplate(source string, params map[string]any, local *Scene) bool {
+	cat := s.Instancing()
+	if cat == nil || local == nil || source == "" {
+		return false
+	}
+	for i := range cat.Templates {
+		t := &cat.Templates[i]
+		if !templateSourceMatch(t.Source, source) {
+			continue
+		}
+		if !instanceParamsMatch(t.Params, params) {
+			continue
+		}
+		cat.Templates[i].Scene = CloneLocalScene(local)
+		return true
+	}
+	return false
+}
+
+func templateSourceMatch(a, b string) bool {
+	if a == b {
+		return true
+	}
+	return filepath.Clean(a) == filepath.Clean(b) ||
+		filepath.Base(a) == filepath.Base(b)
+}
+
+func instanceParamsMatch(a, b map[string]any) bool {
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+	if len(a) != len(b) {
+		return false
+	}
+	for k, av := range a {
+		bv, ok := b[k]
+		if !ok || !paramValuesEqual(av, bv) {
+			return false
+		}
+	}
+	return true
+}
+
+func paramValuesEqual(a, b any) bool {
+	if a == b {
+		return true
+	}
+	af, afok := paramAsFloat(a)
+	bf, bfok := paramAsFloat(b)
+	if afok && bfok {
+		return math.Abs(af-bf) <= 1e-9
+	}
+	return false
+}
+
+func paramAsFloat(v any) (float64, bool) {
+	switch x := v.(type) {
+	case float64:
+		return x, true
+	case float32:
+		return float64(x), true
+	case int:
+		return float64(x), true
+	case int64:
+		return float64(x), true
+	default:
+		return 0, false
+	}
 }
 
 func planePointFromNormal(n vec.V, d float64) vec.V {

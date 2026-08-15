@@ -1,7 +1,7 @@
 
 [props]
 stem_len = 2
-brightness = 0.1
+brightness = 0.5
 range = 16.0
 albedo = [0.66, 0.45, 0.24]
 

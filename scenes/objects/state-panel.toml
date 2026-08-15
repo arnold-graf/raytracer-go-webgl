@@ -1,0 +1,39 @@
+# Reactive panel: material switches via # if lit; switch box toggles state.
+
+[state]
+lit = false
+
+# if lit
+[[box]]
+material = "emit"
+albedo = [1.0, 0.5, 0.2]
+width = 1.0
+height = 0.1
+depth = 1.0
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+# endif
+# if not lit
+[[box]]
+material = "diffuse"
+albedo = [0.2, 0.2, 0.2]
+width = 1.0
+height = 0.1
+depth = 1.0
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.0
+# endif
+
+[[box]]
+material = "diffuse"
+albedo = [0.5, 0.5, 0.5]
+width = 0.2
+height = 0.2
+depth = 0.2
+pos_x = 0.4
+pos_y = 0.05
+pos_z = 0.4
+on_use = 'toggle(lit)'
+hint = "switch"

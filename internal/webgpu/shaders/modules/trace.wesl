@@ -3,7 +3,7 @@
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
-import package::types::{HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SURFACE_EPSILON, aa_hits, hdr_pixels, params, pixels, prims, waters};
+import package::types::{HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, aa_hits, hdr_pixels, params, pixels, prims, waters};
 import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc};
 import package::math::{clamp01};
 import package::texture::{plane_albedo, texture_eval, texture_eval_box};
@@ -13,7 +13,7 @@ import package::terrain::{terrain_normal, water_normal};
 import package::flame::{accumulate_flame, heat_shimmer_dir};
 import package::instance::{inst_local_point, inst_world_normal};
 import package::bvh::{nearest_hit};
-import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, shade_diffuse, terrain_albedo};
+import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, shade_diffuse, terrain_albedo, tw_peak};
 
 fn tonemap_channel(x: f32) -> f32 {
     return clamp01((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14));
@@ -224,10 +224,15 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             max_depth = 2u;
         }
         let reflective = depth < max_depth && params.mirror != 0u;
+        // Throughput this segment carries, and the albedo-weighted brightness a
+        // child spawned here could still contribute. Child lobes below
+        // SEG_MIN_CONTRIB are dropped: see the constant in types.wesl.
+        let twm = tw_peak(tw);
+        let twm_alb = twm * tw_peak(alb);
 
         if ((mat == MAT_MIRROR || mat == MAT_METAL) && reflective) {
             prof_inc(PROF_MIRROR_BOUNCES, 1u);
-            if (sp < MAX_SEGS) {
+            if (twm_alb * 0.96 > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
                 stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * alb * 0.96, depth + 1u);
                 sp = sp + 1u;
             }
@@ -250,11 +255,13 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                 w_refl = 1.0;
             }
 
+            let w_trans = twm_alb * (1.0 - reflectance);
+
             if (thin) {
                 // Single-sheet glass: one transmission through the slab (no
                 // separate enter/exit refraction). The ray continues in the
                 // same direction, exiting at the far AABB face.
-                if (!tir && w_refl < 0.98 && sp < MAX_SEGS) {
+                if (!tir && w_refl < 0.98 && w_trans > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
                     let t_exit = thin_glass_exit_t(prims[hit.idx], ro, rd, hit.t);
                     let exit_hp = ro + rd * t_exit;
                     let exit_n = -n;
@@ -264,7 +271,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             } else {
                 // Thick glass: refract at this interface; the back face is a
                 // separate hit with its own Fresnel/refraction lobes.
-                if (!tir && w_refl < 0.98 && sp < MAX_SEGS) {
+                if (!tir && w_refl < 0.98 && w_trans > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
                     let cost = sqrt(k);
                     let rr = jitter_dir(normalize(rd * eta + n * (eta * cosi - cost)), hp, rough * 0.35);
                     stack[sp] = RaySeg(hp - n * SURFACE_EPSILON, rr, tw * alb * (1.0 - reflectance), depth + 1u);
@@ -279,7 +286,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             if (depth > 0u) {
                 refl_min = 0.2;
             }
-            if (w_refl > refl_min && sp < MAX_SEGS) {
+            if (w_refl > refl_min && twm * w_refl > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
                 stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * w_refl, depth + 1u);
                 sp = sp + 1u;
             }
@@ -290,7 +297,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         // depth cap (or when reflections are disabled): shaded as diffuse.
         let lit = shade_diffuse(hp, alb, n, ep, tw);
         let refl = surf.z;
-        if (refl > 0.0 && reflective && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) && sp < MAX_SEGS) {
+        if (refl > 0.0 && reflective && twm * refl > SEG_MIN_CONTRIB && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) && sp < MAX_SEGS) {
             prof_inc(PROF_DIFFUSE_REFL, 1u);
             accum = accum + tw * lit * (1.0 - refl);
             stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * refl, depth + 1u);

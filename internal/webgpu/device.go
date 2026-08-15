@@ -6,7 +6,9 @@ package webgpu
 import (
 	"encoding/binary"
 	"fmt"
+	"log"
 	"math"
+	"os"
 	"time"
 
 	"raytracer/internal/camera"
@@ -88,6 +90,17 @@ type Renderer struct {
 	pipeline  *wgpu.ComputePipeline
 	aaPipeline *wgpu.ComputePipeline
 	bind      *wgpu.BindGroup
+
+	// Scene-specialized shader. The tracer is one megakernel whose register
+	// allocation is global, so optional paths (terrain, water, flame, campfire)
+	// cost occupancy on every ray even when the scene has none of them. The
+	// pipelines are rebuilt whenever the scene's feature set changes, from a
+	// source rewrite that compiles the unused paths out; pipeLayout is retained
+	// because that rebuild needs it after init returns. Feature-stripped code is
+	// unreachable in such a scene, so frames are unaffected.
+	pipeLayout *wgpu.PipelineLayout
+	feat       shaders.Features
+	featValid  bool
 
 	// Frame pipelining: when enabled (SetPipelined), Render submits the current
 	// frame and hands back the previous frame's pixels, so the CPU packs frame
@@ -444,15 +457,6 @@ func (r *Renderer) init() error {
 		}
 	}
 
-	shader, err := r.device.CreateShaderModule(&wgpu.ShaderModuleDescriptor{
-		Label:          "trace shader",
-		WGSLDescriptor: &wgpu.ShaderModuleWGSLDescriptor{Code: shaders.Source()},
-	})
-	if err != nil {
-		return fmt.Errorf("create shader module: %w", err)
-	}
-	defer shader.Release()
-
 	layout, err := r.device.CreateBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
 		Label: "trace bind group layout",
 		Entries: []wgpu.BindGroupLayoutEntry{
@@ -531,36 +535,18 @@ func (r *Renderer) init() error {
 	}
 	defer layout.Release()
 
-	pipelineLayout, err := r.device.CreatePipelineLayout(&wgpu.PipelineLayoutDescriptor{
+	r.pipeLayout, err = r.device.CreatePipelineLayout(&wgpu.PipelineLayoutDescriptor{
 		Label:            "sky pipeline layout",
 		BindGroupLayouts: []*wgpu.BindGroupLayout{layout},
 	})
 	if err != nil {
 		return fmt.Errorf("create pipeline layout: %w", err)
 	}
-	defer pipelineLayout.Release()
 
-	r.pipeline, err = r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
-		Label:  "sky pipeline",
-		Layout: pipelineLayout,
-		Compute: wgpu.ProgrammableStageDescriptor{
-			Module:     shader,
-			EntryPoint: "main",
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("create compute pipeline: %w", err)
-	}
-	r.aaPipeline, err = r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
-		Label:  "aa resolve pipeline",
-		Layout: pipelineLayout,
-		Compute: wgpu.ProgrammableStageDescriptor{
-			Module:     shader,
-			EntryPoint: "aa_resolve",
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("create aa resolve pipeline: %w", err)
+	// Start on the full-featured shader; the first frame specializes it once the
+	// scene's contents are known.
+	if err := r.buildPipelines(shaders.AllFeatures()); err != nil {
+		return err
 	}
 
 	r.bind, err = r.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
@@ -765,8 +751,91 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 	if ver := texture.DocumentGPUVersion(); ver != r.documentVer || !r.documentLoaded {
 		r.uploadDocumentTextures()
 	}
+	r.syncPipelineFeatures(&rp)
 	r.maybeProfileWorkload(&rp)
 	return rp
+}
+
+// featuresFor reports which optional tracer paths this frame's scene actually
+// uses. A path is only stripped when its buffer is empty, which is exactly the
+// condition under which the shader's own `count == 0` loop bounds already skip
+// it — so a stripped shader renders identical frames to the full one.
+func featuresFor(p *renderParams) shaders.Features {
+	f := shaders.Features{
+		Terrain:  len(p.terrains) > 0,
+		Water:    len(p.waters) > 0,
+		Campfire: len(p.campfireParams) > 0,
+	}
+	// Blockers go through the same hit_prim dispatch as prims, so a kind used
+	// only for shadow casting must keep its arm.
+	for _, src := range [][]GPUPrimitive{p.prims, p.blockers} {
+		for i := range src {
+			if k := src[i].Meta[0]; k < shaders.PrimKindCount {
+				f.Prim[k] = true
+			}
+		}
+	}
+	return f
+}
+
+// buildPipelines compiles the tracer specialized to f and swaps in the new
+// pipelines. Callers must not hold the old pipelines across this.
+func (r *Renderer) buildPipelines(f shaders.Features) error {
+	src := shaders.Specialize(shaders.Source(), f)
+	shader, err := r.device.CreateShaderModule(&wgpu.ShaderModuleDescriptor{
+		Label:          "trace shader (" + f.Describe() + ")",
+		WGSLDescriptor: &wgpu.ShaderModuleWGSLDescriptor{Code: src},
+	})
+	if err != nil {
+		return fmt.Errorf("create shader module: %w", err)
+	}
+	defer shader.Release()
+
+	pipeline, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
+		Label:   "sky pipeline",
+		Layout:  r.pipeLayout,
+		Compute: wgpu.ProgrammableStageDescriptor{Module: shader, EntryPoint: "main"},
+	})
+	if err != nil {
+		return fmt.Errorf("create compute pipeline: %w", err)
+	}
+	aaPipeline, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
+		Label:   "aa resolve pipeline",
+		Layout:  r.pipeLayout,
+		Compute: wgpu.ProgrammableStageDescriptor{Module: shader, EntryPoint: "aa_resolve"},
+	})
+	if err != nil {
+		pipeline.Release()
+		return fmt.Errorf("create aa resolve pipeline: %w", err)
+	}
+
+	if r.pipeline != nil {
+		r.pipeline.Release()
+	}
+	if r.aaPipeline != nil {
+		r.aaPipeline.Release()
+	}
+	r.pipeline, r.aaPipeline = pipeline, aaPipeline
+	r.feat, r.featValid = f, true
+	return nil
+}
+
+// syncPipelineFeatures recompiles the tracer when the scene gains or loses an
+// optional feature. Recompiles are rare — a scene's feature set is stable once
+// loaded — and a failure keeps the working pipelines, since the only thing lost
+// is the specialization.
+func (r *Renderer) syncPipelineFeatures(p *renderParams) {
+	f := featuresFor(p)
+	if os.Getenv("RAYTRACER_NO_SHADER_SPECIALIZE") != "" {
+		f = shaders.AllFeatures()
+	}
+	if r.featValid && f == r.feat {
+		return
+	}
+	if err := r.buildPipelines(f); err != nil {
+		log.Printf("webgpu: shader specialization (%s) failed, keeping current pipeline: %v", f.Describe(), err)
+		r.feat, r.featValid = f, true
+	}
 }
 
 // renderParams bundles one frame's packed scene buffers, keeping render's
@@ -1343,6 +1412,9 @@ func (r *Renderer) Release() {
 	}
 	if r.aaPipeline != nil {
 		r.aaPipeline.Release()
+	}
+	if r.pipeLayout != nil {
+		r.pipeLayout.Release()
 	}
 	if r.profileRead != nil {
 		r.profileRead.Release()

@@ -18,6 +18,9 @@ chrome_rough = 0.1
 brightness = 0.08
 range = 4.0
 
+[state]
+is_on = true
+
 # --- weighted base ---
 [[cylinder]]
 material = "diffuse"
@@ -135,16 +138,30 @@ width = 0.2
 height = 0.125
 rotate_x = -22
 
+# if is_on
 [[sphere]] # warm bulb
 material = "glass"
 albedo = [6.0, 4.8, 3.2]
 center = [0.0, 0.37, 0.235]
 radius = 0.024
+on_use = 'toggle(is_on)'
+hint = "lamp"
 
 [[light]]
-interactive = true
 brightness = 'brightness'
 color = [2.8, 2.6, 2.0]
 pos = [0.0, 0.36, 0.235]
 radius = 0.12
 range = 'range'
+# endif
+
+# if not is_on
+[[sphere]]
+material = "glass"
+transmit = 0.2
+albedo = [1.5,1.5,1.5]
+center = [0.0, 0.37, 0.235]
+radius = 0.024
+on_use = 'toggle(is_on)'
+hint = "lamp"
+# endif

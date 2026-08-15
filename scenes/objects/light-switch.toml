@@ -1,0 +1,25 @@
+[props]
+on = true
+on_use = ''
+
+[[box]]
+depth = 0.05
+height = 0.15
+width = 0.10
+pos_x = 0
+pos_y = 0
+pos_z = 0
+material = "diffuse"
+albedo = [1.5,1.5,1.5]
+hint = "light switch"
+on_use = 'on_use'
+
+[[box]]
+depth = 0.05
+height = 0.05
+width = 0.05
+pos_x = 0.025
+pos_y = 0.06
+pos_z = 0.02
+material = "diffuse"
+albedo = [2,2,2]
