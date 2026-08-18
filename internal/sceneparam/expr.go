@@ -352,6 +352,14 @@ func (p *parser) parseTerm() (value, error) {
 
 func (p *parser) parseUnary() (value, error) {
 	p.skipSpace()
+	if strings.HasPrefix(p.src, "!") {
+		p.src = p.src[1:]
+		v, err := p.parseUnary()
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valBool, boolean: !v.truthy()}, nil
+	}
 	if strings.HasPrefix(p.src, "-") {
 		p.src = p.src[1:]
 		v, err := p.parseUnary()

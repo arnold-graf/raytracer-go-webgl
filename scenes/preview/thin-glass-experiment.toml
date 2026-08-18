@@ -1,0 +1,186 @@
+# Thin vs thick glass — visual comparison.
+#
+# Left pane (thin = true): Fresnel + one-hop refraction (ior controls bend).
+# Right pane (thick): same Fresnel + separate enter/exit trace hits.
+#
+# Preview:
+#   go run ./cmd/preview -scene scenes/preview/thin-glass-experiment.toml -o tmp/thin-glass
+#   go run ./cmd/preview -scene scenes/preview/thin-glass-experiment.toml -view front -views 1 -o tmp/thin-glass-front
+
+[environment]
+ambient_sky = [0.42, 0.44, 0.50]
+ambient_ground = [0.14, 0.13, 0.12]
+sun_dir = [-0.25, -0.50, 0.83]
+sun_color = [1.15, 0.95, 0.78]
+
+[camera]
+pos = [0.0, 1.05, 3.2]
+yaw = 0.0
+pitch = -0.105
+
+[[box]]
+material = "checker"
+albedo = [0.35, 0.35, 0.38]
+albedo2 = [0.55, 0.55, 0.58]
+pos_x = -2.0
+pos_y = -0.01
+pos_z = -2.5
+width = 4.0
+height = 0.02
+depth = 6.0
+
+# Floor labels: cyan = thin, orange = thick.
+[[box]]
+material = "diffuse"
+albedo = [0.15, 0.55, 0.65]
+pos_x = -1.0
+pos_y = 0.001
+pos_z = 1.6
+width = 0.9
+height = 0.005
+depth = 0.35
+
+[[box]]
+material = "diffuse"
+albedo = [0.75, 0.35, 0.12]
+pos_x = 1.0
+pos_y = 0.001
+pos_z = 1.6
+width = 0.9
+height = 0.005
+depth = 0.35
+
+# Back wall stripes (refraction displacement is easiest to read here).
+[[box]]
+material = "diffuse"
+albedo = [0.85, 0.20, 0.18]
+pos_x = -2.0
+pos_y = 0.0
+pos_z = -2.55
+width = 0.55
+height = 1.8
+depth = 0.08
+
+[[box]]
+material = "diffuse"
+albedo = [0.18, 0.62, 0.28]
+pos_x = -1.35
+pos_y = 0.0
+pos_z = -2.55
+width = 0.55
+height = 1.8
+depth = 0.08
+
+[[box]]
+material = "diffuse"
+albedo = [0.20, 0.28, 0.82]
+pos_x = -0.70
+pos_y = 0.0
+pos_z = -2.55
+width = 0.55
+height = 1.8
+depth = 0.08
+
+[[box]]
+material = "diffuse"
+albedo = [0.82, 0.72, 0.18]
+pos_x = -0.05
+pos_y = 0.0
+pos_z = -2.55
+width = 0.55
+height = 1.8
+depth = 0.08
+
+[[box]]
+material = "diffuse"
+albedo = [0.55, 0.22, 0.72]
+pos_x = 0.60
+pos_y = 0.0
+pos_z = -2.55
+width = 0.55
+height = 1.8
+depth = 0.08
+
+[[box]]
+material = "diffuse"
+albedo = [0.22, 0.72, 0.72]
+pos_x = 1.25
+pos_y = 0.0
+pos_z = -2.55
+width = 0.55
+height = 1.8
+depth = 0.08
+
+# Depth cues behind the panes.
+[[sphere]]
+material = "diffuse"
+albedo = [0.90, 0.25, 0.20]
+pos_x = -1.0
+pos_y = 0.45
+pos_z = -1.9
+radius = 0.22
+
+[[sphere]]
+material = "diffuse"
+albedo = [0.25, 0.80, 0.35]
+pos_x = 1.0
+pos_y = 0.45
+pos_z = -1.9
+radius = 0.22
+
+[[box]]
+material = "diffuse"
+albedo = [0.25, 0.35, 0.85]
+pos_x = -1.0
+pos_y = 0.18
+pos_z = -2.35
+width = 0.35
+height = 0.35
+depth = 0.35
+
+[[box]]
+material = "diffuse"
+albedo = [0.85, 0.55, 0.20]
+pos_x = 1.0
+pos_y = 0.18
+pos_z = -2.35
+width = 0.35
+height = 0.35
+depth = 0.35
+
+[[light]]
+pos = [1.5, 2.5, 2.0]
+color = [1.0, 0.95, 0.88]
+brightness = 2.5
+range = 12.0
+
+# Thin glass (left) — Fresnel only, no bending.
+[[box]]
+material = "glass"
+thin = true
+ior = 1.5
+transmit = 0.92
+reflect = 0.08
+rough = 0.01
+albedo = [1.0, 1.0, 1.0]
+pos_x = -1.05
+pos_y = 0.35
+pos_z = -0.55
+width = 0.06
+height = 1.45
+depth = 2.2
+
+# Thick glass (right) — Fresnel + refraction at both faces.
+[[box]]
+material = "glass"
+ior = 1.5
+transmit = 0.92
+reflect = 0.08
+rough = 0.01
+albedo = [1.0, 1.0, 1.0]
+pos_x = 1.05
+pos_y = 0.35
+pos_z = -0.55
+width = 0.06
+height = 1.45
+depth = 2.2

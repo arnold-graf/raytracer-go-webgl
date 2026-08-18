@@ -13,8 +13,14 @@ wall_thickness = 1
 [[light]]
 color = [1.4, 0.55, 0.22]
 brightness = 40.0
-range = 200
+range = 300
 pos = [-20, 10, -25]
+
+[[light]]
+color = [1.4, 0.55, 0.22]
+brightness = 300.0
+range = 500
+pos = [300, 10, 50]
 # endif
 
 # floor
@@ -32,6 +38,18 @@ albedo2 = [0.7,0.7,0.7]
 reflect = 0.05
 rough = 0.01
 
+# roof
+[[box]]
+pos_x = 0
+pos_y = 'height + 0.1'
+pos_z = 0
+material = "diffuse"
+texture = "cement"
+width = 'width'
+depth = 'depth'
+height = 1
+albedo = [2,2,2]
+
 # north wall (glass)
 [[box]]
 pos_x = 0
@@ -40,10 +58,12 @@ pos_z = 0
 width = 'width'
 height = 'height'
 depth = 'wall_thickness'
-transmit = 0.7
+transmit = 'glass_transmit'
 material = "glass"
 thin = true
 albedo = [0.9, 0.9, 0.9]
+ior = 1.05
+rough = 0.005
 [[box.hole]]
 depth = 2
 height = 4.5
@@ -54,10 +74,11 @@ pos_z = -1
 
 [[include]]
 file = "objects/art-deco-door-frame.toml"
-at = [30, 0, 0]
+at = [29, 0, 0]
 rotate_y = -90
 transform_origin = [0, 0, 0]
-props = { width = 8, height = 4.5, depth = 1}
+instance = true
+props = { width = 8, height = 4.5, depth = 1, albedo = [2.5,2.5,2.5], reflect = 0.05}
 
 # north wall (grid)
 [[include]]
@@ -76,7 +97,7 @@ props = { depth = 0.5, width = 11, height = 'height - 6', unit_size = 3, beam_si
 file = "../objects/grid.toml"
 at = [32, 0, 1]
 transform_origin = [0, 0, 0]
-props = { depth = 0.5, width = 21, height = 'height', unit_size = 3, beam_size = '0.2', albedo = [2,2,2], texture = "cement"}
+props = { depth = 0.5, width = 67, height = 'height', unit_size = 3, beam_size = '0.2', albedo = [2,2,2], texture = "cement"}
 
 
 
@@ -89,10 +110,17 @@ width = 'wall_thickness'
 thin = true
 height = 'height'
 depth = 'depth'
-ior = 1.05
-transmit = 0.8
+ior = 1.008
+transmit = 'glass_transmit'
 material = "glass"
 albedo = [0.7, 0.7, 0.7]
+
+# east wall (grid)
+[[include]]
+file = "../objects/grid.toml"
+at = ['width - 1.5', 0, 0]
+transform_origin = [0, 0, 0]
+props = { depth = 'depth', width = 0.5, height = 'height', unit_size = 3, beam_size = '0.2', albedo = [2,2,2]}
 
 # south wall (glass)
 [[box]]
@@ -107,6 +135,14 @@ material = "glass"
 thin = true
 albedo = [0.9, 0.9, 0.9]
 
+# south wall (grid)
+[[include]]
+file = "../objects/grid.toml"
+at = [0, 0, 'depth - 0.5']
+transform_origin = [0, 0, 0]
+props = { depth = 0.5, width = 'width', height = 'height', unit_size = 3, beam_size = '0.2', albedo = [2,2,2]}
+
+
 # west wall (glass)
 [[box]]
 pos_x = 0
@@ -117,7 +153,6 @@ height = 'height'
 depth = 'depth'
 ior = 1.05
 material = "glass"
-thin = true
 albedo = [0.9, 0.9, 0.9]
 
 # west wall (grid)
@@ -126,14 +161,52 @@ file = "../objects/grid.toml"
 at = [1.5, 0, 0]
 transform_origin = [0, 0, 0]
 rotate_y = -90
-props = { depth = 0.5, width = 'width', height = 25, unit_size = 3, beam_size = '0.2', albedo = [1,1,1]}
+props = { depth = 0.5, width = 'width', height = 25, unit_size = 3, beam_size = '0.2', albedo = [2,2,2]}
 
+# steel beams in the corners
+
+# north west
+[[include]]
+file = "objects/steel-beam.toml"
+at = [5, 0, 5]
+transform_origin = [0,0,0]
+rotate_z = 90
+rotate_x = 45
+props = { width = 'height', rough = 0.01, reflect = 0.02, albedo = [2,2,2] }
+
+# north east
+[[include]]
+file = "objects/steel-beam.toml"
+at = ['width - 5', 0, 5]
+transform_origin = [0,0,0]
+rotate_z = 90
+rotate_x = 135
+props = { width = 'height', rough = 0.01, reflect = 0.02, albedo = [2,2,2] }
+
+# south west
+[[include]]
+file = "objects/steel-beam.toml"
+at = ['width - 5', 0, 'depth - 5']
+transform_origin = [0,0,0]
+rotate_z = 90
+rotate_x = 45
+props = { width = 'height', rough = 0.01, reflect = 0.02, albedo = [2,2,2] }
+
+# south east
+[[include]]
+file = "objects/steel-beam.toml"
+at = [5, 0, 'depth - 5']
+transform_origin = [0,0,0]
+rotate_z = 90
+rotate_x = 135
+props = { width = 'height', rough = 0.01, reflect = 0.02, albedo = [2,2,2] }
 
 # for i in range(5)
 [[include]]
 file = "objects/steel-beam.toml"
-at = ['15 * i + 5', 0, 10]
+at = ['depth -5', 0, 'i * 15 + 20']
 transform_origin = [0,0,0]
 rotate_z = 90
-props = { width = 20, rough = 0.01, reflect = 0.01, albedo = [0.4,0.5,1] }
+rotate_x = 90
+props = { width = 'height', rough = 0.01, reflect = 0.01, albedo = [2,2,2] }
 # endfor

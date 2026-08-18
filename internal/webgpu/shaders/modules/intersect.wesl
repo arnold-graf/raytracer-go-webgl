@@ -472,8 +472,8 @@ fn xf_to_world_normal(p: Prim, ln: vec3<f32>) -> vec3<f32> {
     );
 }
 
-// thin_glass_exit_t returns the ray parameter of the far side of a thin glass
-// slab along rd, given t_enter on the near side. Boxes use the AABB span;
+// thin_glass_exit_t returns the distance from ro along rd to the far side of a
+// thin glass slab, given t_enter on the near side. Boxes use the AABB span;
 // other primitives fall back to a small offset past the entry hit.
 fn thin_glass_exit_t(p: Prim, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32) -> f32 {
     var lro = ro;

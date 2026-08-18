@@ -47,9 +47,10 @@ props = { width = 20.0, height = 8.0, depth = 0.2, unit_size = 1, albedo = [1, 1
 # glass wall (west)
 [[box]]
 material = "glass"
-ior = 1.05
-rough = 0.005
-transmit = 0.75
+thin = true
+ior = 1.1
+rough = 0.01
+transmit = 0.5
 albedo = [1.2, 1.2, 1.2]
 pos_x = 0
 pos_y = 0
@@ -121,7 +122,7 @@ depth = 20.0
 file = "objects/art-deco-door-frame.toml"
 transform_origin = [0, 0, 0]
 at = [40, 0, 8]
-props = { width = 5, height = 4, depth = 1, texture = "marble", albedo = [0.7, 0.7, 0.7]}
+props = { width = 5, height = 4, depth = 1, texture = "marble", albedo = [0.7, 0.7, 0.7], reflect = 0.02}
 
 [[include]]
 transform_origin = [0,0,0]
@@ -302,7 +303,7 @@ file = "../objects/staircase.toml"
 transform_origin = [0, 0, 0]
 at = [9.7, 0, 7.5]
 rotate_y = 90
-props = { steps = 6, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.5 }
+props = { steps = 6, run = 0.3, rise = 0.2, width = 4, texture = "marble", reflect = 0.07, rough = 0.01 }
 
 # Lamp 1 (in the middle of the room)
 [[include]]

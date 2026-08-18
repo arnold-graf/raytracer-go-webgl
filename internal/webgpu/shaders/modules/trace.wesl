@@ -258,15 +258,25 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             let w_trans = twm_alb * (1.0 - reflectance);
 
             if (thin) {
-                // Single-sheet glass: one transmission through the slab (no
-                // separate enter/exit refraction). The ray continues in the
-                // same direction, exiting at the far AABB face.
+                // Single-sheet glass: enter + exit refraction in one hop (ior
+                // controls bend strength). Skips a separate back-face trace hit
+                // and its Fresnel lobes, so it stays cheaper than thick glass.
                 if (!tir && w_refl < 0.98 && w_trans > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
-                    let t_exit = thin_glass_exit_t(prims[hit.idx], ro, rd, hit.t);
-                    let exit_hp = ro + rd * t_exit;
+                    let cost = sqrt(k);
+                    let rd_in = normalize(rd * eta + n * (eta * cosi - cost));
+                    let enter_hp = hp - n * SURFACE_EPSILON;
+                    let t_span = thin_glass_exit_t(prims[hit.idx], enter_hp, rd_in, 0.0);
+                    let exit_hp = enter_hp + rd_in * t_span;
                     let exit_n = -n;
-                    stack[sp] = RaySeg(exit_hp + exit_n * SURFACE_EPSILON, rd, tw * alb * (1.0 - reflectance), depth + 1u);
-                    sp = sp + 1u;
+                    let eta_out = ior;
+                    let cosi_out = max(0.0, dot(rd_in, exit_n));
+                    let k_out = 1.0 - eta_out * eta_out * (1.0 - cosi_out * cosi_out);
+                    if (k_out >= 0.0) {
+                        let cost_out = sqrt(k_out);
+                        let rd_out = jitter_dir(normalize(rd_in * eta_out + exit_n * (eta_out * cosi_out - cost_out)), exit_hp, rough * 0.35);
+                        stack[sp] = RaySeg(exit_hp + exit_n * SURFACE_EPSILON, rd_out, tw * alb * (1.0 - reflectance), depth + 1u);
+                        sp = sp + 1u;
+                    }
                 }
             } else {
                 // Thick glass: refract at this interface; the back face is a

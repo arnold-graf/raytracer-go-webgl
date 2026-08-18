@@ -56,9 +56,9 @@ albedo = 'albedo'
 # for i in range(bolts)
 [[sphere]]
 center = ['(i + 1) * 2', '- beam_thickness / 2', 'beam_thickness / 2']
-rough = 'rough'
+rough = 'rough * 2'
 material = "diffuse"
 radius = 'sheet_thickness * 4'
-reflect = 'reflect'
+reflect = 'reflect * 5'
 albedo = 'albedo'
 # endfor

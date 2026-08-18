@@ -303,7 +303,7 @@
           "$ref": "#/definitions/number_or_expr"
         }
       ],
-      "description": "Index of refraction for glass. Defaults to 1.5 when omitted."
+      "description": "Index of refraction for glass. Defaults to 1.5 when omitted. On thin glass, controls enter/exit bend strength in the single-hop slab solve."
     },
     "surface_reflect": {
       "allOf": [
@@ -352,7 +352,7 @@
         },
         "thin": {
           "type": "boolean",
-          "description": "When true on glass, treat the surface as a single sheet: one transmission through the slab (no separate enter/exit refraction). Ignored for non-glass materials."
+          "description": "When true on glass, treat the surface as a single sheet: Fresnel reflection plus a one-hop enter/exit refraction through the slab (ior controls bend strength), without a separate back-face trace hit. Ignored for non-glass materials."
         },
         "collision": {
           "type": "boolean",

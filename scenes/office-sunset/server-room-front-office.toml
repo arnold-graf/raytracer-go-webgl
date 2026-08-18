@@ -82,8 +82,9 @@ depth = 20
 # east glass wall
 [[box]]
 material = "glass"
-ior = 1.05
-rough = 0.005
+thin = true
+ior = 1.2
+rough = 0.01
 albedo = [1, 1, 1]
 pos_x = 10
 pos_y = 0

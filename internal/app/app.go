@@ -21,12 +21,12 @@ import (
 	"raytracer/internal/document"
 	"raytracer/internal/door"
 	"raytracer/internal/interactlight"
-	"raytracer/internal/scenestate"
 	"raytracer/internal/npc"
 	"raytracer/internal/probe"
 	"raytracer/internal/render"
 	"raytracer/internal/scene"
 	"raytracer/internal/sceneio"
+	"raytracer/internal/scenestate"
 	"raytracer/internal/screen"
 	"raytracer/internal/vec"
 )

@@ -6,8 +6,9 @@ texture = "marble"
 albedo = [0.7, 0.7, 0.7]
 steps = 5
 step_size = 0.2
-reflect = 0.5
+reflect = 0.0
 
+# top
 [[include]]
 file = "../../objects/staircase.toml"
 transform_origin = ['depth', 'height', 0]
@@ -16,6 +17,7 @@ rotate_x = 180
 rotate_y = 180
 props = { texture = 'texture', width = 'width', albedo = 'albedo', reflect = 'reflect', steps = 'steps', step_size = 'step_size', run = 0.2, rise = 0.2}
 
+# right
 [[include]]
 file = "../../objects/staircase.toml"
 transform_origin = ['depth', 0, 0]
@@ -26,8 +28,8 @@ props = { texture = 'texture', width = 'height', albedo = 'albedo', reflect = 'r
 
 [[include]]
 file = "../../objects/staircase.toml"
-transform_origin = ['depth', 0, 'width - step_size * steps']
-at = [0, 0, 'width']
+transform_origin = ['depth', 'width', 'height']
+at = [0, 0, 0]
 rotate_y = 180
 rotate_x = 90
 props = { texture = 'texture', width = 'height', albedo = 'albedo', reflect = 'reflect', steps = 'steps', step_size = 'step_size', run = 0.2, rise = 0.2}
