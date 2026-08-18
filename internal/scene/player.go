@@ -13,4 +13,5 @@ type PlayerMovement struct {
 	CrouchEyeHeight       float64
 	CrouchSpeedMultiplier float64
 	DoubleJumpEnabled     *bool
+	JoltPhysics           *bool
 }

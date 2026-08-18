@@ -36,5 +36,8 @@ func MergeConfig(base Config, o scene.PlayerMovement) Config {
 	if o.DoubleJumpEnabled != nil {
 		c.DoubleJumpEnabled = *o.DoubleJumpEnabled
 	}
+	if o.JoltPhysics != nil {
+		c.JoltPhysics = *o.JoltPhysics
+	}
 	return c
 }

@@ -21,6 +21,7 @@ import (
 	"raytracer/internal/document"
 	"raytracer/internal/door"
 	"raytracer/internal/interactlight"
+	"raytracer/internal/joltphys"
 	"raytracer/internal/npc"
 	"raytracer/internal/probe"
 	"raytracer/internal/render"
@@ -151,6 +152,8 @@ type Game struct {
 
 	spyglass Spyglass
 	torch    Torch
+
+	jolt *joltphys.World
 }
 
 // New builds a game with the given internal render resolution rendering the
@@ -185,6 +188,7 @@ func New(rw, rh int, sc *scene.Scene, basePlayerCfg camera.Config, scenePath, pl
 	} else {
 		g.cam.SnapToGround()
 	}
+	g.syncJoltPlayer()
 	// Seed the watch timestamps so the first poll doesn't trigger a needless
 	// reload of the files we just loaded.
 	g.sceneDeps = seedSceneDeps(scenePath)
@@ -214,7 +218,6 @@ func (g *Game) setScene(sc *scene.Scene) {
 		inv.InvalidateDocumentTextures()
 	}
 	g.pb = probe.New(sc)
-	g.cam.SetWorld(sc)
 	g.npcs = npc.NewManager()
 	_ = g.npcs.Instantiate(sc, npc.FootWorld(sc))
 	g.doors = door.NewManager()
@@ -561,7 +564,11 @@ func (g *Game) Update() error {
 			g.applyGamepadLook()
 		}
 		if !readingDoc && !viewingScreen {
-			g.cam.Update(mv, dt)
+			if g.jolt != nil {
+				g.jolt.UpdatePlayer(g.cam, mv, dt)
+			} else {
+				g.cam.Update(mv, dt)
+			}
 		}
 		g.updateHUDPos()
 
@@ -778,9 +785,40 @@ func (g *Game) reloadPlayer() bool {
 func (g *Game) applyPlayerConfig() {
 	if g.sc == nil {
 		g.cam.SetConfig(g.basePlayerCfg)
+		g.bindPhysicsWorld()
 		return
 	}
 	g.cam.SetConfig(camera.MergeConfig(g.basePlayerCfg, g.sc.PlayerMovement))
+	g.bindPhysicsWorld()
+}
+
+func (g *Game) bindPhysicsWorld() {
+	if g.jolt != nil {
+		g.jolt.Destroy()
+		g.jolt = nil
+	}
+	if g.sc == nil {
+		return
+	}
+	cfg := g.cam.Config()
+	if !cfg.JoltPhysics {
+		g.cam.SetWorld(g.sc)
+		return
+	}
+	w, err := joltphys.NewWorldFromScene(g.sc, g.cam.Pos, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "jolt physics: %v (using CPU collision)\n", err)
+		g.cam.SetWorld(g.sc)
+		return
+	}
+	g.jolt = w
+	g.cam.SetWorld(w)
+}
+
+func (g *Game) syncJoltPlayer() {
+	if g.jolt != nil {
+		g.jolt.SyncPlayer(g.cam.Pos)
+	}
 }
 
 func (g *Game) setReloadMsg(msg string) {

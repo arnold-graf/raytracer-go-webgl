@@ -18,6 +18,7 @@ import (
 	"raytracer/internal/app"
 	"raytracer/internal/camera"
 	"raytracer/internal/character"
+	"raytracer/internal/joltphys"
 	"raytracer/internal/npc"
 	"raytracer/internal/scene"
 	"raytracer/internal/sceneio"
@@ -107,6 +108,11 @@ func main() {
 	// Pipeline the interactive loop: submit each frame and hand back the previous
 	// one so the GPU renders while the CPU packs/blits, instead of stalling on it.
 	ren.SetPipelined(true)
+
+	if err := joltphys.Init(); err != nil {
+		log.Fatalf("jolt physics: %v", err)
+	}
+	defer joltphys.Shutdown()
 
 	game := app.New(renderW, renderH, sc, basePlayerCfg, *scenePath, *playerPath, ren)
 

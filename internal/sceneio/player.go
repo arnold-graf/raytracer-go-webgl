@@ -21,6 +21,7 @@ type movementDTO struct {
 	CrouchEyeHeight       float64 `toml:"crouch_eye_height"`
 	CrouchSpeedMultiplier float64 `toml:"crouch_speed_multiplier"`
 	DoubleJumpEnabled     *bool   `toml:"double_jump_enabled"`
+	JoltPhysics           *bool   `toml:"jolt_physics"`
 }
 
 func (m movementDTO) toScene() scene.PlayerMovement {

@@ -202,6 +202,82 @@ func (b *Box) WorldBounds() (vec.V, vec.V) {
 	return expandXformBounds(b.Xform, b.Min, b.Max)
 }
 
+// SolidFragments decomposes the box minus its holes into disjoint axis-aligned
+// solid pieces in local space. A box without holes returns a single fragment.
+func (b *Box) SolidFragments() []AABB {
+	if len(b.Holes) == 0 {
+		return []AABB{{Min: b.Min, Max: b.Max}}
+	}
+	solids := []AABB{{Min: b.Min, Max: b.Max}}
+	for _, hole := range b.Holes {
+		var next []AABB
+		for _, s := range solids {
+			next = append(next, subtractAABB(s, hole)...)
+		}
+		solids = next
+	}
+	const eps = 1e-6
+	out := solids[:0]
+	for _, s := range solids {
+		if s.Min.X+eps >= s.Max.X || s.Min.Y+eps >= s.Max.Y || s.Min.Z+eps >= s.Max.Z {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// subtractAABB returns up to six axis-aligned boxes covering a \ b.
+func subtractAABB(a, hole AABB) []AABB {
+	inter, ok := aabbIntersect(a, hole)
+	if !ok {
+		return []AABB{a}
+	}
+	const eps = 1e-6
+	var out []AABB
+	add := func(mn, mx vec.V) {
+		if mn.X+eps < mx.X && mn.Y+eps < mx.Y && mn.Z+eps < mx.Z {
+			out = append(out, AABB{Min: mn, Max: mx})
+		}
+	}
+	if a.Min.X < inter.Min.X {
+		add(vec.New(a.Min.X, a.Min.Y, a.Min.Z), vec.New(inter.Min.X, a.Max.Y, a.Max.Z))
+	}
+	if inter.Max.X < a.Max.X {
+		add(vec.New(inter.Max.X, a.Min.Y, a.Min.Z), vec.New(a.Max.X, a.Max.Y, a.Max.Z))
+	}
+	if a.Min.Y < inter.Min.Y {
+		add(vec.New(inter.Min.X, a.Min.Y, a.Min.Z), vec.New(inter.Max.X, inter.Min.Y, a.Max.Z))
+	}
+	if inter.Max.Y < a.Max.Y {
+		add(vec.New(inter.Min.X, inter.Max.Y, a.Min.Z), vec.New(inter.Max.X, a.Max.Y, a.Max.Z))
+	}
+	if a.Min.Z < inter.Min.Z {
+		add(vec.New(inter.Min.X, inter.Min.Y, a.Min.Z), vec.New(inter.Max.X, inter.Max.Y, inter.Min.Z))
+	}
+	if inter.Max.Z < a.Max.Z {
+		add(vec.New(inter.Min.X, inter.Min.Y, inter.Max.Z), vec.New(inter.Max.X, inter.Max.Y, a.Max.Z))
+	}
+	return out
+}
+
+func aabbIntersect(a, b AABB) (AABB, bool) {
+	mn := vec.V{
+		X: math.Max(a.Min.X, b.Min.X),
+		Y: math.Max(a.Min.Y, b.Min.Y),
+		Z: math.Max(a.Min.Z, b.Min.Z),
+	}
+	mx := vec.V{
+		X: math.Min(a.Max.X, b.Max.X),
+		Y: math.Min(a.Max.Y, b.Max.Y),
+		Z: math.Min(a.Max.Z, b.Max.Z),
+	}
+	if mn.X >= mx.X || mn.Y >= mx.Y || mn.Z >= mx.Z {
+		return AABB{}, false
+	}
+	return AABB{Min: mn, Max: mx}, true
+}
+
 // TopOpenAt reports whether a hole breaches the box's top face at world (x,z),
 // so the box offers no standing surface there and the player falls through (e.g.
 // a stairwell opening cut into an upper floor slab). Holes are authored in the

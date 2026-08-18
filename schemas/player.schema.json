@@ -67,6 +67,10 @@
         "double_jump_enabled": {
           "type": "boolean",
           "description": "Allow one extra jump while airborne (release and press jump again mid-air). Default: false."
+        },
+        "jolt_physics": {
+          "type": "boolean",
+          "description": "Drive player movement with Jolt CharacterVirtual instead of analytic scene collision. Default: false."
         }
       },
       "additionalProperties": false

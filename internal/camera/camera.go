@@ -36,6 +36,10 @@ type Config struct {
 	// DoubleJumpEnabled allows one extra jump while airborne (requires releasing
 	// and pressing jump again mid-air).
 	DoubleJumpEnabled bool
+
+	// JoltPhysics drives player movement with Jolt CharacterVirtual instead of
+	// the built-in analytic capsule queries.
+	JoltPhysics bool
 }
 
 // DefaultConfig returns the built-in movement tuning.
@@ -121,6 +125,29 @@ func (c *Camera) SetPose(p Pose) {
 
 // SetConfig replaces the movement tuning.
 func (c *Camera) SetConfig(cfg Config) { c.cfg = cfg }
+
+// Config returns the active movement tuning.
+func (c *Camera) Config() Config { return c.cfg }
+
+// SetPos replaces the camera position (used by external physics backends).
+func (c *Camera) SetPos(pos vec.V) { c.Pos = pos }
+
+// SetOnGround updates the grounded flag (used by external physics backends).
+func (c *Camera) SetOnGround(on bool) { c.onGround = on }
+
+// TickStance advances crouch/sprint easing from input and returns the current
+// eye height above feet and horizontal speed multiplier.
+func (c *Camera) TickStance(m Move) (eyeH, speedMul float64) {
+	crouchInput := boolMax(m.Crouch, m.CrouchAxis)
+	sprintInput := boolMax(m.Sprint, m.SprintAxis)
+	crouchTarget := crouchInput
+	sprintTarget := sprintInput * (1 - crouchInput)
+	c.crouchT += (crouchTarget - c.crouchT) * stanceEase
+	c.sprintT += (sprintTarget - c.sprintT) * stanceEase
+	eyeH = lerp(c.cfg.EyeHeight, c.cfg.CrouchEyeHeight, c.crouchT)
+	speedMul = lerp(1, c.cfg.SprintMultiplier, c.sprintT) * lerp(1, c.cfg.CrouchSpeedMultiplier, c.crouchT)
+	return eyeH, speedMul
+}
 
 // OnGround reports whether the player is currently standing on a surface (as
 // opposed to airborne mid-jump/fall). Used to gate footstep sounds.

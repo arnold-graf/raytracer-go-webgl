@@ -49,3 +49,33 @@ func TestBoxHoleInnerFaceNormal(t *testing.T) {
 		t.Fatalf("expected X-facing normal, got %v", n)
 	}
 }
+
+func TestSolidFragmentsDoorWall(t *testing.T) {
+	wall := Box{
+		Min:   vec.New(-4, 0, 3.5),
+		Max:   vec.New(4, 6, 3.9),
+		Holes: []AABB{{Min: vec.New(-1, 0, 3.4), Max: vec.New(1, 2.5, 4.0)}},
+	}
+	frags := wall.SolidFragments()
+	if len(frags) < 2 {
+		t.Fatalf("expected multiple solid fragments, got %d", len(frags))
+	}
+
+	inside := func(x, y, z float64) bool {
+		p := vec.V{X: x, Y: y, Z: z}
+		for _, f := range frags {
+			if p.X > f.Min.X && p.X < f.Max.X &&
+				p.Y > f.Min.Y && p.Y < f.Max.Y &&
+				p.Z > f.Min.Z && p.Z < f.Max.Z {
+				return true
+			}
+		}
+		return false
+	}
+	if !inside(3, 1, 3.7) {
+		t.Fatal("solid beside door should remain")
+	}
+	if inside(0, 1, 3.7) {
+		t.Fatal("door opening should be hollow")
+	}
+}

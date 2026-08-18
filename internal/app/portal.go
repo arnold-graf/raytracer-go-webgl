@@ -76,6 +76,7 @@ func (g *Game) completePortalTransition() error {
 	if err := spawnPlayerAt(g.cam, sc, exitPortalSpawnID); err != nil {
 		return err
 	}
+	g.syncJoltPlayer()
 
 	g.portalPhase = portalFadeOut
 	g.fadeTarget = 0

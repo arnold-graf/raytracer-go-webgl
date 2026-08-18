@@ -4,7 +4,12 @@ go 1.26
 
 require (
 	github.com/BurntSushi/toml v1.6.0
+	github.com/bbitechnologies/jolt-go v0.8.4
 	github.com/hajimehoshi/ebiten/v2 v2.9.9
+	github.com/rajveermalviya/go-webgpu/wgpu v0.17.1
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+	golang.org/x/image v0.43.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -13,11 +18,7 @@ require (
 	github.com/ebitengine/oto/v3 v3.4.0 // indirect
 	github.com/ebitengine/purego v0.9.0 // indirect
 	github.com/jezek/xgb v1.1.1 // indirect
-	github.com/rajveermalviya/go-webgpu/wgpu v0.17.1 // indirect
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
-	golang.org/x/image v0.43.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
