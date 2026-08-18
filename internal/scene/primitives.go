@@ -15,8 +15,8 @@ type Surface struct {
 	Albedo  vec.V
 	Albedo2 vec.V // second checker color; ignored for other materials
 	Rough   float64
-	IOR    float64
-	Tex    int // procedural texture id (0 = none); see package texture
+	IOR     float64
+	Tex     int // procedural texture id (0 = none); see package texture
 	// Reflect (0..1) adds a mirror reflection on top of a diffuse/checker
 	// surface without replacing its shading: the final color is a blend of the
 	// normal (textured, lit) result and a reflected ray, weighted by Reflect.
@@ -521,10 +521,10 @@ func (b *Box) Normal(p vec.V) vec.V {
 // Cylinder is a finite Y-axis-aligned cylinder with flat caps. Radius is the
 // radius at YMin; RadiusTop is the radius at YMax (0 means same as Radius).
 type Cylinder struct {
-	CX, CZ         float64
-	Radius         float64
-	RadiusTop      float64
-	YMin, YMax     float64
+	CX, CZ     float64
+	Radius     float64
+	RadiusTop  float64
+	YMin, YMax float64
 	// OpenMin/OpenMax omit the flat end cap at YMin/YMax so the tube is hollow.
 	OpenMin, OpenMax bool
 	Surface
@@ -702,7 +702,7 @@ func (c *Cylinder) Intersect(r vec.Ray) float64 {
 	B := alpha * dy
 
 	a := dx*dx + dz*dz - B*B
-	b := 2 * (px*dx+pz*dz - A*B)
+	b := 2 * (px*dx + pz*dz - A*B)
 	cc := px*px + pz*pz - A*A
 
 	best := Inf

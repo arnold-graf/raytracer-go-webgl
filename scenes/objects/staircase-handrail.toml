@@ -1,0 +1,74 @@
+[props]
+steps = 8
+run = 0.5
+rise = 0.375
+primitive = "cylinder" # "box" or "cylinder"
+albedo = [1,1,1]
+material = "diffuse"
+texture = "none"
+reflect = 0
+
+[const]
+poles = 'floor(steps)'
+rail_overhang = 0.3
+pole_height = 0.9
+pitch = 'atan_deg(rise / run)'
+rail_len = 'hypot(run, rise) * (poles - 1)'
+rail_width = 0.1
+
+# for i in range(poles)
+# if primitive is "cylinder"
+[[cylinder]]
+height = 'pole_height'
+width = 0.1
+pos_x = 'i * run + run / 2'
+pos_y = '(i + 1) * rise + rise'
+pos_z = 0.05
+albedo = 'albedo'
+material = 'material'
+reflect = 'reflect'
+texture = 'texture'
+# endif
+# if primitive is "box"
+[[box]]
+height = 'pole_height'
+width = 0.1
+depth = 0.1
+pos_x = 'i * run + run / 2'
+pos_y = '(i + 1) * rise + rise'
+pos_z = 0.05
+albedo = 'albedo'
+material = 'material'
+reflect = 'reflect'
+texture = 'texture'
+# endif
+# endfor
+
+# if primitive is "cylinder"
+[[cylinder]]
+width = 'rail_width'
+height = 'rail_len + rail_overhang'
+pos_x = 'poles * run / 2 - rail_width / 2'
+pos_y = '((poles + 3) * rise + 2 * pole_height) / 2 - (rail_len + rail_overhang) / 2'
+pos_z = 0.05
+rotate_z = 'pitch - 90'
+albedo = 'albedo'
+material = 'material'
+reflect = 'reflect'
+texture = 'texture'
+# endif
+
+# if primitive is "box"
+[[box]]
+width = 'rail_width + rail_overhang'
+depth = 0.1
+height = 'rail_len'
+pos_x = 'poles * run / 2 - rail_width / 2'
+pos_y = '((poles + 3) * rise + 2 * pole_height) / 2 - (rail_len + rail_overhang) / 2'
+pos_z = 0.05
+rotate_z = 'pitch - 90'
+albedo = 'albedo'
+material = 'material'
+reflect = 'reflect'
+texture = 'texture'
+# endif

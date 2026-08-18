@@ -47,10 +47,10 @@ handrail_right = false
 # for i in range(steps)
 [[box]] # step
 pos_x = 'i * run'
-pos_y = 0.0
+pos_y = '(i + 1) * rise'
 pos_z = 0.0
-width = 'run'
-height = '(i + 1) * rise'
+width = 'run * 2'
+height = 'rise'
 depth = 'width'
 material = "diffuse"
 albedo = 'albedo'
@@ -64,7 +64,7 @@ rough = 'rough'
 file = "staircase-handrail.toml"
 at = [0,0,0]
 transform_origin = [0,0,0]
-props = { steps = 8, run = 0.5, rise = 0.375, texture = 'texture', albedo = 'albedo', reflect = 'reflect' }
+props = { steps = 'steps', run = 'run', rise = 'rise', albedo = 'albedo', reflect = 'reflect', texture = 'texture' }
 # endif
 
 # if handrail_right
@@ -72,6 +72,5 @@ props = { steps = 8, run = 0.5, rise = 0.375, texture = 'texture', albedo = 'alb
 file = "staircase-handrail.toml"
 at = [0,0,'width - 0.2']
 transform_origin = [0,0,0]
-props = { steps = 8, run = 0.5, rise = 0.375, texture = 'texture', albedo = 'albedo', reflect = 'reflect'  }
+props = { steps = 'steps', run = 'run', rise = 'rise', albedo = 'albedo', reflect = 'reflect', texture = 'texture' }
 # endif
-

@@ -2,6 +2,35 @@ package sceneparam
 
 import "math"
 
+const radPerDeg = math.Pi / 180
+const degPerRad = 180 / math.Pi
+
+// Trig helpers take or return degrees to match scene rotate_* fields.
+
+func sinDeg(deg float64) float64 {
+	return math.Sin(deg * radPerDeg)
+}
+
+func cosDeg(deg float64) float64 {
+	return math.Cos(deg * radPerDeg)
+}
+
+func tanDeg(deg float64) float64 {
+	return math.Tan(deg * radPerDeg)
+}
+
+func asinDeg(x float64) float64 {
+	return math.Asin(x) * degPerRad
+}
+
+func acosDeg(x float64) float64 {
+	return math.Acos(x) * degPerRad
+}
+
+func atanDeg(x float64) float64 {
+	return math.Atan(x) * degPerRad
+}
+
 func legX(i int, off, radius float64) float64 {
 	if i < 2 {
 		return off - radius

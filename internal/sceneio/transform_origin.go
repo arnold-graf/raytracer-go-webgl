@@ -9,8 +9,8 @@ import (
 
 // transformOriginDTO decodes transform_origin = "center" or [x, y, z].
 type transformOriginDTO struct {
-	center bool
-	point  vec.V
+	center   bool
+	point    vec.V
 	explicit bool
 }
 

@@ -26,7 +26,7 @@ func expandDirectivesReactive(text string, env *Env, stateKeys map[string]struct
 		if trim == "# endif" {
 			return "", fmt.Errorf("unexpected # endif at line %d", i+1)
 		}
-		if reIfPos.MatchString(trim) || reIf.MatchString(trim) {
+		if isIfLine(trim) {
 			end, expanded, err := expandIfReactive(lines, i, env, stateKeys, structural)
 			if err != nil {
 				return "", err
@@ -94,19 +94,16 @@ func expandForReactive(lines []string, start int, varName, boundExpr string, env
 
 func expandIfReactive(lines []string, start int, env *Env, stateKeys map[string]struct{}, structural *map[string]struct{}) (end int, out []string, err error) {
 	trim := strings.TrimSpace(lines[start])
-	neg := false
-	var name string
-	if m := reIf.FindStringSubmatch(trim); m != nil {
-		neg = true
-		name = m[1]
-	} else if m := reIfPos.FindStringSubmatch(trim); m != nil {
-		name = m[1]
-	} else {
+	expr, neg, err := parseIfLine(trim)
+	if err != nil {
 		return 0, nil, fmt.Errorf("invalid # if at line %d", start+1)
 	}
-	trackName(name, stateKeys, structural)
-	v, ok := env.Lookup(name)
-	truth := ok && v.truthy()
+	trackExprDeps(expr, env, stateKeys, structural)
+	v, err := evalExpr(expr, env)
+	if err != nil {
+		return 0, nil, fmt.Errorf("# if %s: %w", expr, err)
+	}
+	truth := v.truthy()
 	if neg {
 		truth = !truth
 	}
@@ -114,7 +111,7 @@ func expandIfReactive(lines []string, start int, env *Env, stateKeys map[string]
 	bodyStart := start + 1
 	for i := start + 1; i < len(lines); i++ {
 		t := strings.TrimSpace(lines[i])
-		if reIfPos.MatchString(t) || reIf.MatchString(t) {
+		if isIfLine(t) {
 			depth++
 		}
 		if t == "# endif" {
@@ -138,16 +135,7 @@ func expandIfReactive(lines []string, start int, env *Env, stateKeys map[string]
 			}
 		}
 	}
-	return 0, nil, fmt.Errorf("missing # endif for # if %s", name)
-}
-
-func trackName(name string, stateKeys map[string]struct{}, structural *map[string]struct{}) {
-	if structural == nil {
-		return
-	}
-	if _, ok := stateKeys[name]; ok {
-		(*structural)[name] = struct{}{}
-	}
+	return 0, nil, fmt.Errorf("missing # endif for # if %s", expr)
 }
 
 func trackExprDeps(expr string, env *Env, stateKeys map[string]struct{}, structural *map[string]struct{}) {

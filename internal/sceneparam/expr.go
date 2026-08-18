@@ -2,6 +2,7 @@ package sceneparam
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"unicode"
@@ -228,7 +229,91 @@ func (p *parser) skipSpace() {
 }
 
 func (p *parser) parseExpr() (value, error) {
-	left, err := p.parseConditional()
+	return p.parseTernary()
+}
+
+func (p *parser) parseTernary() (value, error) {
+	left, err := p.parseCompare()
+	if err != nil {
+		return value{}, err
+	}
+	p.skipSpace()
+	if len(p.src) == 0 || p.src[0] != '?' {
+		return left, nil
+	}
+	p.src = p.src[1:]
+	trueVal, err := p.parseTernary()
+	if err != nil {
+		return value{}, err
+	}
+	p.skipSpace()
+	if len(p.src) == 0 || p.src[0] != ':' {
+		return value{}, fmt.Errorf("expected ':' in ternary")
+	}
+	p.src = p.src[1:]
+	falseVal, err := p.parseTernary()
+	if err != nil {
+		return value{}, err
+	}
+	if left.truthy() {
+		return trueVal, nil
+	}
+	return falseVal, nil
+}
+
+func (p *parser) parseCompare() (value, error) {
+	left, err := p.parseAdd()
+	if err != nil {
+		return value{}, err
+	}
+	for {
+		p.skipSpace()
+		if len(p.src) == 0 {
+			return left, nil
+		}
+		var op string
+		switch {
+		case strings.HasPrefix(p.src, "=="):
+			op = "=="
+			p.src = p.src[2:]
+		case strings.HasPrefix(p.src, "!="):
+			op = "!="
+			p.src = p.src[2:]
+		case strings.HasPrefix(p.src, "<="):
+			op = "<="
+			p.src = p.src[2:]
+		case strings.HasPrefix(p.src, ">="):
+			op = ">="
+			p.src = p.src[2:]
+		case strings.HasPrefix(p.src, "<"):
+			op = "<"
+			p.src = p.src[1:]
+		case strings.HasPrefix(p.src, ">"):
+			op = ">"
+			p.src = p.src[1:]
+		case p.matchKeyword("is"):
+			if p.matchKeyword("not") {
+				op = "!="
+			} else {
+				op = "=="
+			}
+		default:
+			return left, nil
+		}
+		right, err := p.parseAdd()
+		if err != nil {
+			return value{}, err
+		}
+		ok, err := compareValues(op, left, right)
+		if err != nil {
+			return value{}, err
+		}
+		left = value{kind: valBool, boolean: ok}
+	}
+}
+
+func (p *parser) parseAdd() (value, error) {
+	left, err := p.parseTerm()
 	if err != nil {
 		return value{}, err
 	}
@@ -240,7 +325,7 @@ func (p *parser) parseExpr() (value, error) {
 		switch p.src[0] {
 		case '+':
 			p.src = p.src[1:]
-			right, err := p.parseConditional()
+			right, err := p.parseTerm()
 			if err != nil {
 				return value{}, err
 			}
@@ -255,7 +340,7 @@ func (p *parser) parseExpr() (value, error) {
 			left = value{kind: valNumber, number: a + b}
 		case '-':
 			p.src = p.src[1:]
-			right, err := p.parseConditional()
+			right, err := p.parseTerm()
 			if err != nil {
 				return value{}, err
 			}
@@ -274,33 +359,76 @@ func (p *parser) parseExpr() (value, error) {
 	}
 }
 
-func (p *parser) parseConditional() (value, error) {
-	left, err := p.parseTerm()
-	if err != nil {
-		return value{}, err
+func compareValues(op string, left, right value) (bool, error) {
+	switch op {
+	case "==":
+		return valuesEqual(left, right), nil
+	case "!=":
+		return !valuesEqual(left, right), nil
 	}
+	a, err := left.asNumber()
+	if err != nil {
+		return false, fmt.Errorf("%s: left operand: %w", op, err)
+	}
+	b, err := right.asNumber()
+	if err != nil {
+		return false, fmt.Errorf("%s: right operand: %w", op, err)
+	}
+	switch op {
+	case "<":
+		return a < b, nil
+	case ">":
+		return a > b, nil
+	case "<=":
+		return a <= b, nil
+	case ">=":
+		return a >= b, nil
+	default:
+		return false, fmt.Errorf("unknown comparison %q", op)
+	}
+}
+
+func valuesEqual(left, right value) bool {
+	if left.kind != right.kind {
+		if left.kind == valNumber && right.kind == valBool {
+			return (left.number != 0) == right.boolean
+		}
+		if left.kind == valBool && right.kind == valNumber {
+			return left.boolean == (right.number != 0)
+		}
+		return false
+	}
+	switch left.kind {
+	case valString:
+		return left.str == right.str
+	case valBool:
+		return left.boolean == right.boolean
+	case valNumber:
+		return left.number == right.number
+	case valVec3:
+		return left.vec3 == right.vec3
+	case valStrings:
+		if len(left.strings) != len(right.strings) {
+			return false
+		}
+		for i := range left.strings {
+			if left.strings[i] != right.strings[i] {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *parser) matchKeyword(kw string) bool {
 	p.skipSpace()
-	if len(p.src) == 0 || p.src[0] != '?' {
-		return left, nil
+	if !strings.HasPrefix(p.src, kw) || !identBoundary(p.src, len(kw)) {
+		return false
 	}
-	p.src = p.src[1:]
-	trueVal, err := p.parseConditional()
-	if err != nil {
-		return value{}, err
-	}
-	p.skipSpace()
-	if len(p.src) == 0 || p.src[0] != ':' {
-		return value{}, fmt.Errorf("expected ':' in ternary")
-	}
-	p.src = p.src[1:]
-	falseVal, err := p.parseConditional()
-	if err != nil {
-		return value{}, err
-	}
-	if left.truthy() {
-		return trueVal, nil
-	}
-	return falseVal, nil
+	p.src = p.src[len(kw):]
+	return true
 }
 
 func (p *parser) parseTerm() (value, error) {
@@ -396,6 +524,9 @@ func (p *parser) parsePrimary() (value, error) {
 	if unicode.IsDigit(rune(p.src[0])) || p.src[0] == '.' {
 		return p.parseNumber()
 	}
+	if p.src[0] == '"' {
+		return p.parseStringLiteral('"')
+	}
 	if unicode.IsLetter(rune(p.src[0])) || p.src[0] == '_' {
 		if v, ok, n := p.parseBoolLiteral(); ok {
 			p.src = p.src[n:]
@@ -435,6 +566,26 @@ func (p *parser) parseNumber() (value, error) {
 	}
 	p.src = p.src[i:]
 	return value{kind: valNumber, number: n}, nil
+}
+
+func (p *parser) parseStringLiteral(quote byte) (value, error) {
+	p.src = p.src[1:]
+	var b strings.Builder
+	for len(p.src) > 0 {
+		if p.src[0] == quote {
+			p.src = p.src[1:]
+			return value{kind: valString, str: b.String()}, nil
+		}
+		if p.src[0] == '\\' && len(p.src) > 1 {
+			p.src = p.src[1:]
+			b.WriteByte(p.src[0])
+			p.src = p.src[1:]
+			continue
+		}
+		b.WriteByte(p.src[0])
+		p.src = p.src[1:]
+	}
+	return value{}, fmt.Errorf("unterminated string")
 }
 
 func (p *parser) parseIdentOrCall() (value, error) {
@@ -509,6 +660,54 @@ func evalCall(name string, args []value) (value, error) {
 			return value{}, err
 		}
 		return value{kind: valNumber, number: float64(int(ns[0]))}, nil
+	case "sin_deg", "sin":
+		ns, err := nums(1)
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valNumber, number: sinDeg(ns[0])}, nil
+	case "cos_deg", "cos":
+		ns, err := nums(1)
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valNumber, number: cosDeg(ns[0])}, nil
+	case "tan_deg", "tan":
+		ns, err := nums(1)
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valNumber, number: tanDeg(ns[0])}, nil
+	case "asin_deg", "asin":
+		ns, err := nums(1)
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valNumber, number: asinDeg(ns[0])}, nil
+	case "acos_deg", "acos":
+		ns, err := nums(1)
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valNumber, number: acosDeg(ns[0])}, nil
+	case "atan_deg", "atan":
+		ns, err := nums(1)
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valNumber, number: atanDeg(ns[0])}, nil
+	case "hypot":
+		ns, err := nums(2)
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valNumber, number: math.Hypot(ns[0], ns[1])}, nil
+	case "sqrt":
+		ns, err := nums(1)
+		if err != nil {
+			return value{}, err
+		}
+		return value{kind: valNumber, number: math.Sqrt(ns[0])}, nil
 	case "leg_x":
 		ns, err := nums(3)
 		if err != nil {

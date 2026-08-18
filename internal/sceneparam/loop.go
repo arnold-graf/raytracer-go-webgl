@@ -7,10 +7,8 @@ import (
 )
 
 var (
-	reFor   = regexp.MustCompile(`^#\s*for\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+in\s+range\((.+)\)\s*$`)
-	reLet   = regexp.MustCompile(`^#\s*let\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)\s*$`)
-	reIf    = regexp.MustCompile(`^#\s*if\s+not\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*$`)
-	reIfPos = regexp.MustCompile(`^#\s*if\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*$`)
+	reFor = regexp.MustCompile(`^#\s*for\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+in\s+range\((.+)\)\s*$`)
+	reLet = regexp.MustCompile(`^#\s*let\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)\s*$`)
 )
 
 func expandDirectives(text string, env *Env) (string, error) {
@@ -32,7 +30,7 @@ func expandDirectives(text string, env *Env) (string, error) {
 		if trim == "# endif" {
 			return "", fmt.Errorf("unexpected # endif at line %d", i+1)
 		}
-		if reIfPos.MatchString(trim) || reIf.MatchString(trim) {
+		if isIfLine(trim) {
 			end, expanded, err := expandIf(lines, i, env)
 			if err != nil {
 				return "", err
@@ -116,18 +114,15 @@ func applyLetLines(body []string, env *Env) ([]string, error) {
 
 func expandIf(lines []string, start int, env *Env) (end int, out []string, err error) {
 	trim := strings.TrimSpace(lines[start])
-	neg := false
-	var name string
-	if m := reIf.FindStringSubmatch(trim); m != nil {
-		neg = true
-		name = m[1]
-	} else if m := reIfPos.FindStringSubmatch(trim); m != nil {
-		name = m[1]
-	} else {
+	expr, neg, err := parseIfLine(trim)
+	if err != nil {
 		return 0, nil, fmt.Errorf("invalid # if at line %d", start+1)
 	}
-	v, ok := env.Lookup(name)
-	truth := ok && v.truthy()
+	v, err := evalExpr(expr, env)
+	if err != nil {
+		return 0, nil, fmt.Errorf("# if %s: %w", expr, err)
+	}
+	truth := v.truthy()
 	if neg {
 		truth = !truth
 	}
@@ -135,7 +130,7 @@ func expandIf(lines []string, start int, env *Env) (end int, out []string, err e
 	bodyStart := start + 1
 	for i := start + 1; i < len(lines); i++ {
 		t := strings.TrimSpace(lines[i])
-		if reIfPos.MatchString(t) || reIf.MatchString(t) {
+		if isIfLine(t) {
 			depth++
 		}
 		if t == "# endif" {
@@ -159,5 +154,5 @@ func expandIf(lines []string, start int, env *Env) (end int, out []string, err e
 			}
 		}
 	}
-	return 0, nil, fmt.Errorf("missing # endif for # if %s", name)
+	return 0, nil, fmt.Errorf("missing # endif for # if %s", expr)
 }

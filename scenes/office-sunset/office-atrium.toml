@@ -210,3 +210,8 @@ rotate_z = 90
 rotate_x = 90
 props = { width = 'height', rough = 0.01, reflect = 0.01, albedo = [2,2,2] }
 # endfor
+
+[[include]]
+file = "office-cubicle-house.toml"
+at = [ 20, 0, 20]
+transform_origin = [0,0,0]
