@@ -57,41 +57,41 @@ stride_i = '(x_count - 1) * (light_x_count - 1)'
 stride_j = '(z_count - 1) * (light_z_count - 1)'
 
 # for i in range(x_count)
-# for j in range(z_count)
-# if on
-[[box]]
-material = "emit"
-albedo = 'emit_albedo'
-width = 'panel_width'
-height = 'panel_height'
-depth = 'panel_depth'
-pos_x = 'origin_x + (i * spacing)'
-pos_y = 'y'
-pos_z = 'origin_z + (j * spacing)'
-# endif
-# if not on
-[[box]]
-reflect = 0.05
-width = 'panel_width'
-height = 'panel_height'
-depth = 'panel_depth'
-pos_x = 'origin_x + (i * spacing)'
-pos_y = 'y'
-pos_z = 'origin_z + (j * spacing)'
-material = "diffuse"
-albedo = [1, 1, 1]
-# endif 
-# endfor
+  # for j in range(z_count)
+    # if on
+      [[box]]
+      material = "emit"
+      albedo = 'emit_albedo'
+      width = 'panel_width'
+      height = 'panel_height'
+      depth = 'panel_depth'
+      pos_x = 'origin_x + (i * spacing)'
+      pos_y = 'y'
+      pos_z = 'origin_z + (j * spacing)'
+    # endif
+    # if not on
+      [[box]]
+      reflect = 0.05
+      width = 'panel_width'
+      height = 'panel_height'
+      depth = 'panel_depth'
+      pos_x = 'origin_x + (i * spacing)'
+      pos_y = 'y'
+      pos_z = 'origin_z + (j * spacing)'
+      material = "diffuse"
+      albedo = [1, 1, 1]
+    # endif 
+  # endfor
 # endfor
 
 # if on
-# for li in range(light_x_count)
-# for lj in range(light_z_count)
-[[light]]
-pos = ['origin_x + light_offset + (center_i * single_x + li * stride_i) * spacing', 'y', 'origin_z + light_offset + (center_j * single_z + lj * stride_j) * spacing']
-color = 'light_color'
-brightness = 'light_brightness'
-range = 'light_range'
-# endfor
-# endfor
+  # for li in range(light_x_count)
+    # for lj in range(light_z_count)
+      [[light]]
+      pos = ['origin_x + light_offset + (center_i * single_x + li * stride_i) * spacing', 'y', 'origin_z + light_offset + (center_j * single_z + lj * stride_j) * spacing']
+      color = 'light_color'
+      brightness = 'light_brightness'
+      range = 'light_range'
+    # endfor
+  # endfor
 # endif

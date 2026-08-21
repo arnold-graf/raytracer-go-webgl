@@ -1,5 +1,5 @@
 [const]
-is_night = false
+is_night = true
 
 # if not is_night
 # sunset
