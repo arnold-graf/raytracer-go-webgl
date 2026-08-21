@@ -10,11 +10,11 @@ pos_z = 0
 width = 0.1
 height = 0.2
 transmit = 0.9
+two_pane = true
 
 # liquid inside the bottle
 [[cylinder]]
 material = "glass"
-thin = true
 ior = 1.5
 reflect = 0.2
 rough = 0.5
@@ -24,6 +24,7 @@ pos_y = 0.02
 pos_z = 0.02
 width = 0.06
 height = 0.1
+two_pane = true
 
 # neck
 [[cylinder]]
@@ -36,3 +37,4 @@ pos_y = 0.2
 pos_z = 0.025
 width = 0.05
 height = 0.1
+two_pane = true

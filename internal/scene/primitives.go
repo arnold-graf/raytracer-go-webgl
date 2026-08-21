@@ -28,8 +28,13 @@ type Surface struct {
 	// transparent. The glass tint comes from Albedo. Ignored by other materials.
 	Transmit float64
 	// Thin marks glass as a single sheet: one transmission through the slab
-	// (no separate enter/exit refraction). Ignored by non-glass materials.
+	// (no separate enter/exit refraction). Defaults to true for glass at load
+	// time; set thin = false in TOML for thick glass. Ignored by non-glass.
 	Thin bool
+	// TwoPane opts into the original thick-glass path: separate enter/exit trace
+	// hits at both faces (full dual-pane refraction). Default glass is thin with
+	// a ghost second-pane reflection instead. Ignored by non-glass materials.
+	TwoPane bool
 	// NoCollision opts the primitive out of player capsule tests (walking,
 	// ground height, footsteps). Ray tracing is unaffected. Defaults to false.
 	NoCollision bool

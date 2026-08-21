@@ -65,6 +65,9 @@ struct Params {
     // adaptive_aa: when set, primary rays at pixel edges are compared; mismatches
     // trigger a 2×2 supersample for that pixel.
     adaptive_aa: u32,
+    // thin_glass_ghost: when set, primary thin-glass hits spawn a second-pane
+    // reflection lobe (double-pane look). Toggled in-app with key 8.
+    thin_glass_ghost: u32,
 };
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).

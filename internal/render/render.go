@@ -38,6 +38,10 @@ type View struct {
 	// AdaptiveAA enables neighbor-detected edge supersampling (two-pass).
 	AdaptiveAA bool
 
+	// ThinGlassGhost enables the second-pane reflection lobe on default thin
+	// glass (double-pane look). Toggled in-app with key 8.
+	ThinGlassGhost bool
+
 	// MaxBounceDepth caps mirror/glass/water recursion in the tracer (default 2 when 0).
 	// Raised while the spyglass is up so rays can pass through its lenses and scene glass.
 	MaxBounceDepth uint32

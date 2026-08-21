@@ -13,7 +13,7 @@ import package::terrain::{terrain_normal, water_normal};
 import package::flame::{accumulate_flame, heat_shimmer_dir};
 import package::instance::{inst_local_point, inst_world_normal};
 import package::bvh::{nearest_hit};
-import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, shade_diffuse, terrain_albedo, tw_peak};
+import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, shade_diffuse, shade_ghost, terrain_albedo, tw_peak};
 
 fn tonemap_channel(x: f32) -> f32 {
     return clamp01((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14));
@@ -46,7 +46,10 @@ struct RaySeg {
     rd: vec3<f32>,
     w: vec3<f32>,
     depth: u32,
+    tag: u32,
 };
+
+const RAYSEG_GHOST: u32 = 1u;
 
 struct TraceResult {
     color: vec3<f32>,
@@ -58,6 +61,43 @@ struct TraceResult {
 // "reflective" so it terminates), giving at most 1 + 2 + 4 = 7 live segments.
 const MAX_SEGS: u32 = 8u;
 
+// Thin-glass double-pane ghost (key 8). Parallel panes share the same normal, so
+// a second reflect() at the same surface point only superimposes (brighter, no
+// shift). Real double-pane reads as the reflection field sampled from a
+// neighboring point on the glass — model that by shifting the incoming view
+// direction along the surface before reflecting.
+const THIN_GLASS_GHOST_WEIGHT: f32 = 0.42;
+const THIN_GLASS_PANE_GAP: f32 = 0.045;
+const THIN_GLASS_GHOST_ANG_MAX: f32 = 0.045;
+
+// Fixed horizontal axis on the glass (world-up × normal). Used to pin slide direction
+// so the ghost offset cannot spin around the normal when rd changes up close.
+fn thin_glass_ghost_axis(n: vec3<f32>) -> vec3<f32> {
+    var axis = cross(vec3<f32>(0.0, 1.0, 0.0), n);
+    if (length(axis) < 0.001) {
+        axis = cross(vec3<f32>(0.0, 0.0, 1.0), n);
+    }
+    return normalize(axis);
+}
+
+// Slide direction in the plane of incidence (n, rd), sign pinned to ghost_axis.
+fn thin_glass_ghost_slide(n: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
+    let axis = thin_glass_ghost_axis(n);
+    var slide = cross(cross(n, rd), n);
+    if (length(slide) < 0.001) {
+        return axis;
+    }
+    slide = normalize(slide);
+    if (dot(slide, axis) < 0.0) {
+        slide = -slide;
+    }
+    return slide;
+}
+
+fn thin_glass_ghost_surface_shift(cosi: f32) -> f32 {
+    return THIN_GLASS_PANE_GAP * (1.0 + 4.0 * (1.0 - cosi));
+}
+
 // ray_color evaluates the radiance along the camera ray by walking a small work
 // stack: sky on a miss, emissive passthrough, single-bounce mirror/metal, the
 // two-lobe Fresnel glass blend, diffuse direct lighting, and semi-reflective
@@ -65,7 +105,7 @@ const MAX_SEGS: u32 = 8u;
 fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
     var accum = vec3<f32>(0.0, 0.0, 0.0);
     var stack: array<RaySeg, 8>;
-    stack[0] = RaySeg(origin, dir0, vec3<f32>(1.0, 1.0, 1.0), 0u);
+    stack[0] = RaySeg(origin, dir0, vec3<f32>(1.0, 1.0, 1.0), 0u, 0u);
     var sp = 1u;
     var primary = Hit(0.0, 0xffffffffu, 0u, HIT_NO_INSTANCE);
     var got_primary = false;
@@ -79,6 +119,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         let ro = seg.ro;
         let tw = seg.w;
         let depth = seg.depth;
+        let seg_tag = seg.tag;
         var rd = seg.rd;
         var hit: Hit;
         if (depth == 0u) {
@@ -99,7 +140,9 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             primary = hit;
             got_primary = true;
         }
-        accum = accum + tw * accumulate_flame(ro, rd, hit.t, params.time);
+        if (seg_tag != RAYSEG_GHOST) {
+            accum = accum + tw * accumulate_flame(ro, rd, hit.t, params.time);
+        }
         if (hit.idx == 0xffffffffu) {
             prof_inc(PROF_SKY, 1u);
             if (depth == 0u) {
@@ -208,6 +251,12 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             continue;
         }
 
+        let ep = hp + n * SURFACE_EPSILON;
+        if (seg_tag == RAYSEG_GHOST) {
+            accum = accum + tw * shade_ghost(hp, alb, n, ep);
+            continue;
+        }
+
         let rough = surf.x;
         var ior = surf.y;
         if (ior == 0.0) {
@@ -217,7 +266,6 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         if (transmit == 0.0) {
             transmit = 0.9;
         }
-        let ep = hp + n * SURFACE_EPSILON;
         // reflective = depth < max_bounce_depth && mirror enabled.
         var max_depth = params.max_bounce_depth;
         if (max_depth == 0u) {
@@ -233,7 +281,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         if ((mat == MAT_MIRROR || mat == MAT_METAL) && reflective) {
             prof_inc(PROF_MIRROR_BOUNCES, 1u);
             if (twm_alb * 0.96 > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
-                stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * alb * 0.96, depth + 1u);
+                stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * alb * 0.96, depth + 1u, 0u);
                 sp = sp + 1u;
             }
             continue;
@@ -274,7 +322,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                     if (k_out >= 0.0) {
                         let cost_out = sqrt(k_out);
                         let rd_out = jitter_dir(normalize(rd_in * eta_out + exit_n * (eta_out * cosi_out - cost_out)), exit_hp, rough * 0.35);
-                        stack[sp] = RaySeg(exit_hp + exit_n * SURFACE_EPSILON, rd_out, tw * alb * (1.0 - reflectance), depth + 1u);
+                        stack[sp] = RaySeg(exit_hp + exit_n * SURFACE_EPSILON, rd_out, tw * alb * (1.0 - reflectance), depth + 1u, 0u);
                         sp = sp + 1u;
                     }
                 }
@@ -284,7 +332,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                 if (!tir && w_refl < 0.98 && w_trans > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
                     let cost = sqrt(k);
                     let rr = jitter_dir(normalize(rd * eta + n * (eta * cosi - cost)), hp, rough * 0.35);
-                    stack[sp] = RaySeg(hp - n * SURFACE_EPSILON, rr, tw * alb * (1.0 - reflectance), depth + 1u);
+                    stack[sp] = RaySeg(hp - n * SURFACE_EPSILON, rr, tw * alb * (1.0 - reflectance), depth + 1u, 0u);
                     sp = sp + 1u;
                 }
             }
@@ -297,8 +345,25 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                 refl_min = 0.2;
             }
             if (w_refl > refl_min && twm * w_refl > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
-                stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * w_refl, depth + 1u);
+                let rd_refl = jitter_dir(reflect(rd, n), hp, rough);
+                stack[sp] = RaySeg(ep, rd_refl, tw * w_refl, depth + 1u, 0u);
                 sp = sp + 1u;
+
+                if (thin && depth == 0u && params.thin_glass_ghost != 0u && sp < MAX_SEGS) {
+                    let slide = thin_glass_ghost_slide(n, rd);
+                    let surf_shift = thin_glass_ghost_surface_shift(cosi);
+                    let ang = min(surf_shift / max(hit.t, 0.35), THIN_GLASS_GHOST_ANG_MAX);
+                    let rd_pane2 = normalize(rd + slide * ang);
+                    let ghost_w = w_refl * THIN_GLASS_GHOST_WEIGHT;
+                    var ghost_rd = reflect(rd_pane2, n);
+                    if (rough > 0.001) {
+                        ghost_rd = jitter_dir(ghost_rd, hp, rough * 1.5);
+                    }
+                    if (ghost_w > refl_min && twm * ghost_w > SEG_MIN_CONTRIB) {
+                        stack[sp] = RaySeg(ep, ghost_rd, tw * ghost_w, max_depth, RAYSEG_GHOST);
+                        sp = sp + 1u;
+                    }
+                }
             }
             continue;
         }
@@ -310,7 +375,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         if (refl > 0.0 && reflective && twm * refl > SEG_MIN_CONTRIB && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) && sp < MAX_SEGS) {
             prof_inc(PROF_DIFFUSE_REFL, 1u);
             accum = accum + tw * lit * (1.0 - refl);
-            stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * refl, depth + 1u);
+            stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * refl, depth + 1u, 0u);
             sp = sp + 1u;
             continue;
         }

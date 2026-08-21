@@ -70,24 +70,24 @@ albedo = [5, 5, 5]
 # glass wall (west)
 [[box]]
 material = "glass"
-ior = 1.1
-transmit = 0.7
-albedo = [1, 1, 1]
+ior = 1.2
+transmit = 0.55
+albedo = [0.7, 0.7, 0.7]
 pos_x = 0
 pos_y = 0
 pos_z = 0.1
 width = 0.1
-rough = 0.001
+rough = 0.002
 height = 'height'
 depth = 'length'
 
 # glass wall (east)
 [[box]]
 material = "glass"
-transmit = 0.6
+transmit = 0.5
 ior = 1.1
-rough = 0.001
-albedo = [1, 1, 1]
+rough = 0.002
+albedo = [0.7,0.7, 0.7]
 pos_x = 'width - 0.1'
 pos_y = 0
 pos_z = 0.1

@@ -93,10 +93,10 @@ const primFlagTransformed uint32 = 1
 const primFlagGlassThin uint32 = 2
 
 func surfaceFlags(s scene.Surface) uint32 {
-	if s.Mat == scene.MatGlass && s.Thin {
-		return primFlagGlassThin
+	if s.Mat != scene.MatGlass || !s.Thin {
+		return 0
 	}
-	return 0
+	return primFlagGlassThin
 }
 
 // maxHoles caps the shared box-hole CSG buffer.

@@ -159,8 +159,9 @@ level = 1
 ripple = 0.05
 ripple_animation_speed = 0.6     # drift the waves over time (wind)
 ripple_direction = [1.0, 0.4]    # wind drift direction in x,z (optional)
-material = "mirror"
-albedo = [0.55, 0.70, 0.85]
+material = "glass"
+transmit = 0.5
+albedo = [0.35, 0.40, 0.55]
 
 # ------------------------------------------------------------------ trees ----
 # Tall pines on the slope; each tree include in the cluster snaps to ground.

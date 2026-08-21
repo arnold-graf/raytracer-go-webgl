@@ -55,6 +55,7 @@ type Game struct {
 	basePlayerCfg camera.Config
 	shadow        bool
 	mirror        bool
+	thinGlassGhost bool
 	ao            bool
 	adaptiveAA    bool
 	// colorQuant: 0 = 8-bit dither, 1 = 15-bit (default), 2 = crush (24 levels/ch). Key 5 cycles.
@@ -169,8 +170,9 @@ func New(rw, rh int, sc *scene.Scene, basePlayerCfg camera.Config, scenePath, pl
 		cam:           camera.New(),
 		basePlayerCfg: basePlayerCfg,
 		shadow:        true,
-		mirror:        true,
-		ao:            true,
+		mirror:         true,
+		thinGlassGhost: true,
+		ao:             true,
 		adaptiveAA:    true,
 		colorQuant:    1,
 		buf:           make([]byte, rw*rh*4),
@@ -294,6 +296,7 @@ func (g *Game) view() *render.View {
 		Time:           g.elapsed,
 		Shadow:         g.shadow,
 		Mirror:         g.mirror,
+		ThinGlassGhost: g.thinGlassGhost,
 		AO:             g.ao,
 		AOData:         aoData,
 		AOok:           aoOK,
@@ -870,6 +873,9 @@ func (g *Game) handleToggles() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit7) {
 		g.adaptiveAA = !g.adaptiveAA
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyDigit8) {
+		g.thinGlassGhost = !g.thinGlassGhost
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit0) {
 		g.hudHidden = !g.hudHidden
 		if g.hudHidden {
@@ -1010,8 +1016,8 @@ func (g *Game) backendName() string {
 
 func (g *Game) statusLine() string {
 	if g.locked {
-		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s npc[6]:%s AA[7]:%s px[-/+]:%d fps[H]:%s  HUD[0]  ESC release",
-			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), onOff(g.adaptiveAA), g.pixSize, capLabel(g.fpsCap))
+		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s npc[6]:%s AA[7]:%s ghost[8]:%s px[-/+]:%d fps[H]:%s  HUD[0]  ESC release",
+			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), onOff(g.adaptiveAA), onOff(g.thinGlassGhost), g.pixSize, capLabel(g.fpsCap))
 	}
 	return "click to capture mouse"
 }

@@ -60,7 +60,6 @@ height = 'height'
 depth = 'wall_thickness'
 transmit = 'glass_transmit'
 material = "glass"
-thin = true
 albedo = [0.9, 0.9, 0.9]
 ior = 1.05
 rough = 0.005
@@ -107,7 +106,6 @@ pos_x = 'width - wall_thickness'
 pos_y = 0
 pos_z = 0
 width = 'wall_thickness'
-thin = true
 height = 'height'
 depth = 'depth'
 ior = 1.008
@@ -132,7 +130,6 @@ height = 'height'
 depth = 1
 ior = 1.05
 material = "glass"
-thin = true
 albedo = [0.9, 0.9, 0.9]
 
 # south wall (grid)

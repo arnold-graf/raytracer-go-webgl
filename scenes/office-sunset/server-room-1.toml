@@ -47,7 +47,6 @@ props = { width = 20.0, height = 8.0, depth = 0.2, unit_size = 1, albedo = [1, 1
 # glass wall (west)
 [[box]]
 material = "glass"
-thin = true
 ior = 1.1
 rough = 0.01
 transmit = 0.5
@@ -87,7 +86,7 @@ depth = 0.2
 [[box]]
 material = "glass"
 rough = 0.005
-albedo = [0.7, 0.7, 0.7]
+albedo = [0.5, 0.5, 0.5]
 pos_x = 40
 pos_y = 0.0
 pos_z = 0.0

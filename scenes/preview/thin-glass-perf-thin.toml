@@ -42,7 +42,6 @@ range = 15.0
 
 [[box]]
 material = "glass"
-thin = true
 ior = 1.5
 transmit = 0.9
 reflect = 0.1
@@ -57,7 +56,6 @@ depth = 0.05
 
 [[box]]
 material = "glass"
-thin = true
 ior = 1.5
 transmit = 0.9
 reflect = 0.1
@@ -72,7 +70,6 @@ depth = 0.05
 
 [[box]]
 material = "glass"
-thin = true
 ior = 1.5
 transmit = 0.9
 reflect = 0.1
@@ -87,7 +84,6 @@ depth = 0.05
 
 [[box]]
 material = "glass"
-thin = true
 ior = 1.5
 transmit = 0.9
 reflect = 0.1

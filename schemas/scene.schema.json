@@ -352,7 +352,11 @@
         },
         "thin": {
           "type": "boolean",
-          "description": "When true on glass, treat the surface as a single sheet: Fresnel reflection plus a one-hop enter/exit refraction through the slab (ior controls bend strength), without a separate back-face trace hit. Ignored for non-glass materials."
+          "description": "On glass, treat the surface as a single sheet (default true): Fresnel reflection plus a one-hop enter/exit refraction through the slab (ior controls bend strength), without a separate back-face trace hit. Set false for thick glass with a full back-face trace. Ignored for non-glass materials."
+        },
+        "two_pane": {
+          "type": "boolean",
+          "description": "When true on glass, use the original thick-glass path: separate enter/exit trace hits at both faces (full dual-pane refraction). Default glass is thin with a ghost second-pane reflection instead. Defaults to false. Ignored for non-glass materials."
         },
         "collision": {
           "type": "boolean",

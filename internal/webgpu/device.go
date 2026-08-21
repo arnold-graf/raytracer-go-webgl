@@ -666,6 +666,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 	timeSec := 0.0
 	shadows := false
 	mirror := false
+	thinGlassGhost := false
 	aoEnabled := false
 	sky := 0
 	var (
@@ -692,6 +693,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		timeSec = v.Time
 		shadows = v.Shadow
 		mirror = v.Mirror
+		thinGlassGhost = v.ThinGlassGhost
 		aoEnabled = v.AO
 		sky = v.Scene.Env.Sky
 		ambientSky, ambientGround = packSceneAmbient(v.Scene.Env)
@@ -718,7 +720,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		terrainMips: c.terrainMips,
 		waters: c.waters,
 		campfireParams: c.campfireParams, holes: c.holes, boxFaceTex: c.boxFaceTex, ao: c.ao, aoOK: c.aoOK && aoEnabled,
-		shadows: shadows, mirror: mirror, timeSec: timeSec, sky: sky,
+		shadows: shadows, mirror: mirror, thinGlassGhost: thinGlassGhost, timeSec: timeSec, sky: sky,
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
 		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
 		ambientSky: ambientSky, ambientGround: ambientGround,
@@ -868,6 +870,7 @@ type renderParams struct {
 	aoOK             bool
 	shadows          bool
 	mirror           bool
+	thinGlassGhost   bool
 	timeSec          float64
 	sky              int
 	// Visible celestial body (sun/moon disc) drawn in the sky. bodyDir points
@@ -1352,6 +1355,9 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	putU32(out[332:336], 0) // flame_particle_count (legacy; volumetric flames use campfire params)
 	if p.adaptiveAA {
 		putU32(out[336:340], 1)
+	}
+	if p.thinGlassGhost {
+		putU32(out[340:344], 1)
 	}
 	return out
 }

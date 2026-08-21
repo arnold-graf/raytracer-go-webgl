@@ -451,6 +451,16 @@ fn scene_ambient(n: vec3<f32>) -> vec3<f32> {
     return mix(params.ambient_ground.xyz, params.ambient_sky.xyz, t);
 }
 
+fn shade_ghost(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> vec3<f32> {
+    // Faint second-pane lobe: ambient + direct light, no shadow/AO/campfire rays.
+    let tw_skip = vec3<f32>(SHADOW_SKIP_EPS * 0.5);
+    var lit = alb * scene_ambient(n);
+    for (var i = 0u; i < params.light_count; i = i + 1u) {
+        lit = add_point_light(lit, hp, alb, n, ep, lights[i], tw_skip);
+    }
+    return lit;
+}
+
 fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>) -> vec3<f32> {
     var lit = alb * scene_ambient(n);
     for (var i = 0u; i < params.light_count; i = i + 1u) {

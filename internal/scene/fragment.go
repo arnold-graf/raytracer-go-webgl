@@ -81,7 +81,7 @@ func FragmentTouchLevel(dst *Scene, span ReactiveSpan, local *Scene) (needGen, n
 func surfaceShadingEqual(a, b Surface) bool {
 	return a.Mat == b.Mat && a.Albedo == b.Albedo && a.Albedo2 == b.Albedo2 &&
 		a.Rough == b.Rough && a.IOR == b.IOR && a.Tex == b.Tex &&
-		a.Reflect == b.Reflect && a.Transmit == b.Transmit && a.Thin == b.Thin &&
+		a.Reflect == b.Reflect && a.Transmit == b.Transmit && a.Thin == b.Thin && a.TwoPane == b.TwoPane &&
 		a.NoCollision == b.NoCollision
 }
 

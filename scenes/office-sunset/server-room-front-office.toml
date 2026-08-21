@@ -17,7 +17,6 @@ albedo = [1,1,1]
 [[box]]
 material = "glass"
 rough = 0.01
-thin = true
 transmit = 0.5
 albedo = [1, 1, 1]
 pos_x = 0
@@ -82,7 +81,6 @@ depth = 20
 # east glass wall
 [[box]]
 material = "glass"
-thin = true
 ior = 1.2
 rough = 0.01
 albedo = [1, 1, 1]

@@ -89,13 +89,14 @@ func main() {
 
 	aoData, aoOK := probe.New(sc).BakeAO()
 	view := &render.View{
-		Scene:  sc,
-		Time:   *atTime,
-		Shadow: true,
-		Mirror: true,
-		AO:     true,
-		AOData: aoData,
-		AOok:   aoOK,
+		Scene:          sc,
+		Time:           *atTime,
+		Shadow:         true,
+		Mirror:         true,
+		ThinGlassGhost: true,
+		AO:             true,
+		AOData:         aoData,
+		AOok:           aoOK,
 	}
 
 	buf := make([]byte, (*w)*(*h)*4)

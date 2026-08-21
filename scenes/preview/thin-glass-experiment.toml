@@ -1,7 +1,7 @@
 # Thin vs thick glass — visual comparison.
 #
-# Left pane (thin = true): Fresnel + one-hop refraction (ior controls bend).
-# Right pane (thick): same Fresnel + separate enter/exit trace hits.
+# Left pane (default thin glass): Fresnel + one-hop refraction + ghost second pane.
+# Right pane (two_pane = true): original thick glass with separate enter/exit hits.
 #
 # Preview:
 #   go run ./cmd/preview -scene scenes/preview/thin-glass-experiment.toml -o tmp/thin-glass
@@ -157,7 +157,6 @@ range = 12.0
 # Thin glass (left) — Fresnel only, no bending.
 [[box]]
 material = "glass"
-thin = true
 ior = 1.5
 transmit = 0.92
 reflect = 0.08
@@ -173,6 +172,7 @@ depth = 2.2
 # Thick glass (right) — Fresnel + refraction at both faces.
 [[box]]
 material = "glass"
+two_pane = true
 ior = 1.5
 transmit = 0.92
 reflect = 0.08
