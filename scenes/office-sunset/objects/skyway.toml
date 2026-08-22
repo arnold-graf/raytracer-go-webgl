@@ -28,19 +28,20 @@ spacing = 5
 column_count = 'floor((length - 1) / spacing) + 1'
 
 # columns (pairs along the span)
-
 # for i in range(column_count)
-[[include]]
-file = "../../objects/marble-column.toml"
-transform_origin = [0, 0, 0]
-at = [0.5, 0, '1 + (i * spacing)']
-props = { height = 4.5, width = 0.7, albedo = [3,3,3], reflect = 0.2 }
+  [[include]]
+  file = "../../objects/marble-column.toml"
+  transform_origin = [0, 0, 0]
+  at = [0.5, 0, '1 + (i * spacing)']
+  instance = true
+  props = { height = 4.5, width = 0.7, albedo = [3,3,3], reflect = 0.2 }
 
-[[include]]
-file = "../../objects/marble-column.toml"
-transform_origin = [0, 0, 0]
-at = ['width - 1.2', 0, '1 + (i * spacing)']
-props = { height = 4.5, width = 0.7, albedo = [3,3,3], reflect = 0.2 }
+  [[include]]
+  file = "../../objects/marble-column.toml"
+  transform_origin = [0, 0, 0]
+  instance = true
+  at = ['width - 1.2', 0, '1 + (i * spacing)']
+  props = { height = 4.5, width = 0.7, albedo = [3,3,3], reflect = 0.2 }
 # endfor
 
 # floor

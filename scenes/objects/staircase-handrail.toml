@@ -3,10 +3,11 @@ steps = 8
 run = 0.5
 rise = 0.375
 primitive = "cylinder" # "box" or "cylinder"
-albedo = [1,1,1]
+albedo = [0.5,0.5,0.5]
 material = "diffuse"
 texture = "none"
-reflect = 0
+rough = 0
+reflect = 0.3
 
 [const]
 poles = 'floor(steps)'
@@ -19,7 +20,9 @@ rail_width = 0.1
 # for i in range(poles)
 # if primitive is "cylinder"
 [[cylinder]]
-height = 'pole_height'
+instance = true
+rough = 'rough'
+height = 'pole_height - 0.2'
 width = 0.1
 pos_x = 'i * run + run / 2'
 pos_y = '(i + 1) * rise + rise'
@@ -28,9 +31,23 @@ albedo = 'albedo'
 material = 'material'
 reflect = 'reflect'
 texture = 'texture'
+[[cylinder]]
+instance = true
+rough = 'rough'
+height = '0.2'
+width = 0.03
+pos_x = 'i * run + run / 2 + 0.03'
+pos_y = '(i + 1) * rise + rise + pole_height - 0.2'
+pos_z = 0.095
+albedo = 'albedo'
+material = 'material'
+reflect = 'reflect'
+texture = 'texture'
 # endif
 # if primitive is "box"
 [[box]]
+instance = true
+rough = 'rough'
 height = 'pole_height'
 width = 0.1
 depth = 0.1
@@ -45,6 +62,22 @@ texture = 'texture'
 # endfor
 
 # if primitive is "cylinder"
+# bottom sphere
+[[sphere]]
+center = [0.1, 'rise * 2 + pole_height - 0.1', 0.1]
+radius = 0.1
+material = 'material'
+reflect = 'reflect'
+texture = 'texture'
+albedo = 'albedo'
+# top sphere
+[[sphere]]
+center = ['poles * run - 0.1', '(steps + 1) * rise + pole_height + 0.1', 0.1]
+radius = 0.1
+material = 'material'
+reflect = 'reflect'
+texture = 'texture'
+albedo = 'albedo'
 [[cylinder]]
 width = 'rail_width'
 height = 'rail_len + rail_overhang'
@@ -54,8 +87,9 @@ pos_z = 0.05
 rotate_z = 'pitch - 90'
 albedo = 'albedo'
 material = 'material'
-reflect = 'reflect'
-texture = 'texture'
+reflect = 0.05
+rough = 0.05
+texture = "wood"
 # endif
 
 # if primitive is "box"
