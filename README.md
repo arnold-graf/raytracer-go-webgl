@@ -1,5 +1,7 @@
 # Frontier Reality
 
+![office sunset scene](screenshot.png)
+
 A small realtime 3D engine built around ray tracing. It draws the world with a WebGPU shader that traces rays from the camera, lights surfaces with point lights and shadows, and supports reflections and glass. The look is deliberately retro — simple shapes, low resolution, procedural textures — but the lighting is physically motivated enough that plain geometry reads as a place rather than a diagram.
 
 **This project is work in progress and experimental.** APIs, scene formats, and performance will change. Expect rough edges.
