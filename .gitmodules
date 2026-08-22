@@ -1,0 +1,3 @@
+[submodule "scenes/office-sunset"]
+	path = scenes/office-sunset
+	url = https://github.com/arnold-graf/metamorphosis-3d.git

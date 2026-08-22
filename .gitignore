@@ -2,5 +2,16 @@
 .gopath
 .toolchain
 .vscode
-bin
-tmp
+
+# build outputs
+bin/
+*.exe
+
+# temporary / generated files
+tmp/
+*.prof
+*.rgba
+*.test
+
+# OS
+.DS_Store
