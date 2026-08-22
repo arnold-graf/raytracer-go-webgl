@@ -86,4 +86,7 @@ Audio uses a separate CPU probe that traces rays through the same scene geometry
 
 ## License
 
-GPL-3.0. See `LICENSE`.
+Apache License 2.0. See `LICENSE` and `NOTICE`.
+
+Contributors must sign the [Contributor License Agreement](CLA.md) before their
+pull requests can be merged. See [CONTRIBUTING.md](CONTRIBUTING.md).

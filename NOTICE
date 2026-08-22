@@ -1,0 +1,7 @@
+Ray Tracer
+Copyright 2026 Arnold Graf
+
+This product includes software developed as part of the Ray Tracer project.
+
+Third-party components in this repository carry their own licenses. See
+`third_party/` for bundled dependencies (for example, Jolt Physics).
