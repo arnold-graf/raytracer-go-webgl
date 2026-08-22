@@ -1,4 +1,4 @@
-# Frontier Reality
+# Raytracer-Go-WebGL
 
 ![office sunset scene](screenshot.png)
 
