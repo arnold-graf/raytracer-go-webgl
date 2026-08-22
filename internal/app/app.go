@@ -249,6 +249,9 @@ func (g *Game) setScene(sc *scene.Scene) {
 	skipStateLight := func(i int) bool { return g.state != nil && g.state.IsStateLight(i) }
 	g.interactLights.Instantiate(sc, skipStateLight)
 	sc.SetDoorGhost(func(i int) bool {
+		if g.jolt != nil {
+			return false
+		}
 		if g.doors != nil && g.doors.GhostBox(i) {
 			return true
 		}
@@ -594,6 +597,9 @@ func (g *Game) Update() error {
 			feetY := g.cam.Pos.Y - g.cam.EyeHeight()
 			headY := g.cam.Pos.Y + 0.15
 			g.doors.Update(g.sc, g.cam.Pos, feetY, headY, 1.0/60.0)
+		}
+		if g.jolt != nil && g.doors != nil {
+			g.jolt.SyncKinematicDoors(g.sc, g.doors)
 		}
 		if g.documents != nil {
 			g.documents.Update(g.sc, g.cam, 1.0/60.0)

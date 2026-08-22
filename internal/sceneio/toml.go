@@ -576,6 +576,7 @@ type includeDTO struct {
 	FollowTerrain   bool                `toml:"follow_terrain"`
 	Instance        bool                `toml:"instance"`
 	Props           map[string]any      `toml:"props"`
+	Physics         *physicsDTO         `toml:"physics"`
 }
 
 
@@ -628,6 +629,7 @@ type sceneDTO struct {
 	Door             []doorDTO             `toml:"door"`
 	Document         []documentDTO         `toml:"document"`
 	Screen           []screenDTO           `toml:"screen"`
+	Physics          *physicsDTO           `toml:"physics"`
 }
 
 // tintOrWhite returns v as a color, defaulting an omitted (all-zero) vector to
@@ -1028,6 +1030,13 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			return nil, fmt.Errorf("npc[%d]: missing rig", i)
 		}
 	}
+	if dto.Physics != nil {
+		spec, err := dto.Physics.build()
+		if err != nil {
+			return nil, fmt.Errorf("physics: %w", err)
+		}
+		s.FilePhysics = spec
+	}
 
 	return s, nil
 }
@@ -1062,7 +1071,8 @@ func mergeInclude(dst *scene.Scene, parentPath string, inc includeDTO, parentDir
 	}
 	follow := inc.FollowTerrain
 
-	if inc.Instance {
+	// Instanced includes share BLAS templates; physics needs real primitives in dst.
+	if inc.Instance && inc.Physics == nil {
 		if err := registerLeafInstance(dst, inc, parentDir, seen, deps); err != nil {
 			return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
 		}
@@ -1085,11 +1095,15 @@ func mergeInclude(dst *scene.Scene, parentPath string, inc includeDTO, parentDir
 	before := scene.CountPrimitives(dst)
 	iaBefore := len(dst.Interactables)
 	mergeScene(dst, sub, xf)
+	mergeScenePhysics(dst, sub, before)
 	after := scene.CountPrimitives(dst)
 	iaAfter := len(dst.Interactables)
 	mergeReactive(dst, sub, parentPath, index, incPath, inc.Props, before, after, iaBefore, iaAfter, xf)
 	if err := mergeBoundInclude(dst, parentPath, incPath, index, inc.Props, before, after, iaBefore, iaAfter, xf); err != nil {
 		return fmt.Errorf("include[%d] %q: %w", index, inc.File, err)
+	}
+	if err := mergeIncludePhysics(dst, sub, inc, incPath, index, before, after); err != nil {
+		return fmt.Errorf("include[%d] %q physics: %w", index, inc.File, err)
 	}
 	mergeInstancingCatalog(dst, sub, xf)
 	if followPlacements == nil {

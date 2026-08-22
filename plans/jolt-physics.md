@@ -1,6 +1,6 @@
 # Jolt physics integration plan
 
-**Status:** design / post-experiment  
+**Status:** phase 2–3 implemented (doors + dynamic compounds/pieces); server-room table demo  
 **Goal:** One authoritative rigid-body simulation for the whole level — static
 architecture, dynamic props, kinematic doors, and (later) buoyancy — with
 correct rendering, collision, and performance at office-sunset scale.
@@ -21,7 +21,7 @@ removed because:
 | Walk-through / no wall collision | Player on Jolt `CharacterVirtual`; props on a separate integrator with analytic `scene.Blocked` — two worlds |
 | Props vanished off skyway | Ground height queried outside floor footprint snapped to y=0 |
 | GPU props frozen or duplicated | Instanced scenes only partial-upload `DynamicBodies`; props not registered correctly |
-| Jolt OOM (`TempAllocator` ~10 MB) | Thousands of per-primitive dynamic Jolt bodies on the moving layer |
+| Jolt OOM (`TempAllocator` ~10 MB) | Thousands of per-primitive dynamic Jolt bodies on the moving layer **and** a 10 MB global scratch pool exhausted during large-scene mesh/compound builds |
 | Edge/corner resting, endless spin | Euler angles + fake uprighting torque without real contact manifolds |
 | Cylinder interpenetration | Sphere proxies for non-spherical shapes |
 | Kick/pull bugs | Ad-hoc impulses not tied to player velocity or contact normals |
@@ -33,21 +33,120 @@ simulated bodies.
 
 ---
 
-## Current state (phase 1 — shipped)
+## Current state (phases 1–3 — shipped)
 
-Package: `internal/joltphys` via [jolt-go](https://github.com/bbitechnologies/jolt-go).
+Package: `internal/joltphys` via vendored [`third_party/jolt-go`](../../third_party/jolt-go).
 
 - One `PhysicsSystem` per loaded level.
 - **Static** colliders from scene boxes (incl. hole CSG fragments), cylinders,
   terrain heightfields.
+- **Dynamic compounds / pieces** from `[physics]` / `[include.physics]` metadata
+  (`mode = compound | dynamic | pieces | kinematic`).
+- **Kinematic doors** — door panels are Jolt kinematic bodies; `door.Manager`
+  drives pose; `SetSensor` toggles solid vs ghost when open.
 - **Player:** `CharacterVirtual` capsule when `jolt_physics = true` in
   `player.toml` / scene `[player.movement]`.
+- Pose **write-back** each step: Jolt body → primitive `Xform` → GPU partial
+  upload via existing `DynamicBodies` path.
 - `camera.World` served by Jolt raycasts + overlap; `scene.Scene` kept as
   fallback for gaps.
 - CPU analytic collision remains default (`jolt_physics = false`).
 
-Not simulated in Jolt yet: doors, NPCs, render-only dynamic poses, kickable
-props, water.
+**Demo scenes**
+
+| Scene | What it exercises |
+|-------|-------------------|
+| `scenes/preview/physics-desk.toml` | Compound desk + dynamic crate |
+| `scenes/preview/server-room-table.toml` | Table + bottle + ashtray + cigarette |
+| `scenes/office-sunset/server-room-1.toml` | Two desks + loose props (see below) |
+
+**Server-room table physics** (`server-room-1.toml`):
+
+- **Office table** (NW corner) — compound body; monitor + keyboard are separate
+  dynamic bodies on top.
+- **Simple table** (right of cube) — compound body; bottle, ashtray, and cigarette
+  are separate dynamics (cigarette authored beside the tray so it can spill).
+- **Server-room desk** (left of cube, via `objects/server-room-desk.toml`) —
+  same pattern: compound table, dynamic laptop, compound ashtray, separate
+  cigarette.
+
+Not simulated in Jolt yet: NPC ragdoll, breakable welds, kick raycast impulse,
+water.
+
+---
+
+## How to try it
+
+1. **Enable Jolt** — `player.toml` already sets `jolt_physics = true`. Per-scene
+   override: `[player.movement] jolt_physics = true` in the scene TOML.
+
+2. **Quick preview** (no window, orbit screenshots):
+
+   ```bash
+   go run ./cmd/preview -scene scenes/preview/server-room-table.toml -o tmp/server-room-table
+   go run ./cmd/preview -scene scenes/preview/physics-desk.toml -o tmp/physics-desk
+   ```
+
+3. **Play the server room** (loads at y≈200 via `index.toml`):
+
+   ```bash
+   go run . --scene scenes/office-sunset/index.toml
+   ```
+
+   Spawn is on the server-room floor. Walk to the **table right of the glass
+   cube** (roughly x≈14, z≈7 at floor y≈200) or the **desk left of the cube**
+   (x≈8, z≈9).
+
+4. **Interact** — walk into a table edge while holding movement keys. The capsule
+   applies contact impulses to dynamic bodies (see `characterMaxStrength` in
+   `internal/joltphys/push.go`). Lightweight props should slide or fall when the
+   table tilts. There is **no kick key yet** (phase 4).
+
+5. **Author new props** — add `[physics]` to an object file or
+   `[include.physics]` on a `[[include]]` block (see Scene authoring below).
+   Mass is in **kilograms**. Omitted mass → volume × `600 kg/m³` default density.
+
+6. **Tests**
+
+   ```bash
+   go test ./internal/joltphys/ -count=1
+   go test ./internal/sceneio/ -run Physics -count=1
+   ```
+
+---
+
+## Implementation notes (bugs fixed during rollout)
+
+### Thin box shapes (door panels, bottle depth, ashtray walls)
+
+Jolt’s `BoxShapeSettings` defaults `convex_radius` to `cDefaultConvexRadius`
+(**0.05 m**). Any half-extent below 0.05 m fails shape creation. The original
+wrapper called `AddRef` on the failed result → **SIGSEGV** (fault address looked
+like `" invalid"` string garbage).
+
+**Fix:** `third_party/jolt-go/jolt/wrapper/shape.cpp` passes `convex_radius =
+0.0f` for boxes and convex hulls; all shape creators check `IsValid()` and
+return `nullptr` on failure. Go bindings treat `nil` shape as skip.
+
+### Temp allocator size
+
+Bulk collider construction for office-sunset (terrain meshes + compounds) can
+request **>10 MB** scratch in a single Jolt operation. The global
+`TempAllocatorImpl` was raised to **512 MB** in `wrapper/core.cpp`.
+
+### Dynamic spawn placement
+
+Compound/piece bodies spawn at the **centroid** of their primitive span, with
+child shapes in local space — matching static collider conventions. Thin floor
+slabs still use `minColliderHalfY = 0.03` in Go; with zero convex radius, Jolt
+accepts 0.03 m half-extents.
+
+### Pushing furniture (CharacterVirtual `MaxStrength`)
+
+Jolt's default `MaxStrength` is **100 N**. A 16 kg table on a floor with μ≈0.7
+needs ~130 N to break static friction at our gravity scale, so walk-into did
+nothing. `spawnPlayer` now sets `MaxStrength = 2500` and `applyWalkPush` adds
+contact impulses each frame while you hold movement against a prop.
 
 ---
 
@@ -121,8 +220,8 @@ Authors need to express **how** an included object participates in simulation:
 ```toml
 # objects/desk-setup.toml
 [physics]
-mode = "compound"        # "static" | "compound" | "pieces" | "kinematic"
-mass = 35.0              # optional override (auto from volume × density)
+mode = "compound"        # "static" | "compound" | "pieces" | "kinematic" | "dynamic"
+mass = 35.0              # optional override in kilograms (kg); auto from volume × density if omitted
 sleep = true
 
 # All primitives in this file share one rigid body unless overridden:
@@ -140,7 +239,7 @@ file = "objects/monitor.toml"
 at = [0.1, 0.76, 0.0]
 [include.physics]
 mode = "dynamic"
-mass = 4.0
+mass = 4.0               # kg
 friction = 0.6
 ```
 
@@ -179,21 +278,22 @@ hit body.
 
 ---
 
-## `internal/joltphys` package layout (proposed)
+## `internal/joltphys` package layout (implemented)
 
 ```
 joltphys/
-  runtime.go          Init/Shutdown (existing)
+  runtime.go          Init/Shutdown
   world.go            World lifecycle, CharacterVirtual, camera.World
-  build_static.go     Static colliders from scene (existing build_scene)
+  build_scene.go      Static colliders from scene
   build_dynamic.go    Spawn compound/piece bodies from physics metadata
-  body_map.go         BodyID ↔ scene primitive indices (DynamicBody ranges)
-  layers.go           ObjectLayer / BroadPhaseLayer tables
-  constraints.go      Welds, hinges (doors), breakable listeners
-  step.go             Update, pose write-back, sleep stats
-  queries.go          Raycast, cast shape, get body at hit (for interact)
-  buoyancy.go         (phase 5) fluid volumes, buoyancy impl
+  doors.go            Kinematic door bodies + SyncKinematicDoors
+  body_map.go         BodyID ↔ scene primitive bindings + pose write-back
+  pose.go             Quaternion ↔ scene.Transform helpers
+  step.go             SyncDynamicPoses after physics step
 ```
+
+Planned but not yet present: `layers.go`, `constraints.go` (welds), `queries.go`
+(kick raycast), `buoyancy.go`.
 
 ### Body ↔ scene mapping
 
@@ -244,8 +344,8 @@ parallel analytic resolver.
 
 ### Constraints from the experiment
 
-- Jolt global temp allocator is **~10 MB** — budget dynamic body count and
-  collision pairs aggressively.
+- Jolt global temp allocator is **512 MB** (was 10 MB) — still budget dynamic
+  body count and collision pairs for awake objects.
 - Office-sunset has **instanced** static geometry; static Jolt mesh should mirror
   **collision-only** aggregates, not one body per decorative prim.
 - Target: **&lt; 200 awake** dynamic bodies typical; thousands sleeping.
@@ -348,23 +448,24 @@ swim_allowed = true
 | Phase | Deliverable | Success criteria |
 |-------|-------------|------------------|
 | **1** ✅ | Static + player `CharacterVirtual` | office-sunset walkable, no regressions |
-| **2** | Kinematic doors in Jolt | doors block player; no ghost hacks |
-| **3** | Dynamic compounds + pieces | desk tip test; props sleep on floor |
-| **4** | Player push/kick via impulses | no second integrator; stable at rest |
+| **2** ✅ | Kinematic doors in Jolt | doors block player; no ghost hacks when `jolt_physics` |
+| **3** ✅ | Dynamic compounds + pieces | desk + crate preview; server-room tables |
+| **4** | Player push/kick via impulses | walk-push works; kick raycast not wired |
 | **5** | Shape expansion (cone, hull) | all common primitives or documented gaps |
 | **6** | Water buoyancy + swimming | submerged box floats; player swims |
 | **7** | Breakable welds / constraints | monitor slides off tilted desk |
 
-### Phase 3 task breakdown (next implementation slice)
+### Phase 3 task breakdown (implemented)
 
-- [ ] Schema: `[physics]` on includes + optional per-primitive overrides
-- [ ] `build_dynamic.go`: compound builder from included subtree
-- [ ] `body_map.go` + write-back to `scene.DynamicBody` primitives
-- [ ] Collision layers + filters
-- [ ] Remove reliance on analytic prop collision for dynamics
-- [ ] Test: single box spawn, sleep, push with player
-- [ ] Test: compound desk + two piece props; tip desk in test harness
-- [ ] Preview scene: `scenes/preview/physics-desk.toml`
+- [x] Schema: `[physics]` on includes + object files (`mass` in kg)
+- [x] `build_dynamic.go`: compound builder from included subtree
+- [x] `body_map.go` + write-back to `scene.DynamicBody` primitives
+- [x] Kinematic door bodies + `SyncKinematicDoors`
+- [x] Extended `third_party/jolt-go` wrapper (pose, compound, mass)
+- [x] Test: compound + pieces load; dynamic spawn in Jolt world
+- [x] Preview scenes: `physics-desk.toml`, `server-room-table.toml`
+- [x] Server-room desks: compound tables + loose props in `server-room-1.toml`
+- [ ] Kick / use raycast → `AddImpulse` (phase 4)
 
 ---
 
@@ -377,7 +478,7 @@ swim_allowed = true
 3. **Network / replay** — deterministic `PhysicsSystem` settings if needed later.
 4. **jolt-go gaps** — verify compound child transforms, breakable constraints,
    buoyancy API exposure; upstream issues if missing.
-5. **Mass authoring** — default density per material tag vs explicit `mass`?
+5. **Mass authoring** — explicit `mass` in **kilograms** (SI, matching metre-based distances); default density `600 kg/m³` when omitted.
 
 ---
 

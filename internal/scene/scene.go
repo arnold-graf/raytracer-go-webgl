@@ -36,6 +36,8 @@ type Scene struct {
 	DocumentSpecs []DocumentSpec
 	ScreenSpecs   []ScreenSpec
 	DynamicBodies []DynamicBody
+	PhysicsGroups []PhysicsGroup
+	FilePhysics   PhysicsSpec // from object file [physics] at load (not simulated until merged)
 	Reactive      *ReactiveSpec
 	Start         CameraStart
 	PlayerMovement PlayerMovement

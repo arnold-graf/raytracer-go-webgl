@@ -1,0 +1,38 @@
+# Preview: server-room table with props on a floor slab.
+
+[[box]]
+material = "diffuse"
+pos_x = 0
+pos_y = -0.05
+pos_z = 0
+width = 6
+height = 0.1
+depth = 6
+albedo = [0.35, 0.35, 0.38]
+
+[[include]]
+file = "../objects/simple-table.toml"
+at = [0, 0.65, 0]
+rotate_y = -20
+props = { width = 1.5, height = 0.9, texture = "wood" }
+
+[[include]]
+instance = true
+file = "../objects/glass-bottle.toml"
+at = [-0.65, 1.25, 0.35]
+
+[[include]]
+instance = true
+file = "../objects/ashtray.toml"
+at = [-0.22, 1.119, 0.417]
+rotate_y = -50
+
+[environment]
+sky = "clear"
+ambient_sky = [0.4, 0.42, 0.48]
+ambient_ground = [0.15, 0.14, 0.13]
+sun_dir = [-0.4, -0.85, -0.3]
+sun_color = [1.0, 0.95, 0.88]
+
+[player.movement]
+jolt_physics = true

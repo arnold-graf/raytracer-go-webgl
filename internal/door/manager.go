@@ -144,7 +144,16 @@ func unionRange(ranges [][2]int) [2]int {
 	return [2]int{min, max + 1}
 }
 
-// GhostBox returns true when the box should not block the player.
+// PanelBlocks reports whether the door's panels should block movement (not ghosting).
+func (m *Manager) PanelBlocks(id string) bool {
+	for i := range m.agents {
+		if m.agents[i].ID == id {
+			return m.agents[i].PanelCollision
+		}
+	}
+	return true
+}
+
 func (m *Manager) GhostBox(boxIndex int) bool {
 	for i := range m.agents {
 		a := &m.agents[i]

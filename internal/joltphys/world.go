@@ -27,6 +27,7 @@ type World struct {
 	capsule   *jolt.Shape
 	cfg       collisionConfig
 	fallback  *scene.Scene
+	bindings  bodyMap
 }
 
 // NewWorldFromScene builds static colliders from sc and spawns the player at eye.
@@ -49,6 +50,9 @@ func NewWorldFromScene(sc *scene.Scene, eye vec.V, cfg camera.Config) (*World, e
 		w.Destroy()
 		return nil, err
 	}
+	w.buildDynamicFromScene(sc)
+	w.attachDetachedBoxes(sc)
+	w.buildDoorBodies(sc)
 	if err := w.spawnPlayer(eye, cfg); err != nil {
 		w.Destroy()
 		return nil, err
@@ -61,6 +65,8 @@ func (w *World) spawnPlayer(eye vec.V, cfg camera.Config) error {
 	w.capsule = jolt.CreateCapsule(halfH, radius)
 	settings := jolt.NewCharacterVirtualSettings(w.capsule)
 	settings.MaxSlopeAngle = jolt.DegreesToRadians(50)
+	settings.Mass = characterMassKg
+	settings.MaxStrength = characterMaxStrength
 	w.character = w.ps.CreateCharacterVirtual(settings, characterFromEye(eye, w.cfg))
 	return nil
 }
@@ -145,7 +151,9 @@ func (w *World) UpdatePlayer(cam *camera.Camera, m camera.Move, dt float64) {
 	// Game gravity is per fixed tick (dt); convert to m/s² for Jolt's integrator.
 	gravity := jolt.Vec3{Y: float32(-cfg.Gravity / dt)}
 	w.character.ExtendedUpdate(float32(dt), gravity)
+	w.applyWalkPush(vel, float32(dt))
 	w.ps.Update(float32(dt))
+	w.SyncDynamicPoses(w.fallback)
 
 	pos := w.character.GetPosition()
 	cam.SetPos(eyeFromCharacter(pos, collisionConfig{EyeHeight: eyeH, Radius: cfg.CollisionRadius}))

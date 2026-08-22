@@ -77,6 +77,9 @@ func (w *World) addBoxCollider(b scene.Box) {
 			center.Y = b.Min.Y + float64(collHy)
 		}
 		shape := jolt.CreateBox(jolt.Vec3{X: hx, Y: collHy, Z: hz})
+		if shape == nil {
+			return
+		}
 		w.addShape(shape)
 		w.addStaticBody(shape, toJoltVec(center))
 		return

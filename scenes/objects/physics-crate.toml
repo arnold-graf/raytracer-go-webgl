@@ -1,0 +1,15 @@
+# Small crate for piece-mode physics tests (mass in kg).
+
+[physics]
+mode = "dynamic"
+mass = 3.0
+
+[[box]]
+material = "diffuse"
+pos_x = 0
+pos_y = 0.15
+pos_z = 0
+width = 0.3
+height = 0.3
+depth = 0.3
+albedo = [0.55, 0.45, 0.35]

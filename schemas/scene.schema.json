@@ -23,6 +23,10 @@
       "$ref": "#/definitions/environment",
       "description": "TOML table [environment]. Sky gradient, ambient light, and directional sun."
     },
+    "physics": {
+      "$ref": "#/definitions/physics",
+      "description": "TOML [physics]. Jolt simulation metadata for object library files (mass in kilograms)."
+    },
     "include": {
       "type": "array",
       "description": "TOML array-of-tables [[include]]. Instantiates another TOML file with a placement transform.",
@@ -1420,6 +1424,43 @@
       ],
       "additionalProperties": false
     },
+    "physics": {
+      "type": "object",
+      "description": "TOML [physics] or [include.physics]. Rigid-body simulation metadata; mass is in kilograms (SI, matching engine distances in metres).",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "static",
+            "compound",
+            "pieces",
+            "kinematic",
+            "dynamic"
+          ],
+          "description": "static = level geometry; compound/dynamic = one body per include; pieces = one body per primitive; kinematic = pose-driven."
+        },
+        "mass": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Total mass in kilograms. Omitted or 0 estimates from primitive volume × default density (600 kg/m³)."
+        },
+        "friction": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Coulomb friction coefficient. Default: 0.5."
+        },
+        "restitution": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Bounce restitution. Default: 0."
+        },
+        "sleep": {
+          "type": "boolean",
+          "description": "Allow sleeping when at rest. Default: true for dynamic bodies."
+        }
+      },
+      "additionalProperties": false
+    },
     "door": {
       "type": "object",
       "description": "TOML [[door]]. Swinging or sliding door with dynamic panel box(es). Optional hint and use_range set the E-key prompt and max look distance.",
@@ -1743,6 +1784,10 @@
         "props": {
           "$ref": "#/definitions/meta_table",
           "description": "Properties merged into the included file's [props] table. Only these keys are passed; the parent's [props] are not inherited. Expressions (e.g. width = 'width') are evaluated in the parent env during expansion."
+        },
+        "physics": {
+          "$ref": "#/definitions/physics",
+          "description": "Overrides how this include participates in Jolt simulation."
         }
       },
       "required": [

@@ -9,6 +9,9 @@ import (
 // mat3 is a row-major 3x3 matrix: indices 0,1,2 are the first row, etc.
 type mat3 [9]float64
 
+// Mat3 is the exported name for rotation matrices used by physics sync.
+type Mat3 = mat3
+
 func (m mat3) mul(v vec.V) vec.V {
 	return vec.V{
 		X: m[0]*v.X + m[1]*v.Y + m[2]*v.Z,
@@ -189,6 +192,14 @@ func (x *Transform) Translation() vec.V {
 	return x.t
 }
 
+// Fwd returns the local→world rotation matrix.
+func (x *Transform) Fwd() Mat3 {
+	if x == nil {
+		return Mat3{1, 0, 0, 0, 1, 0, 0, 0, 1}
+	}
+	return x.fwd
+}
+
 // YawRad returns the instance's rotation about +Y in radians (0 for nil/identity).
 func (x *Transform) YawRad() float64 {
 	if x == nil {
@@ -293,4 +304,19 @@ func (x *Transform) Compose(inner *Transform) *Transform {
 		inv: fwd.transpose(),
 		t:   x.fwd.mul(inner.t).Add(x.t),
 	}
+}
+
+// Inverse returns the transform that undoes x (x^{-1}).
+func (x *Transform) Inverse() *Transform {
+	if x == nil {
+		return nil
+	}
+	inv := x.inv
+	t := inv.mul(x.t.Scale(-1))
+	return &Transform{fwd: inv, inv: x.fwd, t: t}
+}
+
+// RigidFromBasis builds a transform from a world position and local→world rotation matrix.
+func RigidFromBasis(pos vec.V, fwd mat3) *Transform {
+	return &Transform{fwd: fwd, inv: fwd.transpose(), t: pos}
 }

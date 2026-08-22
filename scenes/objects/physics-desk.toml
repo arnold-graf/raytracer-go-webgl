@@ -1,0 +1,56 @@
+# Simple desk: one compound dynamic body (mass in kg).
+
+[physics]
+mode = "compound"
+mass = 25.0
+friction = 0.7
+
+[[box]]
+material = "diffuse"
+pos_x = 0
+pos_y = 0.74
+pos_z = 0
+width = 1.2
+height = 0.04
+depth = 0.6
+albedo = [0.45, 0.4, 0.35]
+
+[[box]]
+material = "diffuse"
+pos_x = -0.52
+pos_y = 0.37
+pos_z = -0.22
+width = 0.08
+height = 0.74
+depth = 0.08
+albedo = [0.4, 0.35, 0.3]
+
+[[box]]
+material = "diffuse"
+pos_x = 0.52
+pos_y = 0.37
+pos_z = -0.22
+width = 0.08
+height = 0.74
+depth = 0.08
+albedo = [0.4, 0.35, 0.3]
+
+[[box]]
+material = "diffuse"
+pos_x = -0.52
+pos_y = 0.37
+pos_z = 0.22
+width = 0.08
+height = 0.74
+depth = 0.08
+albedo = [0.4, 0.35, 0.3]
+
+[[box]]
+material = "diffuse"
+pos_x = 0.52
+pos_y = 0.37
+pos_z = 0.22
+width = 0.08
+height = 0.74
+depth = 0.08
+albedo = [0.4, 0.35, 0.3]
