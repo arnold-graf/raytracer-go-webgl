@@ -1,6 +1,7 @@
 package webgpu
 
 import (
+	"log"
 	"math"
 	"unsafe"
 
@@ -25,10 +26,10 @@ const (
 	primLens     uint32 = 7
 )
 
-// maxPrims caps the GPU primitive storage buffer. The current scenes use far
-// fewer; anything beyond this is dropped (and logged by the caller) rather than
-// silently corrupting the buffer.
-const maxPrims = 4096
+// maxPrims caps the GPU primitive storage buffer. Large scenes (tiled floors,
+// grid walls) can exceed the old 4096 cap; anything beyond this is dropped
+// (and logged) rather than silently corrupting the buffer.
+const maxPrims = 32768
 
 const maxLights = 1024
 
@@ -61,8 +62,8 @@ const (
 //	      torus -> (center.xyz, majorR)
 //	GeoB: box -> (max.xyz, _); sphere -> (cut_off,..); cylinder -> (ymax, radius_top,..);
 //	      cone -> (ytip, capped_flag,..); torus -> (minorR,..); unused otherwise
-//	Albedo: linear rgb in xyz
-//	Albedo2: checker second color (MatChecker)
+//	Albedo: linear rgb in xyz; w = specular highlight weight (diffuse/checker)
+//	Albedo2: checker second color in xyz; w = Blinn–Phong shininess exponent
 //	Params: (rough, ior, reflect, transmit)
 //	Meta: (kind, material, texture, flags); bit0 = transformed, bit1 = thin glass
 //	Xf0/Xf1/Xf2: world->local rotation rows (xyz) + translation t in .w, valid
@@ -217,6 +218,7 @@ func PackPrimitives(s *scene.Scene) []GPUPrimitive {
 		out = append(out, lensPrim(&s.Lenses[i]))
 	}
 	if len(out) > maxPrims {
+		log.Printf("webgpu: primitive count %d exceeds maxPrims %d; extra geometry will not render", len(out), maxPrims)
 		out = out[:maxPrims]
 	}
 	return out
@@ -439,6 +441,7 @@ func PackBlockers(s *scene.Scene) []GPUPrimitive {
 	}
 	// Tori are intentionally excluded: the CPU shadow path skips tori entirely.
 	if len(out) > maxPrims {
+		log.Printf("webgpu: blocker count %d exceeds maxPrims %d; extra shadow blockers dropped", len(out), maxPrims)
 		out = out[:maxPrims]
 	}
 	return out
@@ -800,7 +803,15 @@ func surfaceParams(s scene.Surface) [4]float32 {
 func albedo(v vec.V) [4]float32 { return [4]float32{f(v.X), f(v.Y), f(v.Z), 0} }
 
 func surfaceColors(s scene.Surface) (alb, alb2 [4]float32) {
-	return albedo(s.Albedo), albedo(s.Albedo2)
+	alb = albedo(s.Albedo)
+	alb[3] = f(s.Specular)
+	alb2 = albedo(s.Albedo2)
+	alb2[3] = f(s.Shininess)
+	if s.Tex == texture.Tiles {
+		alb2[0] = f(s.TexU)
+		alb2[1] = f(s.TexV)
+	}
+	return alb, alb2
 }
 
 func f(x float64) float32 { return float32(x) }

@@ -3,12 +3,12 @@
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
-import package::types::{HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, aa_hits, hdr_pixels, params, pixels, prims, waters};
+import package::types::{HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, TEX_TILES, aa_hits, hdr_pixels, params, pixels, prims, waters};
 import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc};
 import package::math::{clamp01};
-import package::texture::{plane_albedo, texture_eval, texture_eval_box};
+import package::texture::{plane_albedo, texture_eval, texture_eval_box, texture_eval_surface};
 import package::sky::{sky};
-import package::intersect::{thin_glass_exit_t, xf_to_local_dir, xf_to_local_point, xf_to_world_normal};
+import package::intersect::{TILE_SURFACE_BIAS, displaced_normal, thin_glass_exit_t, xf_to_local_dir, xf_to_local_point, xf_to_world_normal};
 import package::terrain::{terrain_normal, water_normal};
 import package::flame::{accumulate_flame, heat_shimmer_dir};
 import package::instance::{inst_local_point, inst_world_normal};
@@ -180,11 +180,19 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         var surf = vec4<f32>(0.0, 1.5, 0.0, 0.0);
         var alb = vec3<f32>(1.0, 1.0, 1.0);
         var n = vec3<f32>(0.0, 1.0, 0.0);
+        var spec_strength = 0.0;
+        var shininess = 32.0;
+        var surf_eps = SURFACE_EPSILON;
 
         if (hit.kind == 0u) {
             let p = prims[hit.idx];
             mat = p.info.y;
             surf = p.surf;
+            spec_strength = p.albedo.w;
+            shininess = p.albedo2.w;
+            if (shininess <= 0.0) {
+                shininess = 32.0;
+            }
             // For a transformed primitive evaluate the normal and procedural
             // texture in template/local space, then rotate back to world.
             var tpl_hp = hp;
@@ -202,10 +210,27 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                 lhp = xf_to_local_point(p, tpl_hp);
             }
             let cone_cap = p.info.x == PRIM_CONE && p.geo_b.y > 0.5 && abs(lhp.y - p.geo_a.w) < 0.02;
+            let tiles_box = p.info.x == PRIM_BOX && p.info.z == TEX_TILES;
             if (cone_cap) {
                 n = cone_cap_normal_world(p, ro, hp);
                 tex_n = normal_at(p, lhp, lrd);
                 tex_p = lhp;
+            } else if (tiles_box) {
+                surf_eps = TILE_SURFACE_BIAS;
+                tex_n = displaced_normal(p, lhp);
+                tex_p = lhp;
+                if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
+                    var ln = xf_to_world_normal(p, tex_n);
+                    if (hit.inst_idx != HIT_NO_INSTANCE) {
+                        ln = inst_world_normal(hit.inst_idx, ln);
+                    }
+                    n = normalize(ln);
+                } else {
+                    n = tex_n;
+                    if (hit.inst_idx != HIT_NO_INSTANCE) {
+                        n = inst_world_normal(hit.inst_idx, n);
+                    }
+                }
             } else if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
                 tex_n = normal_at(p, lhp, lrd);
                 var ln = xf_to_world_normal(p, tex_n);
@@ -228,7 +253,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             if (p.info.x == PRIM_BOX) {
                 alb = texture_eval_box(hit.idx, tex_p, tex_n, p.geo_a.xyz, p.geo_b.xyz, p.info.z, plane_albedo(p, hp));
             } else {
-                alb = texture_eval(p.info.z, tex_p, tex_n, plane_albedo(p, hp));
+                alb = texture_eval_surface(p, tex_p, tex_n, plane_albedo(p, hp));
             }
         } else if (hit.kind == 1u) {
             mat = MAT_DIFFUSE;
@@ -251,7 +276,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             continue;
         }
 
-        let ep = hp + n * SURFACE_EPSILON;
+        let ep = hp + n * surf_eps;
         if (seg_tag == RAYSEG_GHOST) {
             accum = accum + tw * shade_ghost(hp, alb, n, ep);
             continue;
@@ -312,7 +337,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                 if (!tir && w_refl < 0.98 && w_trans > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
                     let cost = sqrt(k);
                     let rd_in = normalize(rd * eta + n * (eta * cosi - cost));
-                    let enter_hp = hp - n * SURFACE_EPSILON;
+                    let enter_hp = hp - n * surf_eps;
                     let t_span = thin_glass_exit_t(prims[hit.idx], enter_hp, rd_in, 0.0);
                     let exit_hp = enter_hp + rd_in * t_span;
                     let exit_n = -n;
@@ -322,7 +347,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                     if (k_out >= 0.0) {
                         let cost_out = sqrt(k_out);
                         let rd_out = jitter_dir(normalize(rd_in * eta_out + exit_n * (eta_out * cosi_out - cost_out)), exit_hp, rough * 0.35);
-                        stack[sp] = RaySeg(exit_hp + exit_n * SURFACE_EPSILON, rd_out, tw * alb * (1.0 - reflectance), depth + 1u, 0u);
+                        stack[sp] = RaySeg(exit_hp + exit_n * surf_eps, rd_out, tw * alb * (1.0 - reflectance), depth + 1u, 0u);
                         sp = sp + 1u;
                     }
                 }
@@ -332,7 +357,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                 if (!tir && w_refl < 0.98 && w_trans > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
                     let cost = sqrt(k);
                     let rr = jitter_dir(normalize(rd * eta + n * (eta * cosi - cost)), hp, rough * 0.35);
-                    stack[sp] = RaySeg(hp - n * SURFACE_EPSILON, rr, tw * alb * (1.0 - reflectance), depth + 1u, 0u);
+                    stack[sp] = RaySeg(hp - n * surf_eps, rr, tw * alb * (1.0 - reflectance), depth + 1u, 0u);
                     sp = sp + 1u;
                 }
             }
@@ -370,7 +395,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
 
         // Diffuse / checker, plus mirror/metal/glass falling through here at the
         // depth cap (or when reflections are disabled): shaded as diffuse.
-        let lit = shade_diffuse(hp, alb, n, ep, tw);
+        let lit = shade_diffuse(hp, alb, n, ep, tw, rd, spec_strength, shininess);
         let refl = surf.z;
         if (refl > 0.0 && reflective && twm * refl > SEG_MIN_CONTRIB && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) && sp < MAX_SEGS) {
             prof_inc(PROF_DIFFUSE_REFL, 1u);

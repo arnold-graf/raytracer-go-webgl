@@ -263,7 +263,8 @@ fn spot_dir(yaw: f32, pitch: f32) -> vec3<f32> {
 // Shared core for one point light (static lights + campfire sub-lights).
 // Tuning knobs at the top of this file: LIGHT_CULL_EPS, SHADOW_SKIP_EPS,
 // LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC. tw is the ray segment throughput.
-fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, pos: vec3<f32>, color: vec3<f32>, cull_r2: f32, inv_r2: f32, tw: vec3<f32>, spot_axis: vec3<f32>, cos_outer: f32) -> vec3<f32> {
+// spec/shine add Blinn–Phong highlights when spec > 0 (diffuse/checker only).
+fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, pos: vec3<f32>, color: vec3<f32>, cull_r2: f32, inv_r2: f32, tw: vec3<f32>, spot_axis: vec3<f32>, cos_outer: f32, rd: vec3<f32>, spec: f32, shine: f32) -> vec3<f32> {
     let twm = tw_peak(tw);
     let ld = pos - hp;
     let d2 = dot(ld, ld);
@@ -301,24 +302,32 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
         return lit;
     }
     let unshadowed = color * (att * ndl) * albedo;
-    let peak = max(unshadowed.x, max(unshadowed.y, unshadowed.z));
+    var spec_contrib = vec3<f32>(0.0);
+    if (spec > 0.0 && shine > 0.0) {
+        let v = normalize(-rd);
+        let h = normalize(ln + v);
+        let ndh = max(dot(n, h), 0.0);
+        spec_contrib = color * (att * ndl) * spec * pow(ndh, shine);
+    }
+    let total = unshadowed + spec_contrib;
+    let peak = max(total.x, max(total.y, total.z));
     if (twm * peak < SHADOW_SKIP_EPS) {
-        return lit + unshadowed;
+        return lit + total;
     }
     if (params.shadows != 0u && shadowed(ep, ln, ldist)) {
         return lit;
     }
-    return lit + unshadowed;
+    return lit + total;
 }
 
-fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, light: Light, tw: vec3<f32>) -> vec3<f32> {
+fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, light: Light, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32) -> vec3<f32> {
     var axis = vec3<f32>(0.0, 1.0, 0.0);
     var cos_outer = 0.0;
     if (light.pos.w > 0.5) {
         axis = spot_dir(light.falloff.z, light.falloff.w);
         cos_outer = light.color.w;
     }
-    return add_point_light_raw(lit, hp, albedo, n, ep, light.pos.xyz, light.color.xyz, light.falloff.x, light.falloff.y, tw, axis, cos_outer);
+    return add_point_light_raw(lit, hp, albedo, n, ep, light.pos.xyz, light.color.xyz, light.falloff.x, light.falloff.y, tw, axis, cos_outer, rd, spec, shine);
 }
 
 // ao_sample reproduces aoVolume.sample: nudge off the surface by bias along n,
@@ -455,16 +464,17 @@ fn shade_ghost(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> ve
     // Faint second-pane lobe: ambient + direct light, no shadow/AO/campfire rays.
     let tw_skip = vec3<f32>(SHADOW_SKIP_EPS * 0.5);
     var lit = alb * scene_ambient(n);
+    let rd_skip = vec3<f32>(0.0, 0.0, -1.0);
     for (var i = 0u; i < params.light_count; i = i + 1u) {
-        lit = add_point_light(lit, hp, alb, n, ep, lights[i], tw_skip);
+        lit = add_point_light(lit, hp, alb, n, ep, lights[i], tw_skip, rd_skip, 0.0, 0.0);
     }
     return lit;
 }
 
-fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>) -> vec3<f32> {
+fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32) -> vec3<f32> {
     var lit = alb * scene_ambient(n);
     for (var i = 0u; i < params.light_count; i = i + 1u) {
-        lit = add_point_light(lit, hp, alb, n, ep, lights[i], tw);
+        lit = add_point_light(lit, hp, alb, n, ep, lights[i], tw, rd, spec, shine);
     }
     // FEAT_CAMPFIRE folds to false in scenes with no campfire, so the compiler
     // drops this whole loop — including the sub-light and flame-cull helpers it
@@ -498,7 +508,7 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
         let ts = params.time * cf.param.w;
         for (var j = 0u; j < 3u; j = j + 1u) {
             let sl = campfire_sublight(cf, j, ts);
-            lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0);
+            lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine);
         }
     }
     if (params.ao_enabled != 0u) {

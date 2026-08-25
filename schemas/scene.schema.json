@@ -224,6 +224,8 @@
         "wallpaper_green",
         "wallpaper_rose",
         "stone_wall",
+        "paper",
+        "tiles",
         "capture_forward",
         "capture_left",
         "capture_right",
@@ -231,7 +233,7 @@
         "capture_down",
         "capture_backward"
       ],
-      "description": "Procedural world-space texture id. Omitted or \"none\" leaves the surface untextured (albedo only). Capture_* slots are filled at runtime by the portal system."
+      "description": "Procedural world-space texture id. Omitted or \"none\" leaves the surface untextured (albedo only). Use tiles(width, height) for a displaced tile grid (defaults 1×1). Capture_* slots are filled at runtime by the portal system."
     },
     "sky": {
       "type": "string",
@@ -317,6 +319,22 @@
       ],
       "description": "Extra reflection weight blended on top of the material model (0..1 typical)."
     },
+    "surface_specular": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/number_or_expr"
+        }
+      ],
+      "description": "Blinn–Phong highlight strength from point lights on diffuse/checker surfaces (0..1 typical). Ignored by mirror/metal/glass/emit."
+    },
+    "surface_shininess": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/number_or_expr"
+        }
+      ],
+      "description": "Blinn–Phong shininess exponent for specular highlights (typical 8–128). Defaults to 32 when specular > 0 and omitted."
+    },
     "surface_transmit": {
       "allOf": [
         {
@@ -350,6 +368,12 @@
         },
         "reflect": {
           "$ref": "#/definitions/surface_reflect"
+        },
+        "specular": {
+          "$ref": "#/definitions/surface_specular"
+        },
+        "shininess": {
+          "$ref": "#/definitions/surface_shininess"
         },
         "transmit": {
           "$ref": "#/definitions/surface_transmit"

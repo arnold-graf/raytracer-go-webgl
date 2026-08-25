@@ -11,7 +11,7 @@ import (
 	"raytracer/internal/vec"
 )
 
-const maxInstances = 2048
+const maxInstances = 32768
 
 // expandInstancedInclude registers BLAS templates and TLAS placements for an
 // [[include]] with instance = true. Layout files (only nested includes) expand

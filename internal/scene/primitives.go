@@ -24,6 +24,11 @@ type Surface struct {
 	// reflection just as it does for mirror/metal. Ignored by materials that are
 	// already reflective/refractive (mirror, metal, glass, emit).
 	Reflect float64
+	// Specular (0..1) adds Blinn–Phong highlights from point lights on diffuse/checker
+	// surfaces. Shininess is the Phong exponent (typical 8–128); defaults to 32 when
+	// Specular > 0 and Shininess is omitted/zero. Ignored by mirror/metal/glass/emit.
+	Specular  float64
+	Shininess float64
 	// Transmit (0..1) is the glass transparency: 0 is opaque, 1 is fully
 	// transparent. The glass tint comes from Albedo. Ignored by other materials.
 	Transmit float64
@@ -31,6 +36,9 @@ type Surface struct {
 	// (no separate enter/exit refraction). Defaults to true for glass at load
 	// time; set thin = false in TOML for thick glass. Ignored by non-glass.
 	Thin bool
+	// TexU and TexV are texture-specific parameters (tile width/height for tiles).
+	TexU float64
+	TexV float64
 	// TwoPane opts into the original thick-glass path: separate enter/exit trace
 	// hits at both faces (full dual-pane refraction). Default glass is thin with
 	// a ghost second-pane reflection instead. Ignored by non-glass materials.

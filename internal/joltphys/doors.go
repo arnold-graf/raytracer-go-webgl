@@ -27,7 +27,7 @@ func (w *World) buildDoorBodies(sc *scene.Scene) {
 		pos, rot := joltPoseFromTransform(origin)
 		body := w.bi.CreateBodyEx(compound, pos, rot, jolt.MotionTypeKinematic, false,
 			0, 0.5, 0, false)
-		if body == nil {
+		if !body.Valid() {
 			continue
 		}
 		w.bodies = append(w.bodies, ownedBody{body: body})

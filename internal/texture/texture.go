@@ -30,6 +30,7 @@ const (
 	WallpaperRose
 	StoneWall
 	Paper
+	Tiles
 )
 
 var byName = map[string]int{
@@ -47,6 +48,7 @@ var byName = map[string]int{
 	"wallpaper_rose":  WallpaperRose,
 	"stone_wall":      StoneWall,
 	"paper":           Paper,
+	"tiles":           Tiles,
 }
 
 // ID resolves a texture name to its id. Ok is false for unknown names.
@@ -88,6 +90,8 @@ func EvalWithNormal(id int, p, n, base vec.V) vec.V {
 		return stoneWall(p, n, base)
 	case Paper:
 		return paper(p, base)
+	case Tiles:
+		return tiles(p, n, base, 1, 1)
 	default:
 		return base
 	}
@@ -369,6 +373,41 @@ func stoneWall(p, n, tint vec.V) vec.V {
 	xProj := stoneWall2D(p, p.Z, p.Y).Scale(aw.X)
 	yProj := stoneWall2D(p, p.X, p.Z).Scale(aw.Y)
 	zProj := stoneWall2D(p, p.X, p.Y).Scale(aw.Z)
+	return xProj.Add(yProj).Add(zProj).Scale(1 / sum).Mul(tint)
+}
+
+// tiles2D is a regular grid of square tiles with recessed mortar gaps.
+func tiles2D(tileW, tileH, u, v float64) vec.V {
+	if tileW <= 0 {
+		tileW = 1
+	}
+	if tileH <= 0 {
+		tileH = 1
+	}
+	fu := frac(u / tileW)
+	fv := frac(v / tileH)
+	col := math.Floor(u / tileW)
+	row := math.Floor(v / tileH)
+	edge := math.Min(math.Min(fu, 1-fu), math.Min(fv, 1-fv))
+	mask := smoothstep(0.02, 0.08, edge)
+	bright := cellRand(col, row, 2)
+	base := vec.New(0.75, 0.73, 0.70).Scale(0.85 + 0.2*bright)
+	mottle := 0.88 + 0.12*fbm(col*3.1, row*2.7, col+row, 3)
+	face := base.Scale(mottle)
+	mortarCol := vec.New(0.28, 0.27, 0.25).Scale(0.8 + 0.25*fbm(col*5, row*5, 0, 3))
+	return mix(mortarCol, face, mask)
+}
+
+func tiles(p, n, tint vec.V, tileW, tileH float64) vec.V {
+	aw := vec.New(math.Abs(n.X), math.Abs(n.Y), math.Abs(n.Z))
+	aw = vec.New(aw.X*aw.X*aw.X*aw.X, aw.Y*aw.Y*aw.Y*aw.Y, aw.Z*aw.Z*aw.Z*aw.Z)
+	sum := aw.X + aw.Y + aw.Z
+	if sum == 0 {
+		return tiles2D(tileW, tileH, p.X, p.Y).Mul(tint)
+	}
+	xProj := tiles2D(tileW, tileH, p.Z, p.Y).Scale(aw.X)
+	yProj := tiles2D(tileW, tileH, p.X, p.Z).Scale(aw.Y)
+	zProj := tiles2D(tileW, tileH, p.X, p.Y).Scale(aw.Z)
 	return xProj.Add(yProj).Add(zProj).Scale(1 / sum).Mul(tint)
 }
 

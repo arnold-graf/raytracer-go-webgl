@@ -34,6 +34,8 @@ material = "diffuse"
 texture = "none"
 reflect = 0.0
 albedo = [0.5, 0.5, 0.5]
+specular = 0.5
+shininess = 10
 
 [const]
 period = 'unit_size * 2'
@@ -52,6 +54,8 @@ material = 'material'
 albedo = 'albedo'
 reflect = 'reflect'
 texture = 'texture'
+specular = 'specular'
+shininess = 'shininess'
 # endfor
 
 # for j in range(h_count)
@@ -66,4 +70,6 @@ material = 'material'
 albedo = 'albedo'
 reflect = 'reflect'
 texture = 'texture'
+specular = 'specular'
+shininess = 'shininess'
 # endfor

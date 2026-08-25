@@ -55,7 +55,8 @@ height = 'rise'
 depth = 'width'
 material = "diffuse"
 albedo = 'albedo'
-reflect = 'reflect'
+specular = 2
+shininess = 50
 texture = 'texture'
 rough = 'rough'
 # endfor

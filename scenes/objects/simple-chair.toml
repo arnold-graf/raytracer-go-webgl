@@ -10,6 +10,8 @@
 [props]
 albedo = [0.58, 0.44, 0.30]
 reflect = 0.01
+specular = 0.5
+shininess = 50
 
 [[box]] # leg (front right)
 pos_x = 0.17
@@ -23,6 +25,8 @@ albedo = 'albedo'
 texture = "wood"
 reflect = 'reflect'
 rough = 0.02
+specular = 'specular'
+shininess = 'shininess'
 
 [[box]] # leg (back left)
 pos_x = -0.31
@@ -36,6 +40,8 @@ albedo = 'albedo'
 texture = "wood"
 reflect = 'reflect'
 rough = 0.02
+specular = 'specular'
+shininess = 'shininess'
 
 [[box]] # leg (front left)
 pos_x = 0.17
@@ -49,6 +55,8 @@ albedo = 'albedo'
 texture = "wood"
 reflect = 'reflect'
 rough = 0.02
+specular = 'specular'
+shininess = 'shininess'
 
 [[box]] # leg (back right)
 pos_x = -0.31
@@ -62,6 +70,8 @@ albedo = 'albedo'
 texture = "wood"
 reflect = 'reflect'
 rough = 0.02
+specular = 'specular'
+shininess = 'shininess'
 
 [[box]] # seat
 pos_x = -0.33
@@ -75,6 +85,8 @@ albedo = 'albedo'
 texture = "wood"
 reflect = 'reflect'
 rough = 0.02
+specular = 'specular'
+shininess = 'shininess'
 
 [[box]] # back post (left)
 pos_x = -0.31
@@ -88,6 +100,8 @@ albedo = 'albedo'
 texture = "wood"
 reflect = 'reflect'
 rough = 0.02
+specular = 'specular'
+shininess = 'shininess'
 
 [[box]] # back post (right)
 pos_x = 0.17
@@ -101,6 +115,8 @@ albedo = 'albedo'
 texture = "wood"
 reflect = 'reflect'
 rough = 0.02
+specular = 'specular'
+shininess = 'shininess'
 
 [[box]] # back top rail
 pos_x = -0.31
@@ -114,3 +130,5 @@ albedo = 'albedo'
 texture = "wood"
 reflect = 'reflect'
 rough = 0.02
+specular = 'specular'
+shininess = 'shininess'

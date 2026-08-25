@@ -49,6 +49,8 @@ albedo = 'albedo'
 texture = 'texture'
 reflect = 'reflect'
 rough = 'rough'
+specular = 0.2
+shininess = 10
 
 # for i in range(4)
 [[cylinder]] # leg

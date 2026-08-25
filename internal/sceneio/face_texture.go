@@ -1,8 +1,6 @@
 package sceneio
 
 import (
-	"fmt"
-
 	"raytracer/internal/texture"
 )
 
@@ -26,9 +24,9 @@ func (f faceTextureDTO) resolve() ([6]int, error) {
 		if name == "" {
 			continue
 		}
-		id, ok := texture.ID(name)
-		if !ok {
-			return out, fmt.Errorf("unknown texture %q", name)
+		id, _, _, err := texture.Parse(name)
+		if err != nil {
+			return out, err
 		}
 		out[i] = id
 	}

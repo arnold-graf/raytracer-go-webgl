@@ -19,6 +19,9 @@ type ownedBody struct {
 
 func (w *World) addStaticBody(shape *jolt.Shape, pos jolt.Vec3) {
 	body := w.bi.CreateBody(shape, pos, jolt.MotionTypeStatic, false)
+	if !body.Valid() {
+		return
+	}
 	w.bodies = append(w.bodies, ownedBody{body: body})
 }
 
@@ -26,10 +29,53 @@ func (w *World) addShape(shape *jolt.Shape) {
 	w.shapes = append(w.shapes, ownedShape{shape: shape})
 }
 
+// maxStaticCompoundParts caps child shapes per static compound so Jolt temp
+// scratch during compound build stays bounded and we stay well under body limits.
+const maxStaticCompoundParts = 256
+
+type staticCompoundBatch struct {
+	parts  []jolt.CompoundPart
+	shapes []*jolt.Shape
+}
+
+func staticWorldInv() *scene.Transform {
+	return scene.NewRigidTransform(0, 0, 0, vec.V{}).Inverse()
+}
+
+func (w *World) appendStaticCompoundPart(batch *staticCompoundBatch, p jolt.CompoundPart, s *jolt.Shape) {
+	if p.Shape == nil {
+		return
+	}
+	batch.parts = append(batch.parts, p)
+	batch.shapes = append(batch.shapes, s)
+	if len(batch.parts) >= maxStaticCompoundParts {
+		w.flushStaticCompound(batch)
+	}
+}
+
+func (w *World) flushStaticCompound(batch *staticCompoundBatch) {
+	if len(batch.parts) == 0 {
+		return
+	}
+	compound := jolt.CreateStaticCompound(batch.parts)
+	if compound == nil {
+		return
+	}
+	w.addShape(compound)
+	w.addStaticBody(compound, jolt.Vec3{})
+	for _, s := range batch.shapes {
+		w.shapes = append(w.shapes, ownedShape{shape: s})
+	}
+	batch.parts = nil
+	batch.shapes = nil
+}
+
 func (w *World) buildFromScene(sc *scene.Scene) error {
 	if sc == nil {
 		return nil
 	}
+	batch := &staticCompoundBatch{}
+	inv := staticWorldInv()
 	for i := range sc.Boxes {
 		if isDynamicBox(sc, i) {
 			continue
@@ -41,11 +87,13 @@ func (w *World) buildFromScene(sc *scene.Scene) error {
 		if len(b.Holes) > 0 {
 			for _, frag := range b.SolidFragments() {
 				part := scene.Box{Min: frag.Min, Max: frag.Max, Surface: b.Surface}
-				w.addBoxCollider(part)
+				p, s := boxCompoundPart(part, inv)
+				w.appendStaticCompoundPart(batch, p, s)
 			}
 			continue
 		}
-		w.addBoxCollider(*b)
+		p, s := boxCompoundPart(*b, inv)
+		w.appendStaticCompoundPart(batch, p, s)
 	}
 	for i := range sc.Cylinders {
 		if sc.IsDynamicCylinder(i) {
@@ -55,90 +103,111 @@ func (w *World) buildFromScene(sc *scene.Scene) error {
 		if !c.Collides() {
 			continue
 		}
-		w.addCylinderCollider(*c)
+		p, s := cylinderCompoundPart(*c, inv)
+		w.appendStaticCompoundPart(batch, p, s)
 	}
+	w.flushStaticCompound(batch)
 	for i := range sc.Terrains {
 		w.addTerrainCollider(&sc.Terrains[i])
 	}
 	return nil
 }
 
-func (w *World) addBoxCollider(b scene.Box) {
-	hx, hy, hz, localCenter := boxHalfExtents(b)
-	collHy := inflateHalfY(hy)
-	if hx <= 0 || collHy <= 0 || hz <= 0 {
-		return
-	}
+// maxPhysicsTerrainAxis caps terrain collision mesh resolution. The render bake
+// can be 1600+ vertices per side; feeding that verbatim into Jolt creates
+// millions of triangles and multi-second reload stalls.
+const maxPhysicsTerrainAxis = 256
 
-	if b.Xform == nil {
-		center := localCenter
-		if hy < minColliderHalfY {
-			// Keep the bottom of thin floors (e.g. 0.01 slabs) at Min.Y.
-			center.Y = b.Min.Y + float64(collHy)
-		}
-		shape := jolt.CreateBox(jolt.Vec3{X: hx, Y: collHy, Z: hz})
-		if shape == nil {
-			return
-		}
-		w.addShape(shape)
-		w.addStaticBody(shape, toJoltVec(center))
-		return
-	}
+// maxPhysicsTerrainCell is the target world spacing between physics heightfield
+// samples. Island scenes clip to the landmass so this stays fine near gameplay.
+const maxPhysicsTerrainCell = 2.5
 
-	worldCenter := b.Xform.ToWorld(localCenter)
-	pts := boxCornerPoints(b, collHy, localCenter)
-	relative := make([]jolt.Vec3, len(pts))
-	for i, p := range pts {
-		wp := b.Xform.ToWorld(p)
-		relative[i] = jolt.Vec3{
-			X: float32(wp.X - worldCenter.X),
-			Y: float32(wp.Y - worldCenter.Y),
-			Z: float32(wp.Z - worldCenter.Z),
+// physicsTerrainRegion returns the world X/Z rectangle to cover with collision.
+// Island terrains limit the mesh to the landmass plus shore margin instead of
+// the full multi-km ocean footprint.
+func physicsTerrainRegion(t *scene.Terrain) (x0, z0, x1, z1 float64) {
+	x0, z0 = t.OriginX, t.OriginZ
+	x1, z1 = t.OriginX+t.SizeX, t.OriginZ+t.SizeZ
+	if isl := t.Island; isl.Radius > 0 {
+		margin := isl.Margin
+		if margin <= 0 {
+			margin = isl.Radius * 0.5
+		}
+		r := isl.Radius + margin
+		cx, cz := isl.CenterX, isl.CenterZ
+		loX, hiX := cx-r, cx+r
+		loZ, hiZ := cz-r, cz+r
+		if loX > x0 {
+			x0 = loX
+		}
+		if hiX < x1 {
+			x1 = hiX
+		}
+		if loZ > z0 {
+			z0 = loZ
+		}
+		if hiZ < z1 {
+			z1 = hiZ
 		}
 	}
-	shape := jolt.CreateConvexHull(relative)
-	w.addShape(shape)
-	w.addStaticBody(shape, toJoltVec(worldCenter))
+	return x0, z0, x1, z1
 }
 
-func (w *World) addCylinderCollider(c scene.Cylinder) {
-	h := c.YMax - c.YMin
-	if h <= 0 {
-		return
+// physicsTerrainMesh builds a heightfield triangle mesh for Jolt. Heights come
+// from Terrain.Height so hybrid LOD matches rendering.
+func physicsTerrainMesh(t *scene.Terrain) (verts []jolt.Vec3, indices []int32) {
+	x0, z0, x1, z1 := physicsTerrainRegion(t)
+	sx := x1 - x0
+	sz := z1 - z0
+	if sx <= 0 || sz <= 0 {
+		return nil, nil
 	}
-	r := float32(c.MaxRadius())
-	if r <= 0 {
-		return
+	pgnx := int(math.Ceil(sx/maxPhysicsTerrainCell)) + 1
+	pgnz := int(math.Ceil(sz/maxPhysicsTerrainCell)) + 1
+	if pgnx < 2 {
+		pgnx = 2
 	}
-	halfH := float32(h*0.5 - float64(r))
-	if halfH < 0 {
-		halfH = 0
+	if pgnz < 2 {
+		pgnz = 2
 	}
-	localCenter := vec.New(c.CX, (c.YMin+c.YMax)*0.5, c.CZ)
-	if c.Xform == nil {
-		shape := jolt.CreateCapsule(halfH, r)
-		w.addShape(shape)
-		w.addStaticBody(shape, jolt.Vec3{
-			X: float32(c.CX),
-			Y: float32((c.YMin + c.YMax) * 0.5),
-			Z: float32(c.CZ),
-		})
-		return
+	if pgnx > maxPhysicsTerrainAxis {
+		pgnx = maxPhysicsTerrainAxis
 	}
-	worldCenter := c.Xform.ToWorld(localCenter)
-	pts := cylinderHullPoints(c, 8)
-	relative := make([]jolt.Vec3, len(pts))
-	for i, p := range pts {
-		wp := c.Xform.ToWorld(p)
-		relative[i] = jolt.Vec3{
-			X: float32(wp.X - worldCenter.X),
-			Y: float32(wp.Y - worldCenter.Y),
-			Z: float32(wp.Z - worldCenter.Z),
+	if pgnz > maxPhysicsTerrainAxis {
+		pgnz = maxPhysicsTerrainAxis
+	}
+	verts = make([]jolt.Vec3, pgnx*pgnz)
+	for pj := 0; pj < pgnz; pj++ {
+		wz := z0
+		if pgnz > 1 {
+			wz += float64(pj) / float64(pgnz-1) * sz
+		}
+		for pi := 0; pi < pgnx; pi++ {
+			wx := x0
+			if pgnx > 1 {
+				wx += float64(pi) / float64(pgnx-1) * sx
+			}
+			idx := pj*pgnx + pi
+			verts[idx] = jolt.Vec3{
+				X: float32(wx),
+				Y: float32(t.Height(wx, wz)),
+				Z: float32(wz),
+			}
 		}
 	}
-	shape := jolt.CreateConvexHull(relative)
-	w.addShape(shape)
-	w.addStaticBody(shape, toJoltVec(worldCenter))
+	indices = make([]int32, 0, (pgnx-1)*(pgnz-1)*6)
+	for j := 0; j < pgnz-1; j++ {
+		row := j * pgnx
+		nrow := (j + 1) * pgnx
+		for i := 0; i < pgnx-1; i++ {
+			a := int32(row + i)
+			b := int32(row + i + 1)
+			c := int32(nrow + i)
+			d := int32(nrow + i + 1)
+			indices = append(indices, a, c, b, b, c, d)
+		}
+	}
+	return verts, indices
 }
 
 func (w *World) addTerrainCollider(t *scene.Terrain) {
@@ -146,39 +215,12 @@ func (w *World) addTerrainCollider(t *scene.Terrain) {
 		return
 	}
 	t.Prepare()
-	gnx, gnz := t.GridDimensions()
-	if gnx < 2 || gnz < 2 {
+	if !t.HasFootprint() {
 		return
 	}
-	snap := t.CacheSnapshot()
-	if len(snap.Height) == 0 {
+	verts, indices := physicsTerrainMesh(t)
+	if len(verts) == 0 {
 		return
-	}
-	ox, oz := t.OriginX, t.OriginZ
-	sx, sz := t.SizeX, t.SizeZ
-	gnx, gnz = snap.GNX, snap.GNZ
-	dx := sx / float64(gnx-1)
-	dz := sz / float64(gnz-1)
-	verts := make([]jolt.Vec3, gnx*gnz)
-	for j := 0; j < gnz; j++ {
-		for i := 0; i < gnx; i++ {
-			idx := j*gnx + i
-			verts[idx] = jolt.Vec3{
-				X: float32(ox + float64(i)*dx),
-				Y: float32(snap.Height[idx]),
-				Z: float32(oz + float64(j)*dz),
-			}
-		}
-	}
-	var indices []int32
-	for j := 0; j < gnz-1; j++ {
-		for i := 0; i < gnx-1; i++ {
-			a := int32(j*gnx + i)
-			b := int32(j*gnx + i + 1)
-			c := int32((j+1)*gnx + i)
-			d := int32((j+1)*gnx + i + 1)
-			indices = append(indices, a, c, b, b, c, d)
-		}
 	}
 	shape := jolt.CreateMesh(verts, indices)
 	w.addShape(shape)

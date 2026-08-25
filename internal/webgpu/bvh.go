@@ -6,6 +6,7 @@ import (
 	"unsafe"
 
 	"raytracer/internal/gpuscene"
+	"raytracer/internal/texture"
 	"raytracer/internal/vec"
 )
 
@@ -225,6 +226,11 @@ func primBounds(idx uint32, p *GPUPrimitive) (gpuPrimRef, bool) {
 	case primBox:
 		min = vec.V{X: float64(p.GeoA[0]), Y: float64(p.GeoA[1]), Z: float64(p.GeoA[2])}
 		max = vec.V{X: float64(p.GeoB[0]), Y: float64(p.GeoB[1]), Z: float64(p.GeoB[2])}
+		if p.Meta[2] == uint32(texture.Tiles) {
+			const disp = texture.TilesDisplacement
+			min = min.Sub(vec.V{X: disp, Y: disp, Z: disp})
+			max = max.Add(vec.V{X: disp, Y: disp, Z: disp})
+		}
 	case primCylinder:
 		cx, cz, r0 := float64(p.GeoA[0]), float64(p.GeoA[1]), float64(p.GeoA[2])
 		ymin, ymax, r1 := float64(p.GeoA[3]), float64(p.GeoB[0]), float64(p.GeoB[1])

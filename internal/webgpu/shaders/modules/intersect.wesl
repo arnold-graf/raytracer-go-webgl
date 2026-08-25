@@ -3,7 +3,13 @@
 // CSG box holes and local-space transforms. intersect() / intersect_blocker()
 // are the entry points called from BVH leaf nodes.
 
-import package::types::{FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, RING_SHELL, T_MISS, blockers, holes, prims};
+import package::types::{FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, RING_SHELL, TEX_TILES, T_MISS, blockers, holes, prims};
+import package::texture::{prim_displace_height};
+
+const TILE_DISPLACE: f32 = 0.018;
+const TILE_DISPLACE_MARCH: u32 = 28u;
+// Shadow / child-ray offset must clear the full protrusion (SURFACE_EPSILON is 0.5 mm).
+const TILE_SURFACE_BIAS: f32 = 0.03;
 
 fn sphere_cut_plane_y(center_y: f32, radius: f32, cut_off: f32) -> f32 {
     if (cut_off <= 0.0) {
@@ -142,6 +148,178 @@ fn box_holed_nearest(p: Prim, ro: vec3<f32>, rd: vec3<f32>, tmin: f32, tmax: f32
         }
     }
     return best;
+}
+
+fn displaced_gap(p: Prim, hp: vec3<f32>, face_n: vec3<f32>, bmin: vec3<f32>, bmax: vec3<f32>, amp: f32) -> f32 {
+    var protrusion = 0.0;
+    var u = hp.x;
+    var v = hp.y;
+    if (face_n.z > 0.5) {
+        protrusion = hp.z - bmax.z;
+    } else if (face_n.z < -0.5) {
+        protrusion = bmin.z - hp.z;
+    } else if (face_n.x > 0.5) {
+        protrusion = hp.x - bmax.x;
+        u = hp.z;
+        v = hp.y;
+    } else if (face_n.x < -0.5) {
+        protrusion = bmin.x - hp.x;
+        u = hp.z;
+        v = hp.y;
+    } else if (face_n.y > 0.5) {
+        protrusion = hp.y - bmax.y;
+        u = hp.x;
+        v = hp.z;
+    } else {
+        protrusion = bmin.y - hp.y;
+        u = hp.x;
+        v = hp.z;
+    }
+    return protrusion - prim_displace_height(p, hp, u, v) * amp;
+}
+
+fn displaced_face_axis(mn: vec3<f32>, mx: vec3<f32>, hp: vec3<f32>) -> vec4<f32> {
+    var n = vec3<f32>(-1.0, 0.0, 0.0);
+    var d = abs(hp.x - mn.x);
+    let dxh = abs(hp.x - mx.x);
+    if (dxh < d) { n = vec3<f32>(1.0, 0.0, 0.0); d = dxh; }
+    let dyl = abs(hp.y - mn.y);
+    if (dyl < d) { n = vec3<f32>(0.0, -1.0, 0.0); d = dyl; }
+    let dyh = abs(hp.y - mx.y);
+    if (dyh < d) { n = vec3<f32>(0.0, 1.0, 0.0); d = dyh; }
+    let dzl = abs(hp.z - mn.z);
+    if (dzl < d) { n = vec3<f32>(0.0, 0.0, -1.0); d = dzl; }
+    let dzh = abs(hp.z - mx.z);
+    if (dzh < d) { n = vec3<f32>(0.0, 0.0, 1.0); d = dzh; }
+    return vec4<f32>(n, d);
+}
+
+// Face whose outward displacement hp lies on (protrusion past the flat slab).
+fn displaced_surface_face(bmin: vec3<f32>, bmax: vec3<f32>, hp: vec3<f32>) -> vec3<f32> {
+    let e = 1e-4;
+    if (hp.z > bmax.z + e) { return vec3<f32>(0.0, 0.0, 1.0); }
+    if (hp.z < bmin.z - e) { return vec3<f32>(0.0, 0.0, -1.0); }
+    if (hp.x > bmax.x + e) { return vec3<f32>(1.0, 0.0, 0.0); }
+    if (hp.x < bmin.x - e) { return vec3<f32>(-1.0, 0.0, 0.0); }
+    if (hp.y > bmax.y + e) { return vec3<f32>(0.0, 1.0, 0.0); }
+    if (hp.y < bmin.y - e) { return vec3<f32>(0.0, -1.0, 0.0); }
+    return displaced_face_axis(bmin, bmax, hp).xyz;
+}
+
+// Which box face the ray entered through (stable for the whole march).
+fn displaced_entry_face(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, rd: vec3<f32>, t_enter: f32) -> vec3<f32> {
+    let hp = ro + rd * t_enter;
+    let e = 2e-3;
+    if (abs(hp.x - bmin.x) < e && rd.x > 0.0) { return vec3<f32>(-1.0, 0.0, 0.0); }
+    if (abs(hp.x - bmax.x) < e && rd.x < 0.0) { return vec3<f32>(1.0, 0.0, 0.0); }
+    if (abs(hp.y - bmin.y) < e && rd.y > 0.0) { return vec3<f32>(0.0, -1.0, 0.0); }
+    if (abs(hp.y - bmax.y) < e && rd.y < 0.0) { return vec3<f32>(0.0, 1.0, 0.0); }
+    if (abs(hp.z - bmin.z) < e && rd.z > 0.0) { return vec3<f32>(0.0, 0.0, -1.0); }
+    if (abs(hp.z - bmax.z) < e && rd.z < 0.0) { return vec3<f32>(0.0, 0.0, 1.0); }
+    return displaced_face_axis(bmin, bmax, hp).xyz;
+}
+
+fn hit_box_displaced(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
+    let bmin = p.geo_a.xyz;
+    let bmax = p.geo_b.xyz;
+    let amp = TILE_DISPLACE;
+    let s = slab_interval(bmin, bmax, ro, rd);
+    if (s.z == 0.0 || s.y < RAY_EPSILON) {
+        return T_MISS;
+    }
+    let count = u32(p.geo_b.w);
+    if (count != 0u) {
+        return hit_box(p, ro, rd);
+    }
+
+    let exterior = s.x >= RAY_EPSILON;
+    var t_enter = s.x;
+    if (!exterior) {
+        if (s.y < RAY_EPSILON) {
+            return T_MISS;
+        }
+        t_enter = RAY_EPSILON;
+    }
+    let entry_face = displaced_entry_face(bmin, bmax, ro, rd, t_enter);
+    var t = max(t_enter - amp, RAY_EPSILON);
+    let t_end = s.y + amp;
+    let step = max((t_end - t) / f32(TILE_DISPLACE_MARCH), amp * 0.15);
+    var prev_gap = 1e9;
+    var t_prev = t;
+    for (var i = 0u; i < TILE_DISPLACE_MARCH; i = i + 1u) {
+        let gap = displaced_gap(p, ro + rd * t, entry_face, bmin, bmax, amp);
+        if (gap <= 0.0 && prev_gap > 0.0) {
+            var lo = t_prev;
+            var hi = t;
+            for (var j = 0u; j < 8u; j = j + 1u) {
+                let tm = (lo + hi) * 0.5;
+                if (displaced_gap(p, ro + rd * tm, entry_face, bmin, bmax, amp) > 0.0) {
+                    lo = tm;
+                } else {
+                    hi = tm;
+                }
+            }
+            return hi;
+        }
+        prev_gap = gap;
+        t_prev = t;
+        t += step;
+        if (t > t_end) {
+            break;
+        }
+    }
+    if (exterior) {
+        return T_MISS;
+    }
+    return s.y;
+}
+
+fn displaced_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
+    let bmin = p.geo_a.xyz;
+    let bmax = p.geo_b.xyz;
+    let amp = TILE_DISPLACE;
+    let n = displaced_surface_face(bmin, bmax, hp);
+    let eps = 0.006;
+    var u = hp.x;
+    var v = hp.y;
+    var tu = vec3<f32>(1.0, 0.0, 0.0);
+    var tv = vec3<f32>(0.0, 1.0, 0.0);
+    var bump_axis = vec3<f32>(0.0, 0.0, 1.0);
+    var sign = 1.0;
+    if (n.z < -0.5) {
+        sign = -1.0;
+    } else if (n.x > 0.5) {
+        u = hp.z;
+        v = hp.y;
+        tu = vec3<f32>(0.0, 0.0, 1.0);
+        tv = vec3<f32>(0.0, 1.0, 0.0);
+        bump_axis = vec3<f32>(1.0, 0.0, 0.0);
+    } else if (n.x < -0.5) {
+        u = hp.z;
+        v = hp.y;
+        sign = -1.0;
+        tu = vec3<f32>(0.0, 0.0, -1.0);
+        tv = vec3<f32>(0.0, 1.0, 0.0);
+        bump_axis = vec3<f32>(-1.0, 0.0, 0.0);
+    } else if (n.y > 0.5) {
+        u = hp.x;
+        v = hp.z;
+        tu = vec3<f32>(1.0, 0.0, 0.0);
+        tv = vec3<f32>(0.0, 0.0, 1.0);
+        bump_axis = vec3<f32>(0.0, 1.0, 0.0);
+    } else if (n.y < -0.5) {
+        u = hp.x;
+        v = hp.z;
+        sign = -1.0;
+        tu = vec3<f32>(1.0, 0.0, 0.0);
+        tv = vec3<f32>(0.0, 0.0, -1.0);
+        bump_axis = vec3<f32>(0.0, -1.0, 0.0);
+    }
+    let dhd_u = (prim_displace_height(p, hp + tu * eps, u + eps, v) - prim_displace_height(p, hp - tu * eps, u - eps, v)) / (2.0 * eps);
+    let dhd_v = (prim_displace_height(p, hp + tv * eps, u, v + eps) - prim_displace_height(p, hp - tv * eps, u, v - eps)) / (2.0 * eps);
+    let tu_b = tu + bump_axis * (sign * amp * dhd_u);
+    let tv_b = tv + bump_axis * (sign * amp * dhd_v);
+    return normalize(cross(tv_b, tu_b));
 }
 
 fn cyl_cap(ro: vec3<f32>, rd: vec3<f32>, cx: f32, cz: f32, radius: f32, y: f32) -> f32 {
@@ -511,6 +689,9 @@ fn hit_prim(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
         return hit_plane(p, lro, lrd);
     }
     if (FEAT_PRIM_BOX && kind == PRIM_BOX) {
+        if (p.info.z == TEX_TILES) {
+            return hit_box_displaced(p, lro, lrd);
+        }
         return hit_box(p, lro, lrd);
     }
     if (FEAT_PRIM_CYLINDER && kind == PRIM_CYLINDER) {

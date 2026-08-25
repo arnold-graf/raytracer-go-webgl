@@ -1,0 +1,19 @@
+# Single marble checker tile for instanced floor grids.
+# Parent scene places with [[include]] instance = true. Collision is off —
+# use one full-size floor box in the parent for walking.
+[[box]]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+material = "checker"
+texture = "marble"
+width = 0.95
+depth = 0.95
+height = 0.01
+albedo = [0.5, 0.5, 0.5]
+albedo2 = [0.7, 0.7, 0.7]
+reflect = 0.05
+rough = 0.01
+specular = 5
+shininess = 5
+collision = false

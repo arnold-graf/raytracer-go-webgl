@@ -35,6 +35,8 @@ width = 15.2
 height = 1.2
 depth = 13.4
 texture = "stone_wall"
+shininess = 64
+specular = 0.1
 
 # ===================================================== GROUND FLOOR SLAB ====
 
@@ -50,6 +52,8 @@ depth = 12
 texture = "marble"
 reflect = 0.03
 rough = 0.02
+shininess = 64
+specular = 0.5
 
 # =========================================================== EXTERIOR WALLS ====
 # Wall thickness 0.45.  Ground floor walls rise y = 1.2 .. 5.85.
@@ -71,9 +75,16 @@ texture = "cement"
 [[include]]
 file = "staircase.toml"
 transform_origin = [0, 0, 0]
-at = [-3, 0.0, 10.0]
+at = [-3, -0.2, 10.0]
 rotate_y = 90
-props = { steps = 5, run = 0.5, rise = 0.3, width = 6, texture = "marble" }
+[include.props]
+steps = 5
+run = 0.5
+rise = 0.3
+width = 6
+texture = "marble"
+specular = 1
+shininess = 64
 
 # ---- left wing front (+Z), pair of tall windows ----
 
@@ -633,6 +644,8 @@ width = 1
 height = 0.15
 depth = 2.3
 texture = "stone_wall"
+shininess = 64
+specular = 0.2
 
 [[box]] # firebox back
 albedo = [0.45, 0.42, 0.40]
@@ -644,6 +657,8 @@ width = 0.3
 height = 2
 depth = 2.1
 texture = "stone_wall"
+shininess = 64
+specular = 0.2
 
 [[box]] # firebox left jamb
 albedo = [0.50, 0.47, 0.44]
@@ -655,6 +670,8 @@ width = 0.75
 height = 1.8
 depth = 0.3
 texture = "stone_wall"
+shininess = 64
+specular = 0.2
 
 [[box]] # firebox right jamb
 albedo = [0.50, 0.47, 0.44]
@@ -666,6 +683,8 @@ width = 0.75
 height = 1.8
 depth = 0.3
 texture = "stone_wall"
+shininess = 64
+specular = 0.2
 
 [[box]] # mantel shelf
 albedo = [0.55, 0.52, 0.48]
@@ -677,6 +696,8 @@ width = 1.4
 height = 0.15
 depth = 2.5
 texture = "stone_wall"
+shininess = 64
+specular = 0.2
 
 [[box]] # chimney breast (interior, rises through both floors)
 albedo = [0.55, 0.52, 0.48]
@@ -688,6 +709,8 @@ width = 1.4
 height = 7
 depth = 2.6
 texture = "stone_wall"
+shininess = 64
+specular = 0.2
 
 [[include]]
 file = 'campfire.toml'

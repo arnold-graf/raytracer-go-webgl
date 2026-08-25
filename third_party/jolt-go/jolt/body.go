@@ -28,6 +28,11 @@ type BodyID struct {
 	handle C.JoltBodyID
 }
 
+// Valid reports whether the body was created successfully.
+func (b *BodyID) Valid() bool {
+	return b != nil && b.handle != nil
+}
+
 // Destroy frees the body ID
 func (b *BodyID) Destroy() {
 	C.JoltDestroyBodyID(b.handle)
@@ -82,7 +87,9 @@ func (bi *BodyInterface) CreateBody(shape *Shape, position Vec3, motionType Moti
 		C.JoltMotionType(motionType),
 		sensor,
 	)
-
+	if handle == nil {
+		return nil
+	}
 	return &BodyID{handle: handle}
 }
 
@@ -152,6 +159,9 @@ func (bi *BodyInterface) CreateBodyEx(shape *Shape, position Vec3, rotation Quat
 		C.float(restitution),
 		sleep,
 	)
+	if handle == nil {
+		return nil
+	}
 	return &BodyID{handle: handle}
 }
 

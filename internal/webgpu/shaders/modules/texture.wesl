@@ -2,7 +2,7 @@
 // Procedural materials (wood, brick, wallpaper, grass, …), portal capture
 // textures, and in-world document images. texture_eval() is the main entry.
 
-import package::types::{DOCUMENT_TEX_H, DOCUMENT_TEX_W, MAT_CHECKER, Prim, TEX_BRICK, TEX_CAPTURE_BASE, TEX_CAPTURE_COUNT, TEX_CEMENT, TEX_DIRT, TEX_DOCUMENT_BASE, TEX_DOCUMENT_COUNT, TEX_GRASS, TEX_MARBLE, TEX_NONE, TEX_PAPER, TEX_SNOW, TEX_STONE, TEX_STONE_WALL, TEX_WALLPAPER_GREEN, TEX_WALLPAPER_ROSE, TEX_WOOD, box_face_textures, capture_pixels, document_pixels, params};
+import package::types::{DOCUMENT_TEX_H, DOCUMENT_TEX_W, MAT_CHECKER, Prim, TEX_BRICK, TEX_CAPTURE_BASE, TEX_CAPTURE_COUNT, TEX_CEMENT, TEX_DIRT, TEX_DOCUMENT_BASE, TEX_DOCUMENT_COUNT, TEX_GRASS, TEX_MARBLE, TEX_NONE, TEX_PAPER, TEX_SNOW, TEX_STONE, TEX_STONE_WALL, TEX_TILES, TEX_WALLPAPER_GREEN, TEX_WALLPAPER_ROSE, TEX_WOOD, box_face_textures, capture_pixels, document_pixels, params, prims};
 import package::math::{TEX_PI, cell_rand, fbm, fracf, mix3, perlin, smoothstepf, turbulence};
 
 fn tex_wood(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
@@ -281,6 +281,45 @@ fn tex_stone_wall_2d(p: vec3<f32>, u_in: f32, v_in: f32) -> vec3<f32> {
     return mix3(mortar_col, face, mask);
 }
 
+// stone_wall_height_2d returns 0..1 height for displacement (mortar recessed, stones raised).
+fn stone_wall_height_2d(p: vec3<f32>, u_in: f32, v_in: f32) -> f32 {
+    let cell = 0.34;
+    let u = u_in / cell;
+    let v = v_in / cell;
+    let cu = floor(u);
+    let cv = floor(v);
+    let fu = u - cu;
+    let fv = v - cv;
+
+    var f1 = 1.0e9;
+    var f2 = 1.0e9;
+    var ox = 0.0;
+    var oy = 0.0;
+    for (var j = -1; j <= 1; j = j + 1) {
+        for (var i = -1; i <= 1; i = i + 1) {
+            let cx = cu + f32(i);
+            let cy = cv + f32(j);
+            let px = f32(i) + cell_rand(cx, cy, 11.0);
+            let py = f32(j) + cell_rand(cx, cy, 12.0);
+            let dx = px - fu;
+            let dy = py - fv;
+            let d = sqrt(dx * dx + dy * dy);
+            if (d < f1) {
+                f2 = f1;
+                f1 = d;
+                ox = cx;
+                oy = cy;
+            } else if (d < f2) {
+                f2 = d;
+            }
+        }
+    }
+    let edge = f2 - f1;
+    let mask = smoothstepf(0.02, 0.12, edge);
+    let relief = 1.0 - 0.18 * smoothstepf(0.05, 0.5, f1);
+    return mask * relief;
+}
+
 fn tex_stone_wall(p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
     var w = abs(n);
     // Sharpen the weights so box-like surfaces stay crisp near edges while still
@@ -299,6 +338,69 @@ fn tex_stone_wall(p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
     return (x_proj + y_proj + z_proj) / sum * tint;
 }
 
+fn tiles_size(p: Prim) -> vec2<f32> {
+    var w = p.albedo2.x;
+    var h = p.albedo2.y;
+    if (w <= 0.0) { w = 1.0; }
+    if (h <= 0.0) { h = 1.0; }
+    return vec2<f32>(w, h);
+}
+
+fn tiles_height_2d(size: vec2<f32>, u_in: f32, v_in: f32) -> f32 {
+    let fu = fract(u_in / size.x);
+    let fv = fract(v_in / size.y);
+    let edge = min(min(fu, 1.0 - fu), min(fv, 1.0 - fv));
+    let mask = smoothstepf(0.02, 0.08, edge);
+    let col = floor(u_in / size.x);
+    let row = floor(v_in / size.y);
+    let relief = 1.0 - 0.08 * cell_rand(col, row, 3.0);
+    return mask * relief;
+}
+
+fn prim_displace_height(p: Prim, hp: vec3<f32>, u: f32, v: f32) -> f32 {
+    if (p.info.z == TEX_TILES) {
+        return tiles_height_2d(tiles_size(p), u, v);
+    }
+    return 0.0;
+}
+
+fn tex_tiles_2d(size: vec2<f32>, u_in: f32, v_in: f32) -> vec3<f32> {
+    let fu = fract(u_in / size.x);
+    let fv = fract(v_in / size.y);
+    let col = floor(u_in / size.x);
+    let row = floor(v_in / size.y);
+    let edge = min(min(fu, 1.0 - fu), min(fv, 1.0 - fv));
+    let mask = smoothstepf(0.02, 0.08, edge);
+    let bright = cell_rand(col, row, 2.0);
+    var base = vec3<f32>(0.75, 0.73, 0.70) * (0.85 + 0.2 * bright);
+    let mottle = 0.88 + 0.12 * fbm(col * 3.1, row * 2.7, col + row, 3u);
+    let face = base * mottle;
+    let mortar_col = vec3<f32>(0.28, 0.27, 0.25) * (0.8 + 0.25 * fbm(col * 5.0, row * 5.0, 0.0, 3u));
+    return mix3(mortar_col, face, mask);
+}
+
+fn tex_tiles(p: Prim, hp: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
+    let size = tiles_size(p);
+    var w = abs(n);
+    w = w * w * w * w;
+    let sum = w.x + w.y + w.z;
+    if (sum <= 0.0) {
+        return tex_tiles_2d(size, hp.x, hp.y) * tint;
+    }
+    let x_proj = tex_tiles_2d(size, hp.z, hp.y) * w.x;
+    let y_proj = tex_tiles_2d(size, hp.x, hp.z) * w.y;
+    let z_proj = tex_tiles_2d(size, hp.x, hp.y) * w.z;
+    return (x_proj + y_proj + z_proj) / sum * tint;
+}
+
+fn texture_eval_surface(p: Prim, lp: vec3<f32>, ln: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
+    let tex = p.info.z;
+    if (tex == TEX_TILES) {
+        return tex_tiles(p, lp, ln, tint);
+    }
+    return texture_eval(tex, lp, ln, tint);
+}
+
 fn texture_eval(tex: u32, p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
     if (tex == TEX_NONE) { return tint; }
     if (tex == TEX_WOOD) { return tex_wood(p, tint); }
@@ -310,6 +412,7 @@ fn texture_eval(tex: u32, p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f
     if (tex == TEX_DIRT) { return tex_dirt(p, tint); }
     if (tex == TEX_SNOW) { return tex_snow(p, tint); }
     if (tex == TEX_STONE_WALL) { return tex_stone_wall(p, n, tint); }
+    if (tex == TEX_TILES) { return tex_tiles_2d(vec2<f32>(1.0, 1.0), p.x, p.y) * tint; }
     if (tex == TEX_PAPER) { return tex_paper(p, tint); }
     return tex_wallpaper(p, tint, tex);
 }
@@ -456,6 +559,9 @@ fn texture_eval_box(prim_idx: u32, lp: vec3<f32>, ln: vec3<f32>, bmin: vec3<f32>
     }
     if (is_document(tex)) {
         return texture_eval_document(tex, lp, ln, bmin, bmax, tint);
+    }
+    if (tex == TEX_TILES) {
+        return tex_tiles(prims[prim_idx], lp, ln, tint);
     }
     return texture_eval(tex, lp, ln, tint);
 }

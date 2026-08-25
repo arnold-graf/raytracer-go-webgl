@@ -104,6 +104,48 @@ func TestGPUTemplateAndInstanceLayout(t *testing.T) {
 	}
 }
 
+func TestSetInstanceXformNilIsIdentity(t *testing.T) {
+	var rec GPUInstanceRecord
+	setInstanceXform(&rec, nil)
+	want := GPUInstanceRecord{
+		Xf0: [4]float32{1, 0, 0, 0},
+		Xf1: [4]float32{0, 1, 0, 0},
+		Xf2: [4]float32{0, 0, 1, 0},
+	}
+	if rec != want {
+		t.Fatalf("nil placement xform = %+v, want identity %+v", rec, want)
+	}
+}
+
+func TestPackInstancedSceneNilPlacementIsIdentity(t *testing.T) {
+	root := filepath.Join("..", "..")
+	sc, err := sceneio.Load(filepath.Join(root, "scenes", "office-sunset", "index.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, _, _, isp, _, ok := packInstancedScene(sc)
+	if !ok {
+		t.Fatal("packInstancedScene failed")
+	}
+	var want GPUInstanceRecord
+	setInstanceXform(&want, nil)
+	nilPlacements := 0
+	for _, pl := range sc.Instancing().Placements {
+		if pl.Xform == nil {
+			nilPlacements++
+		}
+	}
+	identityInstances := 0
+	for _, rec := range isp.instances {
+		if rec.Xf0 == want.Xf0 && rec.Xf1 == want.Xf1 && rec.Xf2 == want.Xf2 {
+			identityInstances++
+		}
+	}
+	if identityInstances < nilPlacements {
+		t.Fatalf("identity GPU instances = %d, want at least %d nil placements", identityInstances, nilPlacements)
+	}
+}
+
 func TestOffsetBLASNodeLeafWithZeroIndex(t *testing.T) {
 	n := GPUBVHNode{Info: [4]uint32{3, 0, 0, 2}}
 	offsetBLASNode(&n, 100, 50)

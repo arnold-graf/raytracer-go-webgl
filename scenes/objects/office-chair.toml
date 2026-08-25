@@ -15,6 +15,8 @@ leather_albedo = [0.10, 0.10, 0.11]
 chrome_albedo = [0.52, 0.52, 0.55]
 reflect = 0.35
 rough = 0.06
+specular = 0.2
+shininess = 100
 
 [const]
 leg_len = 0.28
@@ -35,6 +37,8 @@ pos_z = -0.22
 width = 0.48
 height = 0.07
 depth = 0.44
+specular = 'specular'
+shininess = 'shininess'
 
 # backrest (tilted away from sitter)
 [[box]]
@@ -49,6 +53,8 @@ pos_z = 0.28
 width = 0.48
 height = 0.36
 depth = 0.07
+specular = 'specular'
+shininess = 'shininess'
 
 # seat mechanism block
 [[box]]
@@ -60,6 +66,8 @@ pos_z = -0.07
 width = 0.14
 height = 0.05
 depth = 0.14
+specular = 'specular'
+shininess = 'shininess'
 
 # gas lift column
 [[cylinder]]

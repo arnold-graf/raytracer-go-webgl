@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	maxInstances      = 2048
+	maxInstances      = 32768
 	maxInstTemplates  = 64
 	instanceStride    = 64
 	instTemplateStride = 16
@@ -205,7 +205,7 @@ func offsetTLASNode(n *GPUBVHNode, base uint32) {
 }
 
 func setInstanceXform(rec *GPUInstanceRecord, x *scene.Transform) {
-	if x == nil || rec == nil {
+	if rec == nil {
 		return
 	}
 	r0, r1, r2, t := x.GPUData()

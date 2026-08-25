@@ -53,6 +53,8 @@ type surfaceDTO struct {
 	IOR       *float64 `toml:"ior"`
 	Texture   string   `toml:"texture"`
 	Reflect   float64  `toml:"reflect"`
+	Specular  float64  `toml:"specular"`
+	Shininess float64  `toml:"shininess"`
 	Transmit  float64  `toml:"transmit"`
 	Thin      *bool    `toml:"thin"`
 	TwoPane   *bool    `toml:"two_pane"`
@@ -65,9 +67,12 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 		return scene.Surface{}, fmt.Errorf("unknown material %q", s.Material)
 	}
 	tex := texture.None
+	var texU, texV float64
+	var err error
 	if s.Texture != "" {
-		if tex, ok = texture.ID(s.Texture); !ok {
-			return scene.Surface{}, fmt.Errorf("unknown texture %q", s.Texture)
+		tex, texU, texV, err = texture.Parse(s.Texture)
+		if err != nil {
+			return scene.Surface{}, err
 		}
 	}
 	ior := defaultIOR
@@ -87,7 +92,9 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 	twoPane := s.TwoPane != nil && *s.TwoPane
 	return scene.Surface{
 		Mat: mat, Albedo: s.Albedo.toV(), Albedo2: s.Albedo2.toV(), Rough: s.Rough, IOR: ior, Tex: tex,
-		Reflect: s.Reflect, Transmit: s.Transmit, Thin: thin, TwoPane: twoPane, NoCollision: noCollision,
+		TexU: texU, TexV: texV,
+		Reflect: s.Reflect, Specular: s.Specular, Shininess: s.Shininess,
+		Transmit: s.Transmit, Thin: thin, TwoPane: twoPane, NoCollision: noCollision,
 	}, nil
 }
 
@@ -646,9 +653,9 @@ func texOrDefault(name string, def int) (int, error) {
 	if name == "" {
 		return def, nil
 	}
-	id, ok := texture.ID(name)
-	if !ok {
-		return 0, fmt.Errorf("unknown texture %q", name)
+	id, _, _, err := texture.Parse(name)
+	if err != nil {
+		return 0, err
 	}
 	return id, nil
 }

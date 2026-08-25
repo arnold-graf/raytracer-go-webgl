@@ -983,7 +983,11 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 			}
 		}
 		if len(p.instPlacements) > 0 {
-			if err := r.queue.WriteBuffer(r.instRecs, 0, instanceBytes(p.instPlacements)); err != nil {
+			placements := p.instPlacements
+			if len(placements) > maxInstances {
+				placements = placements[:maxInstances]
+			}
+			if err := r.queue.WriteBuffer(r.instRecs, 0, instanceBytes(placements)); err != nil {
 				return err
 			}
 		}

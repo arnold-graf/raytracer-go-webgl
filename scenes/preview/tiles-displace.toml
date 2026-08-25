@@ -1,0 +1,40 @@
+# Preview tiles texture with displacement on a single box.
+[environment]
+sky = "sunset"
+ambient_sky = [0.25, 0.18, 0.14]
+
+[[light]]
+pos = [2, 3, 4]
+color = [1.2, 1.1, 1.0]
+brightness = 8
+range = 20
+
+[[box]]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 4
+height = 3
+depth = 0.4
+material = "diffuse"
+texture = "tiles(0.3, 0.1)"
+albedo = [0.9, 0.88, 0.84]
+reflect = 0.05
+rough = 0.08
+specular = 0.3
+shininess = 32
+
+[[box]]
+pos_x = 0
+pos_y = -0.01
+pos_z = 0
+width = 6
+depth = 6
+height = 0.02
+material = "diffuse"
+albedo = [0.35, 0.34, 0.32]
+
+[camera]
+pos = [0, 1.6, 3.5]
+yaw = 180
+pitch = -5

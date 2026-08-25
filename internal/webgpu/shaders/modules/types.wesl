@@ -300,6 +300,7 @@ const TEX_WALLPAPER_GREEN: u32 = 10u;
 const TEX_WALLPAPER_ROSE: u32 = 11u;
 const TEX_STONE_WALL: u32 = 12u;
 const TEX_PAPER: u32 = 13u;
+const TEX_TILES: u32 = 14u;
 const TEX_CAPTURE_BASE: u32 = 50u;
 const TEX_CAPTURE_COUNT: u32 = 6u;
 const TEX_DOCUMENT_BASE: u32 = 56u;

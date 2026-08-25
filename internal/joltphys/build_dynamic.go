@@ -42,7 +42,7 @@ func (w *World) spawnDynamicGroup(sc *scene.Scene, g scene.PhysicsGroup) {
 	mass := estimateMassKg(sc, g.Body, g.Spec.MassKg)
 	body := w.bi.CreateBodyEx(compound, pos, rot, jolt.MotionTypeDynamic, false,
 		float32(mass), float32(g.Spec.Friction), float32(g.Spec.Restitution), g.Spec.Sleep)
-	if body == nil {
+	if !body.Valid() {
 		return
 	}
 	w.bodies = append(w.bodies, ownedBody{body: body})
@@ -64,7 +64,7 @@ func (w *World) spawnKinematicGroup(sc *scene.Scene, g scene.PhysicsGroup) {
 	pos, rot := joltPoseFromTransform(origin)
 	body := w.bi.CreateBodyEx(compound, pos, rot, jolt.MotionTypeKinematic, false,
 		0, float32(g.Spec.Friction), float32(g.Spec.Restitution), false)
-	if body == nil {
+	if !body.Valid() {
 		return
 	}
 	w.bodies = append(w.bodies, ownedBody{body: body})
