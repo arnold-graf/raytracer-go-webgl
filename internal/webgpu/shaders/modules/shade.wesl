@@ -9,6 +9,7 @@ import package::math::{mix3, perlin, smoothstepf};
 import package::texture::{texture_eval};
 import package::intersect::{intersect_blocker, xf_to_world_normal};
 import package::terrain::{hit_terrain, terrain_shadow_skip};
+import package::terrain_zone::{terrain_zone_albedo};
 import package::bvh::{blocker_bvh_any_hit};
 
 // face_axis returns (normal.xyz, dist.w): the outward axis normal of the
@@ -263,7 +264,7 @@ fn spot_dir(yaw: f32, pitch: f32) -> vec3<f32> {
 // Shared core for one point light (static lights + campfire sub-lights).
 // Tuning knobs at the top of this file: LIGHT_CULL_EPS, SHADOW_SKIP_EPS,
 // LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC. tw is the ray segment throughput.
-// spec/shine add Blinn–Phong highlights when spec > 0 (diffuse/checker only).
+// spec/shine add Blinn–Phong highlights when spec > 0 (diffuse/checker/glass).
 fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, pos: vec3<f32>, color: vec3<f32>, cull_r2: f32, inv_r2: f32, tw: vec3<f32>, spot_axis: vec3<f32>, cos_outer: f32, rd: vec3<f32>, spec: f32, shine: f32) -> vec3<f32> {
     let twm = tw_peak(tw);
     let ld = pos - hp;
@@ -517,6 +518,51 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
     return lit;
 }
 
+// shade_specular adds Blinn–Phong point-light highlights only (no ambient/diffuse).
+fn shade_specular(hp: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32) -> vec3<f32> {
+    if (spec <= 0.0 || shine <= 0.0) {
+        return vec3<f32>(0.0);
+    }
+    let no_diffuse = vec3<f32>(0.0);
+    var lit = vec3<f32>(0.0);
+    for (var i = 0u; i < params.light_count; i = i + 1u) {
+        lit = add_point_light(lit, hp, no_diffuse, n, ep, lights[i], tw, rd, spec, shine);
+    }
+    for (var ci = 0u; FEAT_CAMPFIRE && ci < params.campfire_count; ci = ci + 1u) {
+        let cf = campfires[ci];
+        let core = cf.core.xyz;
+        let cl = core - hp;
+        let cd2 = dot(cl, cl);
+        let cull = campfire_cull(cf);
+        if (cd2 > cull.x) {
+            continue;
+        }
+        if (params.shadows != 0u) {
+            var cdist = sqrt(cd2);
+            if (cdist == 0.0) {
+                cdist = 1.0;
+            }
+            let cdir = cl / cdist;
+            let ndl = dot(n, cdir);
+            if (ndl >= 0.001) {
+                let att = min(1.0, 1.0 / (LIGHT_ATTEN_BASE + cd2 * LIGHT_ATTEN_QUADRATIC));
+                let peak = att * ndl * cf.param.x;
+                if (tw_peak(tw) * peak >= SHADOW_SKIP_EPS) {
+                    if (shadowed(ep, cdir, cdist)) {
+                        continue;
+                    }
+                }
+            }
+        }
+        let ts = params.time * cf.param.w;
+        for (var j = 0u; j < 3u; j = j + 1u) {
+            let sl = campfire_sublight(cf, j, ts);
+            lit = add_point_light_raw(lit, hp, no_diffuse, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine);
+        }
+    }
+    return lit;
+}
+
 fn jitter_dir(d: vec3<f32>, p: vec3<f32>, rough: f32) -> vec3<f32> {
     if (rough <= 0.0) {
         return d;
@@ -542,5 +588,5 @@ fn terrain_albedo(i: u32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     if (snow_w > 0.001) {
         c = mix3(c, texture_eval(tr.material.z, p, n, tr.color2.xyz), snow_w);
     }
-    return c;
+    return terrain_zone_albedo(i, p, n, c);
 }

@@ -255,13 +255,29 @@ func paper(p, tint vec.V) vec.V {
 	return c.Mul(tint)
 }
 
-// marble: classic turbulence-warped sine veining.
+// marble: domain-warped, multi-orientation veining with patchy density so large
+// surfaces do not read as regular diagonal stripes.
 func marble(p, tint vec.V) vec.V {
-	t := turbulence(p.X*1.2, p.Y*1.2, p.Z*1.2, 5)
-	veins := 0.5 + 0.5*math.Sin((p.X+p.Z)*1.5+6.0*t)
-	base := vec.New(0.85, 0.85, 0.88)
+	qx := p.X + 1.2*fbm(p.X*0.35, p.Y*0.35, p.Z*0.35, 4)
+	qz := p.Z + 1.2*fbm(p.X*0.35+5.2, p.Y*0.35, p.Z*0.35+1.7, 4)
+
+	angle := fbm(p.X*0.08, p.Y*0.08, p.Z*0.08, 3) * math.Pi
+	coord := qx*math.Cos(angle) + qz*math.Sin(angle)
+
+	t1 := turbulence(qx*0.7, p.Y*0.7, qz*0.7, 5)
+	t2 := turbulence(qx*0.6+3.1, p.Y*0.6, qz*0.6+2.4, 5)
+	v1 := 0.5 + 0.5*math.Sin(coord*1.0+4.0*t1)
+	v2 := 0.5 + 0.5*math.Sin((qx*0.6-qz*0.8+p.Y*0.3)*0.9+3.5*t2)
+	veins := math.Min(v1, v2)
+
+	density := 0.35 + 0.65*(0.5+0.5*fbm(p.X*0.12, p.Y*0.12, p.Z*0.12, 3))
+	veins = 1.0 - density*(1.0-veins)
+
+	sharp := 0.45 + 0.35*(0.5+0.5*fbm(p.X*0.25, p.Y*0.25, p.Z*0.25, 2))
+	baseVar := 0.95 + 0.05*(0.5+0.5*fbm(p.X*0.2, p.Y*0.2, p.Z*0.2, 2))
+	base := vec.New(0.85, 0.85, 0.88).Scale(baseVar)
 	vein := vec.New(0.18, 0.18, 0.22)
-	return mix(vein, base, math.Pow(veins, 0.6)).Mul(tint)
+	return mix(vein, base, math.Pow(veins, sharp)).Mul(tint)
 }
 
 // grass: mottled lush/dry green with fine blade speckle. Tuned for large

@@ -10,10 +10,11 @@ import package::texture::{plane_albedo, texture_eval, texture_eval_box, texture_
 import package::sky::{sky};
 import package::intersect::{TILE_SURFACE_BIAS, displaced_normal, thin_glass_exit_t, xf_to_local_dir, xf_to_local_point, xf_to_world_normal};
 import package::terrain::{terrain_normal, water_normal};
+import package::terrain_zone::{terrain_zone_shade_normal, terrain_zone_surface};
 import package::flame::{accumulate_flame, heat_shimmer_dir};
 import package::instance::{inst_local_point, inst_world_normal};
 import package::bvh::{nearest_hit};
-import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, shade_diffuse, shade_ghost, terrain_albedo, tw_peak};
+import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, shade_diffuse, shade_ghost, shade_specular, terrain_albedo, tw_peak};
 
 fn tonemap_channel(x: f32) -> f32 {
     return clamp01((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14));
@@ -258,7 +259,16 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         } else if (hit.kind == 1u) {
             mat = MAT_DIFFUSE;
             n = terrain_normal(hit.idx, hp);
+            n = terrain_zone_shade_normal(hit.idx, hp, n);
             alb = terrain_albedo(hit.idx, hp, n);
+            let zs = terrain_zone_surface(hit.idx, hp.xz);
+            surf.x = zs.x;
+            surf.z = zs.y;
+            spec_strength = zs.z;
+            shininess = zs.w;
+            if (shininess <= 0.0) {
+                shininess = 32.0;
+            }
         } else {
             let wp = waters[hit.idx];
             mat = wp.info.x;
@@ -389,6 +399,9 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                         sp = sp + 1u;
                     }
                 }
+            }
+            if (spec_strength > 0.0) {
+                accum = accum + tw * shade_specular(hp, n, ep, tw, rd, spec_strength, shininess);
             }
             continue;
         }

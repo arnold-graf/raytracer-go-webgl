@@ -5,10 +5,12 @@ import (
 	"testing"
 )
 
+func floatPtr(v float64) *float64 { return &v }
+
 func TestCylinderBoxPlacement(t *testing.T) {
 	d := cylinderDTO{
-		PosX: -0.28, PosY: 0, PosZ: -0.28,
-		Width: 0.56, Height: 4,
+		placementDTO: placementDTO{PosX: floatPtr(-0.28), PosY: floatPtr(0), PosZ: floatPtr(-0.28)},
+		Width:        0.56, Height: 4,
 	}
 	cx, cz, ymin, ymax, r, rt, err := d.specs()
 	if err != nil {
@@ -24,7 +26,7 @@ func TestCylinderBoxPlacement(t *testing.T) {
 
 func TestCylinderTaperedPlacement(t *testing.T) {
 	d := cylinderDTO{
-		PosX: -0.65, PosY: 0.4, PosZ: -0.65,
+		placementDTO: placementDTO{PosX: floatPtr(-0.65), PosY: floatPtr(0.4), PosZ: floatPtr(-0.65)},
 		WidthBottom: 1.3, WidthTop: 0.4, Height: 7.2,
 	}
 	cx, cz, ymin, ymax, r, rt, err := d.specs()

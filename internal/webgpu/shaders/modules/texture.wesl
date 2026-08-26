@@ -104,11 +104,26 @@ fn tex_paper(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
 }
 
 fn tex_marble(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
-    let t = turbulence(p.x * 1.2, p.y * 1.2, p.z * 1.2, 5u);
-    let veins = 0.5 + 0.5 * sin((p.x + p.z) * 1.5 + 6.0 * t);
-    let base = vec3<f32>(0.85, 0.85, 0.88);
+    let qx = p.x + 1.2 * fbm(p.x * 0.35, p.y * 0.35, p.z * 0.35, 4u);
+    let qz = p.z + 1.2 * fbm(p.x * 0.35 + 5.2, p.y * 0.35, p.z * 0.35 + 1.7, 4u);
+
+    let angle = fbm(p.x * 0.08, p.y * 0.08, p.z * 0.08, 3u) * TEX_PI;
+    let coord = qx * cos(angle) + qz * sin(angle);
+
+    let t1 = turbulence(qx * 0.7, p.y * 0.7, qz * 0.7, 5u);
+    let t2 = turbulence(qx * 0.6 + 3.1, p.y * 0.6, qz * 0.6 + 2.4, 5u);
+    let v1 = 0.5 + 0.5 * sin(coord * 1.0 + 4.0 * t1);
+    let v2 = 0.5 + 0.5 * sin((qx * 0.6 - qz * 0.8 + p.y * 0.3) * 0.9 + 3.5 * t2);
+    var veins = min(v1, v2);
+
+    let density = 0.35 + 0.65 * (0.5 + 0.5 * fbm(p.x * 0.12, p.y * 0.12, p.z * 0.12, 3u));
+    veins = 1.0 - density * (1.0 - veins);
+
+    let sharp = 0.45 + 0.35 * (0.5 + 0.5 * fbm(p.x * 0.25, p.y * 0.25, p.z * 0.25, 2u));
+    let base_var = 0.95 + 0.05 * (0.5 + 0.5 * fbm(p.x * 0.2, p.y * 0.2, p.z * 0.2, 2u));
+    let base = vec3<f32>(0.85, 0.85, 0.88) * base_var;
     let vein = vec3<f32>(0.18, 0.18, 0.22);
-    return mix3(vein, base, pow(veins, 0.6)) * tint;
+    return mix3(vein, base, pow(veins, sharp)) * tint;
 }
 
 fn tex_grass(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
@@ -279,6 +294,113 @@ fn tex_stone_wall_2d(p: vec3<f32>, u_in: f32, v_in: f32) -> vec3<f32> {
 
     let mask = smoothstepf(0.02, 0.12, edge);
     return mix3(mortar_col, face, mask);
+}
+
+// cobble_height_2d is a flat cobblestone height field: raised stone plateaus with
+// recessed mortar. Unlike stone_wall_height_2d there is no dome at each cell
+// center (that reads as "pimples" when used as a terrain normal map).
+fn cobble_height_2d(p: vec3<f32>, u_in: f32, v_in: f32, cell: f32) -> f32 {
+    let cs = max(cell, 1e-4);
+    let u = u_in / cs;
+    let v = v_in / cs;
+    let cu = floor(u);
+    let cv = floor(v);
+    let fu = u - cu;
+    let fv = v - cv;
+
+    var f1 = 1.0e9;
+    var f2 = 1.0e9;
+    var ox = 0.0;
+    var oy = 0.0;
+    for (var j = -1; j <= 1; j = j + 1) {
+        for (var i = -1; i <= 1; i = i + 1) {
+            let cx = cu + f32(i);
+            let cy = cv + f32(j);
+            let px = f32(i) + cell_rand(cx, cy, 11.0);
+            let py = f32(j) + cell_rand(cx, cy, 12.0);
+            let dx = px - fu;
+            let dy = py - fv;
+            let d = sqrt(dx * dx + dy * dy);
+            if (d < f1) {
+                f2 = f1;
+                f1 = d;
+                ox = cx;
+                oy = cy;
+            } else if (d < f2) {
+                f2 = d;
+            }
+        }
+    }
+    let edge = f2 - f1;
+    let mask = smoothstepf(0.02, 0.12, edge);
+    let wear = 0.03 * (cell_rand(ox, oy, 13.0) - 0.5);
+    return mask * (0.94 + wear);
+}
+
+fn tex_cobble_2d(p: vec3<f32>, u_in: f32, v_in: f32, cell: f32) -> vec3<f32> {
+    let cs = max(cell, 1e-4);
+    let u = u_in / cs;
+    let v = v_in / cs;
+    let cu = floor(u);
+    let cv = floor(v);
+    let fu = u - cu;
+    let fv = v - cv;
+
+    var f1 = 1.0e9;
+    var f2 = 1.0e9;
+    var ox = 0.0;
+    var oy = 0.0;
+    for (var j = -1; j <= 1; j = j + 1) {
+        for (var i = -1; i <= 1; i = i + 1) {
+            let cx = cu + f32(i);
+            let cy = cv + f32(j);
+            let px = f32(i) + cell_rand(cx, cy, 11.0);
+            let py = f32(j) + cell_rand(cx, cy, 12.0);
+            let dx = px - fu;
+            let dy = py - fv;
+            let d = sqrt(dx * dx + dy * dy);
+            if (d < f1) {
+                f2 = f1;
+                f1 = d;
+                ox = cx;
+                oy = cy;
+            } else if (d < f2) {
+                f2 = d;
+            }
+        }
+    }
+    let edge = f2 - f1;
+
+    let pick = cell_rand(ox, oy, 1.0);
+    let bright = cell_rand(ox, oy, 2.0);
+    var base = stone_wall_palette(i32(pick * 6.0));
+    base = base * (0.62 + 0.55 * bright);
+    base.x = base.x * (0.94 + 0.12 * cell_rand(ox, oy, 5.0));
+    base.y = base.y * (0.94 + 0.12 * cell_rand(ox, oy, 6.0));
+    base.z = base.z * (0.92 + 0.14 * cell_rand(ox, oy, 7.0));
+
+    let mottle = 0.84 + 0.16 * fbm(p.x * 7.0 + ox * 3.0, p.y * 7.0 + oy * 3.0, p.z * 7.0, 4u);
+    let grain = 0.90 + 0.10 * fbm(p.x * 32.0, p.y * 32.0, p.z * 32.0, 3u);
+    var face = base * (mottle * grain);
+
+    let mortar_col = vec3<f32>(0.40, 0.37, 0.31) * (0.78 + 0.30 * fbm(p.x * 6.0, p.y * 6.0, p.z * 6.0, 3u));
+
+    let mask = smoothstepf(0.02, 0.12, edge);
+    return mix3(mortar_col, face, mask);
+}
+
+fn tex_cobble(p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
+    let cell = 0.34;
+    var w = abs(n);
+    w = w * w * w * w;
+    let sum = w.x + w.y + w.z;
+    if (sum <= 0.0) {
+        return tex_cobble_2d(p, p.x, p.y, cell) * tint;
+    }
+    let x_proj = tex_cobble_2d(p, p.z, p.y, cell) * w.x;
+    let y_proj = tex_cobble_2d(p, p.x, p.z, cell) * w.y;
+    let z_proj = tex_cobble_2d(p, p.x, p.y, cell) * w.z;
+    return (x_proj + y_proj + z_proj) / sum * tint;
 }
 
 // stone_wall_height_2d returns 0..1 height for displacement (mortar recessed, stones raised).

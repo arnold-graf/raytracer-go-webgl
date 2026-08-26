@@ -1,0 +1,114 @@
+[props]
+height = 3.5
+orb_radius = 0.5
+brightness = 0.8
+range = 20
+rough = 0.05
+reflect = 0.05
+shininess = 200
+albedo = [0,0.2,0.2]
+[const]
+orb_y = 'height + orb_radius'
+
+[[cylinder]]
+texture = "cement"
+reflect = 'reflect'
+rough = 'rough'
+height = 0.8
+material = "diffuse"
+albedo = 'albedo'
+specular = 0.5
+shininess = 'shininess'
+width_top = 0.40
+width_bottom = 0.50
+center_x = 0
+pos_y = 0
+center_z = 0
+
+[[cylinder]]
+texture = "cement"
+reflect = 'reflect'
+rough = 'rough'
+height = 'height'
+material = "diffuse"
+albedo = 'albedo'
+specular = 0.5
+shininess = 'shininess'
+width_top = 0.20
+width_bottom = 0.30
+center_x = 0
+pos_y = 0
+center_z = 0
+
+[[cylinder]]
+texture = "cement"
+reflect = 'reflect'
+rough = 'rough'
+height = 0.2
+material = "diffuse"
+albedo = 'albedo'
+specular = 0.5
+shininess = 'shininess'
+width_bottom = 0.30
+width_top = 0.40
+center_x = 0
+pos_y = 'height - 0.2'
+center_z = 0
+
+[[sphere]]
+center = [0.14, 'height - 0.7', 0.14]
+material = "diffuse"
+radius = 0.1
+albedo = 'albedo'
+specular = 0.5
+shininess = 50
+
+[[sphere]]
+center = [-0.14, 'height - 0.7', 0.14]
+material = "diffuse"
+radius = 0.1
+albedo = 'albedo'
+specular = 0.5
+shininess = 'shininess'
+
+[[sphere]]
+center = [0.14, 'height - 0.7', -0.14]
+material = "diffuse"
+radius = 0.1
+albedo = 'albedo'
+specular = 0.5
+shininess = 'shininess'
+
+[[sphere]]
+center = [-0.14, 'height - 0.7', -0.14]
+material = "diffuse"
+radius = 0.1
+albedo = 'albedo'
+specular = 0.5
+shininess = 'shininess'
+
+[[sphere]] # glass orb
+albedo = [0.95, 0.92, 0.85]
+center = [0.0, 'orb_y', 0.0]
+ior = 1.5
+material = "glass"
+radius = 'orb_radius'
+reflect = 0.2
+two_pane = true
+rough = 0.02
+transmit = 0.9
+specular = 0.5
+shininess = 150
+
+[[sphere]] # filament (warm emitter inside the orb)
+albedo = [9.0, 5.4, 2.2]
+center = [0.0, 'orb_y', 0.0]
+material = "emit"
+radius = 0.08
+
+[[light]]
+brightness = 'brightness'
+color = [2,1.2,1]
+pos = [0.0, 'orb_y', 0.0]
+radius = 0.5
+range = 'range'

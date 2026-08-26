@@ -70,6 +70,8 @@ type Renderer struct {
 	samples   *wgpu.Buffer
 	terrFeat  *wgpu.Buffer
 	terrPads  *wgpu.Buffer
+	terrZones *wgpu.Buffer
+	terrZVerts *wgpu.Buffer
 	terrMips  *wgpu.Buffer
 	waters    *wgpu.Buffer
 	perm      *wgpu.Buffer
@@ -289,6 +291,22 @@ func (r *Renderer) init() error {
 	})
 	if err != nil {
 		return fmt.Errorf("create terrain pads buffer: %w", err)
+	}
+	r.terrZones, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "terrain zones",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  maxTerrainZones * terrainZoneStride,
+	})
+	if err != nil {
+		return fmt.Errorf("create terrain zones buffer: %w", err)
+	}
+	r.terrZVerts, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "terrain zone verts",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  maxTerrainZoneVerts * terrainZoneVertStride,
+	})
+	if err != nil {
+		return fmt.Errorf("create terrain zone verts buffer: %w", err)
 	}
 	r.terrMips, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "terrain mip pyramid",
@@ -528,6 +546,8 @@ func (r *Renderer) init() error {
 			{Binding: 23, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 8}},
 			{Binding: 24, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: hdrPixStride}},
 			{Binding: 25, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: aaHitStride}},
+			{Binding: 26, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainZoneStride}},
+			{Binding: 27, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainZoneVertStride}},
 		},
 	})
 	if err != nil {
@@ -579,6 +599,8 @@ func (r *Renderer) init() error {
 			{Binding: 23, Buffer: r.terrMips, Size: maxTerrainMipVals * 8},
 			{Binding: 24, Buffer: r.hdrPixels, Size: hdrSize},
 			{Binding: 25, Buffer: r.aaHits, Size: uint64(r.maxDim * r.maxDim * aaHitStride)},
+			{Binding: 26, Buffer: r.terrZones, Size: maxTerrainZones * terrainZoneStride},
+			{Binding: 27, Buffer: r.terrZVerts, Size: maxTerrainZoneVerts * terrainZoneVertStride},
 		},
 	})
 	if err != nil {
@@ -717,6 +739,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		blockerInstCount: c.blockerInstCount,
 	terrains: c.terrains, samples: c.samples,
 		terrainFeatures: c.terrainFeatures, terrainPads: c.terrainPads,
+		terrainZones: c.terrainZones, terrainZoneVerts: c.terrainZoneVerts,
 		terrainMips: c.terrainMips,
 		waters: c.waters,
 		campfireParams: c.campfireParams, holes: c.holes, boxFaceTex: c.boxFaceTex, ao: c.ao, aoOK: c.aoOK && aoEnabled,
@@ -861,6 +884,8 @@ type renderParams struct {
 	samples          []float32
 	terrainFeatures  []GPUTerrainFeature
 	terrainPads      []GPUTerrainPad
+	terrainZones     []GPUTerrainZone
+	terrainZoneVerts []GPUTerrainZoneVert
 	terrainMips      []float32
 	waters           []GPUWater
 	campfireParams   []CampfireParams
@@ -954,6 +979,16 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 		}
 		if len(p.terrainPads) > 0 {
 			if err := r.queue.WriteBuffer(r.terrPads, 0, terrainPadBytes(p.terrainPads)); err != nil {
+				return err
+			}
+		}
+		if len(p.terrainZones) > 0 {
+			if err := r.queue.WriteBuffer(r.terrZones, 0, terrainZoneBytes(p.terrainZones)); err != nil {
+				return err
+			}
+		}
+		if len(p.terrainZoneVerts) > 0 {
+			if err := r.queue.WriteBuffer(r.terrZVerts, 0, terrainZoneVertBytes(p.terrainZoneVerts)); err != nil {
 				return err
 			}
 		}
@@ -1493,6 +1528,12 @@ func (r *Renderer) Release() {
 	}
 	if r.terrPads != nil {
 		r.terrPads.Release()
+	}
+	if r.terrZones != nil {
+		r.terrZones.Release()
+	}
+	if r.terrZVerts != nil {
+		r.terrZVerts.Release()
 	}
 	if r.terrMips != nil {
 		r.terrMips.Release()

@@ -25,8 +25,8 @@ type Surface struct {
 	// already reflective/refractive (mirror, metal, glass, emit).
 	Reflect float64
 	// Specular (0..1) adds Blinn–Phong highlights from point lights on diffuse/checker
-	// surfaces. Shininess is the Phong exponent (typical 8–128); defaults to 32 when
-	// Specular > 0 and Shininess is omitted/zero. Ignored by mirror/metal/glass/emit.
+	// and glass surfaces. Shininess is the Phong exponent (typical 8–128); defaults to 32 when
+	// Specular > 0 and Shininess is omitted/zero. Ignored by mirror/metal/emit.
 	Specular  float64
 	Shininess float64
 	// Transmit (0..1) is the glass transparency: 0 is opaque, 1 is fully

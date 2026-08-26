@@ -10,9 +10,7 @@ import (
 
 type screenDTO struct {
 	ID         string   `toml:"id"`
-	PosX       float64  `toml:"pos_x"`
-	PosY       float64  `toml:"pos_y"`
-	PosZ       float64  `toml:"pos_z"`
+	placementDTO
 	Width      float64  `toml:"width"`
 	Height     float64  `toml:"height"`
 	Depth      float64  `toml:"depth"`
@@ -60,7 +58,11 @@ func (d screenDTO) build(parentDir string, slot int) (scene.ScreenSpec, error) {
 	}
 	paras := texture.NormalizeLines(d.Paragraphs)
 
-	pos := vec.New(d.PosX, d.PosY, d.PosZ)
+	px, py, pz, err := d.placementDTO.corner(w, h, dep)
+	if err != nil {
+		return scene.ScreenSpec{}, err
+	}
+	pos := vec.New(px, py, pz)
 	rest := scene.DocumentRestTransform(pos, w, h, dep, d.RotateX, d.RotateY, d.RotateZ, nil)
 	hint := d.Hint
 	if hint == "" {
@@ -88,9 +90,9 @@ func (d screenDTO) build(parentDir string, slot int) (scene.ScreenSpec, error) {
 
 	return scene.ScreenSpec{
 		ID:         id,
-		PosX:       d.PosX,
-		PosY:       d.PosY,
-		PosZ:       d.PosZ,
+		PosX:       px,
+		PosY:       py,
+		PosZ:       pz,
 		Width:      w,
 		Height:     h,
 		Depth:      dep,

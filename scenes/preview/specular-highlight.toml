@@ -50,6 +50,15 @@ albedo = [0.22, 0.22, 0.25]
 specular = 0.5
 shininess = 64
 
+[[sphere]]
+center = [0.0, 1.35, -0.55]
+radius = 0.32
+material = "glass"
+albedo = [0.92, 0.96, 1.0]
+transmit = 0.92
+specular = 0.85
+shininess = 96
+
 [[light]]
 pos = [1.8, 3.8, 2.2]
 color = [3.2, 2.8, 2.4]

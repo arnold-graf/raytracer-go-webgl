@@ -203,6 +203,7 @@ func mergeTerrainFromDTO(dst *scene.Scene, dto sceneDTO, xf *scene.Transform) er
 func mergeTerrainFromScene(dst, sub *scene.Scene, xf *scene.Transform) {
 	var pads []scene.TerrainPad
 	var features []scene.TerrainFeature
+	var zones []scene.TerrainZone
 	for i := range sub.Terrains {
 		yaw := xf.YawRad()
 		for _, p := range sub.Terrains[i].Pads {
@@ -221,9 +222,20 @@ func mergeTerrainFromScene(dst, sub *scene.Scene, xf *scene.Transform) {
 			}
 			features = append(features, f)
 		}
+		for _, z := range sub.Terrains[i].Zones {
+			if xf != nil {
+				for j := range z.Vertices {
+					w := xf.ToWorld(vec.New(z.Vertices[j].X, 0, z.Vertices[j].Z))
+					z.Vertices[j].X, z.Vertices[j].Z = w.X, w.Z
+				}
+				z.Angle += yaw
+			}
+			zones = append(zones, z)
+		}
 	}
 	addTerrainPads(dst, pads)
 	addTerrainFeatures(dst, features)
+	addTerrainZones(dst, zones)
 }
 
 // mergeInstancingCatalog appends sub's instancing templates/placements into dst,

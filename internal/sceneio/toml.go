@@ -126,7 +126,8 @@ type planeDTO struct {
 
 // holeDTO is a rectangular opening subtracted from a box (see scene.AABB). It
 // is authored as a [[box.hole]] sub-table and should pierce fully through the
-// faces it cuts. Define with pos_x/pos_y/pos_z and width/height/depth.
+// faces it cuts. Define with pos_x/pos_y/pos_z or center_x/center_y/center_z and
+// width/height/depth.
 type holeDTO struct {
 	boxExtentDTO
 }
@@ -140,12 +141,11 @@ type boxDTO struct {
 	interactPropsDTO
 }
 
-// boxExtentDTO defines a box by minimum corner (pos_x, pos_y, pos_z) and
-// positive extents (width, height, depth) along +X, +Y, +Z.
+// boxExtentDTO defines a box by minimum corner (pos_x, pos_y, pos_z) or geometric
+// center (center_x, center_y, center_z), plus positive extents (width, height,
+// depth) along +X, +Y, +Z. Per axis, use pos_* or center_*, not both.
 type boxExtentDTO struct {
-	PosX   float64 `toml:"pos_x"`
-	PosY   float64 `toml:"pos_y"`
-	PosZ   float64 `toml:"pos_z"`
+	placementDTO
 	Width  float64 `toml:"width"`
 	Height float64 `toml:"height"`
 	Depth  float64 `toml:"depth"`
@@ -158,9 +158,13 @@ func (d boxExtentDTO) bounds() (min, max vec.V, err error) {
 	if w <= 0 || h <= 0 || dep <= 0 {
 		return vec.V{}, vec.V{}, fmt.Errorf("width, height, and depth must be positive")
 	}
+	px, py, pz, err := d.placementDTO.corner(w, h, dep)
+	if err != nil {
+		return vec.V{}, vec.V{}, err
+	}
 	return normalizeBounds(
-		vec.New(d.PosX, d.PosY, d.PosZ),
-		vec.New(d.PosX+w, d.PosY+h, d.PosZ+dep),
+		vec.New(px, py, pz),
+		vec.New(px+w, py+h, pz+dep),
 	)
 }
 
@@ -191,9 +195,7 @@ func snapBounds(min, max vec.V) (vec.V, vec.V) {
 }
 
 type cylinderDTO struct {
-	PosX        float64 `toml:"pos_x"`
-	PosY        float64 `toml:"pos_y"`
-	PosZ        float64 `toml:"pos_z"`
+	placementDTO
 	Width       float64 `toml:"width"`        // uniform diameter when not tapered
 	Height      float64 `toml:"height"`
 	WidthBottom float64 `toml:"width_bottom"` // bottom diameter (defaults to width)
@@ -204,9 +206,9 @@ type cylinderDTO struct {
 	surfaceDTO
 }
 
-// specs resolves the engine cylinder from box-style placement fields. pos_* is
-// the minimum corner of the footprint square (side = max(bottom, top) diameter);
-// the cylinder axis runs through the center of that square.
+// specs resolves the engine cylinder from box-style placement fields. pos_* or
+// center_* place the footprint square (side = max(bottom, top) diameter); the
+// cylinder axis runs through the center of that square.
 func (d cylinderDTO) specs() (cx, cz, ymin, ymax, radius, radiusTop float64, err error) {
 	bottomD := d.WidthBottom
 	if bottomD == 0 {
@@ -226,10 +228,14 @@ func (d cylinderDTO) specs() (cx, cz, ymin, ymax, radius, radiusTop float64, err
 	if topD > foot {
 		foot = topD
 	}
-	cx = d.PosX + foot/2
-	cz = d.PosZ + foot/2
-	ymin = d.PosY
-	ymax = d.PosY + d.Height
+	px, py, pz, err := d.placementDTO.corner(foot, d.Height, foot)
+	if err != nil {
+		return 0, 0, 0, 0, 0, 0, err
+	}
+	cx = px + foot/2
+	cz = pz + foot/2
+	ymin = py
+	ymax = py + d.Height
 	radius = bottomD / 2
 	radiusTop = topD / 2
 	if math.Abs(topD-bottomD) < 1e-12 {
@@ -239,9 +245,7 @@ func (d cylinderDTO) specs() (cx, cz, ymin, ymax, radius, radiusTop float64, err
 }
 
 type coneDTO struct {
-	PosX   float64 `toml:"pos_x"`
-	PosY   float64 `toml:"pos_y"`
-	PosZ   float64 `toml:"pos_z"`
+	placementDTO
 	Width  float64 `toml:"width"`
 	Height float64 `toml:"height"`
 	Capped *bool   `toml:"capped"`
@@ -249,8 +253,8 @@ type coneDTO struct {
 	surfaceDTO
 }
 
-// specs resolves the engine cone from box-style placement fields. pos_* is the
-// minimum corner of the base footprint square (side = width); the cone axis runs
+// specs resolves the engine cone from box-style placement fields. pos_* or
+// center_* place the base footprint square (side = width); the cone axis runs
 // through the center of that square. width is the base diameter; height spans
 // base to tip.
 func (d coneDTO) specs() (cx, cz, ybase, ytip, rbase float64, err error) {
@@ -260,10 +264,14 @@ func (d coneDTO) specs() (cx, cz, ybase, ytip, rbase float64, err error) {
 	if d.Height <= 0 {
 		return 0, 0, 0, 0, 0, fmt.Errorf("height must be positive")
 	}
-	cx = d.PosX + d.Width/2
-	cz = d.PosZ + d.Width/2
-	ybase = d.PosY
-	ytip = d.PosY + d.Height
+	px, py, pz, err := d.placementDTO.corner(d.Width, d.Height, d.Width)
+	if err != nil {
+		return 0, 0, 0, 0, 0, err
+	}
+	cx = px + d.Width/2
+	cz = pz + d.Width/2
+	ybase = py
+	ytip = py + d.Height
 	rbase = d.Width / 2
 	return cx, cz, ybase, ytip, rbase, nil
 }
@@ -502,6 +510,7 @@ type terrainDTO struct {
 	Island  *terrainIslandDTO   `toml:"island"`
 	Feature []terrainFeatureDTO `toml:"feature"`
 	Pad     []terrainPadDTO     `toml:"pad"`
+	Zone    []terrainZoneDTO    `toml:"zone"`
 }
 
 // terrainPadDTO flattens a building site into the terrain. center/half are the
@@ -521,6 +530,127 @@ func (p terrainPadDTO) buildPad() scene.TerrainPad {
 		HalfX: p.Half[0], HalfZ: p.Half[1],
 		Level: p.Level, Margin: p.Margin, Absolute: p.Absolute,
 	}
+}
+
+// terrainZoneDTO marks a convex cobble/stone polygon on the terrain.
+// Author the outline in one of three ways (first match wins):
+//   - vertex: explicit [x, z] corners in world space, CCW when viewed from above
+//   - center + half: axis-aligned or rotated rectangle (like [[terrain.pad]])
+//   - path + width: road strip along a centerline polyline
+type terrainZoneDTO struct {
+	Texture   string       `toml:"texture"`
+	FadeTo    string       `toml:"fade_to"`
+	FadeWidth float64      `toml:"fade_width"`
+	TextureScale float64   `toml:"texture_scale"`
+	Angle     float64      `toml:"angle"`
+	Bump      float64      `toml:"bump"`
+	Albedo    vec3         `toml:"albedo"`
+	Rough     float64      `toml:"rough"`
+	Reflect   float64      `toml:"reflect"`
+	Specular  float64      `toml:"specular"`
+	Shininess float64      `toml:"shininess"`
+	Center    [2]float64   `toml:"center"`
+	Half      [2]float64   `toml:"half"`
+	Width     float64      `toml:"width"`
+	Path      [][2]float64 `toml:"path"`
+	Vertex    [][2]float64 `toml:"vertex"`
+}
+
+func (z terrainZoneDTO) zoneVertices() ([]vec.V, error) {
+	if len(z.Vertex) >= 3 {
+		verts := make([]vec.V, len(z.Vertex))
+		for i, v := range z.Vertex {
+			verts[i] = vec.V{X: v[0], Z: v[1]}
+		}
+		return verts, nil
+	}
+	if z.Half[0] > 0 && z.Half[1] > 0 {
+		return scene.ZoneRectVertices(z.Center, z.Half, z.Angle*math.Pi/180), nil
+	}
+	return nil, fmt.Errorf("terrain.zone needs vertex (≥3), or center+half, or path (≥2)+width")
+}
+
+func (z terrainZoneDTO) buildZones() ([]scene.TerrainZone, error) {
+	if len(z.Path) >= 2 && len(z.Vertex) < 3 && !(z.Half[0] > 0 && z.Half[1] > 0) {
+		if z.Width <= 0 {
+			return nil, fmt.Errorf("terrain.zone width must be > 0")
+		}
+		out := make([]scene.TerrainZone, 0, len(z.Path)-1)
+		for i := 0; i < len(z.Path)-1; i++ {
+			seg := [][2]float64{z.Path[i], z.Path[i+1]}
+			verts, err := scene.ZonePathVertices(seg, z.Width)
+			if err != nil {
+				return nil, err
+			}
+			zone, err := z.buildZoneFromVerts(verts)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, zone)
+		}
+		return out, nil
+	}
+	verts, err := z.zoneVertices()
+	if err != nil {
+		return nil, err
+	}
+	zone, err := z.buildZoneFromVerts(verts)
+	if err != nil {
+		return nil, err
+	}
+	return []scene.TerrainZone{zone}, nil
+}
+
+func (z terrainZoneDTO) buildZoneFromVerts(verts []vec.V) (scene.TerrainZone, error) {
+	if len(verts) < 3 {
+		return scene.TerrainZone{}, fmt.Errorf("terrain.zone needs at least 3 vertices")
+	}
+	texName := z.Texture
+	if texName == "" {
+		texName = "stone_wall"
+	}
+	texID, _, _, err := texture.Parse(texName)
+	if err != nil {
+		return scene.TerrainZone{}, err
+	}
+	fade := scene.TerrainZoneFadeGrass
+	switch z.FadeTo {
+	case "", "grass":
+	case "dirt", "mud":
+		fade = scene.TerrainZoneFadeDirt
+	default:
+		return scene.TerrainZone{}, fmt.Errorf("terrain.zone fade_to %q: want grass or dirt", z.FadeTo)
+	}
+	textureScale := z.TextureScale
+	if textureScale <= 0 {
+		textureScale = 0.34
+	}
+	fadeW := z.FadeWidth
+	if fadeW <= 0 {
+		fadeW = 2
+	}
+	return scene.TerrainZone{
+		Vertices:  verts,
+		Texture:   texID,
+		FadeTo:    fade,
+		FadeWidth: fadeW,
+		TextureScale: textureScale,
+		Angle:     z.Angle * math.Pi / 180,
+		Bump:      z.Bump,
+		Albedo:    tintOrWhite(z.Albedo),
+		Rough:     z.Rough,
+		Reflect:   z.Reflect,
+		Specular:  z.Specular,
+		Shininess: z.Shininess,
+	}, nil
+}
+
+func (z terrainZoneDTO) buildZone() (scene.TerrainZone, error) {
+	zones, err := z.buildZones()
+	if err != nil {
+		return scene.TerrainZone{}, err
+	}
+	return zones[0], nil
 }
 
 type cameraDTO struct {
@@ -1305,6 +1435,16 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 	mergeScreenSpecs(dst, sub, xf)
 }
 
+// addTerrainZones appends surface zones to every terrain in dst.
+func addTerrainZones(dst *scene.Scene, zones []scene.TerrainZone) {
+	if len(zones) == 0 || len(dst.Terrains) == 0 {
+		return
+	}
+	for i := range dst.Terrains {
+		dst.Terrains[i].Zones = append(dst.Terrains[i].Zones, zones...)
+	}
+}
+
 // addTerrainPads appends pads to every terrain in dst and re-Prepares the
 // affected height fields. Pads on a scene with no terrain are dropped (an
 // object may be included in a scene that has no ground).
@@ -1424,6 +1564,13 @@ func (d terrainDTO) build() (scene.Terrain, error) {
 	}
 	for _, p := range d.Pad {
 		ter.Pads = append(ter.Pads, p.buildPad())
+	}
+	for _, z := range d.Zone {
+		zones, err := z.buildZones()
+		if err != nil {
+			return scene.Terrain{}, err
+		}
+		ter.Zones = append(ter.Zones, zones...)
 	}
 	if d.Island != nil {
 		ter.Island = scene.TerrainIsland{

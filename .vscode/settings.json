@@ -10,5 +10,6 @@
   "[wesl]": {
     "editor.defaultFormatter": "wgsl-analyzer.wgsl-analyzer"
   },
-  "makefile.configureOnOpen": true
+  "makefile.configureOnOpen": true,
+  "cmake.sourceDirectory": "/Users/arnoldgraf/dev/ray-tracer/third_party/JoltPhysics/Build"
 }

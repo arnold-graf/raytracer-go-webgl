@@ -200,7 +200,7 @@ func TestPackTerrainAndWater(t *testing.T) {
 		Waters: []scene.WaterPool{{CX: 1, CZ: 2, Radius: 3, Level: 0.4,
 			Surface: scene.Surface{Mat: scene.MatMirror, Albedo: vec.New(0.2, 0.3, 0.4), Reflect: 0.8}}},
 	}
-	terrains, samples, _, _, _ := PackTerrains(sc)
+	terrains, samples, _, _, _, _, _ := PackTerrains(sc)
 	if len(terrains) != 1 || len(samples) == 0 {
 		t.Fatalf("terrain pack failed: terrains=%d samples=%d", len(terrains), len(samples))
 	}

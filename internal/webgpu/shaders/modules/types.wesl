@@ -152,8 +152,21 @@ struct Terrain {
     island0: vec4<f32>,    // centerX, centerZ, radius, margin
     island1: vec4<f32>,    // floor, nearEnd, hybrid (1/0), _
     offsets: vec4<u32>,    // featureBase, padBase, featureCount, padCount
+    zones: vec4<u32>,      // zoneBase, zoneCount, _, _
     mip: vec4<u32>,        // mipBase (vec2 index), l0nx, l0nz, levelCount
     coarse: vec4<f32>,     // cwx, cwz, cInvDx, cInvDz
+};
+
+struct TerrainZone {
+    info: vec4<u32>,    // vertBase, vertCount, texture, fadeTo
+    params: vec4<f32>,  // fadeWidth, scale, angle, bump
+    albedo: vec4<f32>,
+    bounds: vec4<f32>,  // minX, minZ, maxX, maxZ
+    surf: vec4<f32>,    // rough, reflect, specular, shininess
+};
+
+struct TerrainZoneVert {
+    pos: vec4<f32>, // x, z, _, _
 };
 
 struct TerrainFeature {
@@ -233,6 +246,12 @@ var<storage, read> terrain_pads: array<TerrainPad>;
 
 @group(0) @binding(23)
 var<storage, read> terrain_mip: array<vec2<f32>>;
+
+@group(0) @binding(26)
+var<storage, read> terrain_zones: array<TerrainZone>;
+
+@group(0) @binding(27)
+var<storage, read> terrain_zone_verts: array<TerrainZoneVert>;
 
 // Adaptive AA pass-1 scratch: linear HDR color and the primary-ray hit fingerprint.
 @group(0) @binding(24)

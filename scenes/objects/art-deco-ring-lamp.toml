@@ -64,6 +64,8 @@ height = 'ring_height'
 albedo = 'copper'
 material = "diffuse"
 reflect = 0.7
+specular = 2
+shininess = 50
 # endfor
 
 [[sphere]] # filament (warm emitter inside the shade)

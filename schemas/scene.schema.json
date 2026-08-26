@@ -325,7 +325,7 @@
           "$ref": "#/definitions/number_or_expr"
         }
       ],
-      "description": "Blinn–Phong highlight strength from point lights on diffuse/checker surfaces (0..1 typical). Ignored by mirror/metal/glass/emit."
+      "description": "Blinn–Phong highlight strength from point lights on diffuse/checker/glass surfaces (0..1 typical). Ignored by mirror/metal/emit."
     },
     "surface_shininess": {
       "allOf": [
@@ -429,21 +429,154 @@
       },
       "additionalProperties": true
     },
-    "box_extent_pos_size": {
+    "placement_pos_center": {
       "type": "object",
-      "description": "Box defined by one corner (pos_*) and positive extents along +X, +Y, +Z.",
+      "description": "Per-axis placement for extent-based primitives. pos_* is the minimum corner (or anchor); center_* is the geometric center. On each axis use at most one; axes may be mixed. Omitted axes default to 0.",
       "properties": {
         "pos_x": {
           "$ref": "#/definitions/number_or_expr",
           "description": "Minimum X corner."
         },
+        "center_x": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Geometric center X."
+        },
         "pos_y": {
           "$ref": "#/definitions/number_or_expr",
           "description": "Minimum Y corner."
         },
+        "center_y": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Geometric center Y."
+        },
         "pos_z": {
           "$ref": "#/definitions/number_or_expr",
           "description": "Minimum Z corner."
+        },
+        "center_z": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Geometric center Z."
+        }
+      }
+    },
+    "placement_axis_exclusive": {
+      "type": "object",
+      "description": "Per-axis exclusivity: pos_* and center_* cannot both be set on the same axis.",
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "pos_x"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "center_x"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "center_x"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "pos_x"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "pos_y"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "center_y"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "center_y"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "pos_y"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "pos_z"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "center_z"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "center_z"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "pos_z"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "box_extent_pos_size": {
+      "type": "object",
+      "description": "Box defined by one corner (pos_*) or geometric center (center_*) per axis, plus positive extents along +X, +Y, +Z.",
+      "properties": {
+        "pos_x": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Minimum X corner."
+        },
+        "center_x": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Geometric center X."
+        },
+        "pos_y": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Minimum Y corner."
+        },
+        "center_y": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Geometric center Y."
+        },
+        "pos_z": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Minimum Z corner."
+        },
+        "center_z": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Geometric center Z."
         },
         "width": {
           "$ref": "#/definitions/number_or_expr",
@@ -462,6 +595,11 @@
         "width",
         "height",
         "depth"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/definitions/placement_axis_exclusive"
+        }
       ],
       "additionalProperties": false
     },
@@ -537,13 +675,25 @@
               "$ref": "#/definitions/number_or_expr",
               "description": "Minimum X corner."
             },
+            "center_x": {
+              "$ref": "#/definitions/number_or_expr",
+              "description": "Geometric center X."
+            },
             "pos_y": {
               "$ref": "#/definitions/number_or_expr",
               "description": "Minimum Y corner."
             },
+            "center_y": {
+              "$ref": "#/definitions/number_or_expr",
+              "description": "Geometric center Y."
+            },
             "pos_z": {
               "$ref": "#/definitions/number_or_expr",
               "description": "Minimum Z corner."
+            },
+            "center_z": {
+              "$ref": "#/definitions/number_or_expr",
+              "description": "Geometric center Z."
             },
             "width": {
               "$ref": "#/definitions/number_or_expr",
@@ -591,6 +741,9 @@
           "additionalProperties": true
         },
         {
+          "$ref": "#/definitions/placement_axis_exclusive"
+        },
+        {
           "$ref": "#/definitions/primitive_transform"
         },
         {
@@ -610,13 +763,25 @@
               "$ref": "#/definitions/number_or_expr",
               "description": "Minimum X corner of the footprint square (like [[box]] pos_x)."
             },
+            "center_x": {
+              "$ref": "#/definitions/number_or_expr",
+              "description": "Footprint center X."
+            },
             "pos_y": {
               "$ref": "#/definitions/number_or_expr",
               "description": "Bottom Y (minimum height)."
             },
+            "center_y": {
+              "$ref": "#/definitions/number_or_expr",
+              "description": "Vertical center Y."
+            },
             "pos_z": {
               "$ref": "#/definitions/number_or_expr",
               "description": "Minimum Z corner of the footprint square."
+            },
+            "center_z": {
+              "$ref": "#/definitions/number_or_expr",
+              "description": "Footprint center Z."
             },
             "width": {
               "$ref": "#/definitions/number_or_expr",
@@ -644,12 +809,12 @@
             }
           },
           "required": [
-            "pos_x",
-            "pos_y",
-            "pos_z",
             "height"
           ],
           "additionalProperties": true
+        },
+        {
+          "$ref": "#/definitions/placement_axis_exclusive"
         },
         {
           "$ref": "#/definitions/primitive_transform"
@@ -668,13 +833,25 @@
               "$ref": "#/definitions/number_or_expr",
               "description": "Minimum X corner of the base footprint square."
             },
+            "center_x": {
+              "$ref": "#/definitions/number_or_expr",
+              "description": "Base footprint center X."
+            },
             "pos_y": {
               "$ref": "#/definitions/number_or_expr",
               "description": "Y of the wide base."
             },
+            "center_y": {
+              "$ref": "#/definitions/number_or_expr",
+              "description": "Vertical center Y."
+            },
             "pos_z": {
               "$ref": "#/definitions/number_or_expr",
               "description": "Minimum Z corner of the base footprint square."
+            },
+            "center_z": {
+              "$ref": "#/definitions/number_or_expr",
+              "description": "Base footprint center Z."
             },
             "width": {
               "$ref": "#/definitions/number_or_expr",
@@ -694,6 +871,9 @@
             "height"
           ],
           "additionalProperties": true
+        },
+        {
+          "$ref": "#/definitions/placement_axis_exclusive"
         },
         {
           "$ref": "#/definitions/primitive_transform"
@@ -931,6 +1111,91 @@
       ],
       "additionalProperties": false
     },
+    "terrain_zone": {
+      "type": "object",
+      "description": "TOML [[terrain.zone]] nested under [[terrain]]. Convex polygon in XZ with a procedural cobble/stone surface that fades to grass or dirt at the edges. Outline via vertex (≥3 corners), center+half (rectangle, like terrain.pad), or path+width (road strip).",
+      "properties": {
+        "texture": {
+          "type": "string",
+          "description": "Procedural texture id (default stone_wall)."
+        },
+        "fade_to": {
+          "type": "string",
+          "enum": [
+            "grass",
+            "dirt",
+            "mud"
+          ],
+          "description": "Surrounding material outside the fade band. Defaults to grass."
+        },
+        "fade_width": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Blend width in meters outside the polygon edge. Defaults to 2."
+        },
+        "texture_scale": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Average stone size in world meters (Voronoi cell spacing). Defaults to 0.34."
+        },
+        "angle": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Rotation of the texture in degrees about Y."
+        },
+        "bump": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Normal-map bump strength (0 uses renderer default)."
+        },
+        "albedo": {
+          "$ref": "#/definitions/vec3",
+          "description": "Tint multiplier on the zone texture."
+        },
+        "rough": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Reflection jitter for secondary mirror bounces (same as [[box]].rough)."
+        },
+        "reflect": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Secondary mirror bounce strength (same as [[box]].reflect)."
+        },
+        "specular": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Blinn–Phong highlight strength (same as [[box]].specular)."
+        },
+        "shininess": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Highlight exponent (same as [[box]].shininess; 0 uses renderer default)."
+        },
+        "center": {
+          "$ref": "#/definitions/vec2",
+          "description": "Rectangle mode: center [x, z] in world space (use with half)."
+        },
+        "half": {
+          "$ref": "#/definitions/vec2",
+          "description": "Rectangle mode: half-extents [half_x, half_z], like [[terrain.pad]]."
+        },
+        "path": {
+          "type": "array",
+          "description": "Road mode: centerline as [x, z] waypoints (use with width).",
+          "items": {
+            "$ref": "#/definitions/vec2"
+          },
+          "minItems": 2
+        },
+        "width": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Road mode: full width in meters (use with path)."
+        },
+        "vertex": {
+          "type": "array",
+          "description": "Polygon vertices as [x, z] pairs in world space, CCW, convex, at least 3.",
+          "items": {
+            "$ref": "#/definitions/vec2"
+          },
+          "minItems": 3
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
     "terrain": {
       "type": "object",
       "properties": {
@@ -1012,6 +1277,12 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/terrain_pad"
+          }
+        },
+        "zone": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/terrain_zone"
           }
         },
         "island": {
@@ -1604,7 +1875,7 @@
     },
     "document": {
       "type": "object",
-      "description": "TOML [[document]]. A4-style paper with dynamic text rasterized at load time. pos_x/y/z is the anchor corner; after rotation the lowest point rests at pos_y. Text appears on the +Z face (use rotate_x = -90 for a flat desk memo). The runtime document manager spawns a centered thin box and handles read/put-away animation.",
+      "description": "TOML [[document]]. A4-style paper with dynamic text rasterized at load time. pos_x/y/z or center_x/y/z place the paper (corner vs geometric center); after rotation the lowest point rests at the resolved pos_y. Text appears on the +Z face (use rotate_x = -90 for a flat desk memo). The runtime document manager spawns a centered thin box and handles read/put-away animation.",
       "properties": {
         "id": {
           "type": "string",
@@ -1614,13 +1885,25 @@
           "$ref": "#/definitions/number_or_expr",
           "description": "Anchor corner X in the parent/include frame."
         },
+        "center_x": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Geometric center X."
+        },
         "pos_y": {
           "$ref": "#/definitions/number_or_expr",
           "description": "Surface Y the paper rests on after rotation (lowest rotated point)."
         },
+        "center_y": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Geometric center Y."
+        },
         "pos_z": {
           "$ref": "#/definitions/number_or_expr",
           "description": "Anchor corner Z in the parent/include frame."
+        },
+        "center_z": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Geometric center Z."
         },
         "width": {
           "$ref": "#/definitions/number_or_expr",
@@ -1675,10 +1958,10 @@
           "description": "Max camera-to-hit distance for interaction. Default: 1.2."
         }
       },
-      "required": [
-        "pos_x",
-        "pos_y",
-        "pos_z"
+      "allOf": [
+        {
+          "$ref": "#/definitions/placement_axis_exclusive"
+        }
       ],
       "additionalProperties": false
     },
@@ -1691,13 +1974,28 @@
           "description": "Unique screen name. Default: screen_N."
         },
         "pos_x": {
-          "$ref": "#/definitions/number_or_expr"
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Anchor corner X."
+        },
+        "center_x": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Geometric center X."
         },
         "pos_y": {
-          "$ref": "#/definitions/number_or_expr"
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Anchor corner Y."
+        },
+        "center_y": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Geometric center Y."
         },
         "pos_z": {
-          "$ref": "#/definitions/number_or_expr"
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Anchor corner Z."
+        },
+        "center_z": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Geometric center Z."
         },
         "width": {
           "$ref": "#/definitions/number_or_expr",
@@ -1763,10 +2061,10 @@
           "description": "Max camera-to-hit distance for interaction. Default: 1.5."
         }
       },
-      "required": [
-        "pos_x",
-        "pos_y",
-        "pos_z"
+      "allOf": [
+        {
+          "$ref": "#/definitions/placement_axis_exclusive"
+        }
       ],
       "additionalProperties": false
     },

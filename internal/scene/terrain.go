@@ -34,6 +34,32 @@ type TerrainIsland struct {
 	Floor            float64 // height at the outer edge (e.g. seabed)
 }
 
+// TerrainZoneFadeGrass selects the surrounding terrain grass layer when a zone
+// edge fades out; TerrainZoneFadeDirt uses the dirt texture instead.
+const (
+	TerrainZoneFadeGrass = iota
+	TerrainZoneFadeDirt
+)
+
+// TerrainZone is a convex polygon in XZ where a procedural surface (typically
+// stone_wall cobble) is blended over the terrain. Weight is 1 inside the polygon
+// and eases to 0 over FadeWidth outside the boundary. Bump scales normal
+// perturbation from the texture height field (not geometric displacement).
+type TerrainZone struct {
+	Vertices  []vec.V // XZ world positions, CCW, convex, at least 3
+	Texture   int
+	FadeTo    int // TerrainZoneFadeGrass or TerrainZoneFadeDirt
+	FadeWidth float64
+	TextureScale float64 // world units per texture cell (0 → default 0.34)
+	Angle     float64 // rotation in radians
+	Bump      float64 // normal perturbation strength (0 → default)
+	Albedo    vec.V
+	Rough     float64 // reflection jitter (surf.x)
+	Reflect   float64 // secondary mirror bounce strength (surf.z)
+	Specular  float64 // Blinn–Phong highlight strength
+	Shininess float64 // highlight exponent (0 → renderer default)
+}
+
 // TerrainPad flattens a rectangular building site into the height field: inside
 // the inner rectangle (CenterX/Z ± HalfX/Z) the terrain is forced to Level, and
 // over a Margin-wide ring outside it the natural terrain is smoothly blended
@@ -87,6 +113,7 @@ type Terrain struct {
 	DetailScale      float64 // fBm frequency
 	Features         []TerrainFeature
 	Pads             []TerrainPad
+	Zones            []TerrainZone
 	Island           TerrainIsland
 
 	Grass, Rock, Snow          int   // texture ids

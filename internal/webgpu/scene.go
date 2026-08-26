@@ -38,6 +38,8 @@ const (
 	maxTerrainVals     = scene.MaxTerrainGridCells
 	maxTerrainFeatures = 256
 	maxTerrainPads     = 64
+	maxTerrainZones    = 64
+	maxTerrainZoneVerts = 512
 	maxTerrainMipVals  = 1 << 21 // min/max pairs as vec2 (8 bytes each)
 	maxWaters          = 64
 )
@@ -62,7 +64,7 @@ const (
 //	      torus -> (center.xyz, majorR)
 //	GeoB: box -> (max.xyz, _); sphere -> (cut_off,..); cylinder -> (ymax, radius_top,..);
 //	      cone -> (ytip, capped_flag,..); torus -> (minorR,..); unused otherwise
-//	Albedo: linear rgb in xyz; w = specular highlight weight (diffuse/checker)
+//	Albedo: linear rgb in xyz; w = specular highlight weight (diffuse/checker/glass)
 //	Albedo2: checker second color in xyz; w = Blinn–Phong shininess exponent
 //	Params: (rough, ior, reflect, transmit)
 //	Meta: (kind, material, texture, flags); bit0 = transformed, bit1 = thin glass
@@ -139,11 +141,12 @@ type GPUTerrain struct {
 	Island0  [4]float32 // centerX, centerZ, radius, margin
 	Island1  [4]float32 // floor, nearEnd, hybrid (1/0), _
 	Offsets  [4]uint32  // featureBase, padBase, featureCount, padCount
+	Zones    [4]uint32  // zoneBase, zoneCount, _, _
 	Mip      [4]uint32  // mipBase (vec2 index), l0nx, l0nz, levelCount
 	Coarse   [4]float32 // cwx, cwz, cInvDx, cInvDz
 }
 
-const terrainStride = 224
+const terrainStride = 240
 
 // GPUTerrainFeature mirrors a sculpted peak/valley for WGSL heightAnalytic.
 type GPUTerrainFeature struct {
@@ -161,6 +164,24 @@ type GPUTerrainPad struct {
 }
 
 const terrainPadStride = 32
+
+// GPUTerrainZone is a convex surface polygon with procedural texture and fade.
+type GPUTerrainZone struct {
+	Info   [4]uint32  // vertBase, vertCount, texture, fadeTo (0=grass, 1=dirt)
+	Params [4]float32 // fadeWidth, scale, angle, bump
+	Albedo [4]float32
+	Bounds [4]float32 // minX, minZ, maxX, maxZ
+	Surf   [4]float32 // rough, reflect, specular, shininess
+}
+
+const terrainZoneStride = 80
+
+// GPUTerrainZoneVert stores one polygon vertex in XZ.
+type GPUTerrainZoneVert struct {
+	Pos [4]float32 // x, z, _, _
+}
+
+const terrainZoneVertStride = 16
 
 type GPUWater struct {
 	Geom   [4]float32 // cx, cz, radius, level
@@ -488,15 +509,17 @@ func packLight(l *scene.Light) GPULight {
 	return gl
 }
 
-func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature, []GPUTerrainPad, []float32) {
+func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature, []GPUTerrainPad, []float32, []GPUTerrainZone, []GPUTerrainZoneVert) {
 	if s == nil {
-		return nil, nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, nil, nil
 	}
 	terrains := make([]GPUTerrain, 0, len(s.Terrains))
 	samples := make([]float32, 0)
 	mips := make([]float32, 0)
 	features := make([]GPUTerrainFeature, 0)
 	pads := make([]GPUTerrainPad, 0)
+	zones := make([]GPUTerrainZone, 0)
+	zoneVerts := make([]GPUTerrainZoneVert, 0)
 	for i := range s.Terrains {
 		t := &s.Terrains[i]
 		snap := t.CacheSnapshot()
@@ -561,6 +584,55 @@ func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature,
 				Params: [4]float32{f(p.Level), f(p.Margin), f(p.Angle), 0},
 			})
 		}
+		zoneBase := uint32(len(zones))
+		for _, z := range t.Zones {
+			if len(z.Vertices) < 3 {
+				continue
+			}
+			vertBase := uint32(len(zoneVerts))
+			minX, minZ := z.Vertices[0].X, z.Vertices[0].Z
+			maxX, maxZ := minX, minZ
+			for _, v := range z.Vertices {
+				zoneVerts = append(zoneVerts, GPUTerrainZoneVert{
+					Pos: [4]float32{f(v.X), f(v.Z), 0, 0},
+				})
+				if v.X < minX {
+					minX = v.X
+				}
+				if v.X > maxX {
+					maxX = v.X
+				}
+				if v.Z < minZ {
+					minZ = v.Z
+				}
+				if v.Z > maxZ {
+					maxZ = v.Z
+				}
+			}
+			textureScale := z.TextureScale
+			if textureScale <= 0 {
+				textureScale = 0.34
+			}
+			fadeW := z.FadeWidth
+			if fadeW <= 0 {
+				fadeW = 2
+			}
+			fadeTo := uint32(0)
+			if z.FadeTo == scene.TerrainZoneFadeDirt {
+				fadeTo = 1
+			}
+			zones = append(zones, GPUTerrainZone{
+				Info: [4]uint32{vertBase, uint32(len(z.Vertices)), uint32(z.Texture), fadeTo},
+				Params: [4]float32{
+					f(fadeW), f(textureScale), f(z.Angle), f(z.Bump),
+				},
+				Albedo: albedo(z.Albedo),
+				Bounds: [4]float32{
+					f(minX - fadeW), f(minZ - fadeW), f(maxX + fadeW), f(maxZ + fadeW),
+				},
+				Surf: [4]float32{f(z.Rough), f(z.Reflect), f(z.Specular), f(z.Shininess)},
+			})
+		}
 		nearStart, nearEnd := t.HybridNearDistances()
 		isl := t.Island
 		hybrid := float32(0)
@@ -580,16 +652,18 @@ func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature,
 			Island0:  [4]float32{f(isl.CenterX), f(isl.CenterZ), f(isl.Radius), f(isl.Margin)},
 			Island1:  [4]float32{f(isl.Floor), f(nearEnd), hybrid, 0},
 			Offsets:  [4]uint32{featBase, padBase, uint32(len(t.Features)), uint32(len(t.Pads))},
+			Zones:    [4]uint32{zoneBase, uint32(len(zones)) - zoneBase, 0, 0},
 			Mip:      [4]uint32{mipBase, l0nx, l0nz, mipCount},
 			Coarse:   [4]float32{f(cwx), f(cwz), f(cInvDx), f(cInvDz)},
 		})
 		if len(terrains) >= maxTerrains || len(samples)/4 >= maxTerrainVals ||
 			len(features) > maxTerrainFeatures || len(pads) > maxTerrainPads ||
+			len(zones) > maxTerrainZones || len(zoneVerts) > maxTerrainZoneVerts ||
 			len(mips)/2 > maxTerrainMipVals {
 			break
 		}
 	}
-	return terrains, samples, features, pads, mips
+	return terrains, samples, features, pads, mips, zones, zoneVerts
 }
 
 func PackWaters(s *scene.Scene) []GPUWater {
@@ -787,6 +861,20 @@ func terrainPadBytes(pads []GPUTerrainPad) []byte {
 		return nil
 	}
 	return unsafe.Slice((*byte)(unsafe.Pointer(&pads[0])), len(pads)*terrainPadStride)
+}
+
+func terrainZoneBytes(zones []GPUTerrainZone) []byte {
+	if len(zones) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(&zones[0])), len(zones)*terrainZoneStride)
+}
+
+func terrainZoneVertBytes(verts []GPUTerrainZoneVert) []byte {
+	if len(verts) == 0 {
+		return nil
+	}
+	return unsafe.Slice((*byte)(unsafe.Pointer(&verts[0])), len(verts)*terrainZoneVertStride)
 }
 
 func floatBytes(values []float32) []byte {
