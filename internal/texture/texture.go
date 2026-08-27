@@ -31,6 +31,7 @@ const (
 	StoneWall
 	Paper
 	Tiles
+	Marble2
 )
 
 var byName = map[string]int{
@@ -49,6 +50,7 @@ var byName = map[string]int{
 	"stone_wall":      StoneWall,
 	"paper":           Paper,
 	"tiles":           Tiles,
+	"marble_2":        Marble2,
 }
 
 // ID resolves a texture name to its id. Ok is false for unknown names.
@@ -78,6 +80,8 @@ func EvalWithNormal(id int, p, n, base vec.V) vec.V {
 		return cement(p, base)
 	case Marble:
 		return marble(p, base)
+	case Marble2:
+		return marble2(p, base)
 	case Grass:
 		return grass(p, base)
 	case Dirt:
@@ -255,9 +259,18 @@ func paper(p, tint vec.V) vec.V {
 	return c.Mul(tint)
 }
 
-// marble: domain-warped, multi-orientation veining with patchy density so large
-// surfaces do not read as regular diagonal stripes.
+// marble: classic turbulence-warped sine veining.
 func marble(p, tint vec.V) vec.V {
+	t := turbulence(p.X*1.2, p.Y*1.2, p.Z*1.2, 5)
+	veins := 0.5 + 0.5*math.Sin((p.X+p.Z)*1.5+6.0*t)
+	base := vec.New(0.85, 0.85, 0.88)
+	vein := vec.New(0.18, 0.18, 0.22)
+	return mix(vein, base, math.Pow(veins, 0.6)).Mul(tint)
+}
+
+// marble2: domain-warped, multi-orientation veining with patchy density so large
+// surfaces do not read as regular diagonal stripes.
+func marble2(p, tint vec.V) vec.V {
 	qx := p.X + 1.2*fbm(p.X*0.35, p.Y*0.35, p.Z*0.35, 4)
 	qz := p.Z + 1.2*fbm(p.X*0.35+5.2, p.Y*0.35, p.Z*0.35+1.7, 4)
 

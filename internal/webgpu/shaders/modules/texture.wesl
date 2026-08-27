@@ -2,7 +2,7 @@
 // Procedural materials (wood, brick, wallpaper, grass, …), portal capture
 // textures, and in-world document images. texture_eval() is the main entry.
 
-import package::types::{DOCUMENT_TEX_H, DOCUMENT_TEX_W, MAT_CHECKER, Prim, TEX_BRICK, TEX_CAPTURE_BASE, TEX_CAPTURE_COUNT, TEX_CEMENT, TEX_DIRT, TEX_DOCUMENT_BASE, TEX_DOCUMENT_COUNT, TEX_GRASS, TEX_MARBLE, TEX_NONE, TEX_PAPER, TEX_SNOW, TEX_STONE, TEX_STONE_WALL, TEX_TILES, TEX_WALLPAPER_GREEN, TEX_WALLPAPER_ROSE, TEX_WOOD, box_face_textures, capture_pixels, document_pixels, params, prims};
+import package::types::{DOCUMENT_TEX_H, DOCUMENT_TEX_W, MAT_CHECKER, Prim, TEX_BRICK, TEX_CAPTURE_BASE, TEX_CAPTURE_COUNT, TEX_CEMENT, TEX_DIRT, TEX_DOCUMENT_BASE, TEX_DOCUMENT_COUNT, TEX_GRASS, TEX_MARBLE, TEX_MARBLE_2, TEX_NONE, TEX_PAPER, TEX_SNOW, TEX_STONE, TEX_STONE_WALL, TEX_TILES, TEX_WALLPAPER_GREEN, TEX_WALLPAPER_ROSE, TEX_WOOD, box_face_textures, capture_pixels, document_pixels, params, prims};
 import package::math::{TEX_PI, cell_rand, fbm, fracf, mix3, perlin, smoothstepf, turbulence};
 
 fn tex_wood(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
@@ -104,6 +104,14 @@ fn tex_paper(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
 }
 
 fn tex_marble(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
+    let t = turbulence(p.x * 1.2, p.y * 1.2, p.z * 1.2, 5u);
+    let veins = 0.5 + 0.5 * sin((p.x + p.z) * 1.5 + 6.0 * t);
+    let base = vec3<f32>(0.85, 0.85, 0.88);
+    let vein = vec3<f32>(0.18, 0.18, 0.22);
+    return mix3(vein, base, pow(veins, 0.6)) * tint;
+}
+
+fn tex_marble_2(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
     let qx = p.x + 1.2 * fbm(p.x * 0.35, p.y * 0.35, p.z * 0.35, 4u);
     let qz = p.z + 1.2 * fbm(p.x * 0.35 + 5.2, p.y * 0.35, p.z * 0.35 + 1.7, 4u);
 
@@ -530,6 +538,7 @@ fn texture_eval(tex: u32, p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f
     if (tex == TEX_STONE) { return tex_stone(p, tint); }
     if (tex == TEX_CEMENT) { return tex_cement(p, tint); }
     if (tex == TEX_MARBLE) { return tex_marble(p, tint); }
+    if (tex == TEX_MARBLE_2) { return tex_marble_2(p, tint); }
     if (tex == TEX_GRASS) { return tex_grass(p, tint); }
     if (tex == TEX_DIRT) { return tex_dirt(p, tint); }
     if (tex == TEX_SNOW) { return tex_snow(p, tint); }

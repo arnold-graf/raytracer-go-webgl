@@ -11,7 +11,7 @@ normal = [0.0, 1.0, 0.0]
 d = 0.0
 material = "diffuse"
 albedo = [1.0, 1.0, 1.0]
-texture = "marble"
+texture = "marble_2"
 reflect = 0.04
 rough = 0.08
 
@@ -24,7 +24,7 @@ height = 0.01
 depth = 16.0
 material = "diffuse"
 albedo = [1.0, 1.0, 1.0]
-texture = "marble"
+texture = "marble_2"
 reflect = 0.04
 rough = 0.08
 
