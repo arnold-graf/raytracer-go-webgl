@@ -1,0 +1,48 @@
+# Preview herringbone parquet_floor with normal-map plank gaps.
+[environment]
+sky = "sunset"
+ambient_sky = [0.22, 0.18, 0.14]
+
+[[light]]
+pos = [3, 4, 2]
+color = [1.1, 1.0, 0.92]
+brightness = 10
+range = 18
+
+[[light]]
+pos = [-2, 2.5, -3]
+color = [0.9, 0.85, 0.75]
+brightness = 4
+range = 14
+
+[[box]]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+width = 5
+height = 0.06
+depth = 5
+material = "diffuse"
+texture = "parquet_floor"
+texture_normal_map = true
+texture_normal_bump = 0.55
+albedo = [0.95, 0.92, 0.88]
+reflect = 0.02
+rough = 0.04
+specular = 0.25
+shininess = 64
+
+[[box]]
+pos_x = 0
+pos_y = -0.01
+pos_z = 0
+width = 7
+depth = 7
+height = 0.02
+material = "diffuse"
+albedo = [0.28, 0.26, 0.24]
+
+[camera]
+pos = [0, 2.2, 3.8]
+yaw = 180
+pitch = -28

@@ -46,18 +46,18 @@ const (
 // and eases to 0 over FadeWidth outside the boundary. Bump scales normal
 // perturbation from the texture height field (not geometric displacement).
 type TerrainZone struct {
-	Vertices  []vec.V // XZ world positions, CCW, convex, at least 3
-	Texture   int
-	FadeTo    int // TerrainZoneFadeGrass or TerrainZoneFadeDirt
-	FadeWidth float64
+	Vertices     []vec.V // XZ world positions, CCW, convex, at least 3
+	Texture      int
+	FadeTo       int // TerrainZoneFadeGrass or TerrainZoneFadeDirt
+	FadeWidth    float64
 	TextureScale float64 // world units per texture cell (0 → default 0.34)
-	Angle     float64 // rotation in radians
-	Bump      float64 // normal perturbation strength (0 → default)
-	Albedo    vec.V
-	Rough     float64 // reflection jitter (surf.x)
-	Reflect   float64 // secondary mirror bounce strength (surf.z)
-	Specular  float64 // Blinn–Phong highlight strength
-	Shininess float64 // highlight exponent (0 → renderer default)
+	Angle        float64 // rotation in radians
+	Bump         float64 // normal perturbation strength (0 → default)
+	Albedo       vec.V
+	Rough        float64 // reflection jitter (surf.x)
+	Reflect      float64 // secondary mirror bounce strength (surf.z)
+	Specular     float64 // Blinn–Phong highlight strength
+	Shininess    float64 // highlight exponent (0 → renderer default)
 }
 
 // TerrainPad flattens a rectangular building site into the height field: inside
@@ -121,8 +121,8 @@ type Terrain struct {
 	SlopeLo, SlopeHi           float64
 	SnowLo, SnowHi             float64
 
-	Step       float64 // base marching step
-	GridCell   float64 // world units per cache cell (0 = auto)
+	Step     float64 // base marching step
+	GridCell float64 // world units per cache cell (0 = auto)
 	// CoarseCell enables hybrid LOD: bake a coarse height grid (no fBm) for the
 	// mid/far field while Height/Normal and the GPU near band evaluate the full
 	// analytic field. 0 keeps the legacy full-detail bake at GridCell.
@@ -1094,7 +1094,7 @@ type WaterPool struct {
 	Level  float64
 	// MaskShoreline clips the water surface over dry land (needed for infinite oceans).
 	MaskShoreline bool
-	Ripple float64
+	Ripple        float64
 	// RippleSpeed drifts the ripple field over time to simulate wind-driven
 	// waves (0 = static). The drift direction is set by RippleDirX/RippleDirZ.
 	RippleSpeed float64

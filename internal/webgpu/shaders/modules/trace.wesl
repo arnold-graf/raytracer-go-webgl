@@ -3,12 +3,12 @@
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
-import package::types::{HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, TEX_TILES, aa_hits, hdr_pixels, params, pixels, prims, waters};
+import package::types::{HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, aa_hits, hdr_pixels, params, pixels, prims, waters};
 import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc};
-import package::math::{clamp01};
-import package::texture::{plane_albedo, texture_eval, texture_eval_box, texture_eval_surface};
+import package::math::{clamp01, surface_grazing_weight};
+import package::texture::{plane_albedo, prim_texture_bump_normal, texture_eval, texture_eval_box, texture_eval_surface};
 import package::sky::{sky};
-import package::intersect::{TILE_SURFACE_BIAS, displaced_normal, thin_glass_exit_t, xf_to_local_dir, xf_to_local_point, xf_to_world_normal};
+import package::intersect::{thin_glass_exit_t, xf_to_local_dir, xf_to_local_point, xf_to_world_normal};
 import package::terrain::{terrain_normal, water_normal};
 import package::terrain_zone::{terrain_zone_shade_normal, terrain_zone_surface};
 import package::flame::{accumulate_flame, heat_shimmer_dir};
@@ -211,29 +211,21 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                 lhp = xf_to_local_point(p, tpl_hp);
             }
             let cone_cap = p.info.x == PRIM_CONE && p.geo_b.y > 0.5 && abs(lhp.y - p.geo_a.w) < 0.02;
-            let tiles_box = p.info.x == PRIM_BOX && p.info.z == TEX_TILES;
+            let to_cam = params.cam_pos.xyz - hp;
             if (cone_cap) {
                 n = cone_cap_normal_world(p, ro, hp);
                 tex_n = normal_at(p, lhp, lrd);
+                let grazing = surface_grazing_weight(n, to_cam);
+                tex_n = prim_texture_bump_normal(p, lhp, tex_n, grazing);
                 tex_p = lhp;
-            } else if (tiles_box) {
-                surf_eps = TILE_SURFACE_BIAS;
-                tex_n = displaced_normal(p, lhp);
-                tex_p = lhp;
-                if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
-                    var ln = xf_to_world_normal(p, tex_n);
-                    if (hit.inst_idx != HIT_NO_INSTANCE) {
-                        ln = inst_world_normal(hit.inst_idx, ln);
-                    }
-                    n = normalize(ln);
-                } else {
-                    n = tex_n;
-                    if (hit.inst_idx != HIT_NO_INSTANCE) {
-                        n = inst_world_normal(hit.inst_idx, n);
-                    }
-                }
             } else if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
                 tex_n = normal_at(p, lhp, lrd);
+                var world_geo_n = xf_to_world_normal(p, tex_n);
+                if (hit.inst_idx != HIT_NO_INSTANCE) {
+                    world_geo_n = inst_world_normal(hit.inst_idx, world_geo_n);
+                }
+                let grazing = surface_grazing_weight(world_geo_n, to_cam);
+                tex_n = prim_texture_bump_normal(p, lhp, tex_n, grazing);
                 var ln = xf_to_world_normal(p, tex_n);
                 if (hit.inst_idx != HIT_NO_INSTANCE) {
                     ln = inst_world_normal(hit.inst_idx, ln);
@@ -242,6 +234,12 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                 tex_p = lhp;
             } else {
                 tex_n = normal_at(p, tpl_hp, lrd);
+                var world_geo_n = tex_n;
+                if (hit.inst_idx != HIT_NO_INSTANCE) {
+                    world_geo_n = inst_world_normal(hit.inst_idx, tex_n);
+                }
+                let grazing = surface_grazing_weight(world_geo_n, to_cam);
+                tex_n = prim_texture_bump_normal(p, lhp, tex_n, grazing);
                 n = tex_n;
                 if (hit.inst_idx != HIT_NO_INSTANCE) {
                     n = inst_world_normal(hit.inst_idx, n);

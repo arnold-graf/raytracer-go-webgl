@@ -225,6 +225,7 @@
         "wallpaper_green",
         "wallpaper_rose",
         "stone_wall",
+        "parquet_floor",
         "paper",
         "tiles",
         "capture_forward",
@@ -390,6 +391,18 @@
         "collision": {
           "type": "boolean",
           "description": "When false, the primitive is ignored by player movement, ground height, and footstep queries. Ray tracing is unaffected. Defaults to true."
+        },
+        "texture_normal_map": {
+          "type": "boolean",
+          "description": "When true, perturbs shading normals from the procedural texture height field (flat cobble for stone_wall, tile relief for tiles, plank gaps for parquet_floor). No geometric displacement. Defaults to false."
+        },
+        "texture_scale": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Pattern size in world meters: stone_wall cell spacing, parquet_floor plank length, or tiles() width with aspect preserved. 0 uses texture defaults."
+        },
+        "texture_normal_bump": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Normal-map strength when texture_normal_map is true (0 uses default 1.0). Lower values reduce dark grooves from lighting; higher values sharpen relief."
         }
       },
       "required": [
@@ -1842,6 +1855,10 @@
           "type": "string",
           "minLength": 1,
           "description": "Path to a TOML file with the moving panel geometry (boxes, cylinders, spheres). For single doors."
+        },
+        "panel_file_props": {
+          "$ref": "#/definitions/meta_table",
+          "description": "Properties merged into the panel file's [props] table. Only these keys are passed; the parent's [props] are not inherited unless referenced via expressions (e.g. width = 'width'). Applies to all panel files on this door (single, sliding, or double)."
         },
         "panel_left_file": {
           "type": "string",

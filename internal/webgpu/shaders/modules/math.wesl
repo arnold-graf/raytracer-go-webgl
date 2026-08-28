@@ -17,6 +17,19 @@ fn smoothstepf(e0: f32, e1: f32, x: f32) -> f32 {
     return t * t * (3.0 - 2.0 * t);
 }
 
+// Grazing-angle fade shared by water ripples and procedural normal maps. At shallow
+// view angles micro-detail aliases into noise; fade it out like water ripples.
+const SURFACE_GRAZING_FADE_START: f32 = 0.12;
+const SURFACE_GRAZING_FADE_END: f32 = 0.42;
+
+fn surface_grazing_weight(surface_n: vec3<f32>, to_camera: vec3<f32>) -> f32 {
+    return smoothstepf(
+        SURFACE_GRAZING_FADE_START,
+        SURFACE_GRAZING_FADE_END,
+        abs(dot(normalize(surface_n), normalize(to_camera))),
+    );
+}
+
 fn fracf(x: f32) -> f32 {
     return x - floor(x);
 }

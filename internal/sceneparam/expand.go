@@ -431,7 +431,7 @@ func substituteLine(line string, env *Env, stateKeys map[string]struct{}) (strin
 		return line, nil
 	}
 	key := strings.TrimSpace(line[:eq])
-	if key == "props" {
+	if isIncludeStylePropsKey(key) {
 		return substitutePropsLine(line, eq, env, stateKeys)
 	}
 	if key == "on_use" {
@@ -450,6 +450,15 @@ func substituteLine(line string, env *Env, stateKeys map[string]struct{}) (strin
 		return "", err
 	}
 	return prefix + " " + replaced, nil
+}
+
+func isIncludeStylePropsKey(key string) bool {
+	switch key {
+	case "props", "panel_file_props":
+		return true
+	default:
+		return false
+	}
 }
 
 func substitutePropsLine(line string, eq int, env *Env, stateKeys map[string]struct{}) (string, error) {

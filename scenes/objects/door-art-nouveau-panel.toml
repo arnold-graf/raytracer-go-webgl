@@ -1,0 +1,115 @@
+# Moving leaf for door-art-nouveau.toml (object-local coords; origin = bottom-left-front of frame).
+
+[props]
+offset_x = 0
+offset_z = 0
+width = 2
+height = 1.925
+depth = 0.08
+material = "diffuse"
+albedo = [0.72, 0.55, 0.38]
+texture = "wood"
+shininess = 50
+specular = 0.5
+knob_y = 1.2
+
+[const]
+beam_width = 0.3
+
+# main panel
+[[box]]
+albedo = 'albedo'
+material = 'material'
+texture = 'texture'
+shininess = 'shininess'
+specular = 'specular'
+pos_x = 'offset_x'
+pos_y = 0.0
+pos_z = 'offset_z'
+width = 'width'
+height = 'height'
+depth = 'depth'
+
+# left
+[[box]]
+albedo = 'albedo'
+material = 'material'
+texture = 'texture'
+shininess = 'shininess'
+specular = 'specular'
+pos_x = 'offset_x'
+pos_y = '0'
+pos_z = 'offset_z - depth / 2'
+width = 'beam_width'
+height = 'height'
+depth = 'depth + 0.05'
+
+# right vertical beam
+[[box]]
+albedo = 'albedo'
+material = 'material'
+texture = 'texture'
+shininess = 'shininess'
+specular = 'specular'
+pos_x = 'offset_x + width - beam_width'
+pos_y = 0
+pos_z = 'offset_z - depth / 2'
+width = 'beam_width'
+height = 'height'
+depth = 'depth + 0.05'
+
+# top
+[[box]]
+albedo = 'albedo'
+material = 'material'
+texture = 'texture'
+shininess = 'shininess'
+specular = 'specular'
+pos_x = 'offset_x'
+pos_y = 'height - beam_width'
+pos_z = 'offset_z - depth / 2'
+width = 'width'
+height = 'beam_width'
+depth = 'depth + 0.05'
+
+# bottom
+[[box]]
+albedo = 'albedo'
+material = 'material'
+texture = 'texture'
+shininess = 'shininess'
+specular = 'specular'
+pos_x = 'offset_x'
+pos_y = 0
+pos_z = 'offset_z - depth / 2'
+width = 'width'
+height = 'beam_width'
+depth = 'depth + 0.05'
+
+# middle
+[[box]]
+albedo = 'albedo'
+material = 'material'
+texture = 'texture'
+shininess = 'shininess'
+specular = 'specular'
+pos_x = 'offset_x'
+pos_y = 'knob_y - beam_width / 2'
+pos_z = 'offset_z - depth / 2'
+width = 'width'
+height = 'beam_width'
+depth = 'depth + 0.05'
+
+# knob 1
+[[sphere]]
+center = ['width + 0.1', 'knob_y', 0.25]
+material = "metal"
+radius = 0.045
+albedo = [1,0.85, 0.5]
+
+# knob 2
+[[sphere]]
+center = ['width + 0.1', 'knob_y', 0.04]
+material = "metal"
+radius = 0.045
+albedo = [1,0.85, 0.5]

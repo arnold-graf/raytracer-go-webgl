@@ -2,7 +2,7 @@
 // Procedural materials (wood, brick, wallpaper, grass, …), portal capture
 // textures, and in-world document images. texture_eval() is the main entry.
 
-import package::types::{DOCUMENT_TEX_H, DOCUMENT_TEX_W, MAT_CHECKER, Prim, TEX_BRICK, TEX_CAPTURE_BASE, TEX_CAPTURE_COUNT, TEX_CEMENT, TEX_DIRT, TEX_DOCUMENT_BASE, TEX_DOCUMENT_COUNT, TEX_GRASS, TEX_MARBLE, TEX_MARBLE_2, TEX_NONE, TEX_PAPER, TEX_SNOW, TEX_STONE, TEX_STONE_WALL, TEX_TILES, TEX_WALLPAPER_GREEN, TEX_WALLPAPER_ROSE, TEX_WOOD, box_face_textures, capture_pixels, document_pixels, params, prims};
+import package::types::{DOCUMENT_TEX_H, DOCUMENT_TEX_W, MAT_CHECKER, PRIM_FLAG_TEXTURE_NORMAL_MAP, Prim, TEX_BRICK, TEX_CAPTURE_BASE, TEX_CAPTURE_COUNT, TEX_CEMENT, TEX_DIRT, TEX_DOCUMENT_BASE, TEX_DOCUMENT_COUNT, TEX_GRASS, TEX_MARBLE, TEX_MARBLE_2, TEX_NONE, TEX_PAPER, TEX_PARQUET_FLOOR, TEX_SNOW, TEX_STONE, TEX_STONE_WALL, TEX_TILES, TEX_WALLPAPER_GREEN, TEX_WALLPAPER_ROSE, TEX_WOOD, box_face_textures, capture_pixels, document_pixels, params, prims};
 import package::math::{TEX_PI, cell_rand, fbm, fracf, mix3, perlin, smoothstepf, turbulence};
 
 fn tex_wood(p: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
@@ -251,10 +251,10 @@ fn stone_wall_palette(i: i32) -> vec3<f32> {
     return pal[idx];
 }
 
-fn tex_stone_wall_2d(p: vec3<f32>, u_in: f32, v_in: f32) -> vec3<f32> {
-    let cell = 0.34;
-    let u = u_in / cell;
-    let v = v_in / cell;
+fn tex_stone_wall_2d(p: vec3<f32>, u_in: f32, v_in: f32, cell: f32) -> vec3<f32> {
+    let cs = max(cell, 1e-4);
+    let u = u_in / cs;
+    let v = v_in / cs;
     let cu = floor(u);
     let cv = floor(v);
     let fu = u - cu;
@@ -411,60 +411,128 @@ fn tex_cobble(p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
     return (x_proj + y_proj + z_proj) / sum * tint;
 }
 
-// stone_wall_height_2d returns 0..1 height for displacement (mortar recessed, stones raised).
-fn stone_wall_height_2d(p: vec3<f32>, u_in: f32, v_in: f32) -> f32 {
-    let cell = 0.34;
-    let u = u_in / cell;
-    let v = v_in / cell;
-    let cu = floor(u);
-    let cv = floor(v);
-    let fu = u - cu;
-    let fv = v - cv;
-
-    var f1 = 1.0e9;
-    var f2 = 1.0e9;
-    var ox = 0.0;
-    var oy = 0.0;
-    for (var j = -1; j <= 1; j = j + 1) {
-        for (var i = -1; i <= 1; i = i + 1) {
-            let cx = cu + f32(i);
-            let cy = cv + f32(j);
-            let px = f32(i) + cell_rand(cx, cy, 11.0);
-            let py = f32(j) + cell_rand(cx, cy, 12.0);
-            let dx = px - fu;
-            let dy = py - fv;
-            let d = sqrt(dx * dx + dy * dy);
-            if (d < f1) {
-                f2 = f1;
-                f1 = d;
-                ox = cx;
-                oy = cy;
-            } else if (d < f2) {
-                f2 = d;
-            }
-        }
-    }
-    let edge = f2 - f1;
-    let mask = smoothstepf(0.02, 0.12, edge);
-    let relief = 1.0 - 0.18 * smoothstepf(0.05, 0.5, f1);
-    return mask * relief;
-}
-
-fn tex_stone_wall(p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f32> {
+fn tex_stone_wall(p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>, cell: f32) -> vec3<f32> {
     var w = abs(n);
     // Sharpen the weights so box-like surfaces stay crisp near edges while still
     // blending smoothly on curved geometry.
     w = w * w * w * w;
     let sum = w.x + w.y + w.z;
     if (sum <= 0.0) {
-        return tex_stone_wall_2d(p, p.x, p.y) * tint;
+        return tex_stone_wall_2d(p, p.x, p.y, cell) * tint;
     }
 
     // Project by dominant normal: Z-facing walls use XY, X-facing walls use ZY,
     // and horizontal surfaces use XZ.
-    let x_proj = tex_stone_wall_2d(p, p.z, p.y) * w.x;
-    let y_proj = tex_stone_wall_2d(p, p.x, p.z) * w.y;
-    let z_proj = tex_stone_wall_2d(p, p.x, p.y) * w.z;
+    let x_proj = tex_stone_wall_2d(p, p.z, p.y, cell) * w.x;
+    let y_proj = tex_stone_wall_2d(p, p.x, p.z, cell) * w.y;
+    let z_proj = tex_stone_wall_2d(p, p.x, p.y, cell) * w.z;
+    return (x_proj + y_proj + z_proj) / sum * tint;
+}
+
+const PARQUET_PLANK_LEN: f32 = 0.40;
+const PARQUET_PLANK_WID: f32 = 0.10;
+const PARQUET_MORTAR: f32 = 0.004;
+const PARQUET_SQRT2_HALF: f32 = 0.7071067811865476;
+
+fn parquet_palette(i: i32) -> vec3<f32> {
+    var pal = array<vec3<f32>, 5>(
+        vec3<f32>(0.58, 0.42, 0.24),
+        vec3<f32>(0.52, 0.38, 0.22),
+        vec3<f32>(0.54, 0.40, 0.26),
+        vec3<f32>(0.48, 0.34, 0.20),
+        vec3<f32>(0.46, 0.32, 0.18),
+    );
+    var idx = i;
+    if (idx < 0) { idx = 0; }
+    if (idx > 4) { idx = 4; }
+    return pal[idx];
+}
+
+// Herringbone plank UVs: 45° rotation + staggered rows (Fischgrät parquet).
+fn parquet_plank_uv(u: f32, v: f32, plank_len: f32, plank_wid: f32) -> vec4<f32> {
+    let ru = (u + v) * PARQUET_SQRT2_HALF;
+    let rv = (-u + v) * PARQUET_SQRT2_HALF;
+    let row = floor(rv / plank_wid);
+    var x = ru;
+    if ((i32(row) & 1) == 1) {
+        x = x + plank_len * 0.5;
+    }
+    let col = floor(x / plank_len);
+    let fu = fract(x / plank_len);
+    let fv = fract(rv / plank_wid);
+    return vec4<f32>(col, row, fu, fv);
+}
+
+fn parquet_plank_mask(fu: f32, fv: f32, plank_len: f32, plank_wid: f32) -> f32 {
+    let mx = PARQUET_MORTAR / plank_len;
+    let my = PARQUET_MORTAR / plank_wid;
+    return smoothstepf(0.0, mx, fu) * smoothstepf(0.0, mx, 1.0 - fu) *
+        smoothstepf(0.0, my, fv) * smoothstepf(0.0, my, 1.0 - fv);
+}
+
+fn parquet_wood_grain(p: vec3<f32>, col: f32, row: f32, fu: f32, fv: f32, plank_len: f32, plank_wid: f32) -> vec3<f32> {
+    let along = (col + fu) * plank_len;
+    let across = (row + fv) * plank_wid;
+
+    let pick = cell_rand(col, row, 1.0);
+    let bright = cell_rand(col, row, 2.0);
+    var base = parquet_palette(i32(pick * 5.0));
+    base = base * (0.72 + 0.45 * bright);
+    base.x = base.x * (0.94 + 0.12 * cell_rand(col, row, 5.0));
+    base.y = base.y * (0.92 + 0.14 * cell_rand(col, row, 6.0));
+    base.z = base.z * (0.90 + 0.16 * cell_rand(col, row, 7.0));
+
+    let g = along * 4.5 + 0.55 * turbulence(along * 0.7, across * 10.0 + col * 2.0, row * 1.3 + p.y, 4u);
+    let rings = 0.5 + 0.5 * sin(g * 2.0 * TEX_PI * TEX_PI);
+    let light = vec3<f32>(0.62, 0.46, 0.28);
+    let dark = vec3<f32>(0.36, 0.24, 0.13);
+    var face = mix3(dark, light, rings) * base;
+    let streak = 0.88 + 0.12 * fbm(along * 18.0, across * 6.0 + p.x, p.z * 3.0, 4u);
+    let mottle = 0.92 + 0.08 * fbm(p.x * 8.0 + col * 2.0, p.y * 8.0, p.z * 8.0 + row * 2.0, 3u);
+    return face * (streak * mottle);
+}
+
+fn tex_parquet_floor_2d(p: vec3<f32>, u_in: f32, v_in: f32, plank_len: f32, plank_wid: f32) -> vec3<f32> {
+    let uv = parquet_plank_uv(u_in, v_in, plank_len, plank_wid);
+    let col = uv.x;
+    let row = uv.y;
+    let fu = uv.z;
+    let fv = uv.w;
+    let mask = parquet_plank_mask(fu, fv, plank_len, plank_wid);
+    let face = parquet_wood_grain(p, col, row, fu, fv, plank_len, plank_wid);
+    let gap_col = vec3<f32>(0.20, 0.17, 0.13) * (0.82 + 0.28 * fbm(p.x * 12.0, p.y * 12.0, p.z * 12.0, 3u));
+    return mix3(gap_col, face, mask);
+}
+
+fn parquet_height_2d(u_in: f32, v_in: f32, plank_len: f32, plank_wid: f32) -> f32 {
+    let uv = parquet_plank_uv(u_in, v_in, plank_len, plank_wid);
+    let fu = uv.z;
+    let fv = uv.w;
+    let mask = parquet_plank_mask(fu, fv, plank_len, plank_wid);
+    let col = uv.x;
+    let row = uv.y;
+    let along = (col + fu) * plank_len;
+    let across = (row + fv) * plank_wid;
+    let grain = 0.03 * perlin(along * 28.0, across * 5.0, col + row * 0.7);
+    return mask * (0.94 + grain);
+}
+
+fn parquet_dims(plank_len: f32) -> vec2<f32> {
+    let ratio = PARQUET_PLANK_WID / PARQUET_PLANK_LEN;
+    return vec2<f32>(plank_len, plank_len * ratio);
+}
+
+fn tex_parquet_floor(p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>, plank_len: f32) -> vec3<f32> {
+    let dims = parquet_dims(plank_len);
+    var w = abs(n);
+    w = w * w * w * w;
+    let sum = w.x + w.y + w.z;
+    if (sum <= 0.0) {
+        return tex_parquet_floor_2d(p, p.x, p.y, dims.x, dims.y) * tint;
+    }
+    let x_proj = tex_parquet_floor_2d(p, p.z, p.y, dims.x, dims.y) * w.x;
+    let y_proj = tex_parquet_floor_2d(p, p.x, p.z, dims.x, dims.y) * w.y;
+    let z_proj = tex_parquet_floor_2d(p, p.x, p.y, dims.x, dims.y) * w.z;
     return (x_proj + y_proj + z_proj) / sum * tint;
 }
 
@@ -487,11 +555,90 @@ fn tiles_height_2d(size: vec2<f32>, u_in: f32, v_in: f32) -> f32 {
     return mask * relief;
 }
 
-fn prim_displace_height(p: Prim, hp: vec3<f32>, u: f32, v: f32) -> f32 {
+const PRIM_TEXTURE_BUMP_DEFAULT: f32 = 1.0;
+const PRIM_COBBLE_CELL_DEFAULT: f32 = 0.34;
+
+fn prim_pattern_scale(p: Prim, fallback: f32) -> f32 {
+    if (p.info.z == TEX_TILES) {
+        return fallback;
+    }
+    let s = p.albedo2.x;
+    if (s <= 0.0) {
+        return fallback;
+    }
+    return s;
+}
+
+fn prim_texture_normal_bump(p: Prim) -> f32 {
+    let b = p.albedo2.z;
+    if (b <= 0.0) {
+        return PRIM_TEXTURE_BUMP_DEFAULT;
+    }
+    return b;
+}
+
+fn prim_texture_height(p: Prim, u: f32, v: f32) -> f32 {
+    if (p.info.z == TEX_STONE_WALL) {
+        let cell = prim_pattern_scale(p, PRIM_COBBLE_CELL_DEFAULT);
+        return cobble_height_2d(vec3<f32>(0.0, 0.0, 0.0), u, v, cell);
+    }
     if (p.info.z == TEX_TILES) {
         return tiles_height_2d(tiles_size(p), u, v);
     }
+    if (p.info.z == TEX_PARQUET_FLOOR) {
+        let plank_len = prim_pattern_scale(p, PARQUET_PLANK_LEN);
+        let dims = parquet_dims(plank_len);
+        return parquet_height_2d(u, v, dims.x, dims.y);
+    }
     return 0.0;
+}
+
+// prim_texture_bump_normal perturbs base_n from the procedural texture height field
+// (flat cobble for stone_wall, tile relief for tiles). Opt in via PRIM_FLAG_TEXTURE_NORMAL_MAP.
+// grazing_w fades bump at shallow view angles (see surface_grazing_weight in math.wesl).
+fn prim_texture_bump_normal(p: Prim, hp: vec3<f32>, base_n: vec3<f32>, grazing_w: f32) -> vec3<f32> {
+    if ((p.info.w & PRIM_FLAG_TEXTURE_NORMAL_MAP) == 0u) {
+        return base_n;
+    }
+    let tex = p.info.z;
+    if (tex != TEX_STONE_WALL && tex != TEX_TILES && tex != TEX_PARQUET_FLOOR) {
+        return base_n;
+    }
+    if (grazing_w <= 1e-5) {
+        return base_n;
+    }
+    var bump = prim_texture_normal_bump(p) * grazing_w;
+    var eps = 0.006;
+    if (tex == TEX_STONE_WALL) {
+        eps = prim_pattern_scale(p, PRIM_COBBLE_CELL_DEFAULT) * 0.035;
+    } else if (tex == TEX_PARQUET_FLOOR) {
+        eps = prim_pattern_scale(p, PARQUET_PLANK_LEN) * 0.035;
+    }
+    var u = hp.x;
+    var v = hp.y;
+    var tu = vec3<f32>(1.0, 0.0, 0.0);
+    var tv = vec3<f32>(0.0, 1.0, 0.0);
+    let n = base_n;
+    if (abs(n.z) >= 0.5) {
+        // +Z / -Z faces use XY
+    } else if (abs(n.x) > abs(n.y)) {
+        u = hp.z;
+        v = hp.y;
+        tu = vec3<f32>(0.0, 0.0, select(-1.0, 1.0, n.x > 0.0));
+        tv = vec3<f32>(0.0, 1.0, 0.0);
+    } else {
+        u = hp.x;
+        v = hp.z;
+        tu = vec3<f32>(1.0, 0.0, 0.0);
+        tv = vec3<f32>(0.0, 0.0, select(-1.0, 1.0, n.y > 0.0));
+    }
+    let dhd_u = (prim_texture_height(p, u + eps, v) - prim_texture_height(p, u - eps, v)) / (2.0 * eps);
+    let dhd_v = (prim_texture_height(p, u, v + eps) - prim_texture_height(p, u, v - eps)) / (2.0 * eps);
+    var tu_b = tu + base_n * (bump * dhd_u);
+    var tv_b = tv + base_n * (bump * dhd_v);
+    tu_b = normalize(tu_b);
+    tv_b = normalize(tv_b);
+    return normalize(cross(tv_b, tu_b));
 }
 
 fn tex_tiles_2d(size: vec2<f32>, u_in: f32, v_in: f32) -> vec3<f32> {
@@ -528,6 +675,14 @@ fn texture_eval_surface(p: Prim, lp: vec3<f32>, ln: vec3<f32>, tint: vec3<f32>) 
     if (tex == TEX_TILES) {
         return tex_tiles(p, lp, ln, tint);
     }
+    if (tex == TEX_STONE_WALL) {
+        let cell = prim_pattern_scale(p, PRIM_COBBLE_CELL_DEFAULT);
+        return tex_stone_wall(lp, ln, tint, cell);
+    }
+    if (tex == TEX_PARQUET_FLOOR) {
+        let plank_len = prim_pattern_scale(p, PARQUET_PLANK_LEN);
+        return tex_parquet_floor(lp, ln, tint, plank_len);
+    }
     return texture_eval(tex, lp, ln, tint);
 }
 
@@ -542,7 +697,8 @@ fn texture_eval(tex: u32, p: vec3<f32>, n: vec3<f32>, tint: vec3<f32>) -> vec3<f
     if (tex == TEX_GRASS) { return tex_grass(p, tint); }
     if (tex == TEX_DIRT) { return tex_dirt(p, tint); }
     if (tex == TEX_SNOW) { return tex_snow(p, tint); }
-    if (tex == TEX_STONE_WALL) { return tex_stone_wall(p, n, tint); }
+    if (tex == TEX_STONE_WALL) { return tex_stone_wall(p, n, tint, PRIM_COBBLE_CELL_DEFAULT); }
+    if (tex == TEX_PARQUET_FLOOR) { return tex_parquet_floor(p, n, tint, PARQUET_PLANK_LEN); }
     if (tex == TEX_TILES) { return tex_tiles_2d(vec2<f32>(1.0, 1.0), p.x, p.y) * tint; }
     if (tex == TEX_PAPER) { return tex_paper(p, tint); }
     return tex_wallpaper(p, tint, tex);
@@ -691,8 +847,17 @@ fn texture_eval_box(prim_idx: u32, lp: vec3<f32>, ln: vec3<f32>, bmin: vec3<f32>
     if (is_document(tex)) {
         return texture_eval_document(tex, lp, ln, bmin, bmax, tint);
     }
+    let p = prims[prim_idx];
     if (tex == TEX_TILES) {
-        return tex_tiles(prims[prim_idx], lp, ln, tint);
+        return tex_tiles(p, lp, ln, tint);
+    }
+    if (tex == TEX_STONE_WALL) {
+        let cell = prim_pattern_scale(p, PRIM_COBBLE_CELL_DEFAULT);
+        return tex_stone_wall(lp, ln, tint, cell);
+    }
+    if (tex == TEX_PARQUET_FLOOR) {
+        let plank_len = prim_pattern_scale(p, PARQUET_PLANK_LEN);
+        return tex_parquet_floor(lp, ln, tint, plank_len);
     }
     return texture_eval(tex, lp, ln, tint);
 }

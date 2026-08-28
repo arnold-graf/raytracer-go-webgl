@@ -33,6 +33,16 @@ func TestParseTilesDefaultSize(t *testing.T) {
 	}
 }
 
+func TestParseParquetFloor(t *testing.T) {
+	id, w, h, err := texture.Parse("parquet_floor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != texture.ParquetFloor || w != 1 || h != 1 {
+		t.Fatalf("got id=%d w=%v h=%v", id, w, h)
+	}
+}
+
 func TestParseSimpleName(t *testing.T) {
 	id, w, h, err := texture.Parse("wood")
 	if err != nil {

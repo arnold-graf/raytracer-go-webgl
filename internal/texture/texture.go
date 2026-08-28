@@ -32,6 +32,7 @@ const (
 	Paper
 	Tiles
 	Marble2
+	ParquetFloor
 )
 
 var byName = map[string]int{
@@ -51,6 +52,7 @@ var byName = map[string]int{
 	"paper":           Paper,
 	"tiles":           Tiles,
 	"marble_2":        Marble2,
+	"parquet_floor":   ParquetFloor,
 }
 
 // ID resolves a texture name to its id. Ok is false for unknown names.
@@ -96,6 +98,8 @@ func EvalWithNormal(id int, p, n, base vec.V) vec.V {
 		return paper(p, base)
 	case Tiles:
 		return tiles(p, n, base, 1, 1)
+	case ParquetFloor:
+		return parquetFloor(p, n, base)
 	default:
 		return base
 	}
@@ -437,6 +441,100 @@ func tiles(p, n, tint vec.V, tileW, tileH float64) vec.V {
 	xProj := tiles2D(tileW, tileH, p.Z, p.Y).Scale(aw.X)
 	yProj := tiles2D(tileW, tileH, p.X, p.Z).Scale(aw.Y)
 	zProj := tiles2D(tileW, tileH, p.X, p.Y).Scale(aw.Z)
+	return xProj.Add(yProj).Add(zProj).Scale(1 / sum).Mul(tint)
+}
+
+const (
+	parquetPlankLen = 0.40
+	parquetPlankWid = 0.10
+	parquetMortar   = 0.004
+)
+
+// parquetPalette: warm oak / honey parquet tones. Each plank draws one and jitters it.
+var parquetPalette = [...]vec.V{
+	{X: 0.58, Y: 0.42, Z: 0.24},
+	{X: 0.52, Y: 0.38, Z: 0.22},
+	{X: 0.54, Y: 0.40, Z: 0.26},
+	{X: 0.48, Y: 0.34, Z: 0.20},
+	{X: 0.46, Y: 0.32, Z: 0.18},
+}
+
+// parquetPlankUV maps world (u,v) to herringbone plank coordinates via a 45°
+// rotation and staggered rows (classic Fischgrät / herringbone parquet).
+func parquetPlankUV(u, v float64) (col, row, fu, fv float64) {
+	s := math.Sqrt2 * 0.5
+	ru := (u + v) * s
+	rv := (-u + v) * s
+	row = math.Floor(rv / parquetPlankWid)
+	x := ru
+	if int(row)&1 == 1 {
+		x += parquetPlankLen * 0.5
+	}
+	col = math.Floor(x / parquetPlankLen)
+	fu = frac(x / parquetPlankLen)
+	fv = frac(rv / parquetPlankWid)
+	return col, row, fu, fv
+}
+
+func parquetPlankMask(fu, fv float64) float64 {
+	mx := parquetMortar / parquetPlankLen
+	my := parquetMortar / parquetPlankWid
+	return smoothstep(0, mx, fu) * smoothstep(0, mx, 1-fu) *
+		smoothstep(0, my, fv) * smoothstep(0, my, 1-fv)
+}
+
+// parquetWoodGrain returns plank-local wood color; grain runs along plank length.
+func parquetWoodGrain(p vec.V, col, row, fu, fv float64) vec.V {
+	along := (col + fu) * parquetPlankLen
+	across := (row + fv) * parquetPlankWid
+
+	pick := cellRand(col, row, 1)
+	bright := cellRand(col, row, 2)
+	base := parquetPalette[int(pick*float64(len(parquetPalette)))]
+	base = base.Scale(0.72 + 0.45*bright)
+	base.X *= 0.94 + 0.12*cellRand(col, row, 5)
+	base.Y *= 0.92 + 0.14*cellRand(col, row, 6)
+	base.Z *= 0.90 + 0.16*cellRand(col, row, 7)
+
+	g := along*4.5 + 0.55*turbulence(along*0.7, across*10+col*2, row*1.3+p.Y, 4)
+	rings := 0.5 + 0.5*math.Sin(g*2*math.Pi*math.Pi)
+	light := vec.New(0.62, 0.46, 0.28)
+	dark := vec.New(0.36, 0.24, 0.13)
+	face := mix(dark, light, rings).Mul(base)
+	streak := 0.88 + 0.12*fbm(along*18, across*6+p.X, p.Z*3, 4)
+	mottle := 0.92 + 0.08*fbm(p.X*8+col*2, p.Y*8, p.Z*8+row*2, 3)
+	return face.Scale(streak * mottle)
+}
+
+func parquetFloor2D(p vec.V, u, v float64) vec.V {
+	col, row, fu, fv := parquetPlankUV(u, v)
+	mask := parquetPlankMask(fu, fv)
+	face := parquetWoodGrain(p, col, row, fu, fv)
+	gapCol := vec.New(0.20, 0.17, 0.13).Scale(0.82 + 0.28*fbm(p.X*12, p.Y*12, p.Z*12, 3))
+	return mix(gapCol, face, mask)
+}
+
+// parquetHeight2D is the height field for parquet_floor normal-map bumping.
+func parquetHeight2D(u, v float64) float64 {
+	_, _, fu, fv := parquetPlankUV(u, v)
+	mask := parquetPlankMask(fu, fv)
+	col, row, _, _ := parquetPlankUV(u, v)
+	along := (col + fu) * parquetPlankLen
+	across := (row + fv) * parquetPlankWid
+	grain := 0.03 * perlin(along*28, across*5, col+row*0.7)
+	return mask * (0.94 + grain)
+}
+
+func parquetFloor(p, n, tint vec.V) vec.V {
+	aw := vec.New(math.Abs(n.X), math.Abs(n.Y), math.Abs(n.Z))
+	aw = vec.New(aw.X*aw.X*aw.X*aw.X, aw.Y*aw.Y*aw.Y*aw.Y, aw.Z*aw.Z*aw.Z*aw.Z)
+	sum := aw.X + aw.Y + aw.Z
+	if sum == 0 {
+		return parquetFloor2D(p, p.X, p.Y).Mul(tint)
+	}
+	xProj := parquetFloor2D(p, p.Z, p.Y).Scale(aw.X)
+	yProj := parquetFloor2D(p, p.X, p.Z).Scale(aw.Y)
+	zProj := parquetFloor2D(p, p.X, p.Y).Scale(aw.Z)
 	return xProj.Add(yProj).Add(zProj).Scale(1 / sum).Mul(tint)
 }
 

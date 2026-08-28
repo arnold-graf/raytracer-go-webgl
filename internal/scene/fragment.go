@@ -84,6 +84,9 @@ func surfaceShadingEqual(a, b Surface) bool {
 		a.TexU == b.TexU && a.TexV == b.TexV &&
 		a.Reflect == b.Reflect && a.Specular == b.Specular && a.Shininess == b.Shininess &&
 		a.Transmit == b.Transmit && a.Thin == b.Thin && a.TwoPane == b.TwoPane &&
+		a.TextureNormalMap == b.TextureNormalMap &&
+		a.TextureScale == b.TextureScale &&
+		a.TextureNormalBump == b.TextureNormalBump &&
 		a.NoCollision == b.NoCollision
 }
 

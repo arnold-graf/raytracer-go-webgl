@@ -1,0 +1,140 @@
+[props]
+width = 1.8
+height = 2.175
+frame_thickness = 0.25
+albedo = [1,1,1]
+material = "diffuse"
+texture = "cement"
+axis = "y"
+open_angle = 90
+swing = "one_way"
+open_sign = 1.0
+speed = 1.5
+hint = "Door"
+panel_file = "door-panel-art-nouveau.toml"
+use_range = 2.5
+knob_y = 1.2
+
+[const]
+frame_protrusions = 0.05
+
+# frame
+# left leg
+[[box]]
+pos_x = 0
+pos_y = 0
+pos_z = 0
+depth = 'frame_thickness'
+height = 'height'
+width = 'frame_thickness'
+material = 'material'
+albedo = 'albedo'
+texture = 'texture'
+
+# left leg (base)
+[[box]]
+pos_x = 'frame_protrusions / 2 * -1'
+pos_y = 0
+pos_z = 'frame_protrusions / 2 * -1'
+depth = 'frame_thickness + frame_protrusions'
+height = 'height / 4'
+width = 'frame_thickness + frame_protrusions'
+material = 'material'
+albedo = 'albedo'
+texture = 'texture'
+
+# right leg
+[[box]]
+pos_x = 'width - frame_thickness / 2'
+pos_y = 0
+pos_z = 0
+depth = 'frame_thickness'
+height = 'height'
+width = 'frame_thickness'
+material = 'material'
+albedo = 'albedo'
+texture = 'texture'
+
+# right leg (base)
+[[box]]
+pos_x = 'width - frame_thickness / 2 - frame_protrusions / 2' 
+pos_y = 0
+pos_z = -0.05
+depth = 'frame_thickness + frame_protrusions'
+height = 'height / 4'
+width = 'frame_thickness + frame_protrusions'
+material = 'material'
+albedo = 'albedo'
+texture = 'texture'
+
+# top
+[[box]]
+pos_x = 0
+pos_y = 'height - frame_thickness'
+pos_z = 0
+depth = 'frame_thickness'
+height = 'frame_thickness'
+width = 'width'
+material = 'material'
+albedo = 'albedo'
+texture = 'texture'
+
+# corner boxes (left)
+[[box]]
+pos_x = 'frame_protrusions / 2 * -1'
+pos_y = 'height - frame_thickness - frame_protrusions / 2'
+pos_z = 'frame_protrusions / 2 * -1'
+depth = 'frame_thickness + frame_protrusions'
+height = 'frame_thickness + frame_protrusions'
+width = 'frame_thickness + frame_protrusions'
+material = 'material'
+albedo = 'albedo'
+texture = 'texture'
+
+[[sphere]]
+center = ['frame_thickness / 2', 'height - frame_thickness / 2', 'frame_thickness / 2']
+material = 'material'
+radius = 0.17
+albedo = 'albedo'
+texture = 'texture'
+
+# corner boxes (right)
+[[box]]
+pos_x = 'width - frame_thickness / 2 - frame_protrusions / 2' 
+pos_y = 'height - frame_thickness - frame_protrusions / 2'
+pos_z = 'frame_protrusions / 2 * -1'
+depth = 'frame_thickness + frame_protrusions'
+height = 'frame_thickness + frame_protrusions'
+width = 'frame_thickness + frame_protrusions'
+material = 'material'
+albedo = 'albedo'
+texture = 'texture'
+
+[[sphere]]
+center = ['width', 'height - frame_thickness / 2', 'frame_thickness / 2']
+material = 'material'
+radius = 0.17
+albedo = 'albedo'
+texture = 'texture'
+
+[[door]]
+id = 'id'
+kind = "single"
+hinge = ['frame_thickness', 0, 'frame_thickness / 2']
+axis = 'axis'
+open_angle = 'open_angle'
+swing = 'swing'
+open_sign = 'open_sign'
+speed = 'speed'
+panel_file = "door-art-nouveau-panel.toml"
+use_range = 'use_range'
+hint = 'hint'
+[door.panel_file_props]
+knob_y = 'knob_y'
+offset_x = 'frame_thickness'
+offset_z = 'frame_thickness / 2'
+width = 'width - ((frame_thickness - frame_protrusions) * 2)'
+height = 'height - frame_thickness'
+albedo = 'albedo'
+material = 'material'
+texture = 'texture'

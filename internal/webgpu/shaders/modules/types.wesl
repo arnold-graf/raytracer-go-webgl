@@ -281,6 +281,7 @@ const BVH_TAG_TLAS: u32 = 1u;
 
 const PRIM_FLAG_TRANSFORMED: u32 = 1u;
 const PRIM_FLAG_GLASS_THIN: u32 = 2u;
+const PRIM_FLAG_TEXTURE_NORMAL_MAP: u32 = 4u;
 
 const PRIM_SPHERE: u32 = 0u;
 const PRIM_PLANE: u32 = 1u;
@@ -321,6 +322,7 @@ const TEX_STONE_WALL: u32 = 12u;
 const TEX_PAPER: u32 = 13u;
 const TEX_TILES: u32 = 14u;
 const TEX_MARBLE_2: u32 = 15u;
+const TEX_PARQUET_FLOOR: u32 = 16u;
 const TEX_CAPTURE_BASE: u32 = 50u;
 const TEX_CAPTURE_COUNT: u32 = 6u;
 const TEX_DOCUMENT_BASE: u32 = 56u;

@@ -5,7 +5,7 @@
 
 import package::types::{FEAT_TERRAIN, FEAT_WATER, RAY_EPSILON, T_MISS, params, terrain_features, terrain_mip, terrain_pads, terrain_samples, terrains, waters};
 import package::profile::{PROF_TERRAIN_STEPS, prof_inc};
-import package::math::{fbm_xz, mix3, perlin_xz, smoothstepf};
+import package::math::{fbm_xz, mix3, perlin_xz, smoothstepf, surface_grazing_weight};
 
 // ---- Hybrid LOD (coarse bake + analytic near band) ----
 // island1.z encodes hybrid on/off; island1.y is the outer near-band radius (m).
@@ -53,9 +53,6 @@ const WATER_LOD_NEAR_M: f32 = 20.0;
 const WATER_LOD_FAR_M: f32 = 500.0;
 const WATER_RIPPLE_FREQ_NEAR: f32 = 2.5;
 const WATER_RIPPLE_FREQ_FAR: f32 = 0.4;
-// Grazing-angle fade: soften ripples when viewing the surface edge-on.
-const WATER_GRAZING_ANGLE_START: f32 = 0.05;
-const WATER_GRAZING_ANGLE_END: f32 = 0.25;
 // Second Perlin sample offset (decorrelates X/Z ripple components).
 const WATER_PERLIN_U_OFFSET: f32 = 7.0;
 const WATER_PERLIN_V_OFFSET: f32 = 3.0;
@@ -732,8 +729,7 @@ fn water_normal(i: u32, p: vec3<f32>) -> vec3<f32> {
     let freq = mix(WATER_RIPPLE_FREQ_NEAR, WATER_RIPPLE_FREQ_FAR, lod);
 
     // Grazing views stretch reflections; soften micro-ripples at shallow angles.
-    let view = normalize(params.cam_pos.xyz - p);
-    let grazing = smoothstepf(WATER_GRAZING_ANGLE_START, WATER_GRAZING_ANGLE_END, abs(dot(vec3<f32>(0.0, 1.0, 0.0), view)));
+    let grazing = surface_grazing_weight(vec3<f32>(0.0, 1.0, 0.0), params.cam_pos.xyz - p);
     let ripple_w = amp * grazing;
     if (ripple_w <= WATER_FLAT_NORMAL_RIPPLE_EPS) {
         return vec3<f32>(0.0, 1.0, 0.0);

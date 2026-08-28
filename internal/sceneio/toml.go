@@ -59,6 +59,9 @@ type surfaceDTO struct {
 	Thin      *bool    `toml:"thin"`
 	TwoPane   *bool    `toml:"two_pane"`
 	Collision *bool    `toml:"collision"`
+	TextureNormalMap  *bool   `toml:"texture_normal_map"`
+	TextureScale      float64 `toml:"texture_scale"`
+	TextureNormalBump float64 `toml:"texture_normal_bump"`
 }
 
 func (s surfaceDTO) toSurface() (scene.Surface, error) {
@@ -90,11 +93,15 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 		thin = *s.Thin
 	}
 	twoPane := s.TwoPane != nil && *s.TwoPane
+	texNormalMap := s.TextureNormalMap != nil && *s.TextureNormalMap
 	return scene.Surface{
 		Mat: mat, Albedo: s.Albedo.toV(), Albedo2: s.Albedo2.toV(), Rough: s.Rough, IOR: ior, Tex: tex,
 		TexU: texU, TexV: texV,
 		Reflect: s.Reflect, Specular: s.Specular, Shininess: s.Shininess,
 		Transmit: s.Transmit, Thin: thin, TwoPane: twoPane, NoCollision: noCollision,
+		TextureNormalMap:  texNormalMap,
+		TextureScale:      s.TextureScale,
+		TextureNormalBump: s.TextureNormalBump,
 	}, nil
 }
 
@@ -699,8 +706,9 @@ type sunDTO struct {
 // include's props table are passed. Expressions in those props (e.g.
 // width = 'width') are evaluated in the parent env during expansion, so values
 // can still be derived from parent props without cascading the whole map.
-// Door panel_file loads still receive the parent's resolved [props] (there is
-// no per-panel props table). Object files use valid TOML with [props], [const],
+// Door panel_file loads receive the parent's resolved [props] unless
+// panel_file_props is set on [[door]] (same semantics as [[include]].props).
+// Object files use valid TOML with [props], [const],
 // single-quoted expressions, and comment directives (# for, # if, # let).
 // Files without [props]/[const] are passed through verbatim.
 type includeDTO struct {

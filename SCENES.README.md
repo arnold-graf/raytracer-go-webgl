@@ -522,8 +522,8 @@ Syntax:
   Parent `[props]` are **not** inherited by nested includes — only keys listed in the
   include's `props` table are passed. Use expressions like `width = 'width'` to
   pass a parent value explicitly (evaluated in the parent env during expansion).
-  Door `panel_file` loads are an exception: they still receive the parent's
-  resolved `[props]`.
+  Door `panel_file` loads receive the parent's resolved `[props]` unless
+  `panel_file_props` is set on `[[door]]` (same semantics as `[[include]].props`).
 - **`[const]`** — derived values (`half = 'width / 2'`); evaluated after merge.
 - **Single-quoted strings** at use sites — expressions (`pos_x = '-half'`,
   `albedo = 'albedo'`). Double-quoted strings and bare numbers are literals.

@@ -1,4 +1,4 @@
-# Preview stone_wall displacement on a single box (no extra geometry).
+# Preview stone_wall normal-map bump on a single box (no geometric displacement).
 [environment]
 sky = "sunset"
 ambient_sky = [0.25, 0.18, 0.14]
@@ -18,6 +18,7 @@ height = 3
 depth = 0.4
 material = "diffuse"
 texture = "stone_wall"
+texture_normal_map = true
 albedo = [0.9, 0.88, 0.84]
 reflect = 0.05
 rough = 0.08

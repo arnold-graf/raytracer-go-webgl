@@ -95,11 +95,19 @@ const primFlagTransformed uint32 = 1
 // primFlagGlassThin marks glass as a single sheet (one transmission event).
 const primFlagGlassThin uint32 = 2
 
+// primFlagTextureNormalMap enables procedural normal perturbation from the
+// surface texture height field (no geometric displacement).
+const primFlagTextureNormalMap uint32 = 4
+
 func surfaceFlags(s scene.Surface) uint32 {
-	if s.Mat != scene.MatGlass || !s.Thin {
-		return 0
+	var f uint32
+	if s.Mat == scene.MatGlass && s.Thin {
+		f |= primFlagGlassThin
 	}
-	return primFlagGlassThin
+	if s.TextureNormalMap {
+		f |= primFlagTextureNormalMap
+	}
+	return f
 }
 
 // maxHoles caps the shared box-hole CSG buffer.
@@ -896,8 +904,25 @@ func surfaceColors(s scene.Surface) (alb, alb2 [4]float32) {
 	alb2 = albedo(s.Albedo2)
 	alb2[3] = f(s.Shininess)
 	if s.Tex == texture.Tiles {
-		alb2[0] = f(s.TexU)
-		alb2[1] = f(s.TexV)
+		u, v := s.TexU, s.TexV
+		if u <= 0 {
+			u = 1
+		}
+		if v <= 0 {
+			v = 1
+		}
+		if s.TextureScale > 0 {
+			ratio := v / u
+			u = s.TextureScale
+			v = s.TextureScale * ratio
+		}
+		alb2[0] = f(u)
+		alb2[1] = f(v)
+	} else if s.TextureScale > 0 && s.Mat != scene.MatChecker {
+		alb2[0] = f(s.TextureScale)
+	}
+	if s.TextureNormalMap && s.Mat != scene.MatChecker && s.TextureNormalBump > 0 {
+		alb2[2] = f(s.TextureNormalBump)
 	}
 	return alb, alb2
 }

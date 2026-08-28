@@ -2,7 +2,7 @@
 // Blends albedo and perturbs normals from a 2D height field; no geometric displacement.
 
 import package::types::{TEX_DIRT, TerrainZone, params, terrain_zone_verts, terrain_zones, terrains};
-import package::math::{mix3, smoothstepf};
+import package::math::{mix3, smoothstepf, surface_grazing_weight};
 import package::texture::{cobble_height_2d, tex_cobble_2d, texture_eval};
 
 const TERRAIN_ZONE_BUMP_DEFAULT: f32 = 1.0;
@@ -111,10 +111,15 @@ fn terrain_zone_bump_normal(p: vec3<f32>, base_n: vec3<f32>, xz: vec2<f32>, z: T
     if (w <= 0.001) {
         return base_n;
     }
+    let grazing = surface_grazing_weight(base_n, params.cam_pos.xyz - p);
+    if (grazing <= 1e-5) {
+        return base_n;
+    }
     var bump = z.params.w;
     if (bump <= 0.0) {
         bump = TERRAIN_ZONE_BUMP_DEFAULT;
     }
+    bump = bump * grazing;
     let uv = zone_stone_uv(xz, z.params.z);
     let cell = zone_cell_size(z.params.y);
     let eps = cell * 0.035;

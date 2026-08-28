@@ -22,9 +22,10 @@ type doorDTO struct {
 	Swing            string    `toml:"swing"`
 	OpenSign         float64   `toml:"open_sign"`
 	Speed            float64   `toml:"speed"`
-	PanelFile        string    `toml:"panel_file"`
-	PanelLeftFile    string    `toml:"panel_left_file"`
-	PanelRightFile   string    `toml:"panel_right_file"`
+	PanelFile        string         `toml:"panel_file"`
+	PanelFileProps   map[string]any `toml:"panel_file_props"`
+	PanelLeftFile    string         `toml:"panel_left_file"`
+	PanelRightFile   string         `toml:"panel_right_file"`
 	PanelClosedAngle []float64 `toml:"panel_closed_angle"`
 	CanClose         *bool     `toml:"can_close"`
 	AutocloseTimeout *float64  `toml:"autoclose_timeout"`
@@ -94,11 +95,19 @@ func (d doorDTO) baseSpec() scene.DoorSpec {
 	return spec
 }
 
+func (d doorDTO) panelParams(parentResolved map[string]any) map[string]any {
+	if len(d.PanelFileProps) > 0 {
+		return d.PanelFileProps
+	}
+	return parentResolved
+}
+
 func (d doorDTO) resolve(s *scene.Scene, parentDir string, params map[string]any, seen map[string]bool, deps *[]string) (scene.DoorSpec, error) {
 	if d.ID == "" {
 		return scene.DoorSpec{}, fmt.Errorf("missing id")
 	}
 	spec := d.baseSpec()
+	panelParams := d.panelParams(params)
 	switch spec.Kind {
 	case "sliding":
 		if d.PanelFile == "" {
@@ -107,7 +116,7 @@ func (d doorDTO) resolve(s *scene.Scene, parentDir string, params map[string]any
 		if d.Direction == "" {
 			return scene.DoorSpec{}, fmt.Errorf("sliding door requires direction (up, down, left, right)")
 		}
-		one, err := mergeDoorPanel(s, parentDir, d.PanelFile, params, seen, deps)
+		one, err := mergeDoorPanel(s, parentDir, d.PanelFile, panelParams, seen, deps)
 		if err != nil {
 			return scene.DoorSpec{}, fmt.Errorf("panel_file: %w", err)
 		}
@@ -119,11 +128,11 @@ func (d doorDTO) resolve(s *scene.Scene, parentDir string, params map[string]any
 		if spec.HingeRight == (vec.V{}) {
 			return scene.DoorSpec{}, fmt.Errorf("double door requires hinge_right")
 		}
-		left, err := mergeDoorPanel(s, parentDir, d.PanelLeftFile, params, seen, deps)
+		left, err := mergeDoorPanel(s, parentDir, d.PanelLeftFile, panelParams, seen, deps)
 		if err != nil {
 			return scene.DoorSpec{}, fmt.Errorf("panel_left_file: %w", err)
 		}
-		right, err := mergeDoorPanel(s, parentDir, d.PanelRightFile, params, seen, deps)
+		right, err := mergeDoorPanel(s, parentDir, d.PanelRightFile, panelParams, seen, deps)
 		if err != nil {
 			return scene.DoorSpec{}, fmt.Errorf("panel_right_file: %w", err)
 		}
@@ -132,7 +141,7 @@ func (d doorDTO) resolve(s *scene.Scene, parentDir string, params map[string]any
 		if d.PanelFile == "" {
 			return scene.DoorSpec{}, fmt.Errorf("missing panel_file")
 		}
-		one, err := mergeDoorPanel(s, parentDir, d.PanelFile, params, seen, deps)
+		one, err := mergeDoorPanel(s, parentDir, d.PanelFile, panelParams, seen, deps)
 		if err != nil {
 			return scene.DoorSpec{}, fmt.Errorf("panel_file: %w", err)
 		}

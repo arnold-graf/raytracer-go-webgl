@@ -40,7 +40,7 @@ albedo = [30.0, 30.0, 35.0]
 [[light]]
 pos = [-111.0, 133.0, -100.0]
 color = [1.4, 1.6, 2.4]
-brightness = 30.0
+brightness = 100.0
 range = 0
 
 [player.movement]
@@ -134,13 +134,16 @@ snow_hi = 10.5
   fade_to = "grass"
   fade_width = 3.0
   texture_scale = 0.4
+  bump = 0.03
   width = 6.0
   path = [
-    [0.0, 8.0],
+    [0.0, 24.0],
     [2.0, 45.0],
     [8.0, 55.0],
     [14.0, 68.0],
     [30, 68],
+    [60, 100],
+    [90, 110],
   ]
   albedo = [0.85, 0.83, 0.76]
   reflect = 0.05
@@ -152,7 +155,19 @@ snow_hi = 10.5
 
 [[include]]
 file = "objects/art-deco-street-light.toml"
+at = [60, 0,100]
+follow_terrain = true
+transform_origin = [0,0,0]
+
+[[include]]
+file = "objects/art-deco-street-light.toml"
 at = [15, 0, 68]
+follow_terrain = true
+transform_origin = [0,0,0]
+
+[[include]]
+file = "objects/art-deco-street-light.toml"
+at = [90, 0,110]
 follow_terrain = true
 transform_origin = [0,0,0]
 

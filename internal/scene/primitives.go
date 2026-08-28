@@ -39,6 +39,16 @@ type Surface struct {
 	// TexU and TexV are texture-specific parameters (tile width/height for tiles).
 	TexU float64
 	TexV float64
+	// TextureNormalMap perturbs shading normals from the procedural texture height
+	// field (cobble for stone_wall, tile relief for tiles, plank gaps for
+	// parquet_floor) without geometric displacement. Requires a supported texture id.
+	TextureNormalMap bool
+	// TextureScale sets the pattern size in world meters (stone cell size, parquet
+	// plank length, or tile width with aspect preserved). 0 uses texture defaults.
+	TextureScale float64
+	// TextureNormalBump scales normal-map perturbation when TextureNormalMap is true.
+	// 0 uses renderer default (1.0). Lower values soften groove shadowing.
+	TextureNormalBump float64
 	// TwoPane opts into the original thick-glass path: separate enter/exit trace
 	// hits at both faces (full dual-pane refraction). Default glass is thin with
 	// a ghost second-pane reflection instead. Ignored by non-glass materials.

@@ -21,7 +21,7 @@ const (
 // stepMaterialForTexture maps a procedural texture id to its acoustic category.
 func stepMaterialForTexture(tex int) StepMaterial {
 	switch tex {
-	case texture.Wood:
+	case texture.Wood, texture.ParquetFloor:
 		return StepWood
 	case texture.Grass, texture.Dirt:
 		return StepGrass

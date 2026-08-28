@@ -35,13 +35,15 @@ width = 15.2
 height = 1.2
 depth = 13.4
 texture = "stone_wall"
+texture_normal_map = true
+texture_normal_bump = 0.02
 shininess = 64
 specular = 0.1
 
 # ===================================================== GROUND FLOOR SLAB ====
 
-[[box]] # interior ground floor (stone flags)
-albedo = [0.72, 0.70, 0.66]
+[[box]] # interior ground floor (herringbone parquet)
+albedo = [0.95, 0.92, 0.88]
 material = "diffuse"
 pos_x = -7
 pos_y = 1.2
@@ -49,11 +51,11 @@ pos_z = -5.2
 width = 14
 height = 0.08
 depth = 12
-texture = "marble"
-reflect = 0.03
-rough = 0.02
-shininess = 64
-specular = 0.5
+texture = "parquet_floor"
+texture_normal_map = true
+texture_normal_bump = 0.01
+shininess = 50
+specular = 0.25
 
 # =========================================================== EXTERIOR WALLS ====
 # Wall thickness 0.45.  Ground floor walls rise y = 1.2 .. 5.85.
@@ -220,25 +222,24 @@ texture = "cement"
 albedo = [0.94, 0.93, 0.90]
 material = "diffuse"
 pos_x = -0.9
-pos_y = 3.4
+pos_y = 4
 pos_z = 4.1
 width = 1.8
 height = 2.45
 depth = 0.45
 texture = "cement"
 
-[[door]]
+[[include]]
+file = "door-art-nouveau.toml"
+transform_origin = [0,0,0]
+at = [-0.9, 1.3, 4]
+[include.props]
+width = 1.8
+height = 2.7
+albedo = [1,1,1]
+material = "diffuse"
 id = "villa_front_door"
-kind = "single"
-hinge = [-0.9, 0.0, 4.1]
-axis = "y"
-open_angle = 90
-swing = "one_way"
-open_sign = 1.0
-speed = 1.5
-panel_file = "villa-front-door-panel.toml"
-use_range = 2.5
-hint = "DOOR"
+knob_y = 1
 
 [[box]] # projecting bay side (left)
 albedo = [0.94, 0.93, 0.90]
@@ -644,6 +645,8 @@ width = 1
 height = 0.15
 depth = 2.3
 texture = "stone_wall"
+texture_normal_bump = 0.01
+texture_normal_map = true
 shininess = 64
 specular = 0.2
 
@@ -657,6 +660,8 @@ width = 0.3
 height = 2
 depth = 2.1
 texture = "stone_wall"
+texture_normal_bump = 0.01
+texture_normal_map = true
 shininess = 64
 specular = 0.2
 
@@ -670,6 +675,8 @@ width = 0.75
 height = 1.8
 depth = 0.3
 texture = "stone_wall"
+texture_normal_bump = 0.01
+texture_normal_map = true
 shininess = 64
 specular = 0.2
 
@@ -683,6 +690,8 @@ width = 0.75
 height = 1.8
 depth = 0.3
 texture = "stone_wall"
+texture_normal_bump = 0.01
+texture_normal_map = true
 shininess = 64
 specular = 0.2
 
@@ -696,6 +705,8 @@ width = 1.4
 height = 0.15
 depth = 2.5
 texture = "stone_wall"
+texture_normal_bump = 0.01
+texture_normal_map = true
 shininess = 64
 specular = 0.2
 
@@ -706,9 +717,11 @@ pos_x = -6.9
 pos_y = 3
 pos_z = 1
 width = 1.4
+texture_normal_map = true
 height = 7
 depth = 2.6
 texture = "stone_wall"
+texture_normal_bump = 0.01
 shininess = 64
 specular = 0.2
 
@@ -735,11 +748,20 @@ props = { brightness = 0.2, speed = 0.5, range = 5 }
 # ---- staircase to second floor (10 × 0.45 m rise = 4.5 m) ----
 
 [[include]]
-file = "staircase.toml"
+file = "staircase-simple.toml"
 transform_origin = [0, 0, 0]
-at = [-3, 1.25, 2.0]
+at = [-3, 0.7, 2.0]
 rotate_y = 90
-props = { steps = 10, run = 0.5, rise = 0.45, width = 1.8, texture = "marble" }
+[include.props]
+steps = 10
+run = 0.5
+rise = 0.3
+width = 1.8
+texture = "marble"
+specular = 0.5
+shininess = 50
+reflect = 0.02
+rough = 0.02
 
 # ================================================================ ROOFS ====
 
