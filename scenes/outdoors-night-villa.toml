@@ -151,6 +151,13 @@ snow_hi = 10.5
   shininess = 50
   specular = 0.5
 
+[[terrain.feature]]
+kind = "peak"
+pos = [90, 105]
+steepness = 1
+height = 5
+width = 15
+
 # ================================================================ MOUNTAINS AT THE OTHER END OF THE VALLEY ====
 
 [[include]]

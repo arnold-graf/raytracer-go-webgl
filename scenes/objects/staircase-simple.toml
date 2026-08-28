@@ -43,6 +43,7 @@ albedo = [0.5, 0.49, 0.47]
 reflect = 0.0
 handrail_left = false
 handrail_right = false
+handrail_material = "wood" # or "metal"
 
 # for i in range(steps)
 [[box]] # step
@@ -66,7 +67,7 @@ rough = 'rough'
 file = "staircase-handrail.toml"
 at = [0,0,0]
 transform_origin = [0,0,0]
-props = { steps = 'steps', run = 'run', rise = 'rise' }
+props = { steps = 'steps', run = 'run', rise = 'rise', material = 'handrail_material' }
 # endif
 
 # if handrail_right
@@ -74,5 +75,5 @@ props = { steps = 'steps', run = 'run', rise = 'rise' }
 file = "staircase-handrail.toml"
 at = [0,0,'width - 0.2']
 transform_origin = [0,0,0]
-props = { steps = 'steps', run = 'run', rise = 'rise' }
+props = { steps = 'steps', run = 'run', rise = 'rise', material = 'handrail_material' }
 # endif
