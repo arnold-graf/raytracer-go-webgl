@@ -1,6 +1,6 @@
 [props]
 height = 3.5
-orb_radius = 0.5
+orb_radius = 0.7
 brightness = 0.8
 range = 20
 rough = 0.05
@@ -95,7 +95,7 @@ material = "glass"
 radius = 'orb_radius'
 reflect = 0.2
 two_pane = true
-rough = 0.02
+rough = 0.05
 transmit = 0.9
 specular = 0.5
 shininess = 150

@@ -28,6 +28,7 @@ const (
 	profPriSky
 	profBVHSteps
 	profPrimTests
+	profMaxSegs
 	profCounterCount
 )
 
@@ -56,6 +57,7 @@ type GPUProfileCounters struct {
 	PriSky         uint32
 	BVHSteps       uint32
 	PrimTests      uint32
+	MaxSegs        uint32
 }
 
 func decodeProfileCounters(raw []byte) GPUProfileCounters {
@@ -87,6 +89,7 @@ func decodeProfileCounters(raw []byte) GPUProfileCounters {
 	c.PriSky = vals[profPriSky]
 	c.BVHSteps = vals[profBVHSteps]
 	c.PrimTests = vals[profPrimTests]
+	c.MaxSegs = vals[profMaxSegs]
 	return c
 }
 

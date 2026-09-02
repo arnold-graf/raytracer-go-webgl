@@ -1,4 +1,4 @@
-# Street lamp on a simple floor — check soft shadow under the post.
+# Street lamp on a simple floor — preview the art-deco street light prop.
 # go run ./cmd/preview -scene scenes/preview/street-light.toml -view front -zoom 1.5 -views 1 -o tmp/street-light
 
 [camera]

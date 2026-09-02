@@ -24,11 +24,21 @@ const PROF_PRI_HIT_WATER: u32 = 16u;
 const PROF_PRI_SKY: u32 = 17u;
 const PROF_BVH_STEPS: u32 = 18u;
 const PROF_PRIM_TESTS: u32 = 19u;
-const PROF_COUNTER_COUNT: u32 = 20u;
+// High-water mark of the ray-tree work stack, not a sum: written with atomicMax.
+// MAX_SEGS in trace.wesl is sized from this, so it can be justified by
+// measurement instead of by counting worst cases on paper.
+const PROF_MAX_SEGS: u32 = 20u;
+const PROF_COUNTER_COUNT: u32 = 21u;
 
 fn prof_inc(idx: u32, delta: u32) {
     if (params.profile_enabled != 0u && idx < PROF_COUNTER_COUNT) {
         atomicAdd(&profile_counters[idx], delta);
+    }
+}
+
+fn prof_max(idx: u32, v: u32) {
+    if (params.profile_enabled != 0u && idx < PROF_COUNTER_COUNT) {
+        atomicMax(&profile_counters[idx], v);
     }
 }
 

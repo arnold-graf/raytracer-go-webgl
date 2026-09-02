@@ -1364,7 +1364,7 @@
         },
         "radius": {
           "$ref": "#/definitions/number_or_expr",
-          "description": "Physical radius of the emissive sphere (soft shadow penumbra)."
+          "description": "Physical radius of the emissive sphere (informational; not used by the renderer today)."
         },
         "range": {
           "$ref": "#/definitions/number_or_expr",

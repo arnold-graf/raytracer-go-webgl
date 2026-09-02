@@ -22,12 +22,16 @@ import (
 )
 
 const (
-	fovScale    = 0.5773502691896257 // tan(60deg / 2)
+	fovScale = 0.5773502691896257 // tan(60deg / 2)
 	// WGSL Params size; must match trace_linked.wgsl (struct is padded to 16-byte alignment).
 	paramsSize   = 352
 	aaHitStride  = 4  // packed u32 fingerprint per pixel
 	hdrPixStride = 16 // vec4<f32> per pixel
-	workgroupXY  = 8
+	// aa_dispatch: [workgroup_count_x, 1, 1, task_count].
+	aaDispatchBytes = 16
+	// Must match AA_RESOLVE_WG in types.wesl.
+	aaResolveWG = 64
+	workgroupXY = 8
 	// Six square portal captures (see texture.MaxCaptureDim).
 	maxCaptureDim = texture.MaxCaptureDim
 
@@ -61,37 +65,41 @@ type Renderer struct {
 	device   *wgpu.Device
 	queue    *wgpu.Queue
 
-	params    *wgpu.Buffer
-	prims     *wgpu.Buffer
-	blockers  *wgpu.Buffer
-	lights    *wgpu.Buffer
-	bvhNodes  *wgpu.Buffer
-	terrains  *wgpu.Buffer
-	samples   *wgpu.Buffer
-	terrFeat  *wgpu.Buffer
-	terrPads  *wgpu.Buffer
-	terrZones *wgpu.Buffer
-	terrZVerts *wgpu.Buffer
-	terrMips  *wgpu.Buffer
-	waters    *wgpu.Buffer
-	perm      *wgpu.Buffer
-	aoVolume  *wgpu.Buffer
-	campfires *wgpu.Buffer
-	holes     *wgpu.Buffer
-	captures  *wgpu.Buffer
-	documents *wgpu.Buffer
-	boxFaces  *wgpu.Buffer
-	instTmpl  *wgpu.Buffer
-	instRecs  *wgpu.Buffer
-	planeIdx  *wgpu.Buffer
-	blkPlane  *wgpu.Buffer
-	output    *wgpu.Buffer
-	hdrPixels *wgpu.Buffer
-	aaHits    *wgpu.Buffer
-	read      *wgpu.Buffer
-	pipeline  *wgpu.ComputePipeline
-	aaPipeline *wgpu.ComputePipeline
-	bind      *wgpu.BindGroup
+	params             *wgpu.Buffer
+	prims              *wgpu.Buffer
+	blockers           *wgpu.Buffer
+	lights             *wgpu.Buffer
+	bvhNodes           *wgpu.Buffer
+	terrains           *wgpu.Buffer
+	samples            *wgpu.Buffer
+	terrFeat           *wgpu.Buffer
+	terrPads           *wgpu.Buffer
+	terrZones          *wgpu.Buffer
+	terrZVerts         *wgpu.Buffer
+	terrMips           *wgpu.Buffer
+	waters             *wgpu.Buffer
+	perm               *wgpu.Buffer
+	aoVolume           *wgpu.Buffer
+	campfires          *wgpu.Buffer
+	holes              *wgpu.Buffer
+	captures           *wgpu.Buffer
+	documents          *wgpu.Buffer
+	boxFaces           *wgpu.Buffer
+	instTmpl           *wgpu.Buffer
+	instRecs           *wgpu.Buffer
+	planeIdx           *wgpu.Buffer
+	blkPlane           *wgpu.Buffer
+	output             *wgpu.Buffer
+	hdrPixels          *wgpu.Buffer
+	aaHits             *wgpu.Buffer
+	aaList             *wgpu.Buffer
+	aaDispatch         *wgpu.Buffer
+	aaIndirect         *wgpu.Buffer
+	read               *wgpu.Buffer
+	pipeline           *wgpu.ComputePipeline
+	aaClassifyPipeline *wgpu.ComputePipeline
+	aaPipeline         *wgpu.ComputePipeline
+	bind               *wgpu.BindGroup
 
 	// Scene-specialized shader. The tracer is one megakernel whose register
 	// allocation is global, so optional paths (terrain, water, flame, campfire)
@@ -456,6 +464,35 @@ func (r *Renderer) init() error {
 	if err != nil {
 		return fmt.Errorf("create aa hit scratch buffer: %w", err)
 	}
+	// One task slot per pixel is the worst case (every pixel an edge).
+	r.aaList, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "aa task list",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  uint64(r.maxDim * r.maxDim * 4),
+	})
+	if err != nil {
+		return fmt.Errorf("create aa task list buffer: %w", err)
+	}
+	// [workgroup_count_x, 1, 1, task_count], written atomically by aa_classify.
+	r.aaDispatch, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "aa dispatch header",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst | wgpu.BufferUsage_CopySrc,
+		Size:  aaDispatchBytes,
+	})
+	if err != nil {
+		return fmt.Errorf("create aa dispatch buffer: %w", err)
+	}
+	// WebGPU forbids using one buffer as a writable storage binding and as the
+	// indirect source in the same pass, so the header is copied here between
+	// the classify and resolve passes.
+	r.aaIndirect, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "aa indirect header",
+		Usage: wgpu.BufferUsage_Indirect | wgpu.BufferUsage_CopyDst,
+		Size:  aaDispatchBytes,
+	})
+	if err != nil {
+		return fmt.Errorf("create aa indirect buffer: %w", err)
+	}
 	r.read, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "sky readback",
 		Usage: wgpu.BufferUsage_MapRead | wgpu.BufferUsage_CopyDst,
@@ -548,6 +585,8 @@ func (r *Renderer) init() error {
 			{Binding: 25, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: aaHitStride}},
 			{Binding: 26, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainZoneStride}},
 			{Binding: 27, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainZoneVertStride}},
+			{Binding: 28, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: 4}},
+			{Binding: 29, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: aaDispatchBytes}},
 		},
 	})
 	if err != nil {
@@ -601,6 +640,8 @@ func (r *Renderer) init() error {
 			{Binding: 25, Buffer: r.aaHits, Size: uint64(r.maxDim * r.maxDim * aaHitStride)},
 			{Binding: 26, Buffer: r.terrZones, Size: maxTerrainZones * terrainZoneStride},
 			{Binding: 27, Buffer: r.terrZVerts, Size: maxTerrainZoneVerts * terrainZoneVertStride},
+			{Binding: 28, Buffer: r.aaList, Size: uint64(r.maxDim * r.maxDim * 4)},
+			{Binding: 29, Buffer: r.aaDispatch, Size: aaDispatchBytes},
 		},
 	})
 	if err != nil {
@@ -737,19 +778,19 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		instNodeBase: c.instNodeBase, instNodeCount: c.instNodeCount,
 		blockerSecStart: c.blockerSecStart, blockerInstBase: c.blockerInstBase,
 		blockerInstCount: c.blockerInstCount,
-	terrains: c.terrains, samples: c.samples,
+		terrains:         c.terrains, samples: c.samples,
 		terrainFeatures: c.terrainFeatures, terrainPads: c.terrainPads,
 		terrainZones: c.terrainZones, terrainZoneVerts: c.terrainZoneVerts,
-		terrainMips: c.terrainMips,
-		waters: c.waters,
+		terrainMips:    c.terrainMips,
+		waters:         c.waters,
 		campfireParams: c.campfireParams, holes: c.holes, boxFaceTex: c.boxFaceTex, ao: c.ao, aoOK: c.aoOK && aoEnabled,
 		shadows: shadows, mirror: mirror, thinGlassGhost: thinGlassGhost, timeSec: timeSec, sky: sky,
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
 		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
 		ambientSky: ambientSky, ambientGround: ambientGround,
 		uploadStatic: uploadStatic, uploadPartial: uploadPartial,
-		uploadLights:    c.lightsDirty,
-		uploadCampfires: c.campfiresDirty,
+		uploadLights:        c.lightsDirty,
+		uploadCampfires:     c.campfiresDirty,
 		partialPrimSpans:    c.partialPrimSpans,
 		partialBlockerSpans: c.partialBlockerSpans,
 	}
@@ -824,6 +865,15 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 	if err != nil {
 		return fmt.Errorf("create compute pipeline: %w", err)
 	}
+	aaClassifyPipeline, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
+		Label:   "aa classify pipeline",
+		Layout:  r.pipeLayout,
+		Compute: wgpu.ProgrammableStageDescriptor{Module: shader, EntryPoint: "aa_classify"},
+	})
+	if err != nil {
+		pipeline.Release()
+		return fmt.Errorf("create aa classify pipeline: %w", err)
+	}
 	aaPipeline, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
 		Label:   "aa resolve pipeline",
 		Layout:  r.pipeLayout,
@@ -831,16 +881,20 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 	})
 	if err != nil {
 		pipeline.Release()
+		aaClassifyPipeline.Release()
 		return fmt.Errorf("create aa resolve pipeline: %w", err)
 	}
 
 	if r.pipeline != nil {
 		r.pipeline.Release()
 	}
+	if r.aaClassifyPipeline != nil {
+		r.aaClassifyPipeline.Release()
+	}
 	if r.aaPipeline != nil {
 		r.aaPipeline.Release()
 	}
-	r.pipeline, r.aaPipeline = pipeline, aaPipeline
+	r.pipeline, r.aaClassifyPipeline, r.aaPipeline = pipeline, aaClassifyPipeline, aaPipeline
 	r.feat, r.featValid = f, true
 	return nil
 }
@@ -1108,6 +1162,13 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 // output (and, when profiling, the atomic counters) into dst. It does not wait
 // on the GPU; the returned submission index lets the caller poll for it later.
 func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveAA bool) (wgpu.SubmissionIndex, error) {
+	if adaptiveAA {
+		// Empty task list, and an indirect header that dispatches nothing if
+		// aa_classify finds no edges at all.
+		if err := r.queue.WriteBuffer(r.aaDispatch, 0, u32Bytes([]uint32{0, 1, 1, 0})); err != nil {
+			return 0, fmt.Errorf("reset aa dispatch header: %w", err)
+		}
+	}
 	encoder, err := r.device.CreateCommandEncoder(&wgpu.CommandEncoderDescriptor{Label: "trace encoder"})
 	if err != nil {
 		return 0, err
@@ -1121,7 +1182,9 @@ func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveA
 	gy := uint32((fh + workgroupXY - 1) / workgroupXY)
 	pass.DispatchWorkgroups(gx, gy, 1)
 	if adaptiveAA {
-		pass.SetPipeline(r.aaPipeline)
+		// Classify every pixel cheaply; the expensive supersample runs in a
+		// second pass over just the pixels this appends.
+		pass.SetPipeline(r.aaClassifyPipeline)
 		pass.DispatchWorkgroups(gx, gy, 1)
 	}
 	if err := pass.End(); err != nil {
@@ -1129,6 +1192,21 @@ func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveA
 		return 0, err
 	}
 	pass.Release()
+
+	if adaptiveAA {
+		if err := encoder.CopyBufferToBuffer(r.aaDispatch, 0, r.aaIndirect, 0, aaDispatchBytes); err != nil {
+			return 0, err
+		}
+		aaPass := encoder.BeginComputePass(&wgpu.ComputePassDescriptor{Label: "aa resolve pass"})
+		aaPass.SetPipeline(r.aaPipeline)
+		aaPass.SetBindGroup(0, r.bind, nil)
+		aaPass.DispatchWorkgroupsIndirect(r.aaIndirect, 0)
+		if err := aaPass.End(); err != nil {
+			aaPass.Release()
+			return 0, err
+		}
+		aaPass.Release()
+	}
 
 	size := uint64(fw * fh * 4)
 	if profiled {
@@ -1486,6 +1564,18 @@ func (r *Renderer) Release() {
 	}
 	if r.hdrPixels != nil {
 		r.hdrPixels.Release()
+	}
+	if r.aaList != nil {
+		r.aaList.Release()
+		r.aaList = nil
+	}
+	if r.aaDispatch != nil {
+		r.aaDispatch.Release()
+		r.aaDispatch = nil
+	}
+	if r.aaIndirect != nil {
+		r.aaIndirect.Release()
+		r.aaIndirect = nil
 	}
 	if r.aaHits != nil {
 		r.aaHits.Release()

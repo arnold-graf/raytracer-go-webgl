@@ -142,7 +142,7 @@ snow_hi = 10.5
   fade_to = "grass"
   fade_width = 3.0
   texture_scale = 0.4
-  bump = 0.03
+  bump = 0.1
   width = 8
   path = [
     [0.0, 24.0],
@@ -166,7 +166,7 @@ steepness = 1
 height = 5
 width = 15
 
-# ================================================================ MOUNTAINS AT THE OTHER END OF THE VALLEY ====
+# ==== MOUNTAINS AT THE OTHER END OF THE VALLEY ====
 
 [[include]]
 file = "objects/art-deco-street-light.toml"

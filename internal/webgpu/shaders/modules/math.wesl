@@ -12,6 +12,49 @@ fn mix3(a: vec3<f32>, b: vec3<f32>, t: f32) -> vec3<f32> {
     return a + (b - a) * t;
 }
 
+// ── Display transfer ─────────────────────────────────────────────────────────
+// Lives here rather than in trace.wesl because the shading code needs it too:
+// deciding whether a light is worth a shadow ray is a question about the pixel
+// the viewer ends up seeing, not about linear radiance.
+
+fn tonemap_channel(x: f32) -> f32 {
+    return clamp01((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14));
+}
+
+fn gamma_encode(x: f32) -> f32 {
+    if (x <= 0.0) {
+        return 0.0;
+    }
+    if (x >= 1.0) {
+        return 1.0;
+    }
+    return pow(x, 1.0 / 2.2);
+}
+
+fn tonemap(c: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        gamma_encode(tonemap_channel(c.x)),
+        gamma_encode(tonemap_channel(c.y)),
+        gamma_encode(tonemap_channel(c.z)),
+    );
+}
+
+// display_levels maps one linear radiance channel to its 0..255 output level.
+fn display_levels(x: f32) -> f32 {
+    return gamma_encode(tonemap_channel(x)) * 255.0;
+}
+
+// display_step_levels is how far the output moves, in 8-bit levels, when `add`
+// is layered on top of an already accumulated `base`.
+//
+// Both arguments are linear radiance. The tonemap is steeply compressive, so the
+// same linear increment is worth many levels against black and a small fraction
+// of a level in a highlight — which is exactly the information a fixed linear
+// threshold throws away.
+fn display_step_levels(base: f32, add: f32) -> f32 {
+    return display_levels(base + add) - display_levels(base);
+}
+
 fn smoothstepf(e0: f32, e1: f32, x: f32) -> f32 {
     let t = clamp01((x - e0) / (e1 - e0));
     return t * t * (3.0 - 2.0 * t);

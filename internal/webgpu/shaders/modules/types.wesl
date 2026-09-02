@@ -115,7 +115,7 @@ struct Light {
 };
 
 // BVHNode mirrors GPUBVHNode in bvh.go (std430, 48-byte stride).
-// info: interior -> (left, right, 0, 0), leaf -> (_, _, start, count)
+// info: interior -> (left, right, 0, 0), leaf -> (prim0, prim1, 0, count)
 struct BVHNode {
     min_b: vec4<f32>,
     max_b: vec4<f32>,
@@ -260,6 +260,23 @@ var<storage, read_write> hdr_pixels: array<vec4<f32>>;
 @group(0) @binding(25)
 var<storage, read_write> aa_hits: array<u32>;
 
+// Adaptive AA work list. aa_classify appends one packed entry per pixel that
+// needs supersampling (see aa_pack_task in trace.wesl) and aa_resolve consumes
+// the list, so the expensive pass launches threads only for real work instead
+// of one per screen pixel.
+@group(0) @binding(28)
+var<storage, read_write> aa_list: array<u32>;
+
+// aa_dispatch is both the append counter and the indirect dispatch header for
+// aa_resolve: [workgroup_count_x, 1, 1, task_count]. The host resets it to
+// [0, 1, 1, 0] each frame.
+@group(0) @binding(29)
+var<storage, read_write> aa_dispatch: array<atomic<u32>>;
+
+// AA_RESOLVE_WG is the 1D workgroup size of the compacted aa_resolve pass and
+// must match its @workgroup_size and the host's indirect header arithmetic.
+const AA_RESOLVE_WG: u32 = 64u;
+
 @group(0) @binding(14)
 var<storage, read> inst_templates: array<TemplateRecord>;
 
@@ -351,14 +368,38 @@ const T_MISS: f32 = 1e30;
 //   Lower  → more accurate, especially on dim reflection paths.
 const LIGHT_CULL_EPS: f32 = 0.0025;
 
-// optimization: skip the shadow ray when tw_peak(tw) × unshadowed_brightness
-// is below this. The light is added as if unshadowed (no BVH shadow traversal).
-// Main perf win on mirror-heavy scenes; tune if shadows look wrong in reflections.
-//   0.0          → never skip (slowest, most exact)
-//   1/256 = 0.00390625 → aggressive; may merge multi-light shadows (e.g. campfire)
-//   1/1024 = 0.0009765625 → current default (good speed/look balance)
-//   1/2048 = 0.00048828125 or ↓  → conservative; closer to exact, less perf gain
-const SHADOW_SKIP_EPS: f32 = 0.00390625;
+// optimization: skip the shadow ray when the light cannot move the output pixel
+// by this many 8-bit levels. The light is then added as if unshadowed, with no
+// BVH shadow traversal.
+//
+// The test (display_step_levels in math.wesl) compares the *display* step the
+// light's contribution makes on top of the radiance already accumulated at the
+// hit, rather than thresholding linear radiance directly. Linear radiance is the
+// wrong space for this decision in both directions: the tonemap compresses
+// highlights, so a contribution that clears a fixed linear bar can still be
+// worth a hundredth of a level on a bright surface, while against a near-black
+// interior the same bar sits well above one level and the old gate was quietly
+// erasing visible shadows. Shadow rays are the largest ray population in an
+// interior view — around 60% of all rays in office-sunset — so this is where
+// there is the most work to skip without anything to see.
+//
+// Contributions below the bar are still *added*, so the error per light is
+// bounded by the threshold and only accumulates across lights that are each
+// individually invisible.
+//   0.0  → never skip (exact, slowest)
+//   0.5  → sub-level exactness; ~2x the shadow rays of the linear gate it
+//          replaced, because gamma makes dim contributions visible against a
+//          dark interior and almost nothing qualifies as skippable
+//   4.0  → current default; half the 8.2-level step of the 15-bit output, so a
+//          skipped shadow stays inside one quantized bucket
+//   8.0  → a full quantization step; measurably faster but visibly thins the
+//          contact shadows under desks and furniture
+const SHADOW_SKIP_LEVELS: f32 = 4.0;
+
+// Throughput handed to the ghost (second glass pane) lighting pass. Small enough
+// that every light's shadow test folds to "not worth a ray", which is what makes
+// the pass cheap; the pane is a faint overlay where shadowing is not missed.
+const GHOST_SHADOW_TW: f32 = 0.001953125;
 
 // optimization: drop a reflected/refracted child ray when the throughput it
 // would carry, tw_peak(tw) × lobe_weight, is below this. The existing lobe
@@ -378,6 +419,37 @@ const SHADOW_SKIP_EPS: f32 = 0.00390625;
 //                    scene's glass skyway
 //   1/256 ≈ 0.004  → faster still, but starts to lift faint reflections
 const SEG_MIN_CONTRIB: f32 = 0.0009765625;
+
+// optimization: the minimum throughput a *semi-glossy diffuse* reflection lobe
+// (Surface.Reflect on a diffuse/checker material) must carry before it is worth
+// a ray, on bounce paths only. This is deliberately far coarser than
+// SEG_MIN_CONTRIB, which governs mirror and glass lobes.
+//
+// This applies from depth 1 down. Primary hits keep using SEG_MIN_CONTRIB, so a
+// deliberately subtle authored sheen — the server-room floor ships at
+// reflect 0.06, and props sit at 0.02 — always renders. An earlier version
+// applied the threshold at every depth and silently erased every reflect < 0.05
+// surface in the scene, which is a scene-authoring trap: the author sets a value
+// and gets nothing back.
+//
+// Mirror and glass lobes carry most of their segment's radiance, so a faint one
+// still resolves a recognizable image and the eye tracks it. A glossy lobe is by
+// construction a *perturbation*: the surface already contributed
+// `lit * (1 - refl)`, and dropping the lobe falls back to `lit`, i.e. the fully
+// diffuse surface. The error is therefore bounded by refl × |reflected − local|,
+// not by the reflected radiance itself.
+//
+// SEG_MIN_CONTRIB alone let glossy chains run absurdly deep: the office towers
+// use refl 0.15–0.4, so a 0.15 surface reflecting a 0.15 surface still cleared
+// 1/1024 at four bounces (0.15⁴ = 5e-4) — four BVH traversals plus four full
+// direct-lighting evaluations to move a tonemapped pixel by well under one 8-bit
+// level. Roughly a quarter of all glossy rays in this scene were in that tail.
+//
+//   0.0009765625 → old behaviour (SEG_MIN_CONTRIB); ~25% of glossy rays invisible
+//   0.05         → current default; keeps the first bounce everywhere, prunes
+//                  the tail from the second bounce down on weak reflectors
+//   0.15         → also drops the first bounce on refl < 0.15 surfaces (visible)
+const GLOSSY_MIN_CONTRIB: f32 = 0.05;
 
 // Scene feature flags. Every FEAT_* below is true in the checked-in shader, so
 // the linked WGSL on disk is always the full-featured one and nothing changes if

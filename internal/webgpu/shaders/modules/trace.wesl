@@ -3,9 +3,9 @@
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
-import package::types::{HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, aa_hits, hdr_pixels, params, pixels, prims, waters};
-import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc};
-import package::math::{clamp01, surface_grazing_weight};
+import package::types::{AA_RESOLVE_WG, GLOSSY_MIN_CONTRIB, HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, aa_dispatch, aa_hits, aa_list, hdr_pixels, params, pixels, prims, waters};
+import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MAX_SEGS, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc, prof_max};
+import package::math::{surface_grazing_weight, tonemap};
 import package::texture::{plane_albedo, prim_texture_bump_normal, texture_eval, texture_eval_box, texture_eval_surface};
 import package::sky::{sky};
 import package::intersect::{thin_glass_exit_t, xf_to_local_dir, xf_to_local_point, xf_to_world_normal};
@@ -15,28 +15,6 @@ import package::flame::{accumulate_flame, heat_shimmer_dir};
 import package::instance::{inst_local_point, inst_world_normal};
 import package::bvh::{nearest_hit};
 import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, shade_diffuse, shade_ghost, shade_specular, terrain_albedo, tw_peak};
-
-fn tonemap_channel(x: f32) -> f32 {
-    return clamp01((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14));
-}
-
-fn gamma_encode(x: f32) -> f32 {
-    if (x <= 0.0) {
-        return 0.0;
-    }
-    if (x >= 1.0) {
-        return 1.0;
-    }
-    return pow(x, 1.0 / 2.2);
-}
-
-fn tonemap(c: vec3<f32>) -> vec3<f32> {
-    return vec3<f32>(
-        gamma_encode(tonemap_channel(c.x)),
-        gamma_encode(tonemap_channel(c.y)),
-        gamma_encode(tonemap_channel(c.z)),
-    );
-}
 
 // RaySeg is one pending ray in the bounded work stack: a ray plus the
 // multiplicative weight (throughput) its radiance contributes to the pixel, and
@@ -57,10 +35,23 @@ struct TraceResult {
     primary: Hit,
 };
 
-// MAX_SEGS bounds the ray tree. Recursion is capped at depth 3 and only glass
-// branches (into two children), at depths 0 and 1 (depth 2 is no longer
-// "reflective" so it terminates), giving at most 1 + 2 + 4 = 7 live segments.
-const MAX_SEGS: u32 = 8u;
+// MAX_SEGS bounds the ray tree work stack. `stack` is a dynamically indexed
+// local array, which Metal backs with per-thread scratch memory, and that
+// allocation is charged to every invocation of this megakernel whether or not a
+// ray ever branches. At 44 bytes per RaySeg it is the largest such array in the
+// tracer, so oversizing it costs occupancy on every pixel of every scene.
+//
+// Counting worst cases on paper gives 1 + 2 + 4 = 7 (glass forking into two
+// children at depths 0 and 1). That bound is not reachable: the Fresnel and
+// SEG_MIN_CONTRIB gates prune one of the two lobes long before the tree fills
+// out. TestRayStackHighWaterMark measures PROF_MAX_SEGS over every scene in
+// scenes/ across a ring of 24 camera orientations each; the worst observed is 5
+// (office-sunset, the facing glass panes of the skyway). 6 keeps one spare
+// segment over that measurement.
+//
+// Raise this if the test reports a scene reaching MAX_SEGS: on overflow the
+// `sp < MAX_SEGS` push guards silently drop a lobe rather than corrupt memory.
+const MAX_SEGS: u32 = 6u;
 
 // Thin-glass double-pane ghost (key 8). Parallel panes share the same normal, so
 // a second reflect() at the same surface point only superimposes (brighter, no
@@ -105,13 +96,19 @@ fn thin_glass_ghost_surface_shift(cosi: f32) -> f32 {
 // diffuse/checker. Reflections are gated by params.mirror.
 fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
     var accum = vec3<f32>(0.0, 0.0, 0.0);
-    var stack: array<RaySeg, 8>;
+    var stack: array<RaySeg, MAX_SEGS>;
     stack[0] = RaySeg(origin, dir0, vec3<f32>(1.0, 1.0, 1.0), 0u, 0u);
     var sp = 1u;
     var primary = Hit(0.0, 0xffffffffu, 0u, HIT_NO_INSTANCE);
     var got_primary = false;
+    var max_sp = 1u;
 
     loop {
+        // Sampled before the pop, so this is the stack's high-water mark.
+        // Guarded: normal frames must not pay for the diagnostic.
+        if (params.profile_enabled != 0u) {
+            max_sp = max(max_sp, sp);
+        }
         if (sp == 0u) {
             break;
         }
@@ -304,6 +301,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         if (max_depth == 0u) {
             max_depth = 2u;
         }
+
         let reflective = depth < max_depth && params.mirror != 0u;
         // Throughput this segment carries, and the albedo-weighted brightness a
         // child spawned here could still contribute. Child lobes below
@@ -408,7 +406,15 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         // depth cap (or when reflections are disabled): shaded as diffuse.
         let lit = shade_diffuse(hp, alb, n, ep, tw, rd, spec_strength, shininess);
         let refl = surf.z;
-        if (refl > 0.0 && reflective && twm * refl > SEG_MIN_CONTRIB && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) && sp < MAX_SEGS) {
+        // A glossy lobe on a *primary* hit is the sheen the scene author asked
+        // for, however faint, so it only has to clear the generic
+        // SEG_MIN_CONTRIB floor. Only reflections seen inside another
+        // reflection are pruned by GLOSSY_MIN_CONTRIB.
+        var glossy_min = GLOSSY_MIN_CONTRIB;
+        if (depth == 0u) {
+            glossy_min = SEG_MIN_CONTRIB;
+        }
+        if (refl > 0.0 && reflective && twm * refl > glossy_min && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) && sp < MAX_SEGS) {
             prof_inc(PROF_DIFFUSE_REFL, 1u);
             accum = accum + tw * lit * (1.0 - refl);
             stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * refl, depth + 1u, 0u);
@@ -417,6 +423,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         }
         accum = accum + tw * lit;
     }
+    prof_max(PROF_MAX_SEGS, max_sp);
     return TraceResult(accum, primary);
 }
 
@@ -469,6 +476,94 @@ fn pixel_index(x: u32, y: u32) -> u32 {
     return y * params.width + x;
 }
 
+// AA_GEOM_MIN_LEVELS is the display-space luminance gap, in 8-bit levels, that
+// two neighboring pixels on *different surfaces* must span before their shared
+// boundary is worth a supersample.
+//
+// The pass-1 fingerprint test (hits_edge_packed) answers "do these pixels sit on
+// different primitives", which is a weaker signal than "is there a visible jaggy
+// here". Scene geometry is authored as many small boxes — a server rack, a wall
+// of panels, a skyscraper facade — so a continuous, uniformly lit surface is
+// covered in fingerprint boundaries with nothing to antialias. The gate is safe
+// because the output is quantized: at 15-bit color depth (color_quant == 1) each
+// channel keeps 32 levels, ~8.2 display levels apart, so neighbors closer than
+// that largely land in the same bucket. Kept well below one quantization step so
+// dithered near-threshold edges still resolve.
+const AA_GEOM_MIN_LEVELS: f32 = 3.0;
+
+// AA_SHADE_MIN_CURVE is the same idea for edges *within* one surface: shadow
+// terminators, contact shadows, and texture boundaries, none of which change the
+// primary hit and so were invisible to the fingerprint test.
+//
+// The test is the second difference of luminance across the pixel,
+// |lo + hi - 2*center|, rather than a plain neighbor gap. A plain gap fires
+// everywhere on the smooth falloff of a point light, where a supersample only
+// re-averages a value the gradient already got right — a large ray cost for no
+// visible change. Curvature is near zero along any linear ramp and jumps to the
+// full step height where luminance *bends*, which is exactly where a hard shadow
+// boundary produces a staircase.
+//
+// Sits just above one 15-bit quantization step (~8.2 levels), so a staircase
+// that is merely a banding artifact — where the extra ray would land in the same
+// output bucket — does not qualify. Measured on the office-sunset views, cost
+// over the silhouette-only detector is +0.8ms at 10.0 and +1.2ms at 5.0, the
+// latter mostly spent chasing dither noise.
+//
+//	 5.0 → below one quantization step; pays for dither noise
+//	10.0 → current default; hard shadow and contact-shadow edges
+//	48.0 → only the highest-contrast shadow boundaries
+const AA_SHADE_MIN_CURVE: f32 = 10.0;
+
+// display_luma is the Rec.709 luminance of the tonemapped color in 0..255, the
+// space the eye judges an edge in. Pass 1 stashes it in hdr_pixels[].w so the
+// resolve pass compares a scalar per neighbor instead of retonemapping four.
+fn display_luma(c: vec3<f32>) -> f32 {
+    let t = tonemap(c);
+    return (0.2126 * t.x + 0.7152 * t.y + 0.0722 * t.z) * 255.0;
+}
+
+// AANeighbor is one neighboring pixel's contribution to the edge decision.
+struct AANeighbor {
+    // luma is the neighbor's display luminance, or the center's when off-screen
+    // so it reads as a flat continuation and never invents an edge.
+    luma: f32,
+    // surface_edge is true when the neighbor's primary hit is a different
+    // surface, i.e. the boundary is a silhouette rather than shading.
+    surface_edge: bool,
+    inside: bool,
+}
+
+fn aa_neighbor(fp: u32, center_luma: f32, x: u32, y: u32, inside: bool) -> AANeighbor {
+    if (!inside) {
+        return AANeighbor(center_luma, false, false);
+    }
+    let idx = pixel_index(x, y);
+    return AANeighbor(hdr_pixels[idx].w, hits_edge_packed(fp, aa_hits[idx]), true);
+}
+
+// aa_axis_tap picks the sub-pixel tap along one axis: 0.25 toward the low
+// neighbor, 0.75 toward the high one, or 0.5 for "no edge on this axis".
+//
+// The tap always aims at the stronger of the two sides. Aiming matters because
+// the resolve pass averages the center sample with this single extra ray, so a
+// tap at 0.5 would just re-trace the center and change nothing.
+fn aa_axis_tap(center: f32, lo: AANeighbor, hi: AANeighbor) -> f32 {
+    let d_lo = abs(center - lo.luma);
+    let d_hi = abs(center - hi.luma);
+
+    var edge = (lo.surface_edge && d_lo >= AA_GEOM_MIN_LEVELS) || (hi.surface_edge && d_hi >= AA_GEOM_MIN_LEVELS);
+    if (!edge && lo.inside && hi.inside) {
+        edge = abs(lo.luma + hi.luma - 2.0 * center) >= AA_SHADE_MIN_CURVE;
+    }
+    if (!edge) {
+        return 0.5;
+    }
+    if (d_lo >= d_hi) {
+        return 0.25;
+    }
+    return 0.75;
+}
+
 // hits_edge is true when two packed primary hits belong to different surfaces.
 fn hits_edge_packed(a: u32, b: u32) -> bool {
     if (a == b) {
@@ -490,45 +585,16 @@ fn pack_hit(h: Hit) -> u32 {
 // analyze_edge finds which neighbors differ and picks a sub-pixel tap toward them
 // (corner when two axes disagree, edge midpoint when only one does).
 // Returns vec4(tap.x, tap.y, _, active) with active = 1 when supersampling is needed.
-fn analyze_edge(gid: vec2<u32>, fp: u32) -> vec4<f32> {
-    var dx = 0;
-    var dy = 0;
-    let w = params.width;
-    let hgt = params.height;
-    if (gid.x > 0u) {
-        if (hits_edge_packed(fp, aa_hits[pixel_index(gid.x - 1u, gid.y)])) {
-            dx = dx - 1;
-        }
-    }
-    if (gid.x + 1u < w) {
-        if (hits_edge_packed(fp, aa_hits[pixel_index(gid.x + 1u, gid.y)])) {
-            dx = dx + 1;
-        }
-    }
-    if (gid.y > 0u) {
-        if (hits_edge_packed(fp, aa_hits[pixel_index(gid.x, gid.y - 1u)])) {
-            dy = dy - 1;
-        }
-    }
-    if (gid.y + 1u < hgt) {
-        if (hits_edge_packed(fp, aa_hits[pixel_index(gid.x, gid.y + 1u)])) {
-            dy = dy + 1;
-        }
-    }
-    if (dx == 0 && dy == 0) {
+fn analyze_edge(gid: vec2<u32>, fp: u32, luma: f32) -> vec4<f32> {
+    let left = aa_neighbor(fp, luma, max(gid.x, 1u) - 1u, gid.y, gid.x > 0u);
+    let right = aa_neighbor(fp, luma, gid.x + 1u, gid.y, gid.x + 1u < params.width);
+    let down = aa_neighbor(fp, luma, gid.x, max(gid.y, 1u) - 1u, gid.y > 0u);
+    let up = aa_neighbor(fp, luma, gid.x, gid.y + 1u, gid.y + 1u < params.height);
+
+    let sx = aa_axis_tap(luma, left, right);
+    let sy = aa_axis_tap(luma, down, up);
+    if (sx == 0.5 && sy == 0.5) {
         return vec4<f32>(0.5, 0.5, 0.0, 0.0);
-    }
-    var sx = 0.5;
-    var sy = 0.5;
-    if (dx < 0) {
-        sx = 0.25;
-    } else if (dx > 0) {
-        sx = 0.75;
-    }
-    if (dy < 0) {
-        sy = 0.25;
-    } else if (dy > 0) {
-        sy = 0.75;
     }
     return vec4<f32>(sx, sy, 0.0, 1.0);
 }
@@ -575,7 +641,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     if (params.adaptive_aa != 0u) {
         let idx = pixel_index(gid.x, gid.y);
-        hdr_pixels[idx] = vec4<f32>(tr.color, 0.0);
+        hdr_pixels[idx] = vec4<f32>(tr.color, display_luma(tr.color));
         aa_hits[idx] = pack_hit(tr.primary);
         write_pixel(g2, tr.color);
         return;
@@ -584,21 +650,62 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     write_pixel(g2, tr.color);
 }
 
-// aa_resolve is the second AA pass: compare neighbor hit fingerprints and only
-// supersample pixels that sit on a geometric edge.
+// aa_pack_task encodes a supersample task: pixel coordinate plus which of the
+// three sub-pixel taps (0.25 / 0.5 / 0.75) to use on each axis.
+fn aa_pack_task(x: u32, y: u32, tap: vec2<f32>) -> u32 {
+    let sxi = u32(tap.x * 4.0) - 1u; // 0.25|0.5|0.75 -> 0|1|2
+    let syi = u32(tap.y * 4.0) - 1u;
+    return (x & 0xfffu) | ((y & 0xfffu) << 12u) | (sxi << 24u) | (syi << 26u);
+}
+
+fn aa_task_pixel(task: u32) -> vec2<u32> {
+    return vec2<u32>(task & 0xfffu, (task >> 12u) & 0xfffu);
+}
+
+fn aa_task_tap(task: u32) -> vec2<f32> {
+    let sxi = (task >> 24u) & 3u;
+    let syi = (task >> 26u) & 3u;
+    return vec2<f32>(f32(sxi + 1u) * 0.25, f32(syi + 1u) * 0.25);
+}
+
+// aa_classify is AA pass 2 of 3: one thread per pixel, but it only reads the
+// neighbor fingerprints and luminances and appends the pixels that need work.
+// Splitting classification from supersampling is what makes the AA affordable.
+// Edge pixels are scattered along silhouettes, so when a single pass did both,
+// almost every 64-thread workgroup contained at least one edge pixel and the
+// whole workgroup was billed for a full extra ray tree while most of its lanes
+// sat idle. Compacting first means aa_resolve launches only full workgroups of
+// genuine work.
 @compute @workgroup_size(8, 8, 1)
-fn aa_resolve(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn aa_classify(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (gid.x >= params.width || gid.y >= params.height) {
         return;
     }
-
-    let g2 = vec2<u32>(gid.xy);
     let idx = pixel_index(gid.x, gid.y);
-    let fp = aa_hits[idx];
-    let edge = analyze_edge(g2, fp);
+    let edge = analyze_edge(vec2<u32>(gid.xy), aa_hits[idx], hdr_pixels[idx].w);
     if (edge.w < 0.5) {
         return;
     }
-    let col = supersample_edge(f32(gid.x), f32(gid.y), hdr_pixels[idx].xyz, edge.xy);
-    write_pixel(g2, col);
+    let slot = atomicAdd(&aa_dispatch[3], 1u);
+    if (slot >= arrayLength(&aa_list)) {
+        return;
+    }
+    aa_list[slot] = aa_pack_task(gid.x, gid.y, edge.xy);
+    // Grow the indirect workgroup count to cover this slot.
+    atomicMax(&aa_dispatch[0], (slot + AA_RESOLVE_WG) / AA_RESOLVE_WG);
+}
+
+// aa_resolve is AA pass 3 of 3: supersample the compacted task list. Dispatched
+// indirectly from aa_dispatch, so its thread count tracks the number of edge
+// pixels rather than the screen size.
+@compute @workgroup_size(64, 1, 1)
+fn aa_resolve(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (gid.x >= atomicLoad(&aa_dispatch[3])) {
+        return;
+    }
+    let task = aa_list[gid.x];
+    let px = aa_task_pixel(task);
+    let idx = pixel_index(px.x, px.y);
+    let col = supersample_edge(f32(px.x), f32(px.y), hdr_pixels[idx].xyz, aa_task_tap(task));
+    write_pixel(px, col);
 }

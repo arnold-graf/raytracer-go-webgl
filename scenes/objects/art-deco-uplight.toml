@@ -5,7 +5,6 @@ brightness = 0.5
 range = 16.0
 albedo = [0.66, 0.45, 0.24]
 
-
 # base
 
 [[cylinder]]
@@ -14,9 +13,9 @@ reflect = 0.1
 rough = 0.1
 albedo = 'albedo'
 height = 0.1
-pos_x = 0.0
+center_x = 0.0
 pos_y = 0.0
-pos_z = 0.0
+center_z = 0.0
 width = 0.8
 
 [[cylinder]]
@@ -25,9 +24,9 @@ reflect = 0.1
 rough = 0.1
 albedo = 'albedo'
 height = 0.05
-pos_x = 0.1
+center_x = 0
 pos_y = 0.1
-pos_z = 0.1
+center_z = 0
 width = 0.6
 
 [[cylinder]]
@@ -36,9 +35,9 @@ reflect = 0.1
 rough = 0.1
 albedo = 'albedo'
 height = 0.05
-pos_x = 0.2
+center_x = 0
 pos_y = 0.15
-pos_z = 0.2
+center_z = 0
 width = 0.4
 
 
@@ -49,27 +48,29 @@ texture = "wood"
 reflect = 0.1
 albedo = 'albedo'
 height = 'stem_len'
-pos_x = 0.30
+center_x = 0
 pos_y = 0.0
-pos_z = 0.30
+center_z = 0
 width_bottom = 0.05
 width_top = 0.2
 
 [[cone]]
 material = "diffuse"
 reflect = 0.2
+specular = 0.5
+shininess = 50
 albedo = 'albedo'
 height = 0.3
 width = 1
-pos_x = -0.1
+center_x = 0
 pos_y = 'stem_len'
-pos_z = -0.1
+center_z = 0
 rotate_x = 180
 capped = false
 
 [[light]]
 color = [2, 1.5, 1]
-pos = [0.3, 'stem_len + 0.1', 0.3]
+pos = [0, 'stem_len + 0.5', 0]
 brightness = 'brightness'
 interactive = true
 range = 'range'

@@ -280,7 +280,7 @@ terrain and water are tested directly.
 [[light]]
 pos = [0.0, 4.0, 0.0]
 color = [8.0, 6.0, 4.0]  # per-channel intensity (HDR, can exceed 1)
-radius = 0.35            # informational (soft-shadow size)
+radius = 0.35            # informational (emitter size)
 range = 16.0            # cull distance: beyond it the light + its shadow ray are skipped (0 = infinite)
 brightness = 1.0        # scales color (folded in at load; default 1)
 ```

@@ -147,14 +147,22 @@ func TestPackBVHSkipsPlanesAndReferencesFinitePrims(t *testing.T) {
 	if len(nodes) == 0 {
 		t.Fatal("expected BVH nodes")
 	}
-	root := nodes[0]
-	if root.Info[3] == 0 {
-		t.Fatalf("expected a leaf for two finite primitives, got interior: %+v", root)
+	// Whether two primitives land in one leaf or in two sibling leaves depends
+	// on gpuscene.BVHLeafSize, so assert on the set of primitives the leaves
+	// reference rather than on the shape of the tree.
+	referenced := map[uint32]bool{}
+	for _, n := range nodes {
+		for k := uint32(0); k < n.Info[3]; k++ {
+			referenced[n.Info[k]] = true
+		}
 	}
-	if root.Info[0] == 1 || root.Info[1] == 1 {
-		t.Fatalf("plane primitive included in finite BVH leaf: %+v", root.Info)
+	if !referenced[0] || !referenced[2] {
+		t.Fatalf("finite primitives missing from BVH leaves: %v", referenced)
 	}
-	if root.Min[0] != -2 || root.Min[1] != 0 || root.Min[2] != -1 {
+	if referenced[1] {
+		t.Fatalf("plane primitive included in finite BVH: %v", referenced)
+	}
+	if root := nodes[0]; root.Min[0] != -2 || root.Min[1] != 0 || root.Min[2] != -1 {
 		t.Fatalf("root min packed wrong: %+v", root.Min)
 	}
 }

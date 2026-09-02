@@ -1,0 +1,7 @@
+Gait report (0 frames)
+  stance backward skate frames: 0 (max vel 0.0000 m/f)
+  swing backward arc frames:    0 (max vel 0.0000 m/f)
+  ✓ foot motion generally aligned with travel
+
+
+Per-frame summary (last 20):

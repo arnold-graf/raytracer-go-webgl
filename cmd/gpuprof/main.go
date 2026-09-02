@@ -55,6 +55,7 @@ func main() {
 	mountains := flag.Bool("mountains", false, "use mountain-view camera preset (yaw=0°, villa valley view)")
 	aa := flag.Bool("aa", true, "enable adaptive anti-aliasing (two-pass), as the app does")
 	depth := flag.Uint("depth", defaultBounceDepth, "max mirror/glass bounce depth (app uses 4; 0 = shader default of 2)")
+	clock := flag.Float64("time", 0, "animation clock in seconds (campfire sub-lights, flames, water ripples)")
 	flag.Parse()
 
 	renderW, renderH := *width, *height
@@ -109,6 +110,7 @@ func main() {
 	aoData, aoOK := probe.New(sc).BakeAO()
 	view := &render.View{
 		Scene:          sc,
+		Time:           *clock,
 		Shadow:         true,
 		Mirror:         true,
 		AO:             true,
