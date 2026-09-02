@@ -35,6 +35,9 @@ type DoorSpec struct {
 	OpenSign    float64 // +1 / -1 for one_way
 	Speed       float64 // rad/s (swing) or m/s (slide)
 	Panels      []DoorPanelGeom
+	// FrameBoxes are static frame/jamb box indices (half-open) merged with the
+	// door before the panel; ignored by swing collision probes.
+	FrameBoxes [2]int
 	// PanelClosedAngles are per-panel offsets from the closed pose (radians),
 	// applied about each panel's hinge. Optional; length may be less than panels.
 	PanelClosedAngles []float64

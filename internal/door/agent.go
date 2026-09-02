@@ -48,6 +48,7 @@ type Agent struct {
 	Panels         []Panel
 	State          string
 	PanelCollision bool
+	FrameBoxes     [2]int
 	Interact       *scene.Interactable
 	SoundCenter    vec.V
 }
@@ -72,6 +73,7 @@ func newAgent(spec scene.DoorSpec) *Agent {
 		AutocloseTimeout: spec.AutocloseTimeout,
 		State:          stateClosed,
 		PanelCollision: true,
+		FrameBoxes:     spec.FrameBoxes,
 		Interact:       spec.Interact,
 	}
 	if a.Axis == "" {

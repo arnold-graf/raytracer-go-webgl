@@ -44,6 +44,43 @@ func testDoorScene(t *testing.T) (*scene.Scene, *Manager) {
 	return sc, mgr
 }
 
+func TestDoorSwingIgnoresHoledWall(t *testing.T) {
+	wall := scene.Box{
+		Min: vec.New(0, 0, 0),
+		Max: vec.New(3, 3, 0.2),
+		Holes: []scene.AABB{{
+			Min: vec.New(0.9, 0, -0.1),
+			Max: vec.New(2.1, 2.5, 0.3),
+		}},
+	}
+	sc := &scene.Scene{
+		Boxes: []scene.Box{
+			wall,
+			{Min: vec.New(1, 0, 0), Max: vec.New(2, 2.5, 0.08)},
+		},
+		DoorSpecs: []scene.DoorSpec{{
+			ID: "d", Kind: "single", Hinge: vec.New(1, 0, 0), Axis: "y",
+			OpenAngle: math.Pi / 2, Speed: 10,
+			Panels:   []scene.DoorPanelGeom{{Boxes: [2]int{1, 2}}},
+			Interact: &scene.Interactable{DoorID: "d"},
+		}},
+	}
+	mgr := NewManager()
+	if err := mgr.Instantiate(sc); err != nil {
+		t.Fatal(err)
+	}
+	a := &mgr.agents[0]
+	p := &a.Panels[0]
+	skip := mgr.skipBoxFunc()
+	if PanelHitsStaticAt(sc, a, p, 0, skip) {
+		t.Fatal("closed panel in wall hole should not hit holed wall")
+	}
+	proposed := clampAngle(sc, a, p, math.Pi/4, skip)
+	if proposed < math.Pi/8 {
+		t.Fatalf("swing should clear holed wall, got %v", proposed)
+	}
+}
+
 func TestClosedDoorBlocksPlayer(t *testing.T) {
 	sc, _ := testDoorScene(t)
 	feetY, headY, r, step := 0.0, 2.0, 0.3, 0.45

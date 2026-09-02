@@ -45,6 +45,8 @@ shininess = 0
 specular = 0
 handrail_left = false
 handrail_right = false
+texture_normal_map = false
+texture_normal_bump = 0
 
 # for i in range(steps)
 [[box]] # step
@@ -61,6 +63,8 @@ texture = 'texture'
 rough = 'rough'
 shininess = 'shininess'
 specular = 'specular'
+texture_normal_map = 'texture_normal_map'
+texture_normal_bump = 'texture_normal_bump'
 # endfor
 
 # if handrail_left

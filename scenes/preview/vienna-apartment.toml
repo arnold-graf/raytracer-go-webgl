@@ -1,0 +1,47 @@
+# Vienna apartment facade — verification preview (bright, not night).
+#
+# Recommended commands for agent/human inspection:
+#
+#   # Full orbit (12 angles, auto-framed) — best default
+#   go run ./cmd/preview -scene scenes/preview/vienna-apartment.toml -zoom 1.5 -w 1024 -h 640 -o tmp/vienna
+#
+#   # Named facade views
+#   go run ./cmd/preview -scene scenes/preview/vienna-apartment.toml -view front -zoom 1.8 -w 1024 -h 640 -views 1 -o tmp/vienna-front
+#   go run ./cmd/preview -scene scenes/preview/vienna-apartment.toml -view side  -zoom 1.6 -w 1024 -h 640 -views 1 -o tmp/vienna-side
+#   go run ./cmd/preview -scene scenes/preview/vienna-apartment.toml -view low   -zoom 1.4 -w 1024 -h 640 -views 1 -o tmp/vienna-low
+#
+# Do NOT verify facade detail in outdoors-night-villa.toml — night ambient hides
+# ochre plaster and white stucco. Use this scene instead.
+
+[environment]
+sky = "clear"
+ambient_sky = [0.35, 0.38, 0.45]
+ambient_ground = [0.12, 0.11, 0.10]
+sun_dir = [-0.35, -0.85, -0.38]
+sun_color = [1.0, 0.95, 0.88]
+
+# Key + fill so both facade faces read (single side light = black silhouette).
+[[light]]
+pos = [10.0, 14.0, 12.0]
+color = [1.0, 0.98, 0.92]
+brightness = 25.0
+range = 0
+
+[[light]]
+pos = [-8.0, 8.0, 10.0]
+color = [0.85, 0.88, 1.0]
+brightness = 12.0
+range = 0
+
+[[plane]]
+normal = [0.0, 1.0, 0.0]
+d = 0.0
+material = "diffuse"
+texture = "stone_wall"
+albedo = [0.65, 0.63, 0.58]
+reflect = 0.04
+rough = 0.15
+
+[[include]]
+file = "../objects/vienna-apartment.toml"
+at = [0.0, 0.0, 0.0]

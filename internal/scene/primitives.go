@@ -3,6 +3,7 @@ package scene
 import (
 	"math"
 
+	"raytracer/internal/util"
 	"raytracer/internal/vec"
 )
 
@@ -214,6 +215,18 @@ func expandXformBounds(xf *Transform, lmin, lmax vec.V) (vec.V, vec.V) {
 		}
 	}
 	return wmin, wmax
+}
+
+// OverlapsSolid reports whether the probe AABB overlaps this box's solid volume,
+// with holes subtracted. margin is applied like util.Overlap (probe expansion).
+func (b *Box) OverlapsSolid(pmin, pmax vec.V, margin float64) bool {
+	for _, frag := range b.SolidFragments() {
+		omin, omax := expandXformBounds(b.Xform, frag.Min, frag.Max)
+		if util.Overlap(pmin, pmax, omin, omax, margin) {
+			return true
+		}
+	}
+	return false
 }
 
 // WorldBounds returns the box's axis-aligned bounds in world space. For an

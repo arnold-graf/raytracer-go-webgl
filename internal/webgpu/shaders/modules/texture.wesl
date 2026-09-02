@@ -448,19 +448,30 @@ fn parquet_palette(i: i32) -> vec3<f32> {
     return pal[idx];
 }
 
-// Herringbone plank UVs: 45° rotation + staggered rows (Fischgrät parquet).
+// Herringbone plank UVs: 45° rotation, then n×1 / 1×n L-pairs
+// (Blindman67 / SO 44081551). fu along the plank, fv across.
+fn parquet_herringbone(u: f32, v: f32, plank_len: f32, plank_wid: f32) -> vec4<f32> {
+    let n = plank_len / plank_wid;
+    let px = u / plank_wid;
+    let py = v / plank_wid;
+    let i = floor(px);
+    let j = floor(py);
+    let period = n * 2.0;
+    var r = i + j;
+    r = r - period * floor(r / period);
+    if (r < n) {
+        let sx = i - r;
+        return vec4<f32>(sx, j, (px - sx) / n, py - j);
+    }
+    let k = r - n;
+    let sy = j - k;
+    return vec4<f32>(i, sy, (py - sy) / n, px - i);
+}
+
 fn parquet_plank_uv(u: f32, v: f32, plank_len: f32, plank_wid: f32) -> vec4<f32> {
     let ru = (u + v) * PARQUET_SQRT2_HALF;
     let rv = (-u + v) * PARQUET_SQRT2_HALF;
-    let row = floor(rv / plank_wid);
-    var x = ru;
-    if ((i32(row) & 1) == 1) {
-        x = x + plank_len * 0.5;
-    }
-    let col = floor(x / plank_len);
-    let fu = fract(x / plank_len);
-    let fv = fract(rv / plank_wid);
-    return vec4<f32>(col, row, fu, fv);
+    return parquet_herringbone(ru, rv, plank_len, plank_wid);
 }
 
 fn parquet_plank_mask(fu: f32, fv: f32, plank_len: f32, plank_wid: f32) -> f32 {

@@ -54,6 +54,7 @@ depth = 12
 texture = "parquet_floor"
 texture_normal_map = true
 texture_normal_bump = 0.01
+texture_scale = 0.5
 shininess = 50
 specular = 0.25
 

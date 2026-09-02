@@ -6,6 +6,46 @@ import (
 	"raytracer/internal/vec"
 )
 
+func TestStaticHitsRespectsBoxHoles(t *testing.T) {
+	// Wall with a door-sized opening; a probe filling only the hole must not hit.
+	s := &Scene{
+		Boxes: []Box{{
+			Min: vec.New(0, 0, 0),
+			Max: vec.New(4, 4, 0.5),
+			Holes: []AABB{{
+				Min: vec.New(1, 0, -0.1),
+				Max: vec.New(3, 2.5, 0.6),
+			}},
+		}},
+	}
+	// Probe entirely inside the hole.
+	hits := s.StaticHits(vec.New(1.1, 0.1, 0), vec.New(2.9, 2.4, 0.5), nil)
+	if len(hits) != 0 {
+		t.Fatalf("probe in hole should not hit wall, got %v", hits)
+	}
+	// Probe in solid lintel above the hole.
+	hits = s.StaticHits(vec.New(1.1, 2.6, 0), vec.New(2.9, 3.9, 0.5), nil)
+	if len(hits) != 1 || hits[0].Box != 0 {
+		t.Fatalf("probe in lintel should hit wall, got %v", hits)
+	}
+}
+
+func TestStaticHitsHoledBoxWithTransform(t *testing.T) {
+	s := &Scene{
+		Boxes: []Box{{
+			Min:     vec.New(-1, 0, -0.3),
+			Max:     vec.New(1, 2.5, 0.3),
+			Holes:   []AABB{{Min: vec.New(-0.9, 0.1, -0.35), Max: vec.New(0.9, 2.4, 0.35)}},
+			Surface: Surface{Xform: NewRigidTransform(0, 90, 0, vec.New(10, 0, 5))},
+		}},
+	}
+	// Door panel probe at world opening (include-style placement).
+	hits := s.StaticHits(vec.New(9.7, 0.2, 4.1), vec.New(10.3, 2.3, 4.9), nil)
+	if len(hits) != 0 {
+		t.Fatalf("probe in transformed hole should not hit, got %v", hits)
+	}
+}
+
 func TestStaticHitsIgnoresFaceTouch(t *testing.T) {
 	s := &Scene{
 		Boxes: []Box{

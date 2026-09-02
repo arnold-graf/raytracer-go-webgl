@@ -459,20 +459,39 @@ var parquetPalette = [...]vec.V{
 	{X: 0.46, Y: 0.32, Z: 0.18},
 }
 
-// parquetPlankUV maps world (u,v) to herringbone plank coordinates via a 45°
-// rotation and staggered rows (classic Fischgrät / herringbone parquet).
+// parquetPlankUV maps world (u,v) to herringbone plank coordinates.
+// A 45° rotation puts the Fischgrät zigzag along the room axes; in that
+// frame,  n×1  and  1×n  rectangles form L-pairs (Blindman67 / SO 44081551):
+// when (x+y) mod 2n == 0 a horizontal plank is at (x,y) and a vertical
+// plank at (x+n,y), so adjacent tips meet at 90°.
 func parquetPlankUV(u, v float64) (col, row, fu, fv float64) {
 	s := math.Sqrt2 * 0.5
-	ru := (u + v) * s
-	rv := (-u + v) * s
-	row = math.Floor(rv / parquetPlankWid)
-	x := ru
-	if int(row)&1 == 1 {
-		x += parquetPlankLen * 0.5
+	return parquetHerringbone((u+v)*s, (-u+v)*s, parquetPlankLen, parquetPlankWid)
+}
+
+// parquetHerringbone locates the n:1 herringbone plank containing (u,v)
+// in plank-width units. fu runs along the plank, fv across it.
+func parquetHerringbone(u, v, plankLen, plankWid float64) (col, row, fu, fv float64) {
+	n := plankLen / plankWid
+	px := u / plankWid
+	py := v / plankWid
+	i := math.Floor(px)
+	j := math.Floor(py)
+	period := n * 2
+	r := i + j
+	r -= period * math.Floor(r/period)
+	if r < n {
+		sx := i - r
+		col, row = sx, j
+		fu = (px - sx) / n
+		fv = py - j
+		return col, row, fu, fv
 	}
-	col = math.Floor(x / parquetPlankLen)
-	fu = frac(x / parquetPlankLen)
-	fv = frac(rv / parquetPlankWid)
+	k := r - n
+	sy := j - k
+	col, row = i, sy
+	fu = (py - sy) / n
+	fv = px - i
 	return col, row, fu, fv
 }
 

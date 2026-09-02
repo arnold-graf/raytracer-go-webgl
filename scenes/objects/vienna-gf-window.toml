@@ -1,0 +1,118 @@
+# Ground-floor Jugendstil facade window module.
+#
+# Plaster wall slice with a single opening, glass pane, optional transom
+# mullion, and white stucco sill/head. Origin (0,0,0) is the bottom-left of
+# the module at the outer Z face of the opening (hole front).
+#
+# Place with [[include]]; align the include `at` with the module corner:
+#
+#   [[include]]
+#   file = "objects/vienna-gf-window.toml"
+#   at = [-3.2, 1.6, -4.1]
+#   [include.props]
+#   width = 1.1
+#   height = 3.6
+#
+# Props (all optional):
+#   width           opening width                    (default 1.1)
+#   height          opening height                 (default 3.6)
+#   module_width    wall slice width in X          (default width + 0.2)
+#   wall_height     wall slice height              (default 5.2)
+#   opening_bottom  opening sill above module base (default 0.6)
+#   transom         horizontal mullion bar         (default true)
+
+[props]
+width = 1.1
+height = 3.6
+module_width = 'width + 0.2'
+wall_height = 5.2
+opening_bottom = 0.6
+transom = true
+plaster_albedo = [0.90, 0.78, 0.52]
+stucco_albedo = [0.96, 0.94, 0.88]
+wood_albedo = [0.28, 0.18, 0.12]
+
+[const]
+pad = 0.1
+frame_h = 0.18
+wall_depth = 0.45
+hole_depth = 0.65
+glass_depth = 0.35
+glass_z = 0.08
+ornament_z = -0.07
+mullion_z = -0.03
+mullion_t = 0.06
+hole_x = '(module_width - width) / 2'
+frame_w = 'width + pad * 2'
+sill_y = 'opening_bottom - 0.2'
+head_y = 'opening_bottom + height + 0.1'
+transom_y = 'opening_bottom + height / 3'
+
+[[box]] # plaster wall slice
+albedo = 'plaster_albedo'
+material = "diffuse"
+pos_x = 0.0
+pos_y = 0.0
+pos_z = 0.05
+width = 'module_width'
+height = 'wall_height'
+depth = 'wall_depth'
+texture = "cement"
+texture_scale = 0.35
+[[box.hole]]
+pos_x = 'hole_x'
+pos_y = 'opening_bottom'
+pos_z = 0.0
+width = 'width'
+height = 'height'
+depth = 'hole_depth'
+
+[[box]] # glass
+albedo = [0.78, 0.86, 0.94]
+material = "glass"
+pos_x = 'hole_x'
+pos_y = 'opening_bottom'
+pos_z = 'glass_z'
+width = 'width'
+height = 'height'
+depth = 'glass_depth'
+rough = 0.01
+ior = 1.1
+shininess = 50
+specular = 1
+transmit = 0.75
+
+# if transom
+[[box]] # transom mullion
+albedo = 'wood_albedo'
+material = "diffuse"
+pos_x = 'hole_x'
+pos_y = 'transom_y'
+pos_z = 'mullion_z'
+width = 'width'
+height = 'mullion_t'
+depth = 0.08
+texture = "wood"
+# endif
+
+[[box]] # stucco sill
+albedo = 'stucco_albedo'
+material = "diffuse"
+pos_x = 'hole_x - pad'
+pos_y = 'sill_y'
+pos_z = 'ornament_z'
+width = 'frame_w'
+height = 'frame_h'
+depth = 0.12
+texture = "cement"
+
+[[box]] # stucco head
+albedo = 'stucco_albedo'
+material = "diffuse"
+pos_x = 'hole_x - pad'
+pos_y = 'head_y'
+pos_z = 'ornament_z'
+width = 'frame_w'
+height = 'frame_h'
+depth = 0.12
+texture = "cement"

@@ -147,6 +147,11 @@ func (d doorDTO) resolve(s *scene.Scene, parentDir string, params map[string]any
 		}
 		spec.Panels = []scene.DoorPanelGeom{one}
 	}
+	if len(spec.Panels) > 0 {
+		if end := spec.Panels[0].Boxes[0]; end > 0 {
+			spec.FrameBoxes = [2]int{0, end}
+		}
+	}
 	if err := validateDoorPanels(spec); err != nil {
 		return scene.DoorSpec{}, err
 	}
@@ -229,6 +234,10 @@ func mergeDoorSpecs(dst *scene.Scene, sub *scene.Scene, xf *scene.Transform, box
 		spec := ds
 		for i := range spec.Panels {
 			spec.Panels[i] = offsetPanelGeom(spec.Panels[i], boxOffset, sphereOffset, cylinderOffset)
+		}
+		if spec.FrameBoxes[0] < spec.FrameBoxes[1] {
+			spec.FrameBoxes[0] += boxOffset
+			spec.FrameBoxes[1] += boxOffset
 		}
 		if xf != nil {
 			spec.Hinge = xf.ToWorld(spec.Hinge)

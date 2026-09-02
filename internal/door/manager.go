@@ -335,10 +335,17 @@ func (m *Manager) Update(sc *scene.Scene, playerPos vec.V, feetY, headY float64,
 	return changed
 }
 
+func (a *Agent) frameBoxIndices() []int {
+	return rangeIndices(a.FrameBoxes)
+}
+
 func (m *Manager) skipBoxFunc() func(int) bool {
 	doorBoxes := map[int]bool{}
 	for i := range m.agents {
 		for _, idx := range m.agents[i].boxIndices() {
+			doorBoxes[idx] = true
+		}
+		for _, idx := range m.agents[i].frameBoxIndices() {
 			doorBoxes[idx] = true
 		}
 	}

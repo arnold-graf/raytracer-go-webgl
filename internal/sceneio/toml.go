@@ -46,22 +46,22 @@ func (inc includeDTO) AtVec() vec.V { return inc.At.toV() }
 
 // surfaceDTO holds the shading fields shared by every primitive table.
 type surfaceDTO struct {
-	Material  string   `toml:"material"`
-	Albedo    vec3     `toml:"albedo"`
-	Albedo2   vec3     `toml:"albedo2"`
-	Rough     float64  `toml:"rough"`
-	IOR       *float64 `toml:"ior"`
-	Texture   string   `toml:"texture"`
-	Reflect   float64  `toml:"reflect"`
-	Specular  float64  `toml:"specular"`
-	Shininess float64  `toml:"shininess"`
-	Transmit  float64  `toml:"transmit"`
-	Thin      *bool    `toml:"thin"`
-	TwoPane   *bool    `toml:"two_pane"`
-	Collision *bool    `toml:"collision"`
-	TextureNormalMap  *bool   `toml:"texture_normal_map"`
-	TextureScale      float64 `toml:"texture_scale"`
-	TextureNormalBump float64 `toml:"texture_normal_bump"`
+	Material          string   `toml:"material"`
+	Albedo            vec3     `toml:"albedo"`
+	Albedo2           vec3     `toml:"albedo2"`
+	Rough             float64  `toml:"rough"`
+	IOR               *float64 `toml:"ior"`
+	Texture           string   `toml:"texture"`
+	Reflect           float64  `toml:"reflect"`
+	Specular          float64  `toml:"specular"`
+	Shininess         float64  `toml:"shininess"`
+	Transmit          float64  `toml:"transmit"`
+	Thin              *bool    `toml:"thin"`
+	TwoPane           *bool    `toml:"two_pane"`
+	Collision         *bool    `toml:"collision"`
+	TextureNormalMap  *bool    `toml:"texture_normal_map"`
+	TextureScale      float64  `toml:"texture_scale"`
+	TextureNormalBump float64  `toml:"texture_normal_bump"`
 }
 
 func (s surfaceDTO) toSurface() (scene.Surface, error) {
@@ -203,7 +203,7 @@ func snapBounds(min, max vec.V) (vec.V, vec.V) {
 
 type cylinderDTO struct {
 	placementDTO
-	Width       float64 `toml:"width"`        // uniform diameter when not tapered
+	Width       float64 `toml:"width"` // uniform diameter when not tapered
 	Height      float64 `toml:"height"`
 	WidthBottom float64 `toml:"width_bottom"` // bottom diameter (defaults to width)
 	WidthTop    float64 `toml:"width_top"`    // top diameter (defaults to width_bottom)
@@ -332,9 +332,9 @@ type lightDTO struct {
 	// (1 = as authored), mirroring the campfire's brightness knob. It is folded
 	// into the color at load time, so culling and shading honor it for free.
 	Brightness  *float64 `toml:"brightness"`
-	Interactive bool    `toml:"interactive"`
-	Hint        string  `toml:"hint"`
-	OnUse       string  `toml:"on_use"`
+	Interactive bool     `toml:"interactive"`
+	Hint        string   `toml:"hint"`
+	OnUse       string   `toml:"on_use"`
 }
 
 // build resolves a light, applying the brightness multiplier (default 1) to the
@@ -545,22 +545,22 @@ func (p terrainPadDTO) buildPad() scene.TerrainPad {
 //   - center + half: axis-aligned or rotated rectangle (like [[terrain.pad]])
 //   - path + width: road strip along a centerline polyline
 type terrainZoneDTO struct {
-	Texture   string       `toml:"texture"`
-	FadeTo    string       `toml:"fade_to"`
-	FadeWidth float64      `toml:"fade_width"`
-	TextureScale float64   `toml:"texture_scale"`
-	Angle     float64      `toml:"angle"`
-	Bump      float64      `toml:"bump"`
-	Albedo    vec3         `toml:"albedo"`
-	Rough     float64      `toml:"rough"`
-	Reflect   float64      `toml:"reflect"`
-	Specular  float64      `toml:"specular"`
-	Shininess float64      `toml:"shininess"`
-	Center    [2]float64   `toml:"center"`
-	Half      [2]float64   `toml:"half"`
-	Width     float64      `toml:"width"`
-	Path      [][2]float64 `toml:"path"`
-	Vertex    [][2]float64 `toml:"vertex"`
+	Texture      string       `toml:"texture"`
+	FadeTo       string       `toml:"fade_to"`
+	FadeWidth    float64      `toml:"fade_width"`
+	TextureScale float64      `toml:"texture_scale"`
+	Angle        float64      `toml:"angle"`
+	Bump         float64      `toml:"bump"`
+	Albedo       vec3         `toml:"albedo"`
+	Rough        float64      `toml:"rough"`
+	Reflect      float64      `toml:"reflect"`
+	Specular     float64      `toml:"specular"`
+	Shininess    float64      `toml:"shininess"`
+	Center       [2]float64   `toml:"center"`
+	Half         [2]float64   `toml:"half"`
+	Width        float64      `toml:"width"`
+	Path         [][2]float64 `toml:"path"`
+	Vertex       [][2]float64 `toml:"vertex"`
 }
 
 func (z terrainZoneDTO) zoneVertices() ([]vec.V, error) {
@@ -637,18 +637,18 @@ func (z terrainZoneDTO) buildZoneFromVerts(verts []vec.V) (scene.TerrainZone, er
 		fadeW = 2
 	}
 	return scene.TerrainZone{
-		Vertices:  verts,
-		Texture:   texID,
-		FadeTo:    fade,
-		FadeWidth: fadeW,
+		Vertices:     verts,
+		Texture:      texID,
+		FadeTo:       fade,
+		FadeWidth:    fadeW,
 		TextureScale: textureScale,
-		Angle:     z.Angle * math.Pi / 180,
-		Bump:      z.Bump,
-		Albedo:    tintOrWhite(z.Albedo),
-		Rough:     z.Rough,
-		Reflect:   z.Reflect,
-		Specular:  z.Specular,
-		Shininess: z.Shininess,
+		Angle:        z.Angle * math.Pi / 180,
+		Bump:         z.Bump,
+		Albedo:       tintOrWhite(z.Albedo),
+		Rough:        z.Rough,
+		Reflect:      z.Reflect,
+		Specular:     z.Specular,
+		Shininess:    z.Shininess,
 	}, nil
 }
 
@@ -724,13 +724,12 @@ type includeDTO struct {
 	Physics         *physicsDTO         `toml:"physics"`
 }
 
-
 type pointDTO struct {
-	ID      string   `toml:"id"`
-	Pos     vec3     `toml:"pos"`
-	FloorY  *float64 `toml:"floor_y"`
-	Yaw     float64  `toml:"yaw"`
-	Pitch   float64  `toml:"pitch"`
+	ID     string   `toml:"id"`
+	Pos    vec3     `toml:"pos"`
+	FloorY *float64 `toml:"floor_y"`
+	Yaw    float64  `toml:"yaw"`
+	Pitch  float64  `toml:"pitch"`
 }
 
 func (d pointDTO) build() (scene.Point, error) {
@@ -751,30 +750,30 @@ func (d pointDTO) build() (scene.Point, error) {
 }
 
 type sceneDTO struct {
-	Extends     string          `toml:"extends"`
-	Camera      *cameraDTO      `toml:"camera"`
-	Player      *playerSceneDTO `toml:"player"`
-	Environment *environmentDTO `toml:"environment"`
-	Include     []includeDTO    `toml:"include"`
-	Sphere      []sphereDTO     `toml:"sphere"`
-	Plane       []planeDTO      `toml:"plane"`
-	Box         []boxDTO        `toml:"box"`
-	Cylinder    []cylinderDTO   `toml:"cylinder"`
-	Cone        []coneDTO       `toml:"cone"`
-	Torus       []torusDTO      `toml:"torus"`
-	Ring        []ringDTO       `toml:"ring"`
-	Lens        []lensDTO       `toml:"lens"`
-	Terrain     []terrainDTO    `toml:"terrain"`
-	Water       []waterDTO      `toml:"water"`
-	Light       []lightDTO      `toml:"light"`
+	Extends         string               `toml:"extends"`
+	Camera          *cameraDTO           `toml:"camera"`
+	Player          *playerSceneDTO      `toml:"player"`
+	Environment     *environmentDTO      `toml:"environment"`
+	Include         []includeDTO         `toml:"include"`
+	Sphere          []sphereDTO          `toml:"sphere"`
+	Plane           []planeDTO           `toml:"plane"`
+	Box             []boxDTO             `toml:"box"`
+	Cylinder        []cylinderDTO        `toml:"cylinder"`
+	Cone            []coneDTO            `toml:"cone"`
+	Torus           []torusDTO           `toml:"torus"`
+	Ring            []ringDTO            `toml:"ring"`
+	Lens            []lensDTO            `toml:"lens"`
+	Terrain         []terrainDTO         `toml:"terrain"`
+	Water           []waterDTO           `toml:"water"`
+	Light           []lightDTO           `toml:"light"`
 	LightFlickering []lightFlickeringDTO `toml:"light_flickering"`
-	Sound       []soundDTO      `toml:"sound"`
-	Point            []pointDTO            `toml:"point"`
-	NPC              []npcDTO              `toml:"npc"`
-	Door             []doorDTO             `toml:"door"`
-	Document         []documentDTO         `toml:"document"`
-	Screen           []screenDTO           `toml:"screen"`
-	Physics          *physicsDTO           `toml:"physics"`
+	Sound           []soundDTO           `toml:"sound"`
+	Point           []pointDTO           `toml:"point"`
+	NPC             []npcDTO             `toml:"npc"`
+	Door            []doorDTO            `toml:"door"`
+	Document        []documentDTO        `toml:"document"`
+	Screen          []screenDTO          `toml:"screen"`
+	Physics         *physicsDTO          `toml:"physics"`
 }
 
 // tintOrWhite returns v as a color, defaulting an omitted (all-zero) vector to

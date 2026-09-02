@@ -1,0 +1,1176 @@
+# Vienna Jugendstil apartment block — facade shell only, empty interior.
+#
+# Origin (0,0,0) is the centre of the front at grade; the building faces -Z
+# (matching preview -view front). Exaggerated proportions: narrow (8 m),
+# Ochre plaster with white stucco ornament; no floors, stairs, or furnishings.
+#
+#   y = 1.6    ground floor
+#   y = 6.8    piano nobile (full-width balcony)
+#   y = 12.0   third floor (oriel left, recessed balcony right)
+#   y = 17.2   attic / gable
+#
+# Place with [[include]], e.g.:
+#
+#   [[include]]
+#   file = "objects/vienna-apartment.toml"
+#   at = [20.0, 0.0, 42.0]
+#   rotate_y = -18.0
+
+[[terrain]]
+
+# ============================================================ STONE PLINTH ====
+
+[[box]]
+albedo = [0.58, 0.54, 0.48]
+material = "diffuse"
+pos_x = -4.3
+pos_y = 0
+pos_z = -4
+width = 8.6
+height = 1.6
+depth = 7.8
+texture = "stone_wall"
+texture_normal_map = true
+texture_normal_bump = 0.025
+shininess = 64
+specular = 0.12
+
+# =========================================================== EXTERIOR SHELL ====
+# Hollow box — four perimeter walls, no interior slabs or partitions.
+
+[[box]] # back wall
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -4
+pos_y = 1.6
+pos_z = 3.05
+width = 8
+height = 19.2
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+
+[[box]] # west side wall
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -4
+pos_y = 1.6
+pos_z = -3.6
+width = 0.45
+height = 19.2
+depth = 7.1
+texture = "cement"
+texture_scale = 0.35
+
+[[box]] # east side wall
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = 3.55
+pos_y = 1.6
+pos_z = -3.6
+width = 0.45
+height = 19.2
+depth = 7.1
+texture = "cement"
+texture_scale = 0.35
+
+# ===================================================== GROUND FLOOR FACADE ====
+# Left: triple window band.  Right: carved entrance arch and door.
+
+[[box]] # GF front wall — west of window band
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -4
+pos_y = 1.6
+pos_z = -4.05
+width = 0.8
+height = 5.2
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+
+[[include]] # GF window L
+file = "vienna-gf-window.toml"
+transform_origin = [0, 0, 0]
+at = [-3.2, 1.6, -4.1]
+[include.props]
+width = 1.1
+height = 3.6
+module_width = 1.2
+
+[[include]] # GF window C
+file = "vienna-gf-window.toml"
+transform_origin = [0, 0, 0]
+at = [-2.0, 1.6, -4.1]
+[include.props]
+width = 1.1
+height = 3.6
+module_width = 1.2
+
+[[include]] # GF window R
+file = "vienna-gf-window.toml"
+transform_origin = [0, 0, 0]
+at = [-0.8, 1.6, -4.1]
+[include.props]
+width = 1.1
+height = 3.6
+module_width = 1.2
+
+[[box]] # GF front wall — between windows and door
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = 0.4
+pos_y = 1.6
+pos_z = -4.05
+width = 0.7
+height = 5.2
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+
+[[box]] # GF front wall — door bay
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = 1.1
+pos_y = 1.6
+pos_z = -4.05
+width = 2.0
+height = 5.2
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+[[box.hole]]
+pos_x = 1.1
+pos_y = 1.65
+pos_z = -4.1
+width = 2.0
+height = 3.5
+depth = 0.65
+
+[[box]] # GF front wall — between door and far-right window
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = 3.1
+pos_y = 1.6
+pos_z = -4.05
+width = 0.15
+height = 5.2
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+
+[[include]] # GF window — far-right narrow
+file = "vienna-gf-window.toml"
+transform_origin = [0, 0, 0]
+at = [3.25, 1.6, -4.1]
+[include.props]
+width = 0.9
+height = 2.6
+opening_bottom = 0.8
+module_width = 0.75
+transom = false
+
+# ---- dark wood window mullions (between GF triple) ----
+
+[[box]]
+albedo = [0.28, 0.18, 0.12]
+material = "diffuse"
+pos_x = -2.5
+pos_y = 2.2
+pos_z = -4.13
+width = 0.06
+height = 3.6
+depth = 0.08
+texture = "wood"
+
+[[box]]
+albedo = [0.28, 0.18, 0.12]
+material = "diffuse"
+pos_x = -1.3
+pos_y = 2.2
+pos_z = -4.13
+width = 0.06
+height = 3.6
+depth = 0.08
+texture = "wood"
+
+# ---- softened front corners ----
+
+[[cylinder]]
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -4.4
+pos_y = 1.6
+pos_z = -4.1
+width = 0.55
+height = 17.6
+texture = "cement"
+texture_scale = 0.35
+
+[[cylinder]]
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = 3.85
+pos_y = 1.6
+pos_z = -4.1
+width = 0.55
+height = 17.6
+texture = "cement"
+texture_scale = 0.35
+
+# ---- entrance arch ornament (white stucco) ----
+
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 1
+pos_y = 5.2
+pos_z = -4.18
+width = 2.5
+height = 0.4
+depth = 0.28
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 0.65
+pos_y = 3.6
+pos_z = -4.17
+width = 0.45
+height = 2.0
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 3.1
+pos_y = 3.6
+pos_z = -4.17
+width = 0.45
+height = 2.0
+texture = "cement"
+
+[[sphere]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+center = [2.0, 5.7, -4.05]
+radius = 0.4
+texture = "cement"
+
+[[sphere]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+center = [1.3, 5.4, -4.02]
+radius = 0.22
+texture = "cement"
+
+[[sphere]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+center = [2.7, 5.4, -4.02]
+radius = 0.22
+texture = "cement"
+
+[[include]]
+file = "door-art-nouveau.toml"
+transform_origin = [0, 0, 0]
+at = [1.0, 1.7, -4]
+[include.props]
+width = 2.0
+height = 3.5
+albedo = [0.22, 0.14, 0.10]
+material = "diffuse"
+texture = "wood"
+id = "vienna_apartment_door"
+reflect = 0
+specular = 0.2
+shininess = 30
+knob_y = 1.1
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 0.55
+pos_y = 0.7
+pos_z = -4.9
+width = 0.2
+height = 0.85
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 3.45
+pos_y = 0.7
+pos_z = -4.9
+width = 0.2
+height = 0.85
+texture = "cement"
+
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 0.55
+pos_y = 1.45
+pos_z = -4.9
+width = 0.35
+height = 0.15
+depth = 0.2
+texture = "cement"
+
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 3.45
+pos_y = 1.45
+pos_z = -4.9
+width = 0.35
+height = 0.15
+depth = 0.2
+texture = "cement"
+
+[[include]]
+file = "staircase.toml"
+transform_origin = [0, 0, 0]
+at = [3.5, 0, -6]
+rotate_y = -90
+follow_terrain = true
+[include.props]
+texture_normal_map = true
+texture_normal_bump = 0.015
+steps = 4
+run = 0.45
+rise = 0.35
+width = 2.8
+texture = "stone_wall"
+albedo = [0.62, 0.58, 0.52]
+
+# =================================================== PIANO NOBILE (2ND FLOOR) ====
+# Full-width projecting balcony with stone balustrade.
+
+[[box]] # 2F front wall (behind balcony)
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -4
+pos_y = 6.8
+pos_z = -4.05
+width = 8
+height = 5.2
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+[[box.hole]]
+pos_x = -2.8
+pos_y = 7.6
+pos_z = -4.05
+width = 2.4
+height = 3.4
+depth = 0.6
+[[box.hole]]
+pos_x = 0
+pos_y = 7.6
+pos_z = -4.05
+width = 2.8
+height = 3.4
+depth = 0.6
+[[box.hole]]
+pos_x = 2.8
+pos_y = 7.6
+pos_z = -4.05
+width = 2.4
+height = 3.4
+depth = 0.6
+
+[[box]] # 2F glass L
+albedo = [0.78, 0.86, 0.94]
+material = "glass"
+pos_x = -2.8
+pos_y = 7.6
+pos_z = -4.02
+width = 2.4
+height = 3.4
+depth = 0.35
+transmit = 0.82
+rough = 0.02
+ior = 1.45
+
+[[box]] # 2F glass C
+albedo = [0.78, 0.86, 0.94]
+material = "glass"
+pos_x = 0
+pos_y = 7.6
+pos_z = -4.02
+width = 2.8
+height = 3.4
+depth = 0.35
+transmit = 0.82
+rough = 0.02
+ior = 1.45
+
+[[box]] # 2F glass R
+albedo = [0.78, 0.86, 0.94]
+material = "glass"
+pos_x = 2.8
+pos_y = 7.6
+pos_z = -4.02
+width = 2.4
+height = 3.4
+depth = 0.35
+transmit = 0.82
+rough = 0.02
+ior = 1.45
+
+[[box]] # balcony slab
+albedo = [0.62, 0.58, 0.52]
+material = "diffuse"
+pos_x = -4.1
+pos_y = 6.65
+pos_z = -5.9
+width = 8.2
+height = 0.25
+depth = 1.4
+texture = "stone_wall"
+texture_normal_map = true
+texture_normal_bump = 0.015
+shininess = 48
+specular = 0.15
+
+[[box]] # balcony balustrade rail
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -4.1
+pos_y = 7.55
+pos_z = -5.37
+width = 8.2
+height = 0.18
+depth = 0.22
+texture = "cement"
+
+# balusters (stone pillars)
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -3.6
+pos_y = 6.8
+pos_z = -5.37
+width = 0.22
+height = 0.75
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -2.4
+pos_y = 6.8
+pos_z = -5.37
+width = 0.22
+height = 0.75
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -1.2
+pos_y = 6.8
+pos_z = -5.37
+width = 0.22
+height = 0.75
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 0
+pos_y = 6.8
+pos_z = -5.37
+width = 0.22
+height = 0.75
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 1.2
+pos_y = 6.8
+pos_z = -5.37
+width = 0.22
+height = 0.75
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 2.4
+pos_y = 6.8
+pos_z = -5.37
+width = 0.22
+height = 0.75
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 3.6
+pos_y = 6.8
+pos_z = -5.37
+width = 0.22
+height = 0.75
+texture = "cement"
+
+[[box]] # 2F arched window lintels (white stucco)
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -2.8
+pos_y = 10.6
+pos_z = -4.16
+width = 2.6
+height = 0.35
+depth = 0.28
+texture = "cement"
+
+[[sphere]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+center = [-2.8, 10.95, -4.05]
+radius = 0.32
+texture = "cement"
+
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 0
+pos_y = 10.6
+pos_z = -4.16
+width = 3.0
+height = 0.35
+depth = 0.28
+texture = "cement"
+
+[[sphere]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+center = [0.0, 10.95, -4.05]
+radius = 0.36
+texture = "cement"
+
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 2.8
+pos_y = 10.6
+pos_z = -4.16
+width = 2.6
+height = 0.35
+depth = 0.28
+texture = "cement"
+
+[[sphere]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+center = [2.8, 10.95, -4.05]
+radius = 0.32
+texture = "cement"
+
+# balcony underside cornice
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -4.1
+pos_y = 6.55
+pos_z = -5.55
+width = 8.2
+height = 0.2
+depth = 0.5
+texture = "cement"
+
+# floral lintel band above 2F windows
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -3.5
+pos_y = 11.4
+pos_z = -4.18
+width = 7
+height = 0.45
+depth = 0.3
+texture = "cement"
+
+[[sphere]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+center = [-2.5, 11.65, -4.08]
+radius = 0.28
+texture = "cement"
+
+[[sphere]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+center = [0.0, 11.7, -4.1]
+radius = 0.32
+texture = "cement"
+
+[[sphere]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+center = [2.5, 11.65, -4.08]
+radius = 0.28
+texture = "cement"
+
+# =========================================================== THIRD FLOOR ====
+# Left: projecting oriel bay.  Right: recessed balcony.
+
+[[box]] # 3F front, right of oriel (recessed wall)
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = 0.5
+pos_y = 12.0
+pos_z = -4.05
+width = 3.5
+height = 5.2
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+[[box.hole]]
+pos_x = 2.2
+pos_y = 12.8
+pos_z = -4.05
+width = 1.8
+height = 3.2
+depth = 0.6
+
+[[box]] # 3F glass R
+albedo = [0.78, 0.86, 0.94]
+material = "glass"
+pos_x = 2.2
+pos_y = 12.8
+pos_z = -4.02
+width = 1.8
+height = 3.2
+depth = 0.35
+transmit = 0.82
+rough = 0.02
+ior = 1.45
+
+# recessed balcony (set back into facade)
+[[box]]
+albedo = [0.62, 0.58, 0.52]
+material = "diffuse"
+pos_x = 1.2
+pos_y = 12.55
+pos_z = -3.4
+width = 2.8
+height = 0.22
+depth = 0.85
+texture = "stone_wall"
+texture_normal_map = true
+texture_normal_bump = 0.015
+
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 1.2
+pos_y = 13.35
+pos_z = -4.14
+width = 2.8
+height = 0.16
+depth = 0.18
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 1.6
+pos_y = 12.65
+pos_z = -4.14
+width = 0.18
+height = 0.7
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 2.4
+pos_y = 12.65
+pos_z = -4.14
+width = 0.18
+height = 0.7
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 3.2
+pos_y = 12.65
+pos_z = -4.14
+width = 0.18
+height = 0.7
+texture = "cement"
+
+# 3F front, left of oriel (connects to side wall)
+[[box]]
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -4
+pos_y = 12.0
+pos_z = -4.05
+width = 2.45
+height = 5.2
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+
+# ---- oriel bay (left, projecting) ----
+
+[[box]] # oriel side (west)
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -3.55
+pos_y = 12.0
+pos_z = -6.1
+width = 0.45
+height = 5.2
+depth = 2.05
+texture = "cement"
+texture_scale = 0.35
+[[box.hole]]
+pos_x = -3.5
+pos_y = 12.8
+pos_z = -6.1
+width = 0.45
+height = 3.2
+depth = 1.0
+
+[[box]] # oriel side (east)
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -1.55
+pos_y = 12.0
+pos_z = -6.1
+width = 0.45
+height = 5.2
+depth = 2.05
+texture = "cement"
+texture_scale = 0.35
+[[box.hole]]
+pos_x = -1.5
+pos_y = 12.8
+pos_z = -6.1
+width = 0.45
+height = 3.2
+depth = 1.0
+
+[[box]] # oriel front
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -2.55
+pos_y = 12.0
+pos_z = -5.85
+width = 2.1
+height = 5.2
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+[[box.hole]]
+pos_x = -2.55
+pos_y = 12.8
+pos_z = -5.85
+width = 1.6
+height = 3.2
+depth = 0.6
+
+[[box]] # oriel glass front
+albedo = [0.78, 0.86, 0.94]
+material = "glass"
+pos_x = -2.55
+pos_y = 12.8
+pos_z = -5.67
+width = 1.6
+height = 3.2
+depth = 0.35
+transmit = 0.85
+rough = 0.02
+ior = 1.45
+
+[[box]] # oriel glass side W
+albedo = [0.78, 0.86, 0.94]
+material = "glass"
+pos_x = -3.5
+pos_y = 12.8
+pos_z = -6.1
+width = 0.35
+height = 3.2
+depth = 1.0
+transmit = 0.85
+rough = 0.02
+ior = 1.45
+
+[[box]] # oriel glass side E
+albedo = [0.78, 0.86, 0.94]
+material = "glass"
+pos_x = -1.5
+pos_y = 12.8
+pos_z = -6.1
+width = 0.35
+height = 3.2
+depth = 1.0
+transmit = 0.85
+rough = 0.02
+ior = 1.45
+
+# white organic oriel base carving
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -2.55
+pos_y = 12.0
+pos_z = -6
+width = 2.4
+height = 0.55
+depth = 1.2
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -3.2
+pos_y = 12.1
+pos_z = -4.85
+width = 0.35
+height = 0.9
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -1.9
+pos_y = 12.1
+pos_z = -4.85
+width = 0.35
+height = 0.9
+texture = "cement"
+
+[[sphere]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+center = [-2.55, 12.45, -5]
+radius = 0.3
+texture = "cement"
+
+# 3F front fill between oriel and recessed section
+[[box]]
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -0.8
+pos_y = 12.0
+pos_z = -4.05
+width = 1.3
+height = 5.2
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+[[box.hole]]
+pos_x = -0.8
+pos_y = 12.8
+pos_z = -4.05
+width = 0.9
+height = 3.2
+depth = 0.6
+
+[[box]]
+albedo = [0.78, 0.86, 0.94]
+material = "glass"
+pos_x = -0.8
+pos_y = 12.8
+pos_z = -4.02
+width = 0.9
+height = 3.2
+depth = 0.35
+transmit = 0.82
+rough = 0.02
+ior = 1.45
+
+# ============================================================== ATTIC GABLE ====
+# Asymmetric curved gable with small arched windows.
+
+[[box]] # attic front wall (centre)
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -2.5
+pos_y = 17.2
+pos_z = -4.05
+width = 5
+height = 2.4
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+[[box.hole]]
+pos_x = -1.2
+pos_y = 17.8
+pos_z = -4.05
+width = 1.0
+height = 1.4
+depth = 0.6
+[[box.hole]]
+pos_x = 0.6
+pos_y = 17.8
+pos_z = -4.05
+width = 1.0
+height = 1.4
+depth = 0.6
+
+[[box]] # attic glass L
+albedo = [0.78, 0.86, 0.94]
+material = "glass"
+pos_x = -1.2
+pos_y = 17.8
+pos_z = -4.02
+width = 1.0
+height = 1.4
+depth = 0.35
+transmit = 0.80
+rough = 0.03
+ior = 1.45
+
+[[box]] # attic glass R
+albedo = [0.78, 0.86, 0.94]
+material = "glass"
+pos_x = 0.6
+pos_y = 17.8
+pos_z = -4.02
+width = 1.0
+height = 1.4
+depth = 0.35
+transmit = 0.80
+rough = 0.03
+ior = 1.45
+
+[[box]] # attic wing L
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -4
+pos_y = 17.2
+pos_z = -4.05
+width = 1.5
+height = 2.0
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+
+[[box]] # attic wing R
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = 2.5
+pos_y = 17.2
+pos_z = -4.05
+width = 1.5
+height = 2.0
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+
+[[box]] # attic infill L
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -2.5
+pos_y = 17.2
+pos_z = -4.05
+width = 0.5
+height = 2.0
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+
+[[box]] # attic infill R
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = 2.0
+pos_y = 17.2
+pos_z = -4.05
+width = 0.5
+height = 2.0
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+
+[[box]] # attic centre (fills gap under gable)
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -2.0
+pos_y = 17.2
+pos_z = -4.05
+width = 4.0
+height = 2.0
+depth = 0.45
+texture = "cement"
+texture_scale = 0.35
+
+# main roof cornice (before attic)
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -4.1
+pos_y = 17.05
+pos_z = -4.1
+width = 8.2
+height = 0.35
+depth = 0.55
+texture = "cement"
+
+# gable roof (sloped, dark tile)
+[[box]]
+albedo = [0.36, 0.22, 0.16]
+material = "diffuse"
+pos_x = -3.0
+pos_y = 18.8
+pos_z = -5.2
+width = 6.0
+height = 0.35
+depth = 2.8
+rotate_x = 24.0
+texture = "brick"
+
+[[box]] # higher gable peak (asymmetric sweep)
+albedo = [0.36, 0.22, 0.16]
+material = "diffuse"
+pos_x = -0.5
+pos_y = 20.0
+pos_z = -4.8
+width = 3.2
+height = 0.3
+depth = 2.4
+rotate_x = 34.0
+texture = "brick"
+
+# gable tympanum fill (ochre plaster behind white curves)
+[[box]]
+albedo = [0.90, 0.78, 0.52]
+material = "diffuse"
+pos_x = -1.5
+pos_y = 18.5
+pos_z = -4.1
+width = 3.0
+height = 2.2
+depth = 0.3
+texture = "cement"
+texture_scale = 0.35
+
+# white gable stucco curves
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -0.3
+pos_y = 19.5
+pos_z = -4.1
+width = 2.2
+height = 0.5
+depth = 0.35
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -1.8
+pos_y = 18.8
+pos_z = -4.12
+width = 0.4
+height = 1.6
+texture = "cement"
+
+[[cylinder]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = 1.2
+pos_y = 18.6
+pos_z = -4.07
+width = 0.35
+height = 1.2
+texture = "cement"
+
+[[sphere]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+center = [0.2, 20.0, -3.85]
+radius = 0.4
+texture = "cement"
+
+# flat roof cap (closes shell — prevents seeing facade from behind)
+[[box]]
+albedo = [0.36, 0.22, 0.16]
+material = "diffuse"
+pos_x = -4.1
+pos_y = 19.55
+pos_z = -3.6
+width = 8.2
+height = 0.2
+depth = 7.3
+texture = "brick"
+
+# flat roof caps (behind gable)
+[[box]]
+albedo = [0.36, 0.22, 0.16]
+material = "diffuse"
+pos_x = -4
+pos_y = 19.6
+pos_z = -2.5
+width = 8
+height = 0.25
+depth = 4
+texture = "brick"
+
+# floor-line cornices (white, projecting)
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -4.1
+pos_y = 6.72
+pos_z = -4.14
+width = 8.2
+height = 0.22
+depth = 0.35
+texture = "cement"
+
+[[box]]
+albedo = [0.96, 0.94, 0.88]
+material = "diffuse"
+pos_x = -4.1
+pos_y = 11.92
+pos_z = -4.14
+width = 8.2
+height = 0.22
+depth = 0.35
+texture = "cement"
+
+# horizontal rustication bands (ochre wall grooves)
+[[box]]
+albedo = [0.82, 0.70, 0.46]
+material = "diffuse"
+pos_x = -4.05
+pos_y = 6.7
+pos_z = -4.13
+width = 8.1
+height = 0.12
+depth = 0.08
+texture = "cement"
+
+[[box]]
+albedo = [0.82, 0.70, 0.46]
+material = "diffuse"
+pos_x = -4.05
+pos_y = 11.9
+pos_z = -4.13
+width = 8.1
+height = 0.12
+depth = 0.08
+texture = "cement"
+
+[[box]]
+albedo = [0.82, 0.70, 0.46]
+material = "diffuse"
+pos_x = -4.05
+pos_y = 17.1
+pos_z = -4.13
+width = 8.1
+height = 0.12
+depth = 0.08
+texture = "cement"

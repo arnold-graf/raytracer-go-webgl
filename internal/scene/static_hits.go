@@ -23,7 +23,14 @@ func (s *Scene) StaticHits(pmin, pmax vec.V, skipBox func(int) bool) []StaticHit
 		if skipBox != nil && skipBox(i) {
 			continue
 		}
-		omn, omx := s.Boxes[i].WorldBounds()
+		b := &s.Boxes[i]
+		if len(b.Holes) > 0 {
+			if b.OverlapsSolid(pmin, pmax, util.DefaultPenetration) {
+				hits = append(hits, StaticHit{Box: i})
+			}
+			continue
+		}
+		omn, omx := b.WorldBounds()
 		if !util.Overlap(pmin, pmax, omn, omx, util.DefaultPenetration) {
 			continue
 		}

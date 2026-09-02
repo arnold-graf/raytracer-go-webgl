@@ -128,6 +128,14 @@ snow_hi = 10.5
   margin = 5.0
   angle = -0.78539816339 # -45°
 
+  [[terrain.pad]]   # Vienna apartment along the valley road
+  center = [22.0, 42.0]
+  half = [5.5, 5.5]
+  level = 3.0
+  absolute = true
+  margin = 4.0
+  angle = -0.31415926535 # -18°
+
   # Winding cobble road toward the mountains (centerline + width).
   [[terrain.zone]]
   texture = "stone_wall"
@@ -135,7 +143,7 @@ snow_hi = 10.5
   fade_width = 3.0
   texture_scale = 0.4
   bump = 0.03
-  width = 6.0
+  width = 8
   path = [
     [0.0, 24.0],
     [2.0, 45.0],
@@ -148,8 +156,8 @@ snow_hi = 10.5
   albedo = [0.85, 0.83, 0.76]
   reflect = 0.05
   rough = 0.02
-  shininess = 50
-  specular = 0.5
+  shininess = 100
+  specular = 1
 
 [[terrain.feature]]
 kind = "peak"
@@ -165,18 +173,24 @@ file = "objects/art-deco-street-light.toml"
 at = [60, 0,100]
 follow_terrain = true
 transform_origin = [0,0,0]
+[include.props]
+height = 6
 
 [[include]]
 file = "objects/art-deco-street-light.toml"
 at = [15, 0, 68]
 follow_terrain = true
 transform_origin = [0,0,0]
+[include.props]
+height = 6
 
 [[include]]
 file = "objects/art-deco-street-light.toml"
 at = [90, 0,110]
 follow_terrain = true
 transform_origin = [0,0,0]
+[include.props]
+height = 6
 
 [[include]]
 file = "objects/mountains.toml"
@@ -196,6 +210,15 @@ at = [48.586, 0.0, -8.586]
 rotate_y = -45.0
 transform_origin = [0.0, 0.0, 0.0]
 
+# ========================================================= VIENNA APARTMENT ====
+# Jugendstil facade on a flat pad beside the cobble road (valley floor, not
+# the mountain slopes).
+
+[[include]]
+file = "objects/vienna-apartment.toml"
+at = [22.0, 0.0, 42.0]
+rotate_y = 162.0
+transform_origin = [0.0, 0.0, 0.0]
 
 # ----------------------------------------------------------------- water ----
 # Reflective pool sitting in the valley basin; reflects terrain, sky and light.
