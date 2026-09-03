@@ -57,8 +57,8 @@ struct Params {
     blocker_inst_base: u32,
 	blocker_inst_count: u32,
     profile_enabled: u32,
-    // Counts of the precomputed plane-index lists (plane_idx / blocker_plane_idx),
-    // so the tracer iterates only planes instead of scanning every primitive.
+    // Lengths of the two plane-index lists inside idx_tables, so the tracer
+    // iterates only planes instead of scanning every primitive.
     plane_count: u32,
     blocker_plane_count: u32,
     flame_particle_count: u32,
@@ -68,6 +68,17 @@ struct Params {
     // thin_glass_ghost: when set, primary thin-glass hits spawn a second-pane
     // reflection lobe (double-pane look). Toggled in-app with key 8.
     thin_glass_ghost: u32,
+    // Light cluster grid: world -> cell index transform for light_span().
+    // light_grid_inv_cell of zero collapses every point onto cell 0, which is
+    // how the degenerate one-cell grid reproduces a full light loop.
+    // light_grid_dim.w is where the clustered light indices start, relative to
+    // the grid's own base. table_base holds the idx_tables word offsets of the
+    // blocker-plane list (x) and the light grid (y), plus the number of wide
+    // lights leading the grid region (z).
+    light_grid_min: vec4<f32>,
+    light_grid_inv_cell: vec4<f32>,
+    light_grid_dim: vec4<u32>,
+    table_base: vec4<u32>,
 };
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).
@@ -286,14 +297,20 @@ var<storage, read> inst_records: array<InstanceRecord>;
 @group(0) @binding(16)
 var<storage, read_write> profile_counters: array<atomic<u32>>;
 
-// plane_idx / blocker_plane_idx list the indices of the infinite planes inside
-// the prims / blockers buffers. Planes are excluded from the BVH, so instead of
-// scanning every primitive each ray we walk these short lists.
+// idx_tables concatenates every u32 index list the tracer walks, because Metal
+// allows a stage only 32 buffer bindings and this megakernel had used them all.
+// The regions sit at fixed bases (see params.plane_base / light_grid_base):
+//
+//   - plane indices: the infinite planes inside prims. Planes are excluded from
+//     the BVH, so rays walk this short list instead of scanning primitives.
+//   - blocker plane indices: the same for the shadow-blocker set.
+//   - light cluster grid: [wide | cell offsets | light indices]. The wide list
+//     is the scene-spanning lights every point evaluates; the rest is a CSR row
+//     table over grid cells plus the light indices it points into, so a lit
+//     point walks only the lights that reach its own cell (lightgrid.go).
 @group(0) @binding(17)
-var<storage, read> plane_idx: array<u32>;
+var<storage, read> idx_tables: array<u32>;
 
-@group(0) @binding(18)
-var<storage, read> blocker_plane_idx: array<u32>;
 const BVH_TAG_TLAS: u32 = 1u;
 
 const PRIM_FLAG_TRANSFORMED: u32 = 1u;

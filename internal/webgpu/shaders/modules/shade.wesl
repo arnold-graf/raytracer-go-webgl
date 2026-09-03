@@ -3,7 +3,7 @@
 // evaluates point lights and flickering campfires, samples baked ambient
 // occlusion, and assembles direct diffuse lighting (shade_diffuse).
 
-import package::types::{CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_SKIP_LEVELS, ao_volume, blocker_plane_idx, campfires, holes, lights, params, terrains};
+import package::types::{CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_SKIP_LEVELS, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
 import package::profile::{PROF_SHADOW_BLOCK, PROF_SHADOW_RAYS, prof_inc};
 import package::math::{display_step_levels, mix3, perlin, smoothstepf};
 import package::texture::{texture_eval};
@@ -232,7 +232,7 @@ fn shadowed(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
     }
     let limit = max_t - 0.05;
     for (var i = 0u; i < params.blocker_plane_count; i = i + 1u) {
-        let bi = blocker_plane_idx[i];
+        let bi = idx_tables[params.table_base.x + i];
         let t = intersect_blocker(bi, origin, dir);
         if (t > RAY_EPSILON && t < limit) {
             prof_inc(PROF_SHADOW_BLOCK, 1u);
@@ -466,21 +466,56 @@ fn scene_ambient(n: vec3<f32>) -> vec3<f32> {
     return mix(params.ambient_ground.xyz, params.ambient_sky.xyz, t);
 }
 
+// light_span returns the [start, end) range of light_grid_idx listing every
+// light whose influence sphere can reach hp. A point outside the grid is beyond
+// every light's cull radius, so its span is empty.
+//
+// The grid is conservative, so this is not an approximation: add_point_light_raw
+// already returns unchanged for a light past its cull radius, and any light this
+// skips would have taken that early return.
+fn light_span(hp: vec3<f32>) -> vec2<u32> {
+    let dim = params.light_grid_dim.xyz;
+    let c = floor((hp - params.light_grid_min.xyz) * params.light_grid_inv_cell.xyz);
+    if (any(c < vec3<f32>(0.0)) || any(c >= vec3<f32>(dim))) {
+        return vec2<u32>(0u, 0u);
+    }
+    let cells = params.table_base.y + params.table_base.z;
+    let ci = (u32(c.z) * dim.y + u32(c.y)) * dim.x + u32(c.x);
+    let first = params.table_base.y + params.light_grid_dim.w;
+    return vec2<u32>(first + idx_tables[cells + ci], first + idx_tables[cells + ci + 1u]);
+}
+
+// wide_span is the prefix of scene-spanning lights that every lit point has to
+// evaluate, because clustering them would put them in most cells anyway.
+fn wide_span() -> vec2<u32> {
+    return vec2<u32>(params.table_base.y, params.table_base.y + params.table_base.z);
+}
+
 fn shade_ghost(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> vec3<f32> {
     // Faint second-pane lobe: ambient + direct light, no shadow/AO/campfire rays.
     let tw_skip = vec3<f32>(GHOST_SHADOW_TW);
     var lit = alb * scene_ambient(n);
     let rd_skip = vec3<f32>(0.0, 0.0, -1.0);
-    for (var i = 0u; i < params.light_count; i = i + 1u) {
-        lit = add_point_light(lit, hp, alb, n, ep, lights[i], tw_skip, rd_skip, 0.0, 0.0, false);
+    let wide = wide_span();
+    for (var i = wide.x; i < wide.y; i = i + 1u) {
+        lit = add_point_light(lit, hp, alb, n, ep, lights[idx_tables[i]], tw_skip, rd_skip, 0.0, 0.0, false);
+    }
+    let span = light_span(hp);
+    for (var i = span.x; i < span.y; i = i + 1u) {
+        lit = add_point_light(lit, hp, alb, n, ep, lights[idx_tables[i]], tw_skip, rd_skip, 0.0, 0.0, false);
     }
     return lit;
 }
 
 fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32) -> vec3<f32> {
     var lit = alb * scene_ambient(n);
-    for (var i = 0u; i < params.light_count; i = i + 1u) {
-        lit = add_point_light(lit, hp, alb, n, ep, lights[i], tw, rd, spec, shine, true);
+    let wide = wide_span();
+    for (var i = wide.x; i < wide.y; i = i + 1u) {
+        lit = add_point_light(lit, hp, alb, n, ep, lights[idx_tables[i]], tw, rd, spec, shine, true);
+    }
+    let span = light_span(hp);
+    for (var i = span.x; i < span.y; i = i + 1u) {
+        lit = add_point_light(lit, hp, alb, n, ep, lights[idx_tables[i]], tw, rd, spec, shine, true);
     }
     // FEAT_CAMPFIRE folds to false in scenes with no campfire, so the compiler
     // drops this whole loop — including the sub-light and flame-cull helpers it
@@ -534,8 +569,13 @@ fn shade_specular(hp: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd:
     }
     let no_diffuse = vec3<f32>(0.0);
     var lit = vec3<f32>(0.0);
-    for (var i = 0u; i < params.light_count; i = i + 1u) {
-        lit = add_point_light(lit, hp, no_diffuse, n, ep, lights[i], tw, rd, spec, shine, true);
+    let wide = wide_span();
+    for (var i = wide.x; i < wide.y; i = i + 1u) {
+        lit = add_point_light(lit, hp, no_diffuse, n, ep, lights[idx_tables[i]], tw, rd, spec, shine, true);
+    }
+    let span = light_span(hp);
+    for (var i = span.x; i < span.y; i = i + 1u) {
+        lit = add_point_light(lit, hp, no_diffuse, n, ep, lights[idx_tables[i]], tw, rd, spec, shine, true);
     }
     for (var ci = 0u; FEAT_CAMPFIRE && ci < params.campfire_count; ci = ci + 1u) {
         let cf = campfires[ci];

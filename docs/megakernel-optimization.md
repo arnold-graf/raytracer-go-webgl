@@ -100,6 +100,10 @@ which is what makes the coarse threshold safe on bounce paths.
 
 ## Adaptive AA: classify, then resolve indirectly
 
+> **Overview (less GPU jargon):** [adaptive-aa.md](adaptive-aa.md) — what the
+> three passes do, how edge detection works, and why AA is extra rays rather
+> than a screen filter.
+
 The AA pass was the single largest line item, ~5 ms of a 14 ms frame. Almost all
 of it was waste, and not from the taps themselves.
 
@@ -274,6 +278,10 @@ primitive AABBs, and an earlier pass measured a balanced tree as 23% *slower*.
 
 That ratio suggested widening leaves. It was tried, and it is wrong — see below.
 
+The remaining ~5.7 ms at yaw 270 is almost all glossy bounce transport. Cheapening
+it *inside* the megakernel keeps losing to occupancy. The design for taking
+glossy out of the megakernel is in [bounce-kernel.md](bounce-kernel.md).
+
 ---
 
 ## BVH leaf width: narrower, not wider
@@ -327,6 +335,11 @@ to 20 (measured max depth 17), and stubbing all procedural textures to a flat ti
 Both landed inside run-to-run noise, and the texture stub was slightly *slower* —
 register allocation in a megakernel this size responds unpredictably to local
 changes, which is the recurring theme of this document.
+
+Skipping instanced geometry on bounce rays was also tried and reverted: it was
+~2 ms faster on office-sunset, but reflections missing trees (and anything else
+instanced) were visually wrong. The next real lever is a separately compiled
+bounce kernel — see [bounce-kernel.md](bounce-kernel.md).
 
 ---
 

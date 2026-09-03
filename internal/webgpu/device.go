@@ -24,7 +24,7 @@ import (
 const (
 	fovScale = 0.5773502691896257 // tan(60deg / 2)
 	// WGSL Params size; must match trace_linked.wgsl (struct is padded to 16-byte alignment).
-	paramsSize   = 352
+	paramsSize   = 416
 	aaHitStride  = 4  // packed u32 fingerprint per pixel
 	hdrPixStride = 16 // vec4<f32> per pixel
 	// aa_dispatch: [workgroup_count_x, 1, 1, task_count].
@@ -87,8 +87,7 @@ type Renderer struct {
 	boxFaces           *wgpu.Buffer
 	instTmpl           *wgpu.Buffer
 	instRecs           *wgpu.Buffer
-	planeIdx           *wgpu.Buffer
-	blkPlane           *wgpu.Buffer
+	idxTables          *wgpu.Buffer
 	output             *wgpu.Buffer
 	hdrPixels          *wgpu.Buffer
 	aaHits             *wgpu.Buffer
@@ -380,21 +379,16 @@ func (r *Renderer) init() error {
 	if err != nil {
 		return fmt.Errorf("create instance records buffer: %w", err)
 	}
-	r.planeIdx, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
-		Label: "plane indices",
+	// Plane lists and the light cluster grid share one buffer: Metal allows a
+	// stage only 32 buffer bindings and the megakernel had exhausted them, so
+	// the u32 index tables are concatenated at fixed bases (see idxTables*).
+	r.idxTables, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "index tables (planes, blocker planes, light grid)",
 		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
-		Size:  maxPrims * 4,
+		Size:  idxTablesWords * 4,
 	})
 	if err != nil {
-		return fmt.Errorf("create plane indices buffer: %w", err)
-	}
-	r.blkPlane, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
-		Label: "blocker plane indices",
-		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
-		Size:  maxPrims * 4,
-	})
-	if err != nil {
-		return fmt.Errorf("create blocker plane indices buffer: %w", err)
+		return fmt.Errorf("create index tables buffer: %w", err)
 	}
 	r.profile, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "profile counters",
@@ -575,7 +569,6 @@ func (r *Renderer) init() error {
 			{Binding: 15, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: instanceStride}},
 			{Binding: 16, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: profileCounterBytes}},
 			{Binding: 17, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
-			{Binding: 18, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 			{Binding: 19, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 			{Binding: 20, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: 4}},
 			{Binding: 21, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainFeatureStride}},
@@ -629,8 +622,7 @@ func (r *Renderer) init() error {
 			{Binding: 14, Buffer: r.instTmpl, Size: maxInstTemplates * instTemplateStride},
 			{Binding: 15, Buffer: r.instRecs, Size: maxInstances * instanceStride},
 			{Binding: 16, Buffer: r.profile, Size: profileCounterBytes},
-			{Binding: 17, Buffer: r.planeIdx, Size: maxPrims * 4},
-			{Binding: 18, Buffer: r.blkPlane, Size: maxPrims * 4},
+			{Binding: 17, Buffer: r.idxTables, Size: idxTablesWords * 4},
 			{Binding: 19, Buffer: r.documents, Size: r.documentBytes},
 			{Binding: 20, Buffer: r.boxFaces, Size: maxPrims * boxFacesPerPrim * 4},
 			{Binding: 21, Buffer: r.terrFeat, Size: maxTerrainFeatures * terrainFeatureStride},
@@ -771,7 +763,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 	}
 	c := &r.cache
 	rp := renderParams{
-		prims: c.prims, blockers: c.blockers, lights: c.lights,
+		prims: c.prims, blockers: c.blockers, lights: c.lights, lightGrid: c.lightGrid,
 		planeIdx: c.planeIdx, blockerPlaneIdx: c.blockerPlaneIdx,
 		bvhNodes: c.bvhNodes, bvhNodeCount: c.bvhNodeCount, blockerNodeCount: c.blockerNodeCount,
 		instTemplates: c.instTemplates, instPlacements: c.instPlacements,
@@ -924,6 +916,7 @@ type renderParams struct {
 	planeIdx         []uint32
 	blockerPlaneIdx  []uint32
 	lights           []GPULight
+	lightGrid        lightGrid
 	bvhNodes         []GPUBVHNode
 	bvhNodeCount     uint32
 	blockerNodeCount uint32
@@ -1006,6 +999,9 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 				return err
 			}
 		}
+		if err := r.uploadLightGrid(&p.lightGrid); err != nil {
+			return err
+		}
 		if len(p.lights) > 0 {
 			if err := r.queue.WriteBuffer(r.lights, 0, lightBytes(p.lights)); err != nil {
 				return err
@@ -1086,12 +1082,12 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 			}
 		}
 		if len(p.planeIdx) > 0 {
-			if err := r.queue.WriteBuffer(r.planeIdx, 0, u32Bytes(p.planeIdx)); err != nil {
+			if err := r.queue.WriteBuffer(r.idxTables, 0, u32Bytes(p.planeIdx)); err != nil {
 				return err
 			}
 		}
 		if len(p.blockerPlaneIdx) > 0 {
-			if err := r.queue.WriteBuffer(r.blkPlane, 0, u32Bytes(p.blockerPlaneIdx)); err != nil {
+			if err := r.queue.WriteBuffer(r.idxTables, idxTablesBlockerPlaneBase*4, u32Bytes(p.blockerPlaneIdx)); err != nil {
 				return err
 			}
 		}
@@ -1139,6 +1135,11 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 				if err := r.queue.WriteBuffer(r.bvhNodes, offset, nodeBytes(nodes)); err != nil {
 					return err
 				}
+			}
+		}
+		if p.uploadLights {
+			if err := r.uploadLightGrid(&p.lightGrid); err != nil {
+				return err
 			}
 		}
 		if p.uploadLights && len(p.lights) > 0 {
@@ -1476,6 +1477,17 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	if p.thinGlassGhost {
 		putU32(out[340:344], 1)
 	}
+	// Light cluster grid transform (vec4-aligned): world -> cell index.
+	putVec4(out[352:368], p.lightGrid.Min)
+	putVec4(out[368:384], p.lightGrid.InvCell)
+	putU32(out[384:388], p.lightGrid.Dim[0])
+	putU32(out[388:392], p.lightGrid.Dim[1])
+	putU32(out[392:396], p.lightGrid.Dim[2])
+	putU32(out[396:400], p.lightGrid.idxBase())
+	// Base word offsets of the three tables inside the shared idx_tables buffer.
+	putU32(out[400:404], idxTablesBlockerPlaneBase)
+	putU32(out[404:408], idxTablesLightGridBase)
+	putU32(out[408:412], p.lightGrid.wideCount())
 	return out
 }
 
@@ -1553,11 +1565,8 @@ func (r *Renderer) Release() {
 			r.reads[i].Release()
 		}
 	}
-	if r.planeIdx != nil {
-		r.planeIdx.Release()
-	}
-	if r.blkPlane != nil {
-		r.blkPlane.Release()
+	if r.idxTables != nil {
+		r.idxTables.Release()
 	}
 	if r.output != nil {
 		r.output.Release()

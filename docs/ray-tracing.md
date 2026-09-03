@@ -84,6 +84,13 @@ So a typical wall pixel is: flat ambient + campfire/light contribution − shado
 
 HDR color → simple tonemap → 8-bit with **ordered Bayer dithering** to reduce banding.
 
+**6. Adaptive AA (optional, on by default in the app)**
+
+After the center ray, a cheap pass scans neighbors for jagged silhouettes and
+shadow edges. Pixels that need help get **one extra camera ray** through the same
+`ray_color` path, blended 50/50 with the center sample. This is not a blur
+filter over the finished image. See [adaptive-aa.md](adaptive-aa.md).
+
 ---
 
 ### How many bounces?

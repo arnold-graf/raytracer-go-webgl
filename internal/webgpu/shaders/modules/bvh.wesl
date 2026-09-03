@@ -3,7 +3,7 @@
 // ray (nearest_hit) or any blocker along a shadow ray (shadowed). Also walks
 // infinite plane index lists that sit outside the BVH.
 
-import package::types::{BVH_TAG_TLAS, HIT_NO_INSTANCE, Hit, RAY_EPSILON, T_MISS, blockers, bvh_nodes, inst_records, inst_templates, params, plane_idx};
+import package::types::{BVH_TAG_TLAS, HIT_NO_INSTANCE, Hit, RAY_EPSILON, T_MISS, blockers, bvh_nodes, idx_tables, inst_records, inst_templates, params};
 import package::profile::{prof_step, prof_tests};
 import package::intersect::{intersect, intersect_blocker, slab_hit, slab_near};
 import package::terrain::{hit_terrain, hit_water};
@@ -260,7 +260,7 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
     // Infinite planes are not part of the finite BVH; walk the precomputed plane
     // index list instead of scanning every primitive.
     for (var i = 0u; i < params.plane_count; i = i + 1u) {
-        let pi = plane_idx[i];
+        let pi = idx_tables[i];
         let t = intersect(pi, ro, rd);
         if (t < h.t) {
             h.t = t;

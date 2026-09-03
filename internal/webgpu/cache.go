@@ -37,6 +37,7 @@ type sceneCache struct {
 	bvhNodeCount     uint32
 	blockerNodeCount uint32
 	lights           []GPULight
+	lightGrid        lightGrid
 	terrains         []GPUTerrain
 	samples          []float32
 	terrainFeatures  []GPUTerrainFeature
@@ -106,7 +107,7 @@ func (c *sceneCache) rebuild(v *render.View) {
 
 afterPack:
 
-	c.lights = PackLights(v.Scene)
+	c.setLights(v.Scene)
 	c.terrains, c.samples, c.terrainFeatures, c.terrainPads, c.terrainMips, c.terrainZones, c.terrainZoneVerts = PackTerrains(v.Scene)
 	c.waters = PackWaters(v.Scene)
 	c.campfireParams = PackCampfireParams(v.Scene)
@@ -174,7 +175,7 @@ func (c *sceneCache) updateDynamicTransforms(s *scene.Scene) {
 	}
 	if len(dirtyPrim) == 0 {
 		if sceneHasDynamicLights(s) {
-			c.lights = PackLights(s)
+			c.setLights(s)
 			c.lightsDirty = true
 		}
 		if sceneHasDynamicCampfires(s) {
@@ -202,7 +203,7 @@ func (c *sceneCache) updateDynamicTransforms(s *scene.Scene) {
 	c.partialPrimSpans = coalesceIndices(dirtyPrim)
 	c.partialBlockerSpans = coalesceIndices(dirtyBlocker)
 	if sceneHasDynamicLights(s) {
-		c.lights = PackLights(s)
+		c.setLights(s)
 		c.lightsDirty = true
 	}
 	if sceneHasDynamicCampfires(s) {

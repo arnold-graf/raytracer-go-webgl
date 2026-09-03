@@ -83,7 +83,7 @@ There are **two families of fixes**, at very different cost:
 |---|---|---|
 | **1** | Cheaper bounce shadows (Option B, safe tiers first) | Matches our measured bottleneck, small diff, keeps one-dispatch simplicity |
 | **2** | Keep 60 fps cap as the power lever | Already works; no code risk |
-| **3** | Wavefront (Option A) | Revisit only if we add heavy triangle meshes, more bounce depth, or Option B is exhausted |
+| **3** | Wavefront (Option A) | Revisit only if we add heavy triangle meshes, more bounce depth, or Option B is exhausted. A concrete, occupancy-first version of this — a separately compiled glossy bounce kernel, not a full streaming rewrite — is sketched in [bounce-kernel.md](bounce-kernel.md). |
 
 Use the HUD counters (`bvh X steps Y tests/ray`, `paths/px`, `shadows/px`) and `gpuprof -profile` to validate any change: if `steps/ray` does not move, a BVH tweak will not help; if `shadows/px` or `paths/px` drops, we are on the right track.
 
