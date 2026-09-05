@@ -3,6 +3,7 @@ height = 4.5
 width = 0.5
 albedo = [1,1,1]
 reflect = 0.1
+rough = 0.0
 
 # base
 [[cylinder]]
@@ -15,6 +16,7 @@ pos_x = -0.2
 pos_y = 0
 pos_z = -0.2
 reflect = 'reflect'
+rough = 'rough'
 # top
 [[cylinder]]
 material = "diffuse"
@@ -26,7 +28,7 @@ pos_x = -0.2
 pos_y = 'height - 0.1'
 pos_z = -0.2
 reflect = 'reflect'
-
+rough = 'rough'
 # column
 [[cylinder]]
 material = "diffuse"
@@ -38,3 +40,4 @@ pos_x = 0
 pos_y = 0
 pos_z = 0
 reflect = 'reflect'
+rough = 'rough'

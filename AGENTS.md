@@ -34,6 +34,10 @@ go run ./cmd/preview -scene scenes/preview/my-object.toml -zoom 1.5 -w 1024 -h 6
 Preview auto-centers the subject and writes twelve orbit screenshots
 (`<name>-00.png` … `<name>-11.png`).
 
+### Scratch files and scripts
+
+use the local tmp folder inside this repo, not a root folder like /tmp.
+
 ### Recommended commands
 
 ```bash

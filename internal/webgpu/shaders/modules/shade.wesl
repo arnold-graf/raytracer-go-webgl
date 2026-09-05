@@ -3,7 +3,7 @@
 // evaluates point lights and flickering campfires, samples baked ambient
 // occlusion, and assembles direct diffuse lighting (shade_diffuse).
 
-import package::types::{CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_SKIP_LEVELS, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
+import package::types::{CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_SKIP_LEVELS, ShadowAux, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
 import package::profile::{PROF_SHADOW_BLOCK, PROF_SHADOW_RAYS, prof_inc};
 import package::math::{display_step_levels, mix3, perlin, smoothstepf};
 import package::texture::{texture_eval};
@@ -224,19 +224,131 @@ fn normal_at(p: Prim, hp: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
     return torus_normal(p, hp);
 }
 
-fn shadowed(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
+// PENUMBRA_LIGHT_RADIUS is the world-space radius every point light is assumed
+// to have when sizing its penumbra. A true point light casts a geometrically
+// hard shadow at any distance, which is what makes CG shadows read as CG.
+//
+// Not authored per light yet: adding a `radius` to [[light]] is the natural
+// follow-up, and this constant is what it would replace.
+const PENUMBRA_LIGHT_RADIUS: f32 = 0.35;
+
+const PENUMBRA_EPS: f32 = 1e-3;
+
+// Per-pixel shadow accumulators, filled in while shading and consumed by the
+// shadow_soften pass. Nothing here traces anything.
+//
+// These sum over *all* lights rather than picking a dominant one. Picking was
+// the original design and it is subtly wrong: which light wins can flip between
+// neighbouring pixels wherever two are comparably bright, and every downstream
+// rule then behaves differently on either side of the flip. That showed up as
+// speckle along shadow edges and as shadows where only part of the area got
+// softened.
+//
+// A sum has no such discontinuity. `sh_deficit` is the light every blocked
+// source is withholding, which means exactly the same thing at every pixel
+// whichever lights happen to be involved.
+var<private> sh_deficit: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+// Every light's contribution, blocked or not. sh_deficit / sh_full is the
+// blocked fraction, and dividing is what removes the surface from the quantity
+// the filter carries: both numerator and denominator share this point's albedo,
+// its AO and its throughput, so all three cancel and what is left is pure
+// visibility. What the two sums do *not* share cancels usefully too — a light
+// contributes to the fraction in proportion to how much light it is.
+var<private> sh_full: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+var<private> sh_pen_sum: f32 = 0.0;
+var<private> sh_pen_w: f32 = 0.0;
+// Ambient occlusion is applied to `lit` *after* the light loop, so the deficit
+// above is the direct light before it. The snapshot scales by this so the
+// recorded value matches the light the frame actually deposited; without it the
+// filter restores un-attenuated light, too bright by 1/ao exactly where AO
+// darkens, which is corners and creases — where shadow fringes are.
+var<private> sh_ao: f32 = 1.0;
+
+// Linear Rec.709 luminance, for weighting penumbra widths by how much light each
+// blocked source actually contributes.
+fn shadow_luma(c: vec3<f32>) -> f32 {
+    return 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z;
+}
+
+fn shadow_aux_reset() {
+    sh_deficit = vec3<f32>(0.0, 0.0, 0.0);
+    sh_full = vec3<f32>(0.0, 0.0, 0.0);
+    sh_pen_sum = 0.0;
+    sh_pen_w = 0.0;
+    sh_ao = 1.0;
+}
+
+// shadow_aux_note records the light one blocked source is withholding from this
+// point, and how wide its penumbra should be.
+//
+// The width is pure geometry: a light of radius r, an occluder at t_block from
+// the receiver and the light at ldist project a half-shadow of r*t/(ldist-t)
+// onto the receiver. One blocker distance sizes it exactly, which is what makes
+// contact hardening free — an occluder touching the surface gives t=0 and a hard
+// edge, and the shadow softens with height on its own.
+//
+// Several blocked lights are averaged by contribution, so the brightest shadow
+// dominates the width without the result jumping when they trade places.
+fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32) {
+    sh_full = sh_full + total;
+    if (t_block < 0.0) {
+        return;
+    }
+    sh_deficit = sh_deficit + total;
+    // A blocker closer to the light than the light's own radius is *inside* the
+    // source, and r*t/(ldist-t) diverges there. Geometrically a light barely
+    // peeking past an occluder really does cast an enormous penumbra, but in a
+    // scene it means the light is enclosed — mounted against the wall it lights,
+    // or inside a fixture housing — and blurring that shadow over the maximum
+    // radius leaks the light straight through the geometry enclosing it. Treated
+    // as a hard edge instead; the deficit is still recorded, so only the
+    // softening is withheld.
+    let gap = ldist - t_block;
+    if (gap <= PENUMBRA_LIGHT_RADIUS) {
+        return;
+    }
+    // World size of one pixel at this depth, so the filter works in the units it
+    // will gather in.
+    let px = 2.0 * params.fov_scale * length(hp - params.cam_pos.xyz) / f32(params.height);
+    let pen = (PENUMBRA_LIGHT_RADIUS * t_block / gap) / max(px, PENUMBRA_EPS);
+    let weight = shadow_luma(total);
+    sh_pen_sum = sh_pen_sum + pen * weight;
+    sh_pen_w = sh_pen_w + weight;
+}
+
+fn shadow_aux_snapshot(tw: vec3<f32>, n: vec3<f32>, depth: f32) -> ShadowAux {
+    var pen = 0.0;
+    if (sh_pen_w > 0.0) {
+        pen = sh_pen_sum / sh_pen_w;
+    }
+    // The fraction needs no scaling at all — tw and AO are in both sums.
+    let frac = sh_deficit / max(sh_full, vec3<f32>(PENUMBRA_EPS, PENUMBRA_EPS, PENUMBRA_EPS));
+    return ShadowAux(frac, pen, n, depth, frac, 0.0, tw * sh_full * sh_ao, 0.0);
+}
+
+fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> f32 {
     prof_inc(PROF_SHADOW_RAYS, 1u);
-    if (blocker_bvh_any_hit(origin, dir, max_t)) {
-        prof_inc(PROF_SHADOW_BLOCK, 1u);
-        return true;
+    var best = -1.0;
+    let tb = blocker_bvh_any_hit(origin, dir, max_t);
+    if (tb >= 0.0) {
+        if (!SHADOW_NEAREST_BLOCKER) {
+            prof_inc(PROF_SHADOW_BLOCK, 1u);
+            return tb;
+        }
+        best = tb;
     }
     let limit = max_t - 0.05;
     for (var i = 0u; i < params.blocker_plane_count; i = i + 1u) {
         let bi = idx_tables[params.table_base.x + i];
         let t = intersect_blocker(bi, origin, dir);
         if (t > RAY_EPSILON && t < limit) {
-            prof_inc(PROF_SHADOW_BLOCK, 1u);
-            return true;
+            if (!SHADOW_NEAREST_BLOCKER) {
+                prof_inc(PROF_SHADOW_BLOCK, 1u);
+                return t;
+            }
+            if (best < 0.0 || t < best) {
+                best = t;
+            }
         }
     }
     for (var i = 0u; i < params.terrain_count; i = i + 1u) {
@@ -245,11 +357,23 @@ fn shadowed(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
         }
         let t = hit_terrain(i, origin, dir, max_t, true, true);
         if (t > RAY_EPSILON && t < limit) {
-            prof_inc(PROF_SHADOW_BLOCK, 1u);
-            return true;
+            if (!SHADOW_NEAREST_BLOCKER) {
+                prof_inc(PROF_SHADOW_BLOCK, 1u);
+                return t;
+            }
+            if (best < 0.0 || t < best) {
+                best = t;
+            }
         }
     }
-    return false;
+    if (best >= 0.0) {
+        prof_inc(PROF_SHADOW_BLOCK, 1u);
+    }
+    return best;
+}
+
+fn shadowed(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
+    return shadow_blocker_t(origin, dir, max_t) >= 0.0;
 }
 
 fn tw_peak(tw: vec3<f32>) -> f32 {
@@ -317,13 +441,23 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
     // radiance already accumulated at this hit. A dim light landing on an
     // already-lit surface cannot darken it perceptibly no matter what occludes
     // it, while the same light against near-black is the only thing there.
-    if (!shadow || display_step_levels(twm * tw_peak(lit), twm * peak) < SHADOW_SKIP_LEVELS) {
+    let step_levels = display_step_levels(twm * tw_peak(lit), twm * peak);
+    if (!shadow || step_levels < SHADOW_SKIP_LEVELS) {
         return lit + total;
     }
-    if (params.shadows != 0u && shadowed(ep, ln, ldist)) {
-        return lit;
+    if (params.shadows == 0u) {
+        return lit + total;
     }
-    return lit + total;
+    let t_block = shadow_blocker_t(ep, ln, ldist);
+    if (t_block < 0.0) {
+        // Recorded even though nothing is occluded: the filter widens a penumbra
+        // outward as well as inward, so a lit pixel beside a shadow has to know
+        // which light it would be losing.
+        shadow_aux_note(hp, total, ldist, -1.0);
+        return lit + total;
+    }
+    shadow_aux_note(hp, total, ldist, t_block);
+    return lit;
 }
 
 fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, light: Light, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32, shadow: bool) -> vec3<f32> {
@@ -508,6 +642,7 @@ fn shade_ghost(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> ve
 }
 
 fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32) -> vec3<f32> {
+    shadow_aux_reset();
     var lit = alb * scene_ambient(n);
     let wide = wide_span();
     for (var i = wide.x; i < wide.y; i = i + 1u) {
@@ -540,7 +675,27 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
                 let att = min(1.0, 1.0 / (LIGHT_ATTEN_BASE + cd2 * LIGHT_ATTEN_QUADRATIC));
                 let peak = att * ndl * cf.param.x * max(alb.x, max(alb.y, alb.z));
                 if (display_step_levels(tw_peak(tw) * tw_peak(lit), tw_peak(tw) * peak) >= SHADOW_SKIP_LEVELS) {
-                    if (shadowed(ep, cdir, cdist)) {
+                    let ct = shadow_blocker_t(ep, cdir, cdist);
+                    if (ct >= 0.0) {
+                        // The whole campfire is occluded here, so its sub-lights
+                        // are skipped and never record anything — which is why
+                        // campfire shadows stayed hard without this.
+                        //
+                        // The contribution is *measured*, not estimated: each
+                        // sub-light is evaluated with shadow = false, which
+                        // returns its unoccluded contribution without tracing a
+                        // ray and without recording anything itself. An earlier
+                        // version guessed at it (one sub-light scaled by three)
+                        // and guessed high, so the filter added back light the
+                        // pixel never had — campfire shadows brightened their
+                        // surroundings instead of darkening them.
+                        let cts = params.time * cf.param.w;
+                        var probe = vec3<f32>(0.0, 0.0, 0.0);
+                        for (var pj = 0u; pj < 3u; pj = pj + 1u) {
+                            let psl = campfire_sublight(cf, pj, cts);
+                            probe = add_point_light_raw(probe, hp, alb, n, ep, psl.pos, psl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, false);
+                        }
+                        shadow_aux_note(hp, probe, cdist, ct);
                         continue;
                     }
                 }
@@ -557,7 +712,8 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
         }
     }
     if (params.ao_enabled != 0u) {
-        lit = lit * ao_sample(ep, n);
+        sh_ao = ao_sample(ep, n);
+        lit = lit * sh_ao;
     }
     return lit;
 }

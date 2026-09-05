@@ -71,4 +71,5 @@ brightness = 'brightness'
 color = [3.5, 3.5, 2.4]
 pos = [0.0, 'orb_y', 0.0]
 radius = 0.5
+interactive = true
 range = 'range'

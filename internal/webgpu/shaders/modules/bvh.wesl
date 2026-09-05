@@ -3,7 +3,7 @@
 // ray (nearest_hit) or any blocker along a shadow ray (shadowed). Also walks
 // infinite plane index lists that sit outside the BVH.
 
-import package::types::{BVH_TAG_TLAS, HIT_NO_INSTANCE, Hit, RAY_EPSILON, T_MISS, blockers, bvh_nodes, idx_tables, inst_records, inst_templates, params};
+import package::types::{BVH_TAG_TLAS, HIT_NO_INSTANCE, Hit, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, T_MISS, blockers, bvh_nodes, idx_tables, inst_records, inst_templates, params};
 import package::profile::{prof_step, prof_tests};
 import package::intersect::{intersect, intersect_blocker, slab_hit, slab_near};
 import package::terrain::{hit_terrain, hit_water};
@@ -127,9 +127,19 @@ fn bvh_nearest_subtree_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, h: Hit, inst
     return best;
 }
 
-fn inst_bvh_any_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool {
+// Returns the distance to a blocker, or -1 when the segment is clear. The
+// distance costs nothing: an any-hit already computes t to compare against the
+// segment length, it just used to throw it away. Penumbra estimation needs it
+// (see shadow_blocker_t in shade.wesl).
+//
+// It is *a* blocker, not necessarily the nearest — this is still an any-hit and
+// returns on the first one found. That is the right trade for penumbra sizing,
+// which wants a representative blocker depth and would otherwise have to pay for
+// a full nearest-hit traversal on every shadow ray in the scene.
+fn inst_bvh_any_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> f32 {
     let inv = vec3<f32>(1.0) / rd;
     let limit = max_t - 0.05;
+    var best = -1.0;
     var stack: array<u32, BVH_STACK_SIZE>;
     var sp = 0u;
     stack[sp] = root;
@@ -150,8 +160,19 @@ fn inst_bvh_any_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool
             let tmpl = inst_templates[inst_records[inst_idx].template_id];
             let lro = inst_local_origin(inst_idx, ro);
             let lrd = inst_local_dir(inst_idx, rd);
-            if (bvh_nearest_subtree(tmpl.blocker_blas_root, lro, lrd, limit, true) < limit) {
-                return true;
+            let ti = bvh_nearest_subtree(tmpl.blocker_blas_root, lro, lrd, limit, true);
+            if (ti < limit) {
+                // Clamped because the caller reads "negative means clear", and a
+                // subtree hit right at the ray origin can come back at or below
+                // zero. Before this function returned a distance that case was a
+                // plain `true` and stayed blocked.
+                let tc = max(ti, 0.0);
+                if (!SHADOW_NEAREST_BLOCKER) {
+                    return tc;
+                }
+                if (best < 0.0 || tc < best) {
+                    best = tc;
+                }
             }
             continue;
         }
@@ -166,14 +187,19 @@ fn inst_bvh_any_hit(root: u32, ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool
                 let prim_idx = select(n.info.x, n.info.y, k == 1u);
                 let t = intersect_blocker(prim_idx, ro, rd);
                 if (t > RAY_EPSILON && t < limit) {
-                    return true;
+                        if (!SHADOW_NEAREST_BLOCKER) {
+                            return t;
+                        }
+                        if (best < 0.0 || t < best) {
+                            best = t;
+                        }
                 }
             }
         } else if (n.info.z != BVH_TAG_TLAS) {
             bvh_child_push(n.info.x, n.info.y, ro, inv, max_t, false, &stack, &sp);
         }
     }
-    return false;
+    return best;
 }
 
 fn inst_nearest_hit(ro: vec3<f32>, rd: vec3<f32>, h: Hit) -> Hit {
@@ -289,10 +315,13 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
     return h;
 }
 
-fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool {
+// Distance to a blocker in the static blocker set, or -1 when clear. See
+// inst_bvh_any_hit for why this is an any-hit distance and not the nearest.
+fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> f32 {
     if (params.blocker_bvh_node_count == 0u && params.blocker_inst_count == 0u) {
-        return false;
+        return -1.0;
     }
+    var best = -1.0;
     let inv = vec3<f32>(1.0) / rd;
     let limit = max_t - 0.05;
     let blocker_off = select(params.bvh_node_count, params.blocker_section_start, params.inst_count > 0u);
@@ -320,7 +349,12 @@ fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool {
                     let prim_idx = select(n.info.x, n.info.y, k == 1u);
                     let t = intersect_blocker(prim_idx, ro, rd);
                     if (t > RAY_EPSILON && t < limit) {
-                        return true;
+                        if (!SHADOW_NEAREST_BLOCKER) {
+                            return t;
+                        }
+                        if (best < 0.0 || t < best) {
+                            best = t;
+                        }
                     }
                 }
             } else if (n.info.z != BVH_TAG_TLAS) {
@@ -330,9 +364,10 @@ fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> bool {
     }
 
     if (params.inst_count > 0u && params.blocker_inst_count > 0u) {
-        if (inst_bvh_any_hit(params.blocker_inst_base, ro, rd, max_t)) {
-            return true;
+        let ti = inst_bvh_any_hit(params.blocker_inst_base, ro, rd, max_t);
+        if (ti >= 0.0 && (best < 0.0 || ti < best)) {
+            best = ti;
         }
     }
-    return false;
+    return best;
 }

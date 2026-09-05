@@ -68,6 +68,12 @@ struct Params {
     // thin_glass_ghost: when set, primary thin-glass hits spawn a second-pane
     // reflection lobe (double-pane look). Toggled in-app with key 8.
     thin_glass_ghost: u32,
+    // soft_shadows: when set, main() records the dominant light's shadow into
+    // shadow_aux and the shadow_soften pass widens it into a penumbra. Occupies
+    // what was struct padding before light_grid_min's vec4 alignment, so Params
+    // keeps its size.
+    soft_shadows: u32,
+    _pad_shadow: u32,
     // Light cluster grid: world -> cell index transform for light_span().
     // light_grid_inv_cell of zero collapses every point onto cell 0, which is
     // how the degenerate one-cell grid reproduces a full light loop.
@@ -288,6 +294,83 @@ var<storage, read_write> aa_dispatch: array<atomic<u32>>;
 // must match its @workgroup_size and the host's indirect header arithmetic.
 const AA_RESOLVE_WG: u32 = 64u;
 
+// ShadowAux is what one pixel knows about its own shadowing, summed over every
+// light rather than picked from one of them: `contrib` is the direct light that
+// would arrive unoccluded, `vis` the fraction of it that actually did, and
+// `pen_px` the penumbra half-width in pixels implied by the blocker distances.
+// std430, 32-byte stride.
+//
+// The point of writing it out rather than folding it straight into radiance is
+// that a penumbra is a *neighbourhood* property — a pixel cannot know how far it
+// sits from the shadow's edge without looking around it. Separating the
+// visibility signal is what lets shadow_soften widen an exact hard shadow to any
+// width without tracing a single extra ray.
+// One occlusion channel, deliberately.
+//
+// A two-channel split by penumbra width was tried, so that two shadows of
+// different softness crossing could each be filtered with their own radius. It
+// introduced two worse artifacts and was reverted:
+//
+//   - It is not a partition of unity. `occ_a = occ*(1-u)`, `occ_b = occ*u` with
+//     `u` varying per pixel by blocker distance, then filtered with *different*
+//     radii, does not recombine to `occ`. On a wall whose light is fully
+//     occluded, `occ` is a constant 1 while `u` still varies, so the
+//     reconstruction invented a signal out of a uniform field — a shadow drawn
+//     on a wall by a light that wall completely blocks.
+//   - Normalising by filtered weights fixes that and breaks the penumbra: a lit
+//     pixel has no wide-channel light, so its weight there is zero and it is
+//     invisible to that channel. The wide channel then averages only shadowed
+//     pixels, where occlusion and weight are the same field, so the ratio is
+//     identically 1 and no gradient forms.
+//
+// With one channel `occ` is filtered directly, a uniform field stays uniform,
+// and the failure mode is only that two crossing shadows share one radius.
+struct ShadowAux {
+    // Per channel, the fraction of this point's direct light that something is
+    // blocking. Albedo cancels out of the ratio, which is the whole reason it is
+    // stored as a ratio: filtering the blocked *radiance* directly turns the
+    // filter into an unsharp mask on the texture, because a bright texel in
+    // shadow is missing more light than the dark texel beside it. Contrast
+    // inside every shadowed region blew out.
+    //
+    // Per channel rather than one scalar, so the quantity means the same thing
+    // no matter which lights are involved. A lit pixel beside a shadow cast by a
+    // warm light has to lose warm light, not grey; and a scalar occlusion is not
+    // a partition of unity across several lights, which is what made a shadow
+    // from a fully-occluded light darken its neighbours the wrong way.
+    //
+    // The vertical pass overwrites this slot with the light it added back, which
+    // supersample_edge then applies to its own tap so an antialiased pixel is
+    // not half soft shadow and half hard. Safe to reuse: no invocation reads a
+    // *neighbour's* frac, only its frac_h.
+    frac: vec3<f32>,
+    pen_px: f32,
+    // Shading normal and camera distance, so the filter can tell whether a
+    // neighbour lies on the same surface. The packed primary-hit fingerprint the
+    // AA pass uses is per *primitive*, and scene geometry is authored as many
+    // small boxes — a rack, a wall of panels — so a continuous surface is
+    // covered in fingerprint boundaries. Gating on it chopped the blur along
+    // every seam and flipped it on and off as those seams moved.
+    normal: vec3<f32>,
+    // Zero marks a pixel with no diffuse surface (sky), which the filter skips.
+    depth: f32,
+    // Written by the horizontal half of the separable filter and read by the
+    // vertical half: the row-blurred fraction and the row maximum of pen_px.
+    frac_h: vec3<f32>,
+    r_h: f32,
+    // The direct light this point would receive if nothing blocked anything,
+    // already scaled by throughput, AO and any glossy (1 - refl) split. This is
+    // what converts a filtered fraction back into radiance, and using the
+    // pixel's *own* value is what keeps the correction textured like the surface
+    // it lands on instead of like its neighbours.
+    full: vec3<f32>,
+    _pad0: f32,
+};
+
+
+@group(0) @binding(18)
+var<storage, read_write> shadow_aux: array<ShadowAux>;
+
 @group(0) @binding(14)
 var<storage, read> inst_templates: array<TemplateRecord>;
 
@@ -310,6 +393,19 @@ var<storage, read_write> profile_counters: array<atomic<u32>>;
 //     point walks only the lights that reach its own cell (lightgrid.go).
 @group(0) @binding(17)
 var<storage, read> idx_tables: array<u32>;
+
+// SHADOW_NEAREST_BLOCKER makes a shadow ray report the *nearest* blocker rather
+// than the first one traversal happens to find.
+//
+// Visibility does not care — any blocker means shadowed — but the penumbra width
+// does: w_pen = r*t/(ldist-t) is monotonic in t, so an any-hit distance biases
+// the width wide. Worse, the bias is not stable: bvh_child_push orders children
+// by AABB *entry*, which is not order by hit distance, so which blocker is found
+// first can flip between adjacent pixels as the ray direction shifts, and the
+// penumbra width flips with it.
+//
+// True costs a full traversal with no early exit on every shadow ray.
+const SHADOW_NEAREST_BLOCKER: bool = false;
 
 const BVH_TAG_TLAS: u32 = 1u;
 

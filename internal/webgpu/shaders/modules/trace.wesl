@@ -3,7 +3,7 @@
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
-import package::types::{AA_RESOLVE_WG, GLOSSY_MIN_CONTRIB, HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, aa_dispatch, aa_hits, aa_list, hdr_pixels, params, pixels, prims, waters};
+import package::types::{AA_RESOLVE_WG, GLOSSY_MIN_CONTRIB, HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, ShadowAux, aa_dispatch, aa_hits, aa_list, hdr_pixels, params, pixels, prims, shadow_aux, waters};
 import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MAX_SEGS, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc, prof_max};
 import package::math::{surface_grazing_weight, tonemap};
 import package::texture::{plane_albedo, prim_texture_bump_normal, texture_eval, texture_eval_box, texture_eval_surface};
@@ -14,7 +14,7 @@ import package::terrain_zone::{terrain_zone_shade_normal, terrain_zone_surface};
 import package::flame::{accumulate_flame, heat_shimmer_dir};
 import package::instance::{inst_local_point, inst_world_normal};
 import package::bvh::{nearest_hit};
-import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, shade_diffuse, shade_ghost, shade_specular, terrain_albedo, tw_peak};
+import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, shade_diffuse, shade_ghost, shade_specular, shadow_aux_snapshot, terrain_albedo, tw_peak};
 
 // RaySeg is one pending ray in the bounded work stack: a ray plus the
 // multiplicative weight (throughput) its radiance contributes to the pixel, and
@@ -33,6 +33,10 @@ const RAYSEG_GHOST: u32 = 1u;
 struct TraceResult {
     color: vec3<f32>,
     primary: Hit,
+    // The primary hit's dominant-light shadow record, snapshotted out of the
+    // private accumulators in shade.wesl. Zero contribution means this pixel has
+    // no shadow worth softening.
+    sh: ShadowAux,
 };
 
 // MAX_SEGS bounds the ray tree work stack. `stack` is a dynamically indexed
@@ -102,6 +106,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
     var primary = Hit(0.0, 0xffffffffu, 0u, HIT_NO_INSTANCE);
     var got_primary = false;
     var max_sp = 1u;
+    var sh_out = ShadowAux(vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 1.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0);
 
     loop {
         // Sampled before the pop, so this is the stack's high-water mark.
@@ -405,6 +410,12 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         // Diffuse / checker, plus mirror/metal/glass falling through here at the
         // depth cap (or when reflections are disabled): shaded as diffuse.
         let lit = shade_diffuse(hp, alb, n, ep, tw, rd, spec_strength, shininess);
+        if (depth == 0u) {
+            // Snapshot before any deeper segment shades and resets these.
+            // Weighted by tw so a shadow seen through glass is softened by the
+            // same amount its light was attenuated.
+            sh_out = shadow_aux_snapshot(tw, n, hit.t);
+        }
         let refl = surf.z;
         // A glossy lobe on a *primary* hit is the sheen the scene author asked
         // for, however faint, so it only has to clear the generic
@@ -417,6 +428,12 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         if (refl > 0.0 && reflective && twm * refl > glossy_min && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) && sp < MAX_SEGS) {
             prof_inc(PROF_DIFFUSE_REFL, 1u);
             accum = accum + tw * lit * (1.0 - refl);
+            if (depth == 0u) {
+                // A glossy surface keeps only (1 - refl) of its direct lighting;
+                // the rest is the reflected lobe. The record has to match, or
+                // the filter adds back light this pixel never had.
+                sh_out.full = sh_out.full * (1.0 - refl);
+            }
             stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * refl, depth + 1u, 0u);
             sp = sp + 1u;
             continue;
@@ -424,7 +441,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         accum = accum + tw * lit;
     }
     prof_max(PROF_MAX_SEGS, max_sp);
-    return TraceResult(accum, primary);
+    return TraceResult(accum, primary, sh_out);
 }
 
 // quantize_rgb reduces dithered 0..255 RGB to a retro color depth. mode 1 is
@@ -600,9 +617,19 @@ fn analyze_edge(gid: vec2<u32>, fp: u32, luma: f32) -> vec4<f32> {
 }
 
 // supersample_edge blends the pass-1 center sample with one tap toward the edge.
-fn supersample_edge(gx: f32, gy: f32, center: vec3<f32>, tap: vec2<f32>) -> vec3<f32> {
+fn supersample_edge(gx: f32, gy: f32, center: vec3<f32>, tap: vec2<f32>, idx: u32) -> vec3<f32> {
     let ro = params.cam_pos.xyz;
-    let extra = ray_color(ro, pixel_ray_dir(gx, gy, tap.x, tap.y)).color;
+    var extra = ray_color(ro, pixel_ray_dir(gx, gy, tap.x, tap.y)).color;
+    // The tap traced a hard shadow while `center` has already been softened.
+    // Blending them 50/50 would put a hard edge back into exactly the pixels the
+    // penumbra filter smoothed, so apply the same light the filter added back.
+    if (params.soft_shadows != 0u) {
+        // Clamped because the tap traced a different sub-pixel, which may have
+        // landed on darker geometry than the centre; a negative delta could then
+        // drive it below black, which showed up as isolated black pixels along
+        // exactly the high-contrast edges AA targets.
+        extra = max(extra + shadow_aux[idx].frac, vec3<f32>(0.0, 0.0, 0.0));
+    }
     return (center + extra) * 0.5;
 }
 
@@ -639,15 +666,293 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     prof_inc(PROF_BVH_STEPS, bvh_steps_acc);
     prof_inc(PROF_PRIM_TESTS, prim_tests_acc);
 
-    if (params.adaptive_aa != 0u) {
-        let idx = pixel_index(gid.x, gid.y);
+    let idx = pixel_index(gid.x, gid.y);
+    let soft = params.soft_shadows != 0u;
+    // The soften pass needs the linear colour to add light back into, so the
+    // scratch is written whenever it runs even if adaptive AA is off. It carries
+    // its own normal and depth for surface continuity and does not read aa_hits.
+    if (params.adaptive_aa != 0u || soft) {
         hdr_pixels[idx] = vec4<f32>(tr.color, display_luma(tr.color));
+    }
+    if (params.adaptive_aa != 0u) {
         aa_hits[idx] = pack_hit(tr.primary);
-        write_pixel(g2, tr.color);
+    }
+    if (soft) {
+        shadow_aux[idx] = tr.sh;
+    }
+    write_pixel(g2, tr.color);
+}
+
+// SHADOW_SOFTEN_TAPS is how many neighbours the penumbra filter gathers.
+//
+// This is a filter width, not a sample count in the sampling sense: every tap
+// reads an *exact* visibility that some pixel already computed with a real ray.
+// More taps make a smoother gradient, they do not reduce noise, because there is
+// no noise to reduce. That is the whole reason this beats jittering the shadow
+// ray, which could only ever produce TAPS+1 discrete levels and paid a BVH
+// traversal for each one.
+// Taps per 1D pass. Separability is what makes a wide radius affordable: this
+// many per axis reaches SHADOW_SOFTEN_MAX_PX at a density a 2D disc would need
+// its square to match.
+const SHADOW_SOFTEN_TAPS: u32 = 21u;
+
+// TAPS and MAX_PX are a matched pair, and matching them is what removes the need
+// to jitter. Two more than twice MAX_PX means the comb steps at most one pixel
+// at the widest radius, so it never skips a pixel and has nothing to alias
+// against. An earlier version jittered the offsets per pixel to break up ridges,
+// which was treating the symptom: neighbouring pixels then averaged different
+// tap sets, and every penumbra carried noise at three times the dither floor —
+// worst on grazing surfaces, where a shadow edge crosses the most geometry per
+// pixel. Removing the jitter dropped that to the floor exactly.
+//
+// If MAX_PX is ever raised, raise TAPS with it or the comb starts skipping.
+
+// SHADOW_SOFTEN_MAX_PX bounds the gather radius so a huge penumbra cannot turn
+// this into a full-screen blur.
+const SHADOW_SOFTEN_MAX_PX: f32 = 10.0;
+
+// The blur fades in across this range of radii instead of switching on, so a
+// penumbra narrowing toward sub-pixel does not pop as the camera moves.
+const SHADOW_SOFTEN_FADE_LO: f32 = 1.0;
+const SHADOW_SOFTEN_FADE_HI: f32 = 2.5;
+
+const PENUMBRA_FILTER_EPS: f32 = 1e-4;
+
+// Surface-continuity thresholds for the gather. MIN_DOT rejects a corner,
+// DEPTH_REL is the slack added to the plane-consistent depth allowance, and
+// MIN_NDV caps how much that allowance can grow at grazing angles before it
+// would start accepting anything.
+const SHADOW_SOFTEN_MIN_DOT: f32 = 0.85;
+const SHADOW_SOFTEN_DEPTH_REL: f32 = 0.01;
+// Below this the tap's view ray is nearly parallel to the surface and the plane
+// prediction is unusable, so the tap is rejected rather than guessed at.
+const SHADOW_SOFTEN_MIN_DENOM: f32 = 0.02;
+
+// Same surface? Normal agreement rejects corners; a plane test rejects
+// silhouettes. Neither cares where one primitive ends and the next begins, which
+// is the point: the AA fingerprint is per primitive, and a wall of panels is
+// covered in primitive boundaries that are not surface boundaries.
+//
+// The depth test predicts, rather than tolerates. Extend this pixel's surface as
+// a plane and ask where the *tap's* view ray would cross it: for a plane through
+// P0 = cam + v0*depth0 with normal n, that is depth0 * (n·v0) / (n·v_tap). A tap
+// on the same surface matches within a hair; one on a silhouette does not.
+//
+// The previous form allowed a slop of px_world * rad * slope, with slope growing
+// as 1/(n·v) at grazing angles. On a long obliquely-viewed floor that reached
+// ~43% of the depth — tens of world units — so it accepted almost anything and
+// shadows bled straight through walls. Predicting the plane removes the
+// dependence on obliquity entirely, so the tolerance can stay tight at any angle.
+fn shadow_same_surface(me: ShadowAux, t: ShadowAux, tx: i32, ty: i32, ndv0: f32) -> bool {
+    if (dot(t.normal, me.normal) < SHADOW_SOFTEN_MIN_DOT) {
+        return false;
+    }
+    let v_tap = pixel_ray_dir(f32(tx), f32(ty), 0.5, 0.5);
+    let denom = dot(me.normal, v_tap);
+    if (abs(denom) < SHADOW_SOFTEN_MIN_DENOM) {
+        return false;
+    }
+    let t_pred = me.depth * ndv0 / denom;
+    return abs(t.depth - t_pred) <= me.depth * SHADOW_SOFTEN_DEPTH_REL;
+}
+
+// Clamped tap coordinate, so the plane prediction is evaluated at the pixel the
+// gather actually reads.
+fn shadow_clamp_x(x: i32) -> i32 {
+    return clamp(x, 0, i32(params.width) - 1);
+}
+
+fn shadow_clamp_y(y: i32) -> i32 {
+    return clamp(y, 0, i32(params.height) - 1);
+}
+
+fn shadow_tap(x: i32, y: i32) -> ShadowAux {
+    let cx = u32(clamp(x, 0, i32(params.width) - 1));
+    let cy = u32(clamp(y, 0, i32(params.height) - 1));
+    return shadow_aux[pixel_index(cx, cy)];
+}
+
+// n·v for this pixel's own view ray, the numerator of the plane prediction.
+fn shadow_ndv0(me: ShadowAux, gid: vec2<u32>) -> f32 {
+    return dot(me.normal, pixel_ray_dir(f32(gid.x), f32(gid.y), 0.5, 0.5));
+}
+
+// shadow_soften_h and shadow_soften_v widen each pixel's hard shadow into a
+// penumbra of the width its blocker distance implies, by averaging the exact
+// occlusions around it.
+//
+// Split into two 1D passes because the radius has to be large. A disc needs four
+// times the taps for twice the radius, so a single 2D pass could only afford
+// about 14 px — and a penumbra that should span 40 px, blurred over 14, still
+// reads as a hard edge with a faint gradient, at a tap density low enough to be
+// visibly noisy. Separating costs 2N taps instead of N² for the same reach.
+@compute @workgroup_size(8, 8, 1)
+fn shadow_soften_h(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (gid.x >= params.width || gid.y >= params.height) {
+        return;
+    }
+    let idx = pixel_index(gid.x, gid.y);
+    let me = shadow_aux[idx];
+    let ix = i32(gid.x);
+    let iy = i32(gid.y);
+    let ndv0 = shadow_ndv0(me, gid.xy);
+
+    // Row maximum of the penumbra width, over the neighbours that can actually
+    // reach this pixel. A *shadowed* pixel already knows its own blocker, so it
+    // uses its own width and borrows nothing. Only a lit pixel has no penumbra
+    // of its own and must take one from the shadow beside it, so the gradient
+    // can spread outward across the hard edge as well as inward.
+    //
+    // Letting shadowed pixels borrow too was the bug behind overlapping shadows
+    // washing out. Two occluders of the *same* light at different distances — a
+    // far wall and a near server rack — give very different widths, and letting
+    // the wall's 15 px win inside the rack's shadow blurred the rack's crisp
+    // edge three times too wide, which read as brighter.
+    //
+    // A borrowed width is taken whole, gated by whether the source is within its
+    // own reach, rather than scaled down by distance. Scaling looks like the
+    // gentler choice and is the one that erodes the umbra: a lit pixel d away
+    // that shrinks its radius to p-d then gathers over p-d, so it reaches the
+    // shadow only while d < p/2, and with zero kernel weight at the boundary. The
+    // shadowed side meanwhile keeps its full p and reaches p into the light. The
+    // two sides then exchange unequal amounts and the shadow visibly shrinks.
+    //
+    // A whole width is symmetric — every pixel in the penumbra gathers with the
+    // same radius, so what one side gives the other receives — and it needs no
+    // edge treatment, because the parabola weight already vanishes at u = 1: at
+    // the far rim of the footprint the gather barely reaches the shadow and the
+    // correction goes to zero on its own.
+    // A pixel with nothing blocked has an exactly zero fraction — no epsilon,
+    // and nothing that depends on how bright the scene happens to be.
+    let lit = tw_peak(me.frac) <= 0.0;
+    var r = me.pen_px;
+    for (var i = 0u; i < SHADOW_SOFTEN_TAPS && lit; i = i + 1u) {
+        let o = (f32(i) / f32(SHADOW_SOFTEN_TAPS - 1u) * 2.0 - 1.0) * SHADOW_SOFTEN_MAX_PX;
+        let tx = shadow_clamp_x(ix + i32(round(o)));
+        let t = shadow_tap(tx, iy);
+        if (shadow_same_surface(me, t, tx, iy, ndv0)) {
+            // Clamped *before* the reach test. pen_px is stored unclamped and
+            // can run to hundreds of pixels when an occluder sits near the light,
+            // so an untamed value reaches everywhere and wins the maximum over
+            // the whole row. A far wall's wide penumbra would then set the radius
+            // over a nearby rack's crisp one and smear it away — two shadows from
+            // the *same* light, where the near occluder should keep its hard
+            // edge. Clamping first lets distance actually decide.
+            let tp = min(t.pen_px, SHADOW_SOFTEN_MAX_PX);
+            if (abs(o) < tp) {
+                r = max(r, tp);
+            }
+        }
+    }
+    r = min(r, SHADOW_SOFTEN_MAX_PX);
+    shadow_aux[idx].r_h = r;
+    if (r < 1.0) {
+        shadow_aux[idx].frac_h = me.frac;
         return;
     }
 
-    write_pixel(g2, tr.color);
+    // Every same-surface neighbour counts, lit ones included. Giving each tap a
+    // reach of its own silently drops lit taps (their width is zero), and a lit
+    // pixel then averages nothing but shadow, whose 1/(1+k) steps draw bands
+    // parallel to every shadow.
+    var acc = me.frac;
+    var wsum = 1.0;
+    for (var i = 0u; i < SHADOW_SOFTEN_TAPS; i = i + 1u) {
+        let o = (f32(i) / f32(SHADOW_SOFTEN_TAPS - 1u) * 2.0 - 1.0) * r;
+        let tx = shadow_clamp_x(ix + i32(round(o)));
+        let t = shadow_tap(tx, iy);
+        if (!shadow_same_surface(me, t, tx, iy, ndv0)) {
+            continue;
+        }
+        let u = abs(o) / r;
+        let w = 1.0 - u * u;
+        acc = acc + t.frac * w;
+        wsum = wsum + w;
+    }
+    shadow_aux[idx].frac_h = acc / max(wsum, PENUMBRA_FILTER_EPS);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn shadow_soften_v(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (gid.x >= params.width || gid.y >= params.height) {
+        return;
+    }
+    let idx = pixel_index(gid.x, gid.y);
+    let me = shadow_aux[idx];
+    // frac is done with; from here the slot holds the light this pass added
+    // back. Cleared on every path that leaves the pixel alone, so
+    // supersample_edge never applies a correction to an untouched pixel.
+    shadow_aux[idx].frac = vec3<f32>(0.0, 0.0, 0.0);
+    // depth is zero only where the primary ray found no diffuse surface — sky,
+    // or a mirror seen head-on. There is no shadow there to widen.
+    if (me.depth <= 0.0) {
+        return;
+    }
+    let ix = i32(gid.x);
+    let iy = i32(gid.y);
+    let ndv0 = shadow_ndv0(me, gid.xy);
+
+    let lit = tw_peak(me.frac) <= 0.0;
+    var r = me.r_h;
+    for (var i = 0u; i < SHADOW_SOFTEN_TAPS && lit; i = i + 1u) {
+        let o = (f32(i) / f32(SHADOW_SOFTEN_TAPS - 1u) * 2.0 - 1.0) * SHADOW_SOFTEN_MAX_PX;
+        let ty = shadow_clamp_y(iy + i32(round(o)));
+        let t = shadow_tap(ix, ty);
+        if (shadow_same_surface(me, t, ix, ty, ndv0)) {
+            let tp = min(t.r_h, SHADOW_SOFTEN_MAX_PX);
+            if (abs(o) < tp) {
+                r = max(r, tp);
+            }
+        }
+    }
+    r = min(r, SHADOW_SOFTEN_MAX_PX);
+    if (r < SHADOW_SOFTEN_FADE_LO) {
+        return;
+    }
+
+    var acc = me.frac_h;
+    var wsum = 1.0;
+    for (var i = 0u; i < SHADOW_SOFTEN_TAPS; i = i + 1u) {
+        let o = (f32(i) / f32(SHADOW_SOFTEN_TAPS - 1u) * 2.0 - 1.0) * r;
+        let ty = shadow_clamp_y(iy + i32(round(o)));
+        let t = shadow_tap(ix, ty);
+        if (!shadow_same_surface(me, t, ix, ty, ndv0)) {
+            continue;
+        }
+        let u = abs(o) / r;
+        let w = 1.0 - u * u;
+        acc = acc + t.frac_h * w;
+        wsum = wsum + w;
+    }
+    let frac_soft = acc / max(wsum, PENUMBRA_FILTER_EPS);
+
+    // Faded in rather than switched on. A sub-pixel penumbra is a hard edge and
+    // must stay one, but crossing that threshold abruptly makes the blur pop in
+    // as the camera approaches a shadow.
+    let fade = smoothstep(SHADOW_SOFTEN_FADE_LO, SHADOW_SOFTEN_FADE_HI, r);
+
+    // The whole correction, both directions at once: this pixel should be
+    // blocking the neighbourhood-average fraction of its light rather than its
+    // own hard-edged one. Shadowed pixels block more than the average and get
+    // some light back; lit pixels block none and give some up.
+    //
+    // Both sides are the same quantity, so this cannot manufacture light. The
+    // fraction is bounded by 1 and multiplied by the light the pixel would have
+    // had unoccluded, so a brightened pixel lands at most on fully lit and a
+    // darkened one at least on fully shadowed. That bound is what the earlier
+    // form lacked: it scaled the two directions by two unrelated vectors — the
+    // pixel's own missing light one way, its total deposited light the other —
+    // and the mismatch put a halo brighter than the light pool around soft edges.
+    //
+    // Multiplying by *this* pixel's full light is equally load-bearing. It keeps
+    // the correction textured like the surface it lands on, and it is the
+    // difference between softening a shadow and running an unsharp mask over
+    // the albedo underneath it.
+    let delta = (me.frac - frac_soft) * me.full * fade;
+    let col = max(hdr_pixels[idx].xyz + delta, vec3<f32>(0.0, 0.0, 0.0));
+    shadow_aux[idx].frac = delta;
+    hdr_pixels[idx] = vec4<f32>(col, display_luma(col));
+    write_pixel(vec2<u32>(gid.xy), col);
 }
 
 // aa_pack_task encodes a supersample task: pixel coordinate plus which of the
@@ -706,6 +1011,6 @@ fn aa_resolve(@builtin(global_invocation_id) gid: vec3<u32>) {
     let task = aa_list[gid.x];
     let px = aa_task_pixel(task);
     let idx = pixel_index(px.x, px.y);
-    let col = supersample_edge(f32(px.x), f32(px.y), hdr_pixels[idx].xyz, aa_task_tap(task));
+    let col = supersample_edge(f32(px.x), f32(px.y), hdr_pixels[idx].xyz, aa_task_tap(task), idx);
     write_pixel(px, col);
 }

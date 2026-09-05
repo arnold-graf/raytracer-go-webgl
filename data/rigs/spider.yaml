@@ -163,164 +163,191 @@ attachments:
     radius: 0.75
     offset: [0, 0, 0]
     albedo: [0.10, 0.08, 0.09]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: thorax
     kind: sphere
     radius: 0.58
     offset: [0, 0, 0]
     albedo: [0.14, 0.11, 0.12]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: head
     kind: sphere
     radius: 0.38
     offset: [0, 0, 0]
     albedo: [0.16, 0.13, 0.14]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
 
   - bone: fl_coxa
     kind: cylinder
     radius: 0.085
     length: 1.05
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: fl_femur
     kind: cylinder
     radius: 0.085
     length: 1.05
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: fl_tibia
     kind: cylinder
     radius: 0.072
     length: 1.00
     albedo: [0.10, 0.08, 0.09]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: fr_coxa
     kind: cylinder
     radius: 0.085
     length: 1.05
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: fr_femur
     kind: cylinder
     radius: 0.085
     length: 1.05
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: fr_tibia
     kind: cylinder
     radius: 0.072
     length: 1.00
     albedo: [0.10, 0.08, 0.09]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: ml_coxa
     kind: cylinder
     radius: 0.085
     length: 0.95
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: ml_femur
     kind: cylinder
     radius: 0.085
     length: 0.95
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: ml_tibia
     kind: cylinder
     radius: 0.085
     length: 1.16
     albedo: [0.10, 0.08, 0.09]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: mr_coxa
     kind: cylinder
     radius: 0.085
     length: 0.95
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: mr_femur
     kind: cylinder
     radius: 0.085
     length: 0.95
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: mr_tibia
     kind: cylinder
     radius: 0.085
     length: 1.16
     albedo: [0.10, 0.08, 0.09]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: rl_coxa
     kind: cylinder
     radius: 0.085
     length: 0.92
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: rl_femur
     kind: cylinder
     radius: 0.085
     length: 0.92
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: rl_tibia
     kind: cylinder
     radius: 0.085
     length: 1.30
     albedo: [0.10, 0.08, 0.09]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: rr_coxa
     kind: cylinder
     radius: 0.085
     length: 0.92
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: rr_femur
     kind: cylinder
     radius: 0.085
     length: 0.92
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: rr_tibia
     kind: cylinder
     radius: 0.085
     length: 1.30
     albedo: [0.10, 0.08, 0.09]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: bl_coxa
     kind: cylinder
     radius: 0.085
     length: 0.88
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: bl_femur
     kind: cylinder
     radius: 0.085
     length: 0.88
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: bl_tibia
     kind: cylinder
     radius: 0.085
     length: 1.10
     albedo: [0.10, 0.08, 0.09]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: br_coxa
     kind: cylinder
     radius: 0.085
     length: 0.88
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: br_femur
     kind: cylinder
     radius: 0.085
     length: 0.88
     albedo: [0.11, 0.09, 0.10]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
   - bone: br_tibia
     kind: cylinder
     radius: 0.085
     length: 1.10
     albedo: [0.10, 0.08, 0.09]
-    reflect: 0.05
+    specular: 0.5
+    shininess: 50
 poses:
   idle:
     fl_coxa: { pitch: 0, yaw: -22, roll: 56 }

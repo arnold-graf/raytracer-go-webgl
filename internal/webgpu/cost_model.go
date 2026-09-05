@@ -1,8 +1,24 @@
 package webgpu
 
-// Relative GPU cost weights for HUD time-mix estimates. Calibrated against
-// gpuprof ablations on outdoors-night-villa: terrain march steps dominate shadow
-// rays; instanced BVH is next; sky/water are cheap per event.
+// Relative GPU cost weights for HUD time-mix estimates. Originally calibrated
+// against gpuprof ablations on outdoors-night-villa: terrain march steps
+// dominate shadow rays; instanced BVH is next; sky/water are cheap per event.
+//
+// KNOWN WRONG for terrain, by roughly an order of magnitude. Direct measurement
+// on outdoors-night-villa's default camera (2026-09) contradicts the weight
+// below: cutting terrain march steps by 33% (5.7M to 3.8M, via the scene's
+// `step` knob) changed frame time by 2.4%, and coarsening the baked height grid
+// 16x (0.25 m to 1.0 m cells) changed it by 0.0%. Terrain marching is a few
+// percent of that frame. The mix line reports 50%, because costTerrainStep is
+// multiplied by a step count in the millions while every other term is
+// multiplied by a hit count in the hundreds of thousands.
+//
+// The practical consequence is that this mix will point at terrain in any scene
+// with a large heightfield, whether or not terrain is the problem. Treat it as
+// a coverage hint, not a profile; use `-ablate` and targeted scene probes for
+// anything load-bearing. Recalibrating properly needs per-event measurements for
+// the other classes too, which nobody has taken yet — see
+// docs/terrain-cost.md.
 const (
 	costTerrainStep  = 1.0
 	costTerrainHit   = 4.0

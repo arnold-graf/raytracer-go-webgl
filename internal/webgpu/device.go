@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"sync"
 	"time"
 
 	"raytracer/internal/camera"
@@ -31,7 +32,9 @@ const (
 	aaDispatchBytes = 16
 	// Must match AA_RESOLVE_WG in types.wesl.
 	aaResolveWG = 64
-	workgroupXY = 8
+	// struct ShadowAux in types.wesl (std430, 64-byte stride), one per pixel.
+	shadowAuxStride = 64
+	workgroupXY     = 8
 	// Six square portal captures (see texture.MaxCaptureDim).
 	maxCaptureDim = texture.MaxCaptureDim
 
@@ -94,10 +97,13 @@ type Renderer struct {
 	aaList             *wgpu.Buffer
 	aaDispatch         *wgpu.Buffer
 	aaIndirect         *wgpu.Buffer
+	shadowAux          *wgpu.Buffer
 	read               *wgpu.Buffer
 	pipeline           *wgpu.ComputePipeline
 	aaClassifyPipeline *wgpu.ComputePipeline
 	aaPipeline         *wgpu.ComputePipeline
+	shadowPipelineH    *wgpu.ComputePipeline
+	shadowPipelineV    *wgpu.ComputePipeline
 	bind               *wgpu.BindGroup
 
 	// Scene-specialized shader. The tracer is one megakernel whose register
@@ -487,6 +493,14 @@ func (r *Renderer) init() error {
 	if err != nil {
 		return fmt.Errorf("create aa indirect buffer: %w", err)
 	}
+	r.shadowAux, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "shadow aux",
+		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst,
+		Size:  uint64(r.maxDim * r.maxDim * shadowAuxStride),
+	})
+	if err != nil {
+		return fmt.Errorf("create shadow aux buffer: %w", err)
+	}
 	r.read, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "sky readback",
 		Usage: wgpu.BufferUsage_MapRead | wgpu.BufferUsage_CopyDst,
@@ -580,6 +594,7 @@ func (r *Renderer) init() error {
 			{Binding: 27, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_ReadOnlyStorage, MinBindingSize: terrainZoneVertStride}},
 			{Binding: 28, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: 4}},
 			{Binding: 29, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: aaDispatchBytes}},
+			{Binding: 18, Visibility: wgpu.ShaderStage_Compute, Buffer: wgpu.BufferBindingLayout{Type: wgpu.BufferBindingType_Storage, MinBindingSize: shadowAuxStride}},
 		},
 	})
 	if err != nil {
@@ -634,6 +649,7 @@ func (r *Renderer) init() error {
 			{Binding: 27, Buffer: r.terrZVerts, Size: maxTerrainZoneVerts * terrainZoneVertStride},
 			{Binding: 28, Buffer: r.aaList, Size: uint64(r.maxDim * r.maxDim * 4)},
 			{Binding: 29, Buffer: r.aaDispatch, Size: aaDispatchBytes},
+			{Binding: 18, Buffer: r.shadowAux, Size: uint64(r.maxDim * r.maxDim * shadowAuxStride)},
 		},
 	})
 	if err != nil {
@@ -791,6 +807,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		rp.adaptiveAA = v.AdaptiveAA
 		rp.maxBounceDepth = v.MaxBounceDepth
 	}
+	rp.softShadows = softShadowsEnabled()
 	if v == nil || v.Scene == nil {
 		rp = renderParams{}
 	}
@@ -836,6 +853,20 @@ func featuresFor(p *renderParams) shaders.Features {
 	return f
 }
 
+// softShadowsOverride caches RAYTRACER_SOFT_SHADOWS, the opt-in switch for
+// contact-hardening penumbrae. Off by default; see docs/soft-shadows.md.
+var softShadowsOverride = struct {
+	once sync.Once
+	on   bool
+}{}
+
+func softShadowsEnabled() bool {
+	softShadowsOverride.once.Do(func() {
+		softShadowsOverride.on = os.Getenv("RAYTRACER_SOFT_SHADOWS") == "1"
+	})
+	return softShadowsOverride.on
+}
+
 // buildPipelines compiles the tracer specialized to f and swaps in the new
 // pipelines. Callers must not hold the old pipelines across this.
 func (r *Renderer) buildPipelines(f shaders.Features) error {
@@ -877,6 +908,30 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 		return fmt.Errorf("create aa resolve pipeline: %w", err)
 	}
 
+	shadowPipelineH, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
+		Label:   "shadow soften pipeline (horizontal)",
+		Layout:  r.pipeLayout,
+		Compute: wgpu.ProgrammableStageDescriptor{Module: shader, EntryPoint: "shadow_soften_h"},
+	})
+	if err != nil {
+		pipeline.Release()
+		aaClassifyPipeline.Release()
+		aaPipeline.Release()
+		return fmt.Errorf("create shadow soften h pipeline: %w", err)
+	}
+	shadowPipelineV, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
+		Label:   "shadow soften pipeline (vertical)",
+		Layout:  r.pipeLayout,
+		Compute: wgpu.ProgrammableStageDescriptor{Module: shader, EntryPoint: "shadow_soften_v"},
+	})
+	if err != nil {
+		pipeline.Release()
+		aaClassifyPipeline.Release()
+		aaPipeline.Release()
+		shadowPipelineH.Release()
+		return fmt.Errorf("create shadow soften v pipeline: %w", err)
+	}
+
 	if r.pipeline != nil {
 		r.pipeline.Release()
 	}
@@ -886,7 +941,14 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 	if r.aaPipeline != nil {
 		r.aaPipeline.Release()
 	}
+	if r.shadowPipelineH != nil {
+		r.shadowPipelineH.Release()
+	}
+	if r.shadowPipelineV != nil {
+		r.shadowPipelineV.Release()
+	}
 	r.pipeline, r.aaClassifyPipeline, r.aaPipeline = pipeline, aaClassifyPipeline, aaPipeline
+	r.shadowPipelineH, r.shadowPipelineV = shadowPipelineH, shadowPipelineV
 	r.feat, r.featValid = f, true
 	return nil
 }
@@ -958,6 +1020,7 @@ type renderParams struct {
 	colorQuant     uint32
 	maxBounceDepth uint32
 	adaptiveAA     bool
+	softShadows    bool
 	profileEnabled bool
 	// uploadStatic is set when the cached scene buffers changed this frame and
 	// must be re-sent to the GPU. When false, render() uploads only the per-frame
@@ -1162,7 +1225,7 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 // submitTrace encodes and submits one compute dispatch, copying the rendered
 // output (and, when profiling, the atomic counters) into dst. It does not wait
 // on the GPU; the returned submission index lets the caller poll for it later.
-func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveAA bool) (wgpu.SubmissionIndex, error) {
+func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveAA, softShadows bool) (wgpu.SubmissionIndex, error) {
 	if adaptiveAA {
 		// Empty task list, and an indirect header that dispatches nothing if
 		// aa_classify finds no edges at all.
@@ -1182,6 +1245,19 @@ func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveA
 	gx := uint32((fw + workgroupXY - 1) / workgroupXY)
 	gy := uint32((fh + workgroupXY - 1) / workgroupXY)
 	pass.DispatchWorkgroups(gx, gy, 1)
+	if softShadows {
+		// Same pass as main: consecutive dispatches inside a compute pass see
+		// each other's storage writes. Ordered before AA classification so edge
+		// detection sees the softened shadow rather than the hard one it
+		// replaces.
+		// Separable: rows then columns. Consecutive dispatches inside a compute
+		// pass see each other's storage writes, so the vertical half reads what
+		// the horizontal half just wrote.
+		pass.SetPipeline(r.shadowPipelineH)
+		pass.DispatchWorkgroups(gx, gy, 1)
+		pass.SetPipeline(r.shadowPipelineV)
+		pass.DispatchWorkgroups(gx, gy, 1)
+	}
 	if adaptiveAA {
 		// Classify every pixel cheaply; the expensive supersample runs in a
 		// second pass over just the pixels this appends.
@@ -1290,7 +1366,7 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 		return err
 	}
 	gpuStart := time.Now()
-	sub, err := r.submitTrace(r.read, fw, fh, p.profileEnabled, p.adaptiveAA)
+	sub, err := r.submitTrace(r.read, fw, fh, p.profileEnabled, p.adaptiveAA, p.softShadows)
 	if err != nil {
 		return err
 	}
@@ -1329,7 +1405,7 @@ func (r *Renderer) renderPipelined(buf []byte, cam *camera.Camera, p renderParam
 	size := uint64(r.w * r.h * 4)
 	curSlot := r.pipeParity
 
-	sub, err := r.submitTrace(r.reads[curSlot], r.w, r.h, p.profileEnabled, p.adaptiveAA)
+	sub, err := r.submitTrace(r.reads[curSlot], r.w, r.h, p.profileEnabled, p.adaptiveAA, p.softShadows)
 	if err != nil {
 		return err
 	}
@@ -1477,6 +1553,9 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	if p.thinGlassGhost {
 		putU32(out[340:344], 1)
 	}
+	if p.softShadows {
+		putU32(out[344:348], 1)
+	}
 	// Light cluster grid transform (vec4-aligned): world -> cell index.
 	putVec4(out[352:368], p.lightGrid.Min)
 	putVec4(out[368:384], p.lightGrid.InvCell)
@@ -1548,6 +1627,12 @@ func (r *Renderer) Release() {
 	if r.aaPipeline != nil {
 		r.aaPipeline.Release()
 	}
+	if r.shadowPipelineH != nil {
+		r.shadowPipelineH.Release()
+	}
+	if r.shadowPipelineV != nil {
+		r.shadowPipelineV.Release()
+	}
 	if r.pipeLayout != nil {
 		r.pipeLayout.Release()
 	}
@@ -1585,6 +1670,10 @@ func (r *Renderer) Release() {
 	if r.aaIndirect != nil {
 		r.aaIndirect.Release()
 		r.aaIndirect = nil
+	}
+	if r.shadowAux != nil {
+		r.shadowAux.Release()
+		r.shadowAux = nil
 	}
 	if r.aaHits != nil {
 		r.aaHits.Release()

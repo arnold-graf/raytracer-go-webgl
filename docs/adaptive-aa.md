@@ -169,5 +169,9 @@ for the curvature test at the shipped threshold).
   materials, bounces).
 - [megakernel-optimization.md](megakernel-optimization.md) — performance story,
   shadow-edge AA tuning table, rejected cheaper taps.
-- [bounce-kernel.md](bounce-kernel.md) — planned future work; bounce sheen may
-  run before classify so edge detection sees the final composite.
+- [bounce-kernel.md](bounce-kernel.md) — the classify/resolve split applied to
+  reflection transport. It failed for glossy, and the reason is the sparsity
+  criterion this pass established: compaction pays only when whole workgroups
+  would otherwise idle, which holds for AA edges (~5% of pixels) but not for
+  glossy (49-92%). If a bounce pass ever does land, it has to run before
+  classify so edge detection sees the final composite.

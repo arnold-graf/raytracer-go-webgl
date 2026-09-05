@@ -278,9 +278,18 @@ primitive AABBs, and an earlier pass measured a balanced tree as 23% *slower*.
 
 That ratio suggested widening leaves. It was tried, and it is wrong — see below.
 
-The remaining ~5.7 ms at yaw 270 is almost all glossy bounce transport. Cheapening
-it *inside* the megakernel keeps losing to occupancy. The design for taking
-glossy out of the megakernel is in [bounce-kernel.md](bounce-kernel.md).
+The remaining ~5.7 ms at yaw 270 is reflection transport, and cheapening it
+*inside* the megakernel keeps losing to occupancy. Taking glossy out into a
+separately compiled kernel was the obvious next move; it was built and measured
+and it does not pay, and neither does the same treatment applied to glass.
+
+Note also that the ~5.7 ms above is *not* all extractable, which is a trap this
+section originally fell into. `mirror off` removes the lobes and everything
+downstream of them, including the adaptive-AA work their luminance structure
+triggers — and AA cost scales with edge count, so any ablation that flattens the
+image flatters itself. Priced by deferral instead of by deletion, the two movable
+lobes are 2.30 ms (glossy) and 1.10 ms (glass) at yaw 270. See
+[bounce-kernel.md](bounce-kernel.md).
 
 ---
 
@@ -338,8 +347,14 @@ changes, which is the recurring theme of this document.
 
 Skipping instanced geometry on bounce rays was also tried and reverted: it was
 ~2 ms faster on office-sunset, but reflections missing trees (and anything else
-instanced) were visually wrong. The next real lever is a separately compiled
-bounce kernel — see [bounce-kernel.md](bounce-kernel.md).
+instanced) were visually wrong. Separately compiled bounce kernels were the next
+candidate — first for the glossy lobe, then for glass. Both were built, measured
+and reverted, and together they close the wavefront family at this scene scale:
+extraction pays in proportion to a lobe's *density* while compaction pays in
+proportion to its *sparsity*, and no lobe here is both. That doc also carries the
+argument against a general wavefront refactor and the fifteen-minute
+resolution-scaling test that would say when it stops applying — see
+[bounce-kernel.md](bounce-kernel.md).
 
 ---
 

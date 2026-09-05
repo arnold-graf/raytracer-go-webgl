@@ -31,6 +31,11 @@ flame_mid = [2.0, 0.85, 0.08]
 flame_tip = [1.6, 1.2, 0.14]
 flame_ash = [0.9, 0.32, 0.12]
 
+
+[state]
+is_on = true
+
+# if is_on
 [[light_flickering]]
 center = [0.0, 0.5, 0.0]
 color = [3.6, 1.7, 0.55]
@@ -45,6 +50,7 @@ flame_ember = 'flame_ember'
 flame_mid = 'flame_mid'
 flame_tip = 'flame_tip'
 flame_ash = 'flame_ash'
+# endif
 
 # Three logs in a teepee — tapered cylinders leaning toward the centre.
 
@@ -58,6 +64,8 @@ rotate_z = 67.0
 material = "diffuse"
 albedo = 'albedo'
 texture = "wood"
+on_use = 'toggle(is_on)'
+hint = "fire"
 
 [[cylinder]] # log (+X)
 pos_x = -0.4

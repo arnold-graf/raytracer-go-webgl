@@ -232,6 +232,7 @@ ripple_animation_speed = 0.6     # drift the waves over time (wind)
 ripple_direction = [1.0, 0.4]    # wind drift direction in x,z (optional)
 material = "glass"
 transmit = 0.5
+ior = 1.5
 albedo = [0.35, 0.40, 0.55]
 
 # ------------------------------------------------------------------ trees ----
@@ -257,14 +258,20 @@ instance = true
 [[include]]
 file = "objects/campfire.toml"
 at = [-9.0, 0, 5.0]
-props = {
-  brightness = 1.0,
-  range = 25.0,
-  flicker = 0.45,
-  speed = 1.0,
-  flame_ember = [3.0, 0.2, 0.0],
-  flame_mid = [3.5, 1.6, 0.05],
-  flame_tip = [2.0, 1.4, 0.2],
-}
+[include.props]
+brightness = 1.0
+range = 25.0
+flicker = 0.45
+speed = 1.0
+flame_ember = [3.0, 0.2, 0.0]
+flame_mid = [3.5, 1.6, 0.05]
+flame_tip = [2.0, 1.4, 0.2]
 
+# [[npc]]
+# rig = "data/rigs/spider.yaml"
+# pose = "idle"
+# at = [0.0, 0.0, 0.0]
+# yaw = 0
+# speed = 5
+# patrol = [[0, 0, 10], [0, 0, 30]]
 

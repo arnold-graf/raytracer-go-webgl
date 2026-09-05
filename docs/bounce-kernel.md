@@ -1,296 +1,399 @@
-# Separate Compiled Bounce Kernel
+# Splitting Reflection Transport Out of the Megakernel
 
-**Status:** design only. Not implemented.  
-**Audience:** whoever picks up the remaining reflection cost on office-sunset.  
-**Constraint:** perceptual parity. Reflections must still contain the same
-objects as the primary view, including instanced trees. Skipping geometry in
-the bounce is not an acceptable trade; it was tried and reverted.
+**Status:** closed. Both halves built, measured and reverted — glossy first,
+then glass. Neither pays, and the two results together explain why no lobe can.
+**Audience:** whoever picks up the remaining reflection cost on office-sunset.
+**Constraint:** perceptual parity. Reflections must contain the same objects as
+the primary view, including instanced trees. Skipping geometry in a bounce is
+not an acceptable trade; it was tried and reverted (see
+[megakernel-optimization.md](megakernel-optimization.md)).
 
-This is a narrower, occupancy-first version of the wavefront idea in
-[reflection-optimization.md](reflection-optimization.md) (Option A). It is
-shaped by the 2026-09 megakernel pass: the AA classify/resolve split already
-proved that *moving work out of the fat kernel* wins, and shader specialization
-already proved that *compiling unused paths out* wins. Combining those two on
-glossy bounces is a remaining large lever.
+This document originally proposed deferring the **glossy** lobe to a separate
+compiled kernel. That was built and measured; it does not pay. The measurement
+pointed at glass as a larger target, so glass was built and measured too. It
+does not pay either, and for the opposite reason — which is the useful part.
+
+**The short version.** Deferring a lobe out of the megakernel pays in proportion
+to how *dense* it is, because only work on the critical path is worth removing.
+Compaction pays in proportion to how *sparse* it is, because only idle lanes are
+worth reclaiming. Those two requirements point in opposite directions, and no
+lobe in this renderer satisfies both. Glossy is dense: deferral is worth up to
+13% and compaction is a loss, but keeping the Fresnel fork intact eats the gain.
+Glass is sparse: compaction beats a dense dispatch handily, but the fork was
+already nearly free inline, because it rides along inside workgroups that are
+91% busy with something else.
+
+The experiments are preserved at `tmp/perf/bounce-kernel-experiment.patch` (the
+glossy split; the glass split is the same plumbing retargeted) if anyone wants
+the scaffolding back.
 
 ---
 
-## Why this, and why now
+## The measured budget
 
-Ablation at yaw 270, 512×320, bounce depth 4, adaptive AA on:
+Everything below is office-sunset at 512x320, bounce depth 4, adaptive AA on.
 
-| Config | GPU |
-|---|---|
-| all on | 11.9 ms |
-| mirror off | 6.2 ms |
-| shadow off | 11.8 ms |
+Configurations were switched at runtime from a params field
+(`RAYTRACER_BOUNCE_SPLIT`, `RAYTRACER_GLASS_SPLIT`), never by building separate
+binaries — see the methodology warning below for why that distinction matters:
 
-Reflection transport is still ~5.7 ms, half the frame. Shader counters for the
-same view:
+| yaw 270 (worst view) | ms | | yaw 0 (shipping camera) | ms |
+|---|---|---|---|---|
+| full frame | 11.40 | | full frame | 7.30 |
+| glossy lobe, deferrable | **2.30** | | glossy lobe | **3.40** |
+| glass fork, deferrable | **1.10** | | glass fork | **0.20** |
+| other specular (nested lobes, ghost, induced AA) | ~2.70 | | other | ~-0.30 |
+| floor: primary + diffuse + AA | **5.30** | | floor | **4.00** |
 
-| Spawn | Count / frame | Isolated disable |
+The floor is what remains with every specular lobe removed. It cross-checks
+against `gpuprof`'s own ablation table, which reports `mirror off` at 5.2 ms for
+the same view — two independent methods 2% apart.
+
+The two middle rows are what a split can actually move: each was measured by
+deferring that lobe and skipping its resolve pass. The "other specular" row is
+the remainder and is *not* extractable as such — it is the lobes reached through
+another lobe, the thin-glass ghost, and the extra adaptive-AA work that all that
+luminance structure triggers.
+
+Getting that decomposition wrong twice is the main cautionary tale of this
+document. An earlier revision claimed glass cost 3.80 ms and was therefore the
+larger prize; that number came from a probe which removed glass by shading it
+diffuse, and so silently removed the nested and induced work along with it. The
+figure that survives direct measurement is **1.10 ms**. Before the version
+before that, both lobes were priced by *disabling one at a time*, which
+undercounts whichever lobe is not the critical path. Only deferral prices a
+lobe.
+
+Ray counts for the same views, from `-profile`:
+
+| yaw | pixels | glossy lobes | glass | mirror |
+|---|---|---|---|---|
+| 0 | 163,840 | 150,381 (92%) | 400 | 4 |
+| 180 | 163,840 | 79,919 (49%) | 703 | 68 |
+| 270 | 163,840 | 117,955 (72%) | 14,870 (9%) | 533 |
+
+---
+
+## What was built, and what it measured
+
+Two mechanisms, which this document originally bundled as one design:
+
+1. **Compaction.** `main` appends a `BounceTask` to a work list; an indirect
+   pass runs over the compacted list. The shape that made adaptive AA
+   affordable.
+2. **A narrow kernel.** `bounce_resolve` as its own pipeline whose call graph is
+   one `nearest_hit` plus one shade — no ray stack, no glass fork, no AA.
+
+Both were built, plus a third variant (`dense`) that keeps the narrow kernel and
+drops the compaction: one thread per pixel over `main`'s own 8x8 tiling. That
+separation is what made the result readable.
+
+Interleaved best-of-7, modes alternating within each round so clock ramp and
+thermal drift land on all of them equally:
+
+| yaw | inline | compact | dense (1 hit) | dense (chained) |
+|---|---|---|---|---|
+| 0 | 7.60 | 7.30 | **6.60 (-13.2%)** | 7.10 (-6.6%) |
+| 90 | 10.30 | 10.10 | 9.60 (-6.8%) | 9.90 (-3.9%) |
+| 180 | 7.70 | 7.70 | 7.60 (-2.6%) | 7.70 (0.0%) |
+| 270 | 11.40 | 11.80 (+3.5%) | 11.40 (0.0%) | 11.80 (+3.5%) |
+
+`compact` and `dense` are byte-identical in output; they differ only in how the
+work is dispatched.
+
+### Compaction cannot pay for glossy
+
+**Its benefit scales with sparsity, and glossy is dense.** Adaptive AA fires on
+roughly 5% of pixels, scattered along silhouettes, so a 64-lane workgroup
+holding one edge pixel wasted 63 lanes — compaction reclaimed about 20x. Glossy
+fires on 49-92% of pixels, so a workgroup is *already* mostly bounce lanes.
+There is almost no idle-lane waste left to reclaim, and the attempt still costs
+an atomic append, a header copy, an extra dispatch, and the spatial coherence of
+neighbouring pixels' rays landing in the same workgroup.
+
+This is structural, not a tuning miss. Do not retry it for a dense lobe.
+
+**The criterion to carry forward:** compaction is worth it when the work is
+sparse enough that whole workgroups would otherwise idle. The glass split later
+measured the crossover directly and it is low — compaction wins at 0.2% density
+and already loses to a plain dense dispatch by 8%. Above 50% it is strictly
+overhead.
+
+That criterion is real but it turned out to be the wrong question, because
+sparse work is also work the megakernel hides for free. See the glass section.
+
+### The narrow kernel does help, and it is not enough on its own
+
+Decomposed at yaw 270 by measuring `main` with the lobe deferred but the resolve
+pass not dispatched (`RAYTRACER_BOUNCE_NOPASS`):
+
+| | yaw 270 | yaw 0 |
 |---|---|---|
-| true mirror / metal | 533 | — |
-| glass | 14,870 | −1.0 ms |
-| glossy diffuse (`Surface.Reflect`) | 117,955 | −3.5 ms |
-| path segments | 2.0 / pixel | |
+| glossy traced inside the megakernel | 2.70 ms | 3.60 ms |
+| the same rays in the narrow kernel | 2.50 ms | 2.60 ms |
+| per-ray difference | **-7%** | **-28%** |
 
-Almost every pixel fires one glossy bounce. Extra bounce *depth* is free
-without AA (depth 1 and depth 4 both 7.6 ms with AA off): workgroups are already
-waiting on the slowest glass lane, so adding more work to other lanes does not
-move the wall clock. The cost is the **first bounce's extra `nearest_hit`**,
-mixed into the same megakernel as the coherent primary ray.
+So the narrow kernel is genuinely cheaper per ray. It just is not cheaper by
+enough at yaw 270 to cover the extra dispatch, and yaw 270 is the view that
+sets the floor. The win tracks how much of the *critical path* the deferred work
+occupied: at yaw 0 glossy is essentially the whole frame and the split takes
+13%; at yaw 270 the workgroup still waits on glass either way.
 
-Glass is 9% of pixels and ~1 ms. Glossy is 72% of pixels and ~3.5 ms. True
-mirrors are noise. Any design that spends its complexity on glass-forking
-wavefronts is solving the smaller problem.
+### Fidelity is what killed the cheap version
+
+A single-hit bounce kernel cannot fork, so a bounce ray that lands on glass gets
+shaded as diffuse. In the server room the chandelier's reflection in the marble
+floor goes out entirely — the same class of missing-content-in-reflections
+regression as the reverted instance skip, and rejected for the same reason.
+
+Following a **chain** instead (one dominant lobe per hit, no fork,
+`BOUNCE_MAX_DEPTH = 3`) brings the reflection back but dimmer, because half the
+Fresnel energy is dropped: max channel delta against the inline reference falls
+from 195 to 142, with 1-2.5% of pixels differing. Restoring the real two-lobe
+blend requires a fork, which requires a stack, which is the thing the split
+exists to avoid.
+
+The chain costs about half the win — compare the last two columns of the table
+above. **Full fidelity and the glossy split are close to mutually exclusive**,
+and at that price the split is not worth shipping.
 
 ---
 
-## Why not just cheapen the bounce in `ray_color`
+## Hypotheses that were tested and are dead
 
-Every attempt to do less work on bounce rays *inside* the existing megakernel
-either showed, or lost the win to occupancy. Register allocation is global to
-the shader module: a branch you take on 72% of pixels still charges its live
-working set to the 28% that do not, and combining two “winning” branches can
-be slower than either one.
+Recorded so nobody spends the day again.
 
-Measured, then reverted or not shipped:
+- **Per-thread scratch from the ray stack.** `array<RaySeg, MAX_SEGS>` is
+  dynamically indexed, and removing exactly that kind of array from
+  `box_holed_nearest` was the largest single win in the 2026-09 pass (-14%). It
+  is not a factor here: `main` costs the same with the stack deleted outright.
+  See the methodology warning below — the first attempt at this measurement was
+  invalid and reported a bogus 1.1%.
+- **Compaction losing ray coherence.** Plausible, and `dense` was built to test
+  it by preserving `main`'s tiling exactly. It is a real effect (dense beats
+  compact at every view) but it is second order next to the density argument.
+- **Extra memory traffic through `hdr_pixels` and the task list.** About 20 MB
+  per frame at 512x320, under 0.1 ms on this hardware. Not a factor.
 
-| Experiment | Yaw 270 | Why it died |
+---
+
+## Methodology warning: do not A/B by building two binaries
+
+`shaders.Source()` (`internal/webgpu/shaders/resolve.go`) reads
+`trace_linked.wgsl` **from disk at runtime**, falling back to the `go:embed`
+copy only when the file is absent or stale. Two binaries built from different
+shader sources therefore both read whatever file is on disk when they run, and
+an A/B between them measures the same shader twice.
+
+This silently invalidated two measurements in this investigation before it was
+caught — a `MAX_SEGS` 6-to-2 comparison and the first stackless probe, both of
+which duly reported "no difference".
+
+To compare two shader variants, either:
+
+- switch behaviour at runtime from a `params` field (what `RAYTRACER_BOUNCE_SPLIT`
+  does), which keeps one binary and one file on disk; or
+- swap `modules/trace.wesl` **and** `trace_linked.wgsl` together between runs,
+  since `readLinkedIfCurrent` validates a digest of the modules against the
+  stamp in the linked file.
+
+Either way, **verify the variant actually changed the image** (`-dump` plus
+`tmp/perf/compare.py`) before believing a timing. A probe that renders
+identically is not a probe.
+
+Two more notes on measuring this scene at all: the noise floor is about **10%**
+for an identical configuration on this machine, so any effect under that needs
+interleaved rounds and a minimum-of-N estimator, not a single sample. And
+`gpuprof` reports wall-clock-until-idle; there are no GPU timestamp queries in
+this backend, so a pass cannot be timed in isolation — only by difference.
+
+---
+
+## The glass split, measured
+
+Glass looked like the better target: incremental measurement put it at 3.80 ms
+of yaw 270 against glossy's 2.30, and at ~9% of pixels it sits in the sparse
+regime where compaction is supposed to pay. Both of those turned out to be
+wrong, in instructive ways.
+
+The build reused the glossy plumbing, retargeted. One detail worth keeping if
+anyone revisits this: **both Fresnel children of a hit belong to the same pixel,
+so one thread can own both**, sum them locally and store once. That removes the
+race that WGSL's lack of f32 atomics would otherwise force you to solve, and it
+means a first cut is one extra dispatch rather than the multi-wave queue this
+document previously estimated at "weeks". Only depth 0 defers; glass reached
+through another lobe still forks on the stack, so nested panes keep their exact
+blend.
+
+Interleaved best-of-8 (`RAYTRACER_GLASS_SPLIT`), `nopass` being the deferred
+frame with the resolve dispatch skipped — a wrong image, but it prices `main`
+with the fork removed:
+
+| yaw | glass bounces | inline | compact | dense | main with glass removed |
+|---|---|---|---|---|---|
+| 0 | 400 (0.2%) | 7.40 | 7.50 (+1.4%) | 9.10 (+23.0%) | 7.20 |
+| 90 | 13,184 (8%) | 10.10 | 11.00 (+8.9%) | 10.60 (+5.0%) | 9.70 |
+| 270 | 14,870 (9%) | 11.40 | 12.40 (+8.8%) | 12.20 (+7.0%) | 10.30 |
+
+| yaw | glass forked inline | the same work in the glass kernel |
 |---|---|---|
-| Skip instance TLAS on all bounce rays | 9.2 ms (−2.7 ms) | Trees vanish from reflections *and* from the view through windows. Visually wrong. |
-| Skip instances except `RAYSEG_TRANSMIT` (glass refraction still tests the TLAS) | 9.5 ms (−2.4 ms) | Through-glass trees return; trees (and any other instance) still vanish from floor sheen and from the *reflected* lobe of a window. Still disorienting. **Reverted.** |
-| `shade_ghost` lighting on depth > 0 | 8.8 ms (−3.1 ms) | Reflections go ambient-only. Obvious. |
-| AA taps skip glossy spawn | 10.2 ms (−1.7 ms) | Fine alone. Combined with the instance skip the megakernel got *slower* (~11.6 ms). Register union. |
-| Glossy only on 2×2 leaders, no sharing | 10.5 ms (−1.4 ms) | Glass still owns the workgroup tail, so 4× fewer glossy rays barely move wall time. Looks like a grid without sharing. |
-| Throughput-gated instance skip (`tw < 0.5`) | 10.0 ms (−1.9 ms) | Keeps through-glass; still drops instances from glossy sheen. Same visual class as the transmit-tag variant. |
+| 0 | 0.20 ms | 0.30 ms |
+| 90 | 0.40 ms | 1.30 ms |
+| 270 | **1.10 ms** | **2.10 ms** |
 
-The pattern: **work reduction inside the fat kernel is fighting the compiler,
-not the GPU.** AA compaction worked because the expensive pass became a
-*different dispatch* over a compacted list. Shader specialization worked
-because unused paths were compiled out of the pipeline entirely. A bounce
-kernel has to do both.
+### The 3.80 ms was an artifact
 
-A second `@compute` entry point in the *same* linked WGSL module is not
-enough. Metal / Tint still see `bounce_resolve` → `ray_color` → glass, terrain,
-flame, campfire, AA, and the register file is the union. The bounce pipeline
-has to be a **separately specialized compile**, the way `shaders.Specialize`
-already strips `FEAT_*` for scenes that lack terrain.
+Deferring the primary glass fork removes **1.10 ms** from `main` at yaw 270, not
+3.80. The earlier figure came from a probe that removed glass by shading it as
+diffuse, which also removed the nested glossy lobes *behind* glass, the
+thin-glass ghost, and all the adaptive-AA work that structure induces — it moved
+58.9% of pixels. Attributing that whole delta to "glass" was wrong.
 
----
+The lesson generalises past this document: **an ablation that changes the image
+substantially is not measuring one feature.** Adaptive AA cost scales with edge
+count, so anything that flattens the frame makes AA cheaper and inflates the
+apparent cost of whatever was removed. Price a lobe by deferring it, not by
+deleting what it produces.
 
-## Design
+### Sparsity makes inline *good*
 
-### Split of responsibility
+The glass kernel costs roughly **twice** what the inline fork costs, at every
+view. That is the reverse of the glossy narrow kernel, which was 7-28% cheaper
+per ray, and the reason is the density that made glass look attractive.
 
-`main` (existing megakernel) traces the camera ray and any **glass**
-lobe that is the actual view through a pane (refraction / thin-glass exit).
-It does **not** spawn glossy diffuse or mirror/metal children. When a primary
-hit would have pushed such a child, it writes a bounce task and stores
-`lit * (1 - refl)` (or nothing, for a pure mirror) in `hdr_pixels`.
+At 9% of pixels a glass fork rides along inside workgroups where the other 91%
+of lanes are doing diffuse work. It is latency-hidden for free — the same effect
+already recorded in [megakernel-optimization.md](megakernel-optimization.md) as
+"extra bounce depth is free without AA, because workgroups are already waiting
+on the slowest lane". Pull that fork into its own dispatch and it stops
+overlapping with anything: 14,870 tasks at 64 per workgroup is ~233 workgroups,
+far too few to saturate 30 GPU cores, and each task is two three-segment chains,
+so it pays full memory latency with no other work to hide behind.
 
-`bounce_resolve` is a second compute pipeline, compiled from a *restricted*
-entry point whose call graph is:
+So sparsity is not an argument for extracting a lobe. It is an argument for
+leaving it where it is.
 
-- `nearest_hit` (static BVH + instances + planes; terrain/water only if the
-  scene actually has them, via existing `FEAT_*`)
-- one `shade_diffuse` (same lights, same shadows, same instances)
-- sky on miss
-- **no** glass fork, **no** nested glossy spawn, **no** AA, **no** flame
-  march, **no** heat shimmer
+### What the compaction criterion is actually worth
 
-One bounce, done. Nested glossy is already killed by `GLOSSY_MIN_CONTRIB` for
-almost every pixel; dropping it in this kernel is the same cull, just
-structural. If a glossy ray hits glass, shade it as the depth-cap fallback
-already does (diffuse), or optionally push a single un-forked continuation —
-that is a v2 question and must not reintroduce glass into the register file
-of v1.
+Compact versus dense does behave as predicted, which is worth recording because
+it is the one prediction that held:
 
-Mirror/metal primary hits are rare (533/frame) and can go through the same
-task list: the bounce kernel traces one reflection ray and shades whatever it
-hits.
+| glass density | compact | dense | winner |
+|---|---|---|---|
+| 0.2% (yaw 0) | 7.50 | 9.10 | compaction, by 21% |
+| 8% (yaw 90) | 11.00 | 10.60 | dense, by 4% |
+| 9% (yaw 270) | 12.40 | 12.20 | dense, marginally |
 
-### Why instances stay
+The crossover is low — somewhere in the low single digits of percent. Compaction
+is worth it only for genuinely rare work.
+Adaptive AA at ~5% of pixels sits right at that boundary and wins there because
+its alternative is catastrophic (a whole workgroup billed for one lane's ray
+tree), not because compaction is efficient in absolute terms.
 
-The instance skip was the largest cheap win and the wrong one. Floor sheen
-and window reflections that omit trees (or NPCs, or any other instanced
-prop) read as a hole in the world. The bounce kernel traces the **same**
-`nearest_hit` as today, including the TLAS. The speedup is occupancy and
-coherence, not missing geometry.
+### Fidelity
 
-### Task list
+Better than the glossy split, since only nested glass loses its fork:
 
-Mirror the AA plumbing (`aa_list` / `aa_dispatch` / `aa_indirect`):
+| yaw | pixels differing | >8 levels | max delta | mean abs err |
+|---|---|---|---|---|
+| 0 | 0.00% | 0.00% | 0 | 0.000 |
+| 90 | 1.83% | 1.57% | 139 | 0.832 |
+| 180 | 0.07% | 0.06% | 47 | 0.020 |
+| 270 | 0.81% | 0.34% | 142 | 0.072 |
 
-```
-struct BounceTask {
-    ro: vec3<f32>,     // offset origin (already nudged off the surface)
-    pixel: u32,        // linear index into hdr_pixels / pixels
-    rd: vec3<f32>,     // reflection direction
-    _pad0: u32,
-    tw: vec3<f32>,     // lobe throughput (primary tw * refl, or alb*0.96 for mirror)
-    _pad1: u32,
-};
-```
-
-48 bytes. Worst case one task per pixel (plus a handful of mirrors) →
-`maxDim * maxDim * 48` bytes, same capacity argument as `aa_list`. Append
-with `atomicAdd` on a dispatch header `[workgroups_x, 1, 1, task_count]`,
-copy to an indirect buffer, dispatch. WebGPU still forbids using one buffer
-as writable storage and as the indirect source in the same pass, so the
-copy stays.
-
-One pixel produces at most one glossy task from the primary hit. Glass
-reflect+refract stays in `main`, so we never have two bounce threads writing
-the same pixel. `hdr_pixels[pixel] += tw * incoming` is then a plain store,
-not an atomic.
-
-### Frame order
-
-Today:
-
-```
-pass 1:  main + aa_classify
-copy     aa_dispatch → aa_indirect
-pass 2:  aa_resolve
-```
-
-Proposed:
-
-```
-pass 1:  main            // primary + glass; append BounceTask; write hdr without sheen
-copy     bounce_dispatch → bounce_indirect
-pass 2:  bounce_resolve  // add sheen into hdr; rewrite pixels
-pass 3:  aa_classify     // luma now includes sheen, so shadow/glass edges classify correctly
-copy     aa_dispatch → aa_indirect
-pass 4:  aa_resolve
-```
-
-`aa_classify` must run *after* bounce, otherwise edge detection sees a
-sheen-less image and AA will fight the composite. `aa_resolve` currently
-calls full `ray_color` (primary + bounces). Leave that as-is for v1: AA is
-already compacted to edges, and capping AA-tap glossy was previously visible
-on glass. A later pass can point AA taps at the bounce kernel too; do not
-couple that to v1.
-
-### Compilation
-
-`buildPipelines` already compiles one WGSL module three times, once per entry
-point (`main`, `aa_classify`, `aa_resolve`), after `shaders.Specialize`
-rewrites `FEAT_*`. Add a fourth entry point, `bounce_resolve`, and specialize
-it further:
-
-- Force `FEAT_FLAME` / heat-shimmer off: bounce rays do not origin-shift.
-- Keep `FEAT_CAMPFIRE` / lights / instances / shadows: sheen has to light
-  correctly, including trees.
-- Glass code must be unreachable from `bounce_resolve`. The practical way is
-  a separate WESL module (`bounce.wesl`) that calls `nearest_hit` and
-  `shade_diffuse` and does **not** import `ray_color`. If the linker still
-  pulls glass in through `shade.wesl`, split shade the way terrain is already
-  gated with `FEAT_*`.
-
-Verify with the compiler, not by hoping: if `bounce_resolve`'s pipeline
-report (or a one-off Tint dump) still contains `box_holed_nearest` / Fresnel
-forks / `aa_classify`, the split failed and occupancy will not move.
-
-Same bind group as today. New bindings for `bounce_list` and
-`bounce_dispatch` (the AA pair is 28/29; 30/31 are free as of this writing —
-confirm against `types.wesl` at implementation time, especially after the
-`idx_tables` packing).
-
-### `ray_color` change
-
-When a depth-0 diffuse/checker hit would spawn glossy:
-
-```
-accum += tw * lit * (1 - refl)
-// instead of stack.push(reflect):
-stash BounceTask { ep, reflect(rd,n), tw * refl, pixel }
-```
-
-When a depth-0 mirror/metal hit would spawn:
-
-```
-stash BounceTask { ep, reflect(rd,n), tw * alb * 0.96, pixel }
-// accum stays 0 for that segment
-```
-
-Glass is unchanged. Nested glossy from bounce hits is dropped in v1
-(`GLOSSY_MIN_CONTRIB` already removes almost all of it).
-
-`main` needs the pixel index to fill `BounceTask.pixel`. It already has
-`gid`.
-
-### Expected gain, not a promise
-
-Back-of-envelope from the measurements, not a commitment:
-
-- `main` without glossy should look like the “no-glossy” experiment: **8.4 ms**
-  at yaw 270, still including glass and AA.
-- After the split, `main` no longer waits on glossy lanes, so it should sit
-  closer to **mirrors-off plus glass**, i.e. somewhere in the 6.2–8.4 ms
-  band, plus a cheap append.
-- `bounce_resolve` runs ~118k full `nearest_hit` + `shade_diffuse` in a
-  kernel whose register file is only that. 72% of the screen, but every lane
-  in a bounce workgroup is a bounce lane (the AA lesson). If occupancy is
-  even modestly better than the megakernel, this pass should be well under
-  the 3.5 ms glossy currently costs *inside* the fat shader.
-
-A result that does not beat ~9.5 ms mean, or that reintroduces missing
-geometry, is a failed experiment — revert, same as the instance skip.
+Not that it matters at +8.8%. Recorded so nobody assumes fidelity was the
+blocker this time; the cost was.
 
 ---
 
-## Visual acceptance
+## Where the remaining money is
 
-v1 is allowed to differ from today in exactly these ways:
+Not in reflection transport. At yaw 270 the frame is 11.40 ms and the floor —
+primary rays, diffuse shading and adaptive AA, with every specular lobe gone —
+is 5.30 ms. Of the 6.10 ms in between, the two lobes that could plausibly be
+extracted account for 2.30 (glossy) and 1.10 (glass), and both cost more to run
+outside the megakernel than in it once fidelity is held constant.
 
-- Nested glossy-inside-glossy (already below `GLOSSY_MIN_CONTRIB` for weak
-  reflectors) may disappear entirely.
-- A glossy ray that hits glass is shaded as the depth-cap diffuse fallback
-  instead of forking. Check the skyway panes looking into other panes.
-- AA taps still trace the old full `ray_color`, so glass silhouettes stay
-  as they are. Floor sheen AA may be slightly inconsistent with the
-  center sample until AA is wired to the bounce kernel.
+That closes the wavefront family for this renderer at this scene scale. Option A
+in [reflection-optimization.md](reflection-optimization.md) should stay closed
+unless something changes the arithmetic:
 
-v1 is **not** allowed to:
+- **Much heavier per-hit shading** (many more lights per cluster, triangle
+  meshes with real materials) would raise the cost of a bounce ray relative to
+  the dispatch overhead a split pays.
+- **Much higher resolution** would make the sparse dispatches large enough to
+  saturate the device, which is the specific thing that killed the glass pass.
+- **A lobe that is both dense and non-forking** would satisfy both requirements
+  at once. Glossy is exactly that shape, and it *did* win 13% at yaw 0 — it lost
+  only because a single-hit bounce cannot reproduce glass seen inside a
+  reflection. A cheaper way to keep glass fidelity in a deferred glossy chain is
+  the one live thread left here.
 
-- Drop instances, holes, or static prims from a bounce hit.
-- Replace bounce lighting with ambient / unshadowed / `shade_ghost`.
-- Skip shadows on bounce. (They are already cheap; `SHADOW_SKIP_LEVELS`
-  handles the invisible ones.)
+The 5.30 ms floor is the more interesting number now: it is 46% of the frame and
+none of it is reflection. Adaptive AA is the largest identified item inside it.
 
-Gate with `tmp/perf/suite.sh` against a freshly recorded reference from the
-pre-bounce-kernel tree. The 8× amplified diff must not light up tree
-canopies in windows or on floors. Mean abs error and `>8 levels` are the
-numbers that matter; raw “pixels differing” is dither.
+## Does this argue against a general wavefront refactor?
 
----
+Mostly yes, at this scene scale — and the reasoning is worth keeping because it
+is about the workload, not about these two experiments.
 
-## Implementation sketch
+A full wavefront adds two mechanisms neither experiment isolated: sorting rays by
+material across *all* depths at once, and an extend kernel that does only BVH
+traversal with no shading registers live. But both experiments priced the thing
+all three designs share — moving rays out of the megakernel into a queue — and
+that pricing is what decides it.
 
-1. `BounceTask` + buffers + bindings, cloned from the AA list/dispatch/indirect
-   trio. Reset the header each frame to `[0, 1, 1, 0]`.
-2. Extract `bounce.wesl`: `bounce_trace(ro, rd) -> vec3` = nearest_hit +
-   shade one hit + sky. No stack. Confirm glass/AA stay out of its graph.
-3. `ray_color` defers depth-0 glossy/mirror to a `TraceResult` stash
-   (origin, dir, tw) instead of pushing. `main` appends the task.
-4. `submitTrace` grows to the four-pass order above. `bounce_resolve` adds
-   into `hdr_pixels` and calls the existing `write_pixel`.
-5. `buildPipelines` creates `bouncePipeline` from the specialized module,
-   entry `bounce_resolve`.
-6. Measure yaw 0/90/180/270 with `suite.sh`. If occupancy did not move,
-   dump the bounce pipeline’s compiled size / bind the HUD counters to a
-   bounce-only profile pass before adding more smarts.
-7. Only then consider: AA taps using the bounce kernel, a second bounce
-   wave for the rare nested case, or scene-specialized bounce (`FEAT_*`
-   already handles “no campfire”).
+**The binding constraint is absolute queue size, not divergence.** The glass pass
+failed because 14,870 tasks is 233 workgroups, under 4 threads per lane across an
+M2 Max's ~3,840 ALUs, far too few to hide memory latency. The glossy queue at
+118k gave ~31 per lane and the *same kernel structure* came out 7-28% cheaper per
+ray. Material sorting makes this worse rather than better: this scene issues
+about 164k primary and 133k secondary rays per frame at 512x320, so per-material
+queues shard an already-marginal total into several non-saturating ones.
 
-Do not start with a general streaming wavefront. Glass forking, multiple
-waves, and per-depth compaction are how Option A became “weeks.” This
-design is one extra pass, one task per glossy pixel, same hit/shade as
-today.
+Worth knowing where the wavefront literature comes from: it was developed for
+Fermi/Kepler-era GPUs with small register files, punishing divergence, and
+millions of rays in flight. Apple GPUs have large register files and handle
+divergence far better, so the trade a wavefront makes — spend memory bandwidth to
+save register pressure — is much less favourable here. Every occupancy win
+recorded in [megakernel-optimization.md](megakernel-optimization.md) lands in
+single digits to ~15%; none has ever been a 2x lever.
+
+**Upper bound on the whole idea.** Extractable secondary transport at yaw 270 is
+3.40 ms (2.30 glossy + 1.10 glass) of an 11.40 ms frame. Applying the best
+per-ray improvement ever measured, 28%, gives 0.95 ms — about 8% — before
+dispatch overhead and before queue fragmentation claws some back. The 5.30 ms
+floor is untouched either way: a wavefront reorganizes primary traversal, diffuse
+shading and AA, it does not remove them.
+
+### The conditions that would change the answer
+
+In rough order of how directly the measurements support them:
+
+1. **Higher resolution.** The clearest one, because it fixes exactly what killed
+   the glass pass. At 1080p there are 12.6x the pixels and the glass queue goes
+   from 15k to ~190k, which saturates. Every per-queue argument above flips.
+2. **More rays per pixel** — multiple samples, deeper paths, multi-tap soft
+   shadows. Same mechanism.
+3. **Much heavier per-hit shading** (many more lights per cluster, area lights,
+   real material models). This is the one case where the memory-versus-registers
+   trade genuinely reverses, because shading's register footprint is what the
+   extend/shade separation exists to get off the traversal threads.
+4. **Material diversity with divergent cost.** Today diffuse is ~91% of hits and
+   cheap. Sorting pays only when expensive materials are common enough to fill a
+   queue but rare enough to be poisoning workgroups.
+5. **Triangle meshes with textures**, which raise traversal and shading pressure
+   together.
+
+### The cheap test for when that threshold is crossed
+
+Re-run the glossy split at 1920x1080 (`gpuprof -w 1920 -h 1080`; the patch is in
+`tmp/perf/`). It won 13% at yaw 0 and roughly nothing at yaw 270 at 512x320. If
+that win *grows* with resolution, the wavefront's economics are shifting and the
+extend/shade separation is worth prototyping. If it stays flat, the question is
+settled for any resolution this renderer would ship at.
+
+Do this before writing any queue code. It is fifteen minutes against weeks.
 
 ---
 
@@ -300,5 +403,6 @@ today.
   occupancy lessons, why leaf widening failed, the reverted instance skip.
 - [reflection-optimization.md](reflection-optimization.md) — original Option A
   (full wavefront) vs Option B (cheaper bounce shadows; B1 shipped).
-- [shader-specialization.md](shader-specialization.md) — `FEAT_*` compile-out,
-  the mechanism bounce_resolve has to use.
+- [shader-specialization.md](shader-specialization.md) — `FEAT_*` compile-out.
+- [adaptive-aa.md](adaptive-aa.md) — the classify/resolve split this borrowed
+  from, and the sparsity that made it work.
