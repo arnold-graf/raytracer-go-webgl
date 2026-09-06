@@ -38,6 +38,12 @@ Preview auto-centers the subject and writes twelve orbit screenshots
 
 use the local tmp folder inside this repo, not a root folder like /tmp.
 
+### Tests
+
+Tests should never assert on properties of authored art (especially tomls). If
+models are needed in a test, they should be created specifically for the
+purpose. Tests should not fail because authored art changes.
+
 ### Recommended commands
 
 ```bash

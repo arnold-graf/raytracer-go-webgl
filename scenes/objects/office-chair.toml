@@ -37,6 +37,7 @@ pos_z = -0.22
 width = 0.48
 height = 0.07
 depth = 0.44
+texture = "wood"
 specular = 'specular'
 shininess = 'shininess'
 
@@ -49,6 +50,7 @@ rough = 0.08
 rotate_x = 18
 pos_x = -0.24
 pos_y = 0.52
+texture = "wood"
 pos_z = 0.28
 width = 0.48
 height = 0.36

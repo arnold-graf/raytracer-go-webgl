@@ -117,7 +117,7 @@ struct CampfireParams {
     core: vec4<f32>,  // cx, cy, cz, range
     color: vec4<f32>, // base color (r, g, b, 0) — tints applied per sub-light
     param: vec4<f32>, // brightness, jitter, flicker, speed
-    phase: vec4<f32>, // seed, flame_enabled (1/0), flame_scale, 0
+    phase: vec4<f32>, // seed, flame_enabled (1/0), flame_scale, emitter radius (0 = default)
     flame_ember: vec4<f32>,
     flame_mid: vec4<f32>,
     flame_tip: vec4<f32>,
@@ -125,10 +125,12 @@ struct CampfireParams {
 };
 
 // Light mirrors GPULight in scene.go (std430, 48-byte stride).
+// Mirrors GPULight in scene.go (std430, 64-byte stride).
 struct Light {
     pos: vec4<f32>,
     color: vec4<f32>,
     falloff: vec4<f32>, // cullR2, invR2, spotYaw, spotPitch
+    shape: vec4<f32>,   // source radius (0 = use PENUMBRA_LIGHT_RADIUS), _, _, _
 };
 
 // BVHNode mirrors GPUBVHNode in bvh.go (std430, 48-byte stride).
@@ -339,9 +341,11 @@ struct ShadowAux {
     // a partition of unity across several lights, which is what made a shadow
     // from a fully-occluded light darken its neighbours the wrong way.
     //
-    // The vertical pass overwrites this slot with the light it added back, which
-    // supersample_edge then applies to its own tap so an antialiased pixel is
-    // not half soft shadow and half hard. Safe to reuse: no invocation reads a
+    // The vertical pass overwrites this slot with the *target* fraction it
+    // filtered to — the neighbourhood average, faded in. supersample_edge then
+    // reproduces the same correction for its own tap. Storing the target rather
+    // than the radiance delta is what lets the tap use its own occlusion and its
+    // own light; see soft_applied. Safe to reuse: no invocation reads a
     // *neighbour's* frac, only its frac_h.
     frac: vec3<f32>,
     pen_px: f32,
@@ -364,7 +368,11 @@ struct ShadowAux {
     // pixel's *own* value is what keeps the correction textured like the surface
     // it lands on instead of like its neighbours.
     full: vec3<f32>,
-    _pad0: f32,
+    // 1 once the vertical pass has written a target into frac, 0 where it left
+    // the pixel alone. Without it an untouched pixel's frac still looks like a
+    // target, and supersample_edge would "correct" a tap the filter never
+    // touched.
+    soft_applied: f32,
 };
 
 
@@ -503,11 +511,26 @@ const LIGHT_CULL_EPS: f32 = 0.0025;
 //   0.5  → sub-level exactness; ~2x the shadow rays of the linear gate it
 //          replaced, because gamma makes dim contributions visible against a
 //          dark interior and almost nothing qualifies as skippable
-//   4.0  → current default; half the 8.2-level step of the 15-bit output, so a
-//          skipped shadow stays inside one quantized bucket
+//   1.0  → current default; see below
+//   4.0  → half the 8.2-level step of the 15-bit output, so a skipped shadow
+//          stays inside one quantized bucket. That budget is per *pixel*, and
+//          the gate does not fire per pixel: it fires on an iso-distance
+//          surface around each light, drawing a hard arc across every wall in
+//          range where shadows abruptly stop being traced. A 4-level step along
+//          a smooth curve is an obvious ring; the same step scattered over
+//          isolated pixels would not be. Reported as "round hard rings of light"
+//          and isolated by ablation — setting this to 0 removes the arc, while
+//          zeroing LIGHT_CULL_EPS leaves it untouched. It is gone at 1.0 and
+//          still clearly visible at 2.0 under a 110x high-pass.
 //   8.0  → a full quantization step; measurably faster but visibly thins the
 //          contact shadows under desks and furniture
-const SHADOW_SKIP_LEVELS: f32 = 4.0;
+//
+// Lowered 4.0 → 1.0 because it measured free. Interleaved best-of-N on a quiet
+// machine: server room 7.6 → 7.7 ms, villa 21.5 → 21.4, manhattan 8.9 → 8.9,
+// default 5.2 → 5.3. An earlier non-interleaved sweep suggested this cost 67%,
+// which was entirely machine noise — worth remembering before trading a visible
+// artifact away for a number measured that way.
+const SHADOW_SKIP_LEVELS: f32 = 1.0;
 
 // Throughput handed to the ghost (second glass pane) lighting pass. Small enough
 // that every light's shadow test folds to "not worth a ray", which is what makes
@@ -634,6 +657,11 @@ const FEAT_PRIM_LENS: bool = true;
 // Point-light attenuation: att = 1 / (LIGHT_ATTEN_BASE + LIGHT_ATTEN_QUADRATIC × d²)
 const LIGHT_ATTEN_BASE: f32 = 0.5;        // Floor — stops singularity at d = 0
 const LIGHT_ATTEN_QUADRATIC: f32 = 0.08; // How quickly intensity falls off with distance
+// Width of the smooth join between the flat top and the falloff, in units of the
+// attenuation denominator. 0 reproduces a hard `min()` and its visible ring;
+// 0.0025 still showed the ring under 140x high-pass amplification; 0.01 does not.
+// See light_atten() in shade.wesl.
+const LIGHT_ATTEN_KNEE: f32 = 0.01;
 
 struct Hit {
     t: f32,

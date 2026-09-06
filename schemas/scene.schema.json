@@ -235,7 +235,7 @@
         "capture_down",
         "capture_backward"
       ],
-      "description": "Procedural world-space texture id. Omitted or \"none\" leaves the surface untextured (albedo only). Use tiles(width, height) for a displaced tile grid (defaults 1×1). Capture_* slots are filled at runtime by the portal system."
+      "description": "Procedural world-space texture id. Omitted or \"none\" leaves the surface untextured (albedo only). Use tiles(width, height) for a displaced tile grid (defaults 1\u00d71). Capture_* slots are filled at runtime by the portal system."
     },
     "sky": {
       "type": "string",
@@ -327,7 +327,7 @@
           "$ref": "#/definitions/number_or_expr"
         }
       ],
-      "description": "Blinn–Phong highlight strength from point lights on diffuse/checker/glass surfaces (0..1 typical). Ignored by mirror/metal/emit."
+      "description": "Blinn\u2013Phong highlight strength from point lights on diffuse/checker/glass surfaces (0..1 typical). Ignored by mirror/metal/emit."
     },
     "surface_shininess": {
       "allOf": [
@@ -335,7 +335,7 @@
           "$ref": "#/definitions/number_or_expr"
         }
       ],
-      "description": "Blinn–Phong shininess exponent for specular highlights (typical 8–128). Defaults to 32 when specular > 0 and omitted."
+      "description": "Blinn\u2013Phong shininess exponent for specular highlights (typical 8\u2013128). Defaults to 32 when specular > 0 and omitted."
     },
     "surface_transmit": {
       "allOf": [
@@ -1127,7 +1127,7 @@
     },
     "terrain_zone": {
       "type": "object",
-      "description": "TOML [[terrain.zone]] nested under [[terrain]]. Convex polygon in XZ with a procedural cobble/stone surface that fades to grass or dirt at the edges. Outline via vertex (≥3 corners), center+half (rectangle, like terrain.pad), or path+width (road strip).",
+      "description": "TOML [[terrain.zone]] nested under [[terrain]]. Convex polygon in XZ with a procedural cobble/stone surface that fades to grass or dirt at the edges. Outline via vertex (\u22653 corners), center+half (rectangle, like terrain.pad), or path+width (road strip).",
       "properties": {
         "texture": {
           "type": "string",
@@ -1172,7 +1172,7 @@
         },
         "specular": {
           "$ref": "#/definitions/number_or_expr",
-          "description": "Blinn–Phong highlight strength (same as [[box]].specular)."
+          "description": "Blinn\u2013Phong highlight strength (same as [[box]].specular)."
         },
         "shininess": {
           "$ref": "#/definitions/number_or_expr",
@@ -1364,7 +1364,7 @@
         },
         "radius": {
           "$ref": "#/definitions/number_or_expr",
-          "description": "Physical radius of the emissive sphere (informational; not used by the renderer today)."
+          "description": "Physical radius of the emissive sphere, in world units. Drives soft-shadow penumbra width (a penumbra is radius * blocker_distance / light_to_blocker_distance wide), so it scales every soft edge this light casts. Omit or 0 to use the renderer's default (PENUMBRA_LIGHT_RADIUS)."
         },
         "range": {
           "$ref": "#/definitions/number_or_expr",
@@ -1423,6 +1423,10 @@
           "$ref": "#/definitions/number_or_expr",
           "description": "Light falloff distance."
         },
+        "radius": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Physical radius of each sub-light, in world units. Drives soft-shadow penumbra width; a fire is a broad source, so this is usually larger than a bulb's. Omit or 0 to use the renderer's default."
+        },
         "jitter": {
           "$ref": "#/definitions/number_or_expr",
           "description": "Positional jitter amplitude. Defaults to 0.16."
@@ -1465,7 +1469,7 @@
         },
         "flame_scale": {
           "$ref": "#/definitions/number_or_expr",
-          "description": "Volumetric flame size multiplier (1 = default campfire scale). Use ~0.25–0.35 for a handheld torch."
+          "description": "Volumetric flame size multiplier (1 = default campfire scale). Use ~0.25\u20130.35 for a handheld torch."
         }
       },
       "required": [
@@ -1751,7 +1755,7 @@
         "mass": {
           "type": "number",
           "minimum": 0,
-          "description": "Total mass in kilograms. Omitted or 0 estimates from primitive volume × default density (600 kg/m³)."
+          "description": "Total mass in kilograms. Omitted or 0 estimates from primitive volume \u00d7 default density (600 kg/m\u00b3)."
         },
         "friction": {
           "type": "number",

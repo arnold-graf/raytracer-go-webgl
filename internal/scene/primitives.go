@@ -1400,8 +1400,18 @@ func (tr *Torus) Normal(p vec.V) vec.V {
 	return e.Sub(c).Normalize()
 }
 
-// Light is a point or spot light with per-channel intensity. Radius is
-// informational (kept for parity with the source scene). Range, when > 0, is the
+// Light is a point or spot light with per-channel intensity.
+//
+// Radius is the emitter's physical size in world units, and it drives soft
+// shadows: a penumbra is r * t_block / gap wide, so it scales every soft edge
+// this light casts. 0 means "unspecified", and the shader's own default stands
+// It also still sizes the sphere the use key aims at, but only as a floor: a
+// bare bulb is a couple of centimetres across and would be nearly impossible to
+// aim at, so picking takes max(Radius, defaultLightPickRadius). That keeps every
+// existing scene's aiming behaviour while freeing the number to mean what it
+// says.
+//
+// Range, when > 0, is the
 // distance at which the light's contribution is forced to zero: beyond it the
 // renderer skips the light entirely (including its shadow ray), and within it the
 // falloff is smoothly windowed down to zero at Range. Range == 0 means "auto":

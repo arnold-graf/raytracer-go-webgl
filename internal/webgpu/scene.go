@@ -34,14 +34,14 @@ const maxPrims = 32768
 const maxLights = 1024
 
 const (
-	maxTerrains        = 8
-	maxTerrainVals     = scene.MaxTerrainGridCells
-	maxTerrainFeatures = 256
-	maxTerrainPads     = 64
-	maxTerrainZones    = 64
+	maxTerrains         = 8
+	maxTerrainVals      = scene.MaxTerrainGridCells
+	maxTerrainFeatures  = 256
+	maxTerrainPads      = 64
+	maxTerrainZones     = 64
 	maxTerrainZoneVerts = 512
-	maxTerrainMipVals  = 1 << 21 // min/max pairs as vec2 (8 bytes each)
-	maxWaters          = 64
+	maxTerrainMipVals   = 1 << 21 // min/max pairs as vec2 (8 bytes each)
+	maxWaters           = 64
 )
 
 const (
@@ -132,9 +132,14 @@ type GPULight struct {
 	Pos     [4]float32
 	Color   [4]float32
 	Falloff [4]float32
+	// Shape holds the source's physical size: x is the radius the soft-shadow
+	// pass uses as the penumbra's driving term. All twelve lanes above are
+	// spoken for (Pos.w is the spot flag, Color.w the cone cosine, Falloff.zw
+	// the spot axis), so this costs a fourth vec4 rather than a spare slot.
+	Shape [4]float32
 }
 
-const lightStride = 48
+const lightStride = 64
 
 type GPUTerrain struct {
 	Bounds0  [4]float32 // originX, originZ, sizeX, sizeZ
@@ -495,10 +500,15 @@ func PackLights(s *scene.Scene) []GPULight {
 
 func packLight(l *scene.Light) GPULight {
 	cullR2, invR2 := lightCull(l.Color, l.Range)
+	// Shape.x is the emitter radius the soft-shadow pass sizes penumbrae from.
+	// 0 means the scene did not say, and the shader substitutes its own
+	// PENUMBRA_LIGHT_RADIUS. The interaction pick target is a separate field
+	// picking only uses it as a floor, so it is free to mean physical size.
 	gl := GPULight{
 		Pos:     [4]float32{f(l.Pos.X), f(l.Pos.Y), f(l.Pos.Z), 0},
 		Color:   albedo(l.Color),
 		Falloff: [4]float32{f(cullR2), f(invR2), 0, 0},
+		Shape:   [4]float32{f(l.Radius), 0, 0, 0},
 	}
 	if l.IsSpot() {
 		d := l.Dir.Normalize()
@@ -703,7 +713,7 @@ type CampfireParams struct {
 	Core       [4]float32 // cx, cy, cz, range
 	Color      [4]float32 // r, g, b, 0
 	Param      [4]float32 // brightness, jitter, flicker, speed
-	Phase      [4]float32 // seed, flame_enabled (1 or 0), flame_scale, 0
+	Phase      [4]float32 // seed, flame_enabled (1 or 0), flame_scale, emitter radius
 	FlameEmber [4]float32
 	FlameMid   [4]float32
 	FlameTip   [4]float32
@@ -748,7 +758,7 @@ func PackCampfireParams(s *scene.Scene) []CampfireParams {
 			Core:  [4]float32{f(fr.Center.X), f(fr.Center.Y), f(fr.Center.Z), f(fr.Range)},
 			Color: albedo(fr.Color),
 			Param: [4]float32{f(bright), f(fr.Jitter), f(fr.Flicker), f(speed)},
-			Phase: [4]float32{f(fr.Seed), flameEnabled(fr.Flame), fs, 0},
+			Phase: [4]float32{f(fr.Seed), flameEnabled(fr.Flame), fs, f(fr.Radius)},
 		}
 		ember, mid, tip, ash := fr.FlamePalette()
 		p.FlameEmber = albedo(ember)

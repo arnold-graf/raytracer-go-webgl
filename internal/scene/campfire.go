@@ -24,6 +24,10 @@ type Campfire struct {
 	Flicker    float64 // intensity wobble amount in [0,1]
 	Speed      float64 // flicker speed multiplier (1 = default)
 	Seed       float64 // phase offset so multiple fires look different
+	// Radius is the emitter size each sub-light is treated as having for soft
+	// shadows, in world units. 0 uses the shader default. A fire is a broad
+	// source, so this is usually larger than a bulb's.
+	Radius float64
 	Lights     int     // sub-light count (renderer currently supports 3)
 	Flame      bool    // procedural volumetric flame at the core
 	// FlameEmber/Mid/Tip/Ash are linear HDR colors for particle life stages.

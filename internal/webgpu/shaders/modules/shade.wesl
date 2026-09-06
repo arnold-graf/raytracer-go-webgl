@@ -3,7 +3,7 @@
 // evaluates point lights and flickering campfires, samples baked ambient
 // occlusion, and assembles direct diffuse lighting (shade_diffuse).
 
-import package::types::{CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_SKIP_LEVELS, ShadowAux, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
+import package::types::{CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_KNEE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_SKIP_LEVELS, ShadowAux, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
 import package::profile::{PROF_SHADOW_BLOCK, PROF_SHADOW_RAYS, prof_inc};
 import package::math::{display_step_levels, mix3, perlin, smoothstepf};
 import package::texture::{texture_eval};
@@ -228,9 +228,31 @@ fn normal_at(p: Prim, hp: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
 // to have when sizing its penumbra. A true point light casts a geometrically
 // hard shadow at any distance, which is what makes CG shadows read as CG.
 //
-// Not authored per light yet: adding a `radius` to [[light]] is the natural
-// follow-up, and this constant is what it would replace.
-const PENUMBRA_LIGHT_RADIUS: f32 = 0.35;
+// ---- This is the knob for overall shadow softness. ----
+//
+// Penumbra width is linear in it (`pen = radius * t_block / gap`), so doubling
+// it doubles every soft edge in every scene. Edit here and restart — the shader
+// relinks from these modules at startup, so no Go rebuild is needed.
+//
+// Lowering it does two things at once, which is why it is the right knob rather
+// than SHADOW_SOFTEN_MAX_PX: shadows get tighter *and* the contact-hardening
+// gradient gets more legible, because more of the width range lands below
+// shadow_radius()'s knee where it is reproduced faithfully instead of being
+// compressed. Measured on one office frame, over the wall a cone lamp casts
+// onto — "spread" is the ratio of gather radius between the near and far ends
+// of that one shadow, so 1.00x means the whole shadow is blurred identically:
+//
+//   radius   median blur   spread
+//   0.35        27 px       1.10x   (whole wall in deep penumbra)
+//   0.15        23          1.22x
+//   0.05        16          1.52x   <- current
+//   0.03        12          1.72x
+//   0.02         9          1.90x   (about as tight as the old clamped look)
+//
+// Per-light override: the transport exists (Light.shape.x, 0 = use this value),
+// but nothing writes it yet. See packLight in scene.go for why scene.Light.Radius
+// is not it.
+const PENUMBRA_LIGHT_RADIUS: f32 = 0.05;
 
 const PENUMBRA_EPS: f32 = 1e-3;
 
@@ -270,6 +292,22 @@ fn shadow_luma(c: vec3<f32>) -> f32 {
     return 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z;
 }
 
+// A campfire's sub-lights inherit the fire's emitter radius, falling back to the
+// global default when the scene did not give one.
+// The factor that turns a sub-light's flickering amplitude back into the fire's
+// steady output, for the penumbra-width vote only. cf.param.x is the authored
+// brightness the flicker oscillates around.
+fn campfire_steady_scale(cf: CampfireParams, sl: CampfireSample) -> f32 {
+    return cf.param.x / max(sl.intensity, PENUMBRA_EPS);
+}
+
+fn campfire_light_radius(cf: CampfireParams) -> f32 {
+    if (cf.phase.w > 0.0) {
+        return cf.phase.w;
+    }
+    return PENUMBRA_LIGHT_RADIUS;
+}
+
 fn shadow_aux_reset() {
     sh_deficit = vec3<f32>(0.0, 0.0, 0.0);
     sh_full = vec3<f32>(0.0, 0.0, 0.0);
@@ -289,29 +327,48 @@ fn shadow_aux_reset() {
 //
 // Several blocked lights are averaged by contribution, so the brightest shadow
 // dominates the width without the result jumping when they trade places.
-fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32) {
+fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, light_r: f32, weight_scale: f32) {
     sh_full = sh_full + total;
     if (t_block < 0.0) {
         return;
     }
     sh_deficit = sh_deficit + total;
     // A blocker closer to the light than the light's own radius is *inside* the
-    // source, and r*t/(ldist-t) diverges there. Geometrically a light barely
-    // peeking past an occluder really does cast an enormous penumbra, but in a
-    // scene it means the light is enclosed — mounted against the wall it lights,
-    // or inside a fixture housing — and blurring that shadow over the maximum
-    // radius leaks the light straight through the geometry enclosing it. Treated
-    // as a hard edge instead; the deficit is still recorded, so only the
-    // softening is withheld.
-    let gap = ldist - t_block;
-    if (gap <= PENUMBRA_LIGHT_RADIUS) {
-        return;
-    }
+    // source, and r*t/(ldist-t) diverges there. Clamping the gap to the source's
+    // own radius bounds the width at r*t/r = t: a penumbra can be as wide as the
+    // throw distance and no wider, which is the correct limit for an occluder
+    // sitting in the emitter.
+    //
+    // This used to `return` instead, withholding the penumbra and drawing a hard
+    // edge, out of a fear that blurring such a shadow would leak light through
+    // whatever encloses the lamp. That fear was misplaced twice over. The leaking
+    // it was guarding against turned out to be the *old* depth tolerance, which
+    // reached 43% of the depth at grazing angles and has since been replaced by
+    // an exact plane prediction; and the width no longer runs away regardless,
+    // because shadow_radius() compresses rather than clips.
+    //
+    // What the guard did do was fire on every campfire in the game. A fire's logs
+    // lie across the flame, so the blocker really is inside the emitter, gap is
+    // ~0, and every log drew a pitch-black razor-edged shadow — the one case
+    // where the answer should obviously have been "very soft indeed".
+    let gap = max(ldist - t_block, light_r);
     // World size of one pixel at this depth, so the filter works in the units it
     // will gather in.
     let px = 2.0 * params.fov_scale * length(hp - params.cam_pos.xyz) / f32(params.height);
-    let pen = (PENUMBRA_LIGHT_RADIUS * t_block / gap) / max(px, PENUMBRA_EPS);
-    let weight = shadow_luma(total);
+    let pen = (light_r * t_block / gap) / max(px, PENUMBRA_EPS);
+    // Weighted by how much light this source represents, so the brightest shadow
+    // sets the width without the result jumping when two lights trade places.
+    //
+    // `weight_scale` divides out any animated amplitude. Penumbra width is pure
+    // geometry — r * t / gap — and does not depend on brightness at all; the
+    // luminance here only arbitrates *which* blocked light's width wins. Letting
+    // an instantaneous flicker do that arbitration makes the blur radius pulse
+    // on surfaces the flickering light never reaches: a campfire sealed behind a
+    // closed door is fully blocked, so it is still recorded (correctly — its
+    // light really is missing), and its vote on the width then throbbed at the
+    // flame's rate. Measured on the server-room frame, that alone moved the
+    // radius on 26.6% of filtered pixels, by up to 5.7 px.
+    let weight = shadow_luma(total) * weight_scale;
     sh_pen_sum = sh_pen_sum + pen * weight;
     sh_pen_w = sh_pen_w + weight;
 }
@@ -389,7 +446,34 @@ fn spot_dir(yaw: f32, pitch: f32) -> vec3<f32> {
 // Tuning knobs at the top of this file: LIGHT_CULL_EPS, SHADOW_SKIP_LEVELS,
 // LIGHT_ATTEN_BASE, LIGHT_ATTEN_QUADRATIC. tw is the ray segment throughput.
 // spec/shine add Blinn–Phong highlights when spec > 0 (diffuse/checker/glass).
-fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, pos: vec3<f32>, color: vec3<f32>, cull_r2: f32, inv_r2: f32, tw: vec3<f32>, spot_axis: vec3<f32>, cos_outer: f32, rd: vec3<f32>, spec: f32, shine: f32, shadow: bool) -> vec3<f32> {
+// Point-light distance attenuation: inverse-square-ish falloff with a flat top
+// near the light, joined smoothly.
+//
+// The intended shape is `min(1, 1/(BASE + q*d²))`. Written that way it has a
+// *corner*: the flat top runs out to `BASE + q*d² = 1`, which with BASE = 0.5 and
+// q = 0.08 is exactly d = 2.5, and the slope jumps from 0 to -0.4/unit there.
+// The value is continuous, so it is easy to assume this is harmless — but the
+// eye differentiates, and a slope discontinuity in an otherwise smooth gradient
+// is a Mach band. The result was a hard round ring at a fixed 2.5-unit radius
+// around *every* point light in every scene, independent of geometry.
+//
+// So express it as `1/max(1, u)` and smooth the max instead. This is the
+// standard hyperbolic soft-max: it equals the sharp one when KNEE = 0, and KNEE
+// buys a rounded join at the cost of dipping `sqrt(KNEE)/2` below it at the
+// corner. That cost is strictly local — measured 3.7% at the ring radius, 1.2%
+// one unit inside it, 0.3% in the far field — which is why the knee can be wide
+// enough to hide the ring without re-lighting any scene.
+//
+// The far field is unchanged to well under a percent, so the CPU-side cull radius
+// in `lightCull` (which inverts the sharp form) stays correct and needs no
+// matching constant.
+fn light_atten(d2: f32) -> f32 {
+    let u = LIGHT_ATTEN_BASE + d2 * LIGHT_ATTEN_QUADRATIC;
+    let e = u - 1.0;
+    return 1.0 / (0.5 * (u + 1.0 + sqrt(e * e + LIGHT_ATTEN_KNEE)));
+}
+
+fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, pos: vec3<f32>, color: vec3<f32>, cull_r2: f32, inv_r2: f32, tw: vec3<f32>, spot_axis: vec3<f32>, cos_outer: f32, rd: vec3<f32>, spec: f32, shine: f32, shadow: bool, light_r: f32, pen_weight_scale: f32) -> vec3<f32> {
     let twm = tw_peak(tw);
     let ld = pos - hp;
     let d2 = dot(ld, ld);
@@ -405,7 +489,7 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
     if (ndl < 0.001) {
         return lit;
     }
-    var att = min(1.0, 1.0 / (LIGHT_ATTEN_BASE + d2 * LIGHT_ATTEN_QUADRATIC));
+    var att = light_atten(d2);
     if (inv_r2 > 0.0) {
         let x = d2 * inv_r2;
         var w = 1.0 - x * x;
@@ -453,10 +537,10 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
         // Recorded even though nothing is occluded: the filter widens a penumbra
         // outward as well as inward, so a lit pixel beside a shadow has to know
         // which light it would be losing.
-        shadow_aux_note(hp, total, ldist, -1.0);
+        shadow_aux_note(hp, total, ldist, -1.0, light_r, pen_weight_scale);
         return lit + total;
     }
-    shadow_aux_note(hp, total, ldist, t_block);
+    shadow_aux_note(hp, total, ldist, t_block, light_r, pen_weight_scale);
     return lit;
 }
 
@@ -467,7 +551,13 @@ fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32
         axis = spot_dir(light.falloff.z, light.falloff.w);
         cos_outer = light.color.w;
     }
-    return add_point_light_raw(lit, hp, albedo, n, ep, light.pos.xyz, light.color.xyz, light.falloff.x, light.falloff.y, tw, axis, cos_outer, rd, spec, shine, shadow);
+    // A light that declares no radius falls back to the global default, so
+    // scenes that never mention one behave exactly as before.
+    var lr = light.shape.x;
+    if (lr <= 0.0) {
+        lr = PENUMBRA_LIGHT_RADIUS;
+    }
+    return add_point_light_raw(lit, hp, albedo, n, ep, light.pos.xyz, light.color.xyz, light.falloff.x, light.falloff.y, tw, axis, cos_outer, rd, spec, shine, shadow, lr, 1.0);
 }
 
 // ao_sample reproduces aoVolume.sample: nudge off the surface by bias along n,
@@ -547,6 +637,10 @@ fn ao_sample(p_in: vec3<f32>, n: vec3<f32>) -> f32 {
 struct CampfireSample {
     pos: vec3<f32>,
     col: vec3<f32>,
+    // The instantaneous intensity this sample was built with. Only the penumbra
+    // width arbitration uses it, to divide the flicker back out; see
+    // shadow_aux_note.
+    intensity: f32,
 };
 
 fn campfire_cull(cf: CampfireParams) -> vec2<f32> {
@@ -589,8 +683,9 @@ fn campfire_sublight(cf: CampfireParams, j: u32, ts: f32) -> CampfireSample {
         cf.param.y * (0.4 + 0.4 * sin(ts * 15.0 + ph)),
         cf.param.y * (0.7 * sin(ts * 11.0 + ph * 1.9) + 0.3 * sin(ts * 19.0 + ph * 0.7)),
     );
-    let col = cf.color.xyz * max(intensity, 0.15 * cf.param.x) * tint;
-    return CampfireSample(pos, col);
+    let used = max(intensity, 0.15 * cf.param.x);
+    let col = cf.color.xyz * used * tint;
+    return CampfireSample(pos, col, used);
 }
 
 // Direct diffuse lighting: ambient + point lights + campfires + baked AO.
@@ -672,7 +767,7 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
             let cdir = cl / cdist;
             let ndl = dot(n, cdir);
             if (ndl >= 0.001) {
-                let att = min(1.0, 1.0 / (LIGHT_ATTEN_BASE + cd2 * LIGHT_ATTEN_QUADRATIC));
+                let att = light_atten(cd2);
                 let peak = att * ndl * cf.param.x * max(alb.x, max(alb.y, alb.z));
                 if (display_step_levels(tw_peak(tw) * tw_peak(lit), tw_peak(tw) * peak) >= SHADOW_SKIP_LEVELS) {
                     let ct = shadow_blocker_t(ep, cdir, cdist);
@@ -691,11 +786,14 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
                         // surroundings instead of darkening them.
                         let cts = params.time * cf.param.w;
                         var probe = vec3<f32>(0.0, 0.0, 0.0);
+                        var inst = 0.0;
                         for (var pj = 0u; pj < 3u; pj = pj + 1u) {
                             let psl = campfire_sublight(cf, pj, cts);
-                            probe = add_point_light_raw(probe, hp, alb, n, ep, psl.pos, psl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, false);
+                            inst = inst + psl.intensity;
+                            probe = add_point_light_raw(probe, hp, alb, n, ep, psl.pos, psl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, false, campfire_light_radius(cf), 1.0);
                         }
-                        shadow_aux_note(hp, probe, cdist, ct);
+                        shadow_aux_note(hp, probe, cdist, ct, campfire_light_radius(cf),
+                            3.0 * cf.param.x / max(inst, PENUMBRA_EPS));
                         continue;
                     }
                 }
@@ -708,7 +806,7 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
         let ts = params.time * cf.param.w;
         for (var j = 0u; j < 3u; j = j + 1u) {
             let sl = campfire_sublight(cf, j, ts);
-            lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true);
+            lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true, campfire_light_radius(cf), campfire_steady_scale(cf, sl));
         }
     }
     if (params.ao_enabled != 0u) {
@@ -750,7 +848,7 @@ fn shade_specular(hp: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd:
             let cdir = cl / cdist;
             let ndl = dot(n, cdir);
             if (ndl >= 0.001) {
-                let att = min(1.0, 1.0 / (LIGHT_ATTEN_BASE + cd2 * LIGHT_ATTEN_QUADRATIC));
+                let att = light_atten(cd2);
                 let peak = att * ndl * cf.param.x;
                 if (display_step_levels(tw_peak(tw) * tw_peak(lit), tw_peak(tw) * peak) >= SHADOW_SKIP_LEVELS) {
                     if (shadowed(ep, cdir, cdist)) {
@@ -766,7 +864,7 @@ fn shade_specular(hp: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd:
         let ts = params.time * cf.param.w;
         for (var j = 0u; j < 3u; j = j + 1u) {
             let sl = campfire_sublight(cf, j, ts);
-            lit = add_point_light_raw(lit, hp, no_diffuse, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true);
+            lit = add_point_light_raw(lit, hp, no_diffuse, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true, campfire_light_radius(cf), campfire_steady_scale(cf, sl));
         }
     }
     return lit;

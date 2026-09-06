@@ -724,12 +724,12 @@ depth = 2.6
 texture = "stone_wall"
 texture_normal_bump = 0.01
 shininess = 64
-specular = 0.2
+specular = 0.4
 
 [[include]]
 file = 'campfire.toml'
-at = [-6.1, 1.5, 2.35]
-props = { brightness = 0.2, speed = 0.5, range = 5 }
+at = [-5.9, 1.5, 2.35]
+props = { brightness = 0.2, speed = 0.5, range = 7 }
 
 # [[light_flickering]] # open fire in the hearth
 # brightness = 0.35

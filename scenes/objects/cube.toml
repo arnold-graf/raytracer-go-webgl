@@ -5,6 +5,12 @@
 # floor_y is the walkable surface; pos is x/z in the room. Do not SnapToGround on
 # arrival — Manhattan's center tower roof sits above this point.
 
+[[sound]]
+at = [1.5, 1.35, 1.5]
+gain = 0.04
+radius = 20
+sound = "fan"
+
 [[point]]
 id = "cube_lab_1"
 pos = [1.5, 0.0, 1.5]
@@ -112,6 +118,7 @@ range = 50
 flicker = 0.5
 speed = 0.5
 seed = 0
+radius = 0.5
 lights = 3
 
 # Left wall (interior face +X)

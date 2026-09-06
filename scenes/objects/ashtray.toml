@@ -2,7 +2,6 @@
 [[box]]
 material = "diffuse"
 reflect = 0.5
-rough = 0.1
 albedo = [0.3, 0.3, 0.1]
 pos_x = 0.0
 pos_y = 0.0

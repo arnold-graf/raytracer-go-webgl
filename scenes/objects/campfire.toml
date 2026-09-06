@@ -25,7 +25,8 @@ range = 50.0
 flicker = 0.45
 speed = 1.0
 albedo = [0.34, 0.22, 0.14]
-reflect = 0.01
+specular = 0
+shininess = 0
 flame_ember = [2.2, 0.32, 0.04]
 flame_mid = [2.0, 0.85, 0.08]
 flame_tip = [1.6, 1.2, 0.14]
@@ -37,7 +38,7 @@ is_on = true
 
 # if is_on
 [[light_flickering]]
-center = [0.0, 0.5, 0.0]
+center = [0.0, 0.7, 0.0]
 color = [3.6, 1.7, 0.55]
 brightness = 'brightness'
 range = 'range'
@@ -45,6 +46,7 @@ jitter = 0.4
 flicker = 'flicker'
 speed = 'speed'
 lights = 3
+radius = 1
 flame = true
 flame_ember = 'flame_ember'
 flame_mid = 'flame_mid'
@@ -64,6 +66,9 @@ rotate_z = 67.0
 material = "diffuse"
 albedo = 'albedo'
 texture = "wood"
+use_range = 2.0
+specular = 'specular'
+shininess = 'shininess'
 on_use = 'toggle(is_on)'
 hint = "fire"
 
@@ -77,6 +82,8 @@ rotate_z = -40.0
 rotate_x = -14.0
 material = "diffuse"
 albedo = 'albedo'
+specular = 'specular'
+shininess = 'shininess'
 texture = "wood"
 
 [[cylinder]] # log (back-left)
@@ -88,6 +95,8 @@ height = 0.50
 rotate_x = 87.0
 rotate_y = 148.0
 rotate_z = 54.0
+specular = 'specular'
+shininess = 'shininess'
 material = "diffuse"
 albedo = 'albedo'
 texture = "wood"
@@ -102,5 +111,7 @@ rotate_x = -64.0
 rotate_y = -38.0
 rotate_z = -56.0
 material = "diffuse"
+specular = 'specular'
+shininess = 'shininess'
 albedo = 'albedo'
 texture = "wood"

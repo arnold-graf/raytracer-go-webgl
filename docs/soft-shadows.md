@@ -76,7 +76,12 @@ and soft to 14 px instead of the 5 px the samples could resolve.
 dispatches inside a compute pass see each other's storage writes), before AA
 classification so edge detection sees the softened result.
 
-It is **separable**: a horizontal pass then a vertical one, 21 taps each. That is
+It runs as **four dispatches**: `shadow_radius_h`, `shadow_radius_v`,
+`shadow_soften_h`, `shadow_soften_v`. The radius passes build the gather radius as
+a field; the soften passes smooth that field and gather the fraction with it. Why
+the radius needs a pass of its own is below, under "The radius must be a field".
+
+Each half is **separable**: a horizontal pass then a vertical one, 61 taps each. That is
 what makes the radius affordable. A disc needs four times the taps for twice the
 reach, so a single 2D pass could only pay for about 14 px — and a penumbra that
 should span 40 px, blurred over 14, still reads as a hard edge with a faint
@@ -276,6 +281,75 @@ Two accounting details that are easy to miss:
   sub-pixel that may have landed on darker geometry. That one produced isolated
   black pixels along exactly the high-contrast edges AA targets.
 
+## Handing the correction to the AA tap
+
+`aa_resolve` runs *after* both soften passes and overwrites the softened pixel
+with `(center + tap) / 2`, where the tap is a freshly traced sub-pixel carrying a
+**hard** shadow. It therefore has to be given the same treatment as the centre,
+or AA puts a hard edge straight back into the pixels the filter just smoothed.
+
+The trap is what "the same treatment" means. The first version added the centre's
+finished **radiance delta** to the tap. That is wrong exactly where it is used:
+AA fires when a sub-pixel lands on *different geometry* — that is the definition
+of the edge it is resolving — so the correction pushed the centre's surface,
+albedo and lighting onto a sample that might be on another step of a staircase
+altogether. On the atrium stairs, where every shadow edge crosses a step nosing,
+this read as the softening being undone: ragged, re-hardened shadow borders,
+visible only with AA on.
+
+The fix is to hand over the filter's **conclusion** rather than its arithmetic.
+The conclusion is a target visibility — "a pixel here should be blocking this
+fraction of its light". It is a property of the neighbourhood, it is smooth by
+construction, and it therefore transfers one sub-pixel over. So `shadow_soften_v`
+stores `mix(me.frac, frac_soft, fade)` in the `frac` slot instead of the delta,
+and the tap evaluates the correction against its **own** occlusion and its **own**
+unoccluded light, both of which `ray_color` already computed and used to discard:
+
+```wgsl
+extra = max(extra + (res.sh.frac - aux.frac) * min(res.sh.full, aux.full), vec3(0.0));
+```
+
+**Scaled by the lesser of the two unoccluded lights, not the tap's own.** The
+target fraction is a statement about the *centre's* neighbourhood, so the
+correction it licenses is bounded by the light the centre actually has. Scaling by
+the tap's own light unbounded put bright specks along every high-contrast
+silhouette: AA fires precisely where the tap lands on different geometry, and a
+tap that is fully blocked (frac 1) beside a centre that is lit (target 0) then
+receives `+1 x its own full light` — un-shadowing a bright surface in a single
+pixel. Against an open fire that is a white dot on the edge of the geometry.
+
+The alternative — refusing to correct a tap that fails a same-surface test —
+removes the specks equally well and throws the whole fix away with them, because
+different-geometry taps are the entire reason this correction exists. Measured on
+the fireplace frame and the stair frame together:
+
+| | isolated bright px | stair deviation from no-AA |
+|---|---|---|
+| previous correction | 41 | 0.925 |
+| tap's own light | 63 | 0.571 |
+| same-surface gate | 41 | 0.923 |
+| **lesser of the two** | **40** | **0.784** |
+
+`soft_applied` flags whether the vertical pass actually wrote a target, because
+an untouched pixel's `frac` still looks like one, and correcting a tap the filter
+never touched is its own artifact.
+
+Measured on the stair frame: the AA image's mean distance from the no-AA
+(purely softened) reference over the stair-shadow region falls from **0.92 to
+0.57 display levels**, a 38% reduction, and the non-AA path is unchanged — one
+pixel of 540,000 differs by one level, from `mix()` reassociating an FMA. Those
+pixel numbers stand; the "cost identical" figure originally reported alongside
+them does not, for the reason below.
+
+**Why not just reorder the passes?** Running AA before the soften passes would
+make softening uniform and unconditional. It does not work as-is: `aa_resolve`
+writes only the display buffer, not `hdr_pixels`, so the soften pass would build
+on the un-antialiased value and discard AA's work. Making AA write `hdr_pixels`
+too is a viable alternative design, but it also feeds hard-shadow edges into
+`analyze_edge`, which classifies partly on luminance — AA would then spend its
+budget antialiasing shadow edges that the filter is about to turn into gradients
+anyway.
+
 ## Tested and ruled out: any-hit vs nearest blocker
 
 `w_pen = r*t/(ldist-t)` is monotonic in `t_block`, and `t_block` comes from an
@@ -398,16 +472,25 @@ soft  226   223   217   203 | 172   130    80    44    29
 
 ## Limitations
 
-- **`PENUMBRA_LIGHT_RADIUS` is a global constant (0.35 m), not per light.**
-  Adding a `radius` to `[[light]]` is the natural follow-up and is exactly what
-  this constant would be replaced by.
+- **`PENUMBRA_LIGHT_RADIUS` (0.05 m) is only the *default*.** It applies to
+  lights that do not declare a size of their own; `radius` on `[[light]]` and on
+  `[[light_flickering]]` overrides it per source. It remains the knob for overall
+  softness — see "Tuning softness" below.
+
+  A caution when authoring: `radius` was long documented as "informational, not
+  used by the renderer", so several scenes carry values chosen for other reasons
+  — `art-deco-uplight.toml` says 0.5, ten times the default, and
+  `exit-button.toml` says 2. Those are now real emitter sizes and cast very wide
+  penumbrae. Penumbra width is linear in the number, so a lamp whose shadow looks
+  washed out is usually a lamp whose radius is describing its shade rather than
+  its bulb.
 - **Screen-space, so it only knows about what is on screen.** An occluder outside
   the frustum still casts a correct hard shadow — the ray tracing is unchanged —
   but its penumbra cannot widen from off-screen neighbours.
-- **`SHADOW_SOFTEN_MAX_PX` (10 px) is an artistic limit, not a physical one.**
+- **`SHADOW_SOFTEN_MAX_PX` (30 px) is an artistic limit, not a physical one.**
   The true penumbra of a 0.35 m-radius light with the occluder near it runs to
   40 px and beyond, and drawing it in full dissolves small shadows entirely —
-  correct for a light that size, but it reads as washed out. 10 px keeps a dark
+  correct for a light that size, but it reads as washed out. 30 px keeps a dark
   core under a broad gradient. Raising it softens everything and eventually
   erases small umbrae; lowering it brings back visible hard edges. This and
   `PENUMBRA_LIGHT_RADIUS` are the two knobs worth turning if the look is off.
@@ -422,6 +505,131 @@ soft  226   223   217   203 | 172   130    80    44    29
   casting crossing shadows are indistinguishable in the record, so they share a
   radius. Differently coloured ones separate for free, which is a happy accident
   of the representation rather than a design.
+
+## Tuning softness
+
+**`PENUMBRA_LIGHT_RADIUS` in `shade.wesl` is the knob**, and the shader relinks
+from the modules at startup, so editing it needs no Go rebuild. Penumbra width is
+linear in it.
+
+It is the right knob rather than `SHADOW_SOFTEN_MAX_PX` because lowering it does
+two things at once: shadows get tighter, *and* the contact-hardening gradient
+gets more legible, because more of the width range lands below `shadow_radius()`'s
+knee where it is reproduced faithfully instead of compressed. Measured on one
+office frame, over the wall a cone lamp casts onto — "spread" is the ratio of
+gather radius between the near and far ends of that single shadow, so 1.00x means
+the whole shadow is blurred identically:
+
+| radius | median blur | spread |
+|---|---|---|
+| 0.35 | 27 px | 1.10x |
+| 0.15 | 23 | 1.22x |
+| **0.05** | **16** | **1.52x** |
+| 0.03 | 12 | 1.72x |
+| 0.02 | 9 | 1.90x |
+
+## Width is compressed, never clipped
+
+`min(pen, MAX)` is the obvious way to bound the gather radius and it destroys the
+effect it is bounding. Real penumbrae far exceed any affordable cap: on that same
+office frame the median blocked pixel wanted **164 px** of penumbra and **85%
+wanted more than the 10 px cap** that used to be here, so nearly every shadow in
+the frame clamped to the same radius. Contact hardening was computed correctly
+and then thrown away — a cone lamp whose shadow genuinely runs from ~20 px of
+penumbra near the shade to ~250 px across the room was drawn with one uniform
+blur, end to end, and reported as "uniformly blurred".
+
+`shadow_radius()` is the same problem as tonemapping radiance and takes the same
+answer: identity below a knee, then a shoulder that compresses instead of
+clipping. The hyperbola has slope 1 at the knee so the join is smooth, and
+approaches `MAX` without reaching it, so two very wide penumbrae still order
+correctly instead of collapsing onto one value. Below `SHADOW_SOFTEN_KNEE_PX`
+(4 px) the width is exact, which is the range contact hardening lives in — an
+occluder touching a surface must stay a hard edge.
+
+Widening the cap to make room is not free, though it is cheap for what it buys:
+10 -> 30 px with the tap count tripled to match (21 -> 61) costs **0.7 ms of 9.5**
+on the server room, isolated by reverting just those two constants.
+
+An earlier revision of this document claimed it measured *identically*. That was
+wrong, and the way it was wrong is worth recording — see "Measuring a shader
+change" below.
+
+## The radius must be a field, and a smooth one
+
+Each pixel gathers with a single radius, taken as a **maximum** over the
+neighbours whose own penumbra reaches it. A maximum is a dilation: it produces a
+plateau at the full width across a shadow's footprint, then drops to the local
+value in a single pixel at the rim.
+
+That cliff is invisible on the shadow that *produced* it — the gather's parabola
+weight is already zero out there, which is why the reach gate looked safe. It is
+very visible on any **other** shadow crossing the same rim. Wherever a soft and a
+hard shadow share a surface, the wide one imposes its radius on the narrow one
+everywhere it reaches, and at the rim the narrow shadow snaps back to being
+blurred at its own width. The result is a seam along an invisible line, reported
+as "the edge of the blur filter between them".
+
+Instrumenting the radius on the reported frame shows it directly — adjacent
+samples 20 px apart, on one flat wall:
+
+```
+y234:  5.9  7.5 13.6 13.6 13.6  5.9  5.7  5.7  5.7  5.2 ...
+y252:  7.1  7.1 12.7 12.7 12.7 12.7 12.7  5.7  5.7  5.4 ...
+```
+
+The fix is to **blur the radius after the maximum**. A blur leaves the interior of
+a plateau untouched, so pixels beside a shadow keep the full width and the
+exchange between the two sides stays symmetric — this is what a distance taper
+cannot do, and why tapering erodes umbrae. Only the rim becomes a gradient.
+
+That requires the radius to exist everywhere *before* any fraction is blurred,
+which is why the filter is four passes rather than two. It also removes a smaller
+inconsistency in the old form, where the row gather used a row-only radius while
+the column gather used the full 2D one. `ShadowAux` stays at 64 bytes by reusing
+fields as they die: `pen_px` is spent once `radius_h` has read it, so `radius_v`
+parks the 2D maximum there; `r_h` is spent once `radius_v` has read it, so
+`soften_h` parks the smoothed radius there for `soften_v`. No pass writes a field
+another invocation of that same pass reads.
+
+**The smoothing reach is proportional to the radius being smoothed.** A fixed
+reach wider than the plateau averages it with the zeros around it and shrinks it:
+at a fixed 9 px, every small penumbra in the contact test fell under the 1 px
+cutoff and the scene came back with hard shadows. Scaling the reach to the local
+radius leaves small features intact and still spreads the large steps.
+
+Measured on the reported frame, over the seam region: the worst second difference
+falls from **13.4 to 5.6** display levels, against 29.0 for the unfiltered
+reference. The contact-hardening scene moves by 1.7% of pixels; a fixed reach
+moved 3.2% and looked worse. Cost is **+0.5 ms of 9.0** on the server room, and
+nothing measurable on the villa.
+
+**What this does not fix.** Two shadows of different softness still share one
+radius wherever their footprints overlap — the seam is now a gradient rather than
+a step, not a per-source result. Getting that right needs per-source filtering,
+which "One occlusion channel, and why two failed" above records as tried and
+reverted for an unrelated reason.
+
+## Measuring a shader change
+
+**A/B by swapping `modules/*.wesl` and relinking. Swapping `trace_linked.wgsl`
+does nothing.** `readLinkedIfCurrent` hashes the modules and compares that to a
+stamp inside the linked file; on any mismatch it re-runs `link.sh` and uses the
+regenerated output. Timestamps are not consulted, so `touch` does not help, and
+neither does building two binaries — the shader is read from disk at run time.
+
+This invalidated several timings in an earlier revision of this document. The
+failure is silent and it always fails the same way: both arms of the A/B run
+whatever the modules currently say, so the answer comes back "no difference",
+which is exactly the result that gets believed and shipped. Grepping the linked
+file is not a check — it passes right up until the renderer overwrites it. The
+only reliable check is that the two arms produce *different pixels*; if a change
+you know is visible reports zero pixels differing, the swap did not take.
+
+Second, **close the game before measuring**. A running instance contends for the
+GPU and inflates times by 30-80% unpredictably; one sweep here reported a 52%
+regression that dropped to 3% once the window was closed. Interleave the arms and
+take best-of-N regardless.
 
 ## Testing
 

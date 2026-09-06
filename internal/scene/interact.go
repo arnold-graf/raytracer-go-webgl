@@ -11,17 +11,17 @@ const (
 
 // Interactable is a world-space use target bound to scene geometry or a light.
 type Interactable struct {
-	Hint       string
-	Handler    string
-	Range      float64 // max ray distance (metres) from the camera
+	Hint        string
+	Handler     string
+	Range       float64 // max ray distance (metres) from the camera
 	BoxIndex    int     // index into Scene.Boxes; set by PickInteractable
 	SphereIndex int     // index into Scene.Spheres; set by PickInteractable
 	LightIndex  int     // index into Scene.Lights; set by PickInteractable
-	DoorID     string  // links handler "door" to a [[door]] id
-	DocumentID string  // links handler "document" to a [[document]] id
-	ScreenID   string  // links handler "screen" to a [[screen]] id
-	StateAction string // state mutation expression when Handler == "state"
-	index      int     // index in Scene.Interactables; set by RegisterInteractable
+	DoorID      string  // links handler "door" to a [[door]] id
+	DocumentID  string  // links handler "document" to a [[document]] id
+	ScreenID    string  // links handler "screen" to a [[screen]] id
+	StateAction string  // state mutation expression when Handler == "state"
+	index       int     // index in Scene.Interactables; set by RegisterInteractable
 }
 
 // Index returns this interactable's index in Scene.Interactables.
@@ -256,8 +256,10 @@ func interactLightHit(l *Light, ray vec.Ray) float64 {
 	if l == nil {
 		return Inf
 	}
+	// A floor, not an override: Radius is the emitter's physical size and can be
+	// centimetres, which is not something a player can aim at.
 	r := l.Radius
-	if r <= 0 {
+	if r < defaultLightPickRadius {
 		r = defaultLightPickRadius
 	}
 	r += interactPickMargin

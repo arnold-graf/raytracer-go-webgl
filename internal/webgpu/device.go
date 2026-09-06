@@ -102,6 +102,8 @@ type Renderer struct {
 	pipeline           *wgpu.ComputePipeline
 	aaClassifyPipeline *wgpu.ComputePipeline
 	aaPipeline         *wgpu.ComputePipeline
+	shadowRadiusH      *wgpu.ComputePipeline
+	shadowRadiusV      *wgpu.ComputePipeline
 	shadowPipelineH    *wgpu.ComputePipeline
 	shadowPipelineV    *wgpu.ComputePipeline
 	bind               *wgpu.BindGroup
@@ -908,6 +910,29 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 		return fmt.Errorf("create aa resolve pipeline: %w", err)
 	}
 
+	shadowRadiusH, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
+		Label:   "shadow radius pipeline (horizontal)",
+		Layout:  r.pipeLayout,
+		Compute: wgpu.ProgrammableStageDescriptor{Module: shader, EntryPoint: "shadow_radius_h"},
+	})
+	if err != nil {
+		pipeline.Release()
+		aaClassifyPipeline.Release()
+		aaPipeline.Release()
+		return fmt.Errorf("create shadow radius h pipeline: %w", err)
+	}
+	shadowRadiusV, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
+		Label:   "shadow radius pipeline (vertical)",
+		Layout:  r.pipeLayout,
+		Compute: wgpu.ProgrammableStageDescriptor{Module: shader, EntryPoint: "shadow_radius_v"},
+	})
+	if err != nil {
+		pipeline.Release()
+		aaClassifyPipeline.Release()
+		aaPipeline.Release()
+		shadowRadiusH.Release()
+		return fmt.Errorf("create shadow radius v pipeline: %w", err)
+	}
 	shadowPipelineH, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
 		Label:   "shadow soften pipeline (horizontal)",
 		Layout:  r.pipeLayout,
@@ -917,6 +942,8 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 		pipeline.Release()
 		aaClassifyPipeline.Release()
 		aaPipeline.Release()
+		shadowRadiusH.Release()
+		shadowRadiusV.Release()
 		return fmt.Errorf("create shadow soften h pipeline: %w", err)
 	}
 	shadowPipelineV, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
@@ -928,6 +955,8 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 		pipeline.Release()
 		aaClassifyPipeline.Release()
 		aaPipeline.Release()
+		shadowRadiusH.Release()
+		shadowRadiusV.Release()
 		shadowPipelineH.Release()
 		return fmt.Errorf("create shadow soften v pipeline: %w", err)
 	}
@@ -941,6 +970,12 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 	if r.aaPipeline != nil {
 		r.aaPipeline.Release()
 	}
+	if r.shadowRadiusH != nil {
+		r.shadowRadiusH.Release()
+	}
+	if r.shadowRadiusV != nil {
+		r.shadowRadiusV.Release()
+	}
 	if r.shadowPipelineH != nil {
 		r.shadowPipelineH.Release()
 	}
@@ -948,6 +983,7 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 		r.shadowPipelineV.Release()
 	}
 	r.pipeline, r.aaClassifyPipeline, r.aaPipeline = pipeline, aaClassifyPipeline, aaPipeline
+	r.shadowRadiusH, r.shadowRadiusV = shadowRadiusH, shadowRadiusV
 	r.shadowPipelineH, r.shadowPipelineV = shadowPipelineH, shadowPipelineV
 	r.feat, r.featValid = f, true
 	return nil
@@ -1250,9 +1286,15 @@ func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveA
 		// each other's storage writes. Ordered before AA classification so edge
 		// detection sees the softened shadow rather than the hard one it
 		// replaces.
-		// Separable: rows then columns. Consecutive dispatches inside a compute
-		// pass see each other's storage writes, so the vertical half reads what
-		// the horizontal half just wrote.
+		// Four dispatches, separable in pairs: the radius field is built (rows
+		// then columns) before any fraction is blurred, because the gather needs
+		// a radius that already exists everywhere and is smooth. Consecutive
+		// dispatches inside one compute pass see each other's storage writes, so
+		// each half reads what the previous one wrote.
+		pass.SetPipeline(r.shadowRadiusH)
+		pass.DispatchWorkgroups(gx, gy, 1)
+		pass.SetPipeline(r.shadowRadiusV)
+		pass.DispatchWorkgroups(gx, gy, 1)
 		pass.SetPipeline(r.shadowPipelineH)
 		pass.DispatchWorkgroups(gx, gy, 1)
 		pass.SetPipeline(r.shadowPipelineV)
@@ -1626,6 +1668,12 @@ func (r *Renderer) Release() {
 	}
 	if r.aaPipeline != nil {
 		r.aaPipeline.Release()
+	}
+	if r.shadowRadiusH != nil {
+		r.shadowRadiusH.Release()
+	}
+	if r.shadowRadiusV != nil {
+		r.shadowRadiusV.Release()
 	}
 	if r.shadowPipelineH != nil {
 		r.shadowPipelineH.Release()

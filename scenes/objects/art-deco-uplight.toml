@@ -74,5 +74,5 @@ pos = [0, 'stem_len + 0.5', 0]
 brightness = 'brightness'
 interactive = true
 range = 'range'
-radius = 0.5
+radius = 0.01
 

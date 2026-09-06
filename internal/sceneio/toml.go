@@ -375,6 +375,7 @@ type lightFlickeringDTO struct {
 	Flicker    float64 `toml:"flicker"`
 	Speed      float64 `toml:"speed"`
 	Seed       float64 `toml:"seed"`
+	Radius     float64 `toml:"radius"`
 	Lights     int     `toml:"lights"`
 	Flame      *bool   `toml:"flame"`
 	FlameEmber *vec3   `toml:"flame_ember"`
@@ -425,6 +426,7 @@ func (d lightFlickeringDTO) build() scene.Campfire {
 		Flicker:    d.Flicker,
 		Speed:      d.Speed,
 		Seed:       d.Seed,
+		Radius:     d.Radius,
 		Lights:     d.Lights,
 	}
 	if d.Flame != nil {
