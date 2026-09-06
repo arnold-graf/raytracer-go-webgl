@@ -610,6 +610,39 @@ a step, not a per-source result. Getting that right needs per-source filtering,
 which "One occlusion channel, and why two failed" above records as tried and
 reverted for an unrelated reason.
 
+## Tried and reverted: a per-band radius
+
+The single shared gather radius is the acknowledged limitation behind several
+artifacts, so it was worth building the obvious fix properly: split blocked
+lights into bands by penumbra width, give each band its own radius, filter them
+independently and sum the corrections.
+
+It was built and it works. The split is per *light*, so the bands partition the
+deficit exactly at every pixel — a real partition of unity, which is what the
+earlier two-channel attempt lacked. Membership is a smooth function of width, so
+a light drifting across a boundary is shared rather than jumping. One gather
+serves every band, with taps placed at the widest band's radius and each band
+weighting them against its own, so the tap count does not multiply.
+
+**It is still worse, and the reason generalises.** Each band gets its own radius
+field, and each radius field has its own footprint boundary where the dilation
+runs out. Those boundaries do not coincide. One shared radius draws one seam; N
+bands draw N seams. Measured against the single-band build on the same frames:
+
+| | single band | 3 bands |
+|---|---|---|
+| seam, worst 2nd difference | 5.4 | **12.1** |
+| fireplace isolated bright px | 41 | **53** |
+
+The seam metric lands back where it was before any of the seam work. Two bands
+were tried first and sat between the two, at 274% against 285% on the hardening
+case that motivated it — no separation of the widths that actually collided.
+
+So the shared radius is a real limitation, but per-band radii is not the fix for
+it: the artifact it produces scales with the number of bands. A fix would have to
+avoid introducing new radius discontinuities, not just reduce how much each one
+matters.
+
 ## Measuring a shader change
 
 **A/B by swapping `modules/*.wesl` and relinking. Swapping `trace_linked.wgsl`
