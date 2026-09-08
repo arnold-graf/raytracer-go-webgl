@@ -3,7 +3,7 @@
 // evaluates point lights and flickering campfires, samples baked ambient
 // occlusion, and assembles direct diffuse lighting (shade_diffuse).
 
-import package::types::{CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_KNEE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_SKIP_LEVELS, ShadowAux, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
+import package::types::{CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_KNEE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_SKIP_LEVELS, SHADOW_WIDTH_FLOOR, SHADOW_WIDTH_MEAN_POWER, ShadowAux, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
 import package::profile::{PROF_SHADOW_BLOCK, PROF_SHADOW_RAYS, prof_inc};
 import package::math::{display_step_levels, mix3, perlin, smoothstepf};
 import package::texture::{texture_eval};
@@ -397,14 +397,36 @@ fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, de
     // flame's rate. Measured on the server-room frame, that alone moved the
     // radius on 26.6% of filtered pixels, by up to 5.7 px.
     let weight = shadow_luma(total) * weight_scale;
-    sh_pen_sum = sh_pen_sum + pen * weight;
+    // Combined as a contribution-weighted *power* mean with a negative exponent,
+    // not an arithmetic one.
+    //
+    // Several lights blocked at one point have to agree on a single width, and
+    // the average chosen decides what the surface looks like. An arithmetic mean
+    // is the wrong one: superimpose a hard step on a soft ramp and the result
+    // reads hard — the sharpest component dominates what the eye sees — but the
+    // arithmetic mean smears it. A contact shadow at 0.5 px crossing a broad one
+    // at 60 averages to 30, and the contact edge is gone. That is the "contact
+    // shadows are uniformly soft" report, and it is why every attempt to fix it
+    // by splitting the deficit into per-width bands was solving the wrong
+    // problem: the goal was only ever to avoid taking this average.
+    //
+    // A negative exponent lets the tightest blocked light pull the result toward
+    // itself, in proportion to how much light it actually blocks, so a negligible
+    // sliver cannot harden everything. SHADOW_WIDTH_MEAN_POWER = -1 cancels back
+    // to the arithmetic mean exactly, 1 is the harmonic mean, and large values
+    // approach the minimum.
+    //
+    // It is also structurally incapable of inventing edges, unlike every banded
+    // scheme: there is one signal filtered at one radius, so there is no
+    // partition whose parts can fail to recombine.
+    sh_pen_sum = sh_pen_sum + weight / pow(max(pen, SHADOW_WIDTH_FLOOR), SHADOW_WIDTH_MEAN_POWER);
     sh_pen_w = sh_pen_w + weight;
 }
 
 fn shadow_aux_snapshot(tw: vec3<f32>, n: vec3<f32>, depth: f32) -> ShadowAux {
     var pen = 0.0;
-    if (sh_pen_w > 0.0) {
-        pen = sh_pen_sum / sh_pen_w;
+    if (sh_pen_w > 0.0 && sh_pen_sum > 0.0) {
+        pen = pow(sh_pen_w / sh_pen_sum, 1.0 / SHADOW_WIDTH_MEAN_POWER);
     }
     // The fraction needs no scaling at all — tw and AO are in both sums.
     let frac = sh_deficit / max(sh_full, vec3<f32>(PENUMBRA_EPS, PENUMBRA_EPS, PENUMBRA_EPS));

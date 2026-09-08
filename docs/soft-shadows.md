@@ -528,6 +528,14 @@ the whole shadow is blurred identically:
 | 0.03 | 12 | 1.72x |
 | 0.02 | 9 | 1.90x |
 
+There is a second knob with a related effect and a different mechanism.
+`PENUMBRA_LIGHT_RADIUS` sets how wide *one* light's penumbra is;
+**`SHADOW_WIDTH_MEAN_POWER` in `types.wesl`** sets how *several* blocked lights
+agree on a width where their shadows overlap, which is what decides whether a
+contact shadow survives crossing a broad one. Lowering the first softens
+everything; raising the second lets the sharpest survive. See
+[the average, not the partition](#the-fix-was-the-average-not-the-partition).
+
 ## Width is compressed, never clipped
 
 `min(pen, MAX)` is the obvious way to bound the gather radius and it destroys the
@@ -642,6 +650,134 @@ So the shared radius is a real limitation, but per-band radii is not the fix for
 it: the artifact it produces scales with the number of bands. A fix would have to
 avoid introducing new radius discontinuities, not just reduce how much each one
 matters.
+
+The fix turned out not to need a partition at all — see
+[the next section](#the-fix-was-the-average-not-the-partition). Keeping one
+radius field and changing *how the lights average into it* buys the contact
+hardening the bands were built for, and cannot introduce a discontinuity because
+it never splits anything.
+
+## The fix was the average, not the partition
+
+Every banded attempt above was solving the wrong problem. The question is not
+*how do we filter several shadows of different widths separately* — it is *what
+single width do several blocked lights agree on*, and the answer had been
+hard-coded to the arithmetic mean since the first version:
+
+```wgsl
+sh_pen_sum = sh_pen_sum + pen * weight;   // weight = the light's blocked luma
+...
+pen = sh_pen_sum / sh_pen_w;
+```
+
+An arithmetic mean is the wrong average for sharpness. Superimpose a hard step on
+a soft ramp and the result reads *hard* — the eye takes its cue from the sharpest
+component present. The arithmetic mean does the opposite: a contact shadow at
+0.5 px crossing a broad one at 60 averages to 30, and the contact edge is gone.
+That is precisely the "the shadow near the lampshade should be hard, but it is
+uniformly soft" report, and it is why splitting the deficit into per-width bands
+kept failing — the bands were an elaborate way to avoid taking an average that
+simply should not have been an arithmetic one.
+
+The replacement is a contribution-weighted **power mean with a negative
+exponent**:
+
+```wgsl
+sh_pen_sum = sh_pen_sum + weight / pow(max(pen, SHADOW_WIDTH_FLOOR), P);
+...
+pen = pow(sh_pen_w / sh_pen_sum, 1.0 / P);
+```
+
+The tightest blocked light pulls the result toward itself, in proportion to how
+much light it actually blocks, so a negligible sliver of contact shadow cannot
+harden a whole wall. `P = -1` cancels back to `sum(w*pen)/sum(w)` — the previous
+behaviour is one setting of the knob, and reproducing it was the first check:
+against the old build it differs by **48 bytes of 2.16 MB**, all of them the new
+width floor acting on sub-0.25 px penumbrae.
+
+**It cannot invent edges.** That is structural, not a tuning result. The
+invented-edge residual of the banded schemes has the form `1/4 * lap(f0) *
+(r0^2 - r1^2)`, which requires two radii; here there is one signal filtered at
+one radius, so there is no partition whose parts can fail to recombine. The
+flat-wall check that read 46.9 and 36.5 for the banded builds, against a true
+swing of 6.0, reads **6.0**.
+
+### What it measures
+
+On the front-office uplight frame, bucketing pixels by the width their geometry
+asks for:
+
+| | arithmetic | harmonic |
+|---|---|---|
+| median width asked for | 75.0 px | 48.0 px |
+| pixels asking for < 4 px | 40 | **6576** |
+| pixels asking for < 8 px | 2814 | **16085** |
+| pixels asking for < 16 px | 2840 | **22118** |
+
+And on the sunlight shaft in the same frame, as a row-averaged cross-section in
+linear radiance: the **peak slope of the near edge rises 2.12x** while both
+plateaus stay put (0.4718 lit, 0.2825 shadowed, in both builds). The shaft's far
+edge is unchanged. One edge of it is near its occluder and one is far, and only
+the near one hardened — which is the whole point.
+
+The exponent sweep, on that same edge:
+
+| `SHADOW_WIDTH_MEAN_POWER` | peak slope | vs arithmetic |
+|---|---|---|
+| -1.0 (arithmetic) | 0.01404 | 1.00x |
+| 0.25 | 0.02751 | 1.96x |
+| 0.5 | 0.02821 | 2.01x |
+| **1.0 (harmonic, shipped)** | **0.02973** | **2.12x** |
+| 2.0 | 0.03078 | 2.19x |
+| 4.0 | 0.02991 | 2.13x |
+| 8.0 | 0.02968 | 2.11x |
+
+Nearly all of the gain is in leaving the arithmetic mean at all, and the curve is
+flat from 0.25 upward. 1.0 is chosen for sitting mid-plateau, not for topping the
+table: the far end trades toward "sharpest wins outright", which is the setting
+most likely to under-filter a broad shadow where a tight one crosses it.
+
+Cost is below the measurement floor — interleaved best-of-5 on the seam frame at
+640x400, machine quiet: **14.9 ms harmonic against 15.1 ms arithmetic**, means
+15.14 against 15.18.
+
+### The case it had to survive
+
+The obvious way for a sharpest-wins average to fail is a pixel deep inside a
+*tight* shadow's umbra that also lies inside a *broad* shadow's penumbra. It now
+gets filtered at the tight width, which could leave the broad shadow's raw
+stair-stepped edge showing where the two cross.
+
+`cross.toml` forces it: a low light behind a short post throws a hard-contact
+shadow straight through the broad penumbra a high bar casts from a second light.
+The streak stays defined through the band, the band's own gradient stays smooth,
+and no new edge appears at the crossing. The arithmetic build dissolves the
+streak where it enters the band.
+
+Regressions checked and clean: the AA/stairs frame (2.9% of pixels touched, no
+speckle), the fireplace (log contact shadows gained definition, no isolated
+bright pixels), and flicker stability across `-time 0.0/0.7/1.4`, where the
+frame-to-frame Dirichlet energy varies by 0.007% — the same as before.
+
+### A metric that lied, again
+
+The first attempt to measure this used a 10-90% edge width, and reported the
+harmonic build's edges as **5 px wider**. It was wrong, and wrong in a way worth
+recording: the tool has to decide *which* transition to measure, and what
+changed is that one smeared ramp resolved into two distinct edges. It then
+compared different features in the two builds.
+
+Total variation cannot see a sharpening at all — it is exactly invariant to how
+wide a monotone ramp is spread. Whole-frame Dirichlet energy can, but on these
+frames it is swamped by dither: it moved 2% where the visible change was
+dramatic. What worked was a **row-averaged cross-section**, which cancels the
+dither, read as peak slope with the plateaus reported alongside so a gain bought
+by washing out contrast would be visible rather than hidden.
+
+That is the third invalid metric in this work, after "contact hardness retained"
+(which selected sharp edges in the unfiltered render, where every edge is sharp)
+and the seam second-difference (which rewards a washed-out smear). The pattern is
+the same each time: a statistic that scores the *image* rather than the *claim*.
 
 ## Measuring a shader change
 

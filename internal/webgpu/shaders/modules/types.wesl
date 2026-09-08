@@ -14,7 +14,7 @@ struct Params {
     blocker_bvh_node_count: u32,
     terrain_count: u32,
     water_count: u32,
-	time: f32,
+    time: f32,
     max_bounce_depth: u32,
     aspect: f32,
     fov_scale: f32,
@@ -55,7 +55,7 @@ struct Params {
     inst_node_count: u32,
     blocker_section_start: u32,
     blocker_inst_base: u32,
-	blocker_inst_count: u32,
+    blocker_inst_count: u32,
     profile_enabled: u32,
     // Lengths of the two plane-index lists inside idx_tables, so the tracer
     // iterates only planes instead of scanning every primitive.
@@ -375,7 +375,6 @@ struct ShadowAux {
     soft_applied: f32,
 };
 
-
 @group(0) @binding(18)
 var<storage, read_write> shadow_aux: array<ShadowAux>;
 
@@ -414,6 +413,32 @@ var<storage, read> idx_tables: array<u32>;
 //
 // True costs a full traversal with no early exit on every shadow ray.
 const SHADOW_NEAREST_BLOCKER: bool = false;
+
+// How several blocked lights' penumbra widths combine at one point, as the
+// *negated* exponent of a contribution-weighted power mean (see shadow_aux_note).
+// The accumulator sums w/pen^P and inverts with a 1/P power, so this constant is
+// P and the mean it produces is the power mean of exponent -P:
+//
+//   -1   -> arithmetic mean; the widest shadow smears the sharpest away.
+//           This is what shipped before, and it is reproduced exactly: at -1 the
+//           two expressions cancel to sum(w*pen)/sum(w).
+//    0   -> geometric mean. Not a usable setting -- 1/P divides by zero -- but
+//           it is the limit the small values approach, not the arithmetic mean.
+//    1   -> harmonic mean; a contact shadow keeps its edge through a broad one.
+//   inf  -> the minimum; the sharpest blocked light wins outright.
+//
+// Measured on the front-office uplight frame, as the peak slope of the sunlight
+// shaft's near (contact) edge, which is 1.00x at -1: 1.96x at 0.25, 2.01x at
+// 0.5, 2.12x at 1, 2.19x at 2, 2.13x at 4, 2.11x at 8. Nearly all of the gain is
+// in leaving the arithmetic mean at all, and the curve is flat from 0.25 up, so
+// 1 is chosen for sitting in the middle of that plateau rather than for being
+// its maximum -- the far end trades toward "sharpest wins", which is the setting
+// most likely to under-filter a broad shadow where a tight one crosses it.
+const SHADOW_WIDTH_MEAN_POWER: f32 = 1.0;
+
+// Widths below this count as zero, so a true contact shadow lands on a hard edge
+// instead of dividing by something near zero.
+const SHADOW_WIDTH_FLOOR: f32 = 0.25;
 
 const BVH_TAG_TLAS: u32 = 1u;
 
