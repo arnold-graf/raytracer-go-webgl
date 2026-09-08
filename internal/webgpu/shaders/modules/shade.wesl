@@ -224,9 +224,26 @@ fn normal_at(p: Prim, hp: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
     return torus_normal(p, hp);
 }
 
-// PENUMBRA_LIGHT_RADIUS is the world-space radius every point light is assumed
-// to have when sizing its penumbra. A true point light casts a geometrically
-// hard shadow at any distance, which is what makes CG shadows read as CG.
+// PENUMBRA_LIGHT_RADIUS is the size an *undeclared* light is assumed to have, at
+// PENUMBRA_LIGHT_REF_DIST away. A true point light casts a geometrically hard
+// shadow at any distance, which is what makes CG shadows read as CG.
+//
+// It is an angle, not a length. A fixed length is wrong in a way that only shows
+// up at range: 5 cm is a fair guess for a lamp three metres off, and the same
+// 5 cm on a moon 230 units away is a point source, so every shadow it casts is
+// razor hard. That is what made a night scene read as harsh — the sun that had
+// been carrying the frame was gone, and what remained were distant lights all
+// modelled as pinpricks. The scene even drew a moon sphere of radius 30 beside a
+// light modelled at 0.05, a 600x mismatch.
+//
+// Resolving it as `RADIUS * ldist / REF_DIST` makes the assumption "this light
+// subtends about this angle", which is what an unspecified source really is.
+// Penumbra width then works out at roughly `angle * blocker_distance`,
+// independent of how far the light is — the physically right behaviour, and the
+// reason a real overcast sky softens everything while a real bare bulb does not.
+//
+// A scene that declares `radius` on the light overrides this entirely, in world
+// units; see packLight in scene.go.
 //
 // ---- This is the knob for overall shadow softness. ----
 //
@@ -253,6 +270,12 @@ fn normal_at(p: Prim, hp: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
 // but nothing writes it yet. See packLight in scene.go for why scene.Light.Radius
 // is not it.
 const PENUMBRA_LIGHT_RADIUS: f32 = 0.05;
+
+// The distance at which PENUMBRA_LIGHT_RADIUS is taken literally. Together they
+// define the assumed half-angle: 0.05 / 3.0 is about one degree, close to what
+// the sun and moon actually subtend. Lights nearer than this get a smaller
+// source and sharper shadows, further ones a larger source and softer shadows.
+const PENUMBRA_LIGHT_REF_DIST: f32 = 3.0;
 
 const PENUMBRA_EPS: f32 = 1e-3;
 
@@ -301,11 +324,10 @@ fn campfire_steady_scale(cf: CampfireParams, sl: CampfireSample) -> f32 {
     return cf.param.x / max(sl.intensity, PENUMBRA_EPS);
 }
 
+// 0 means the scene declared no size, which shadow_aux_note resolves from
+// distance rather than substituting a fixed one.
 fn campfire_light_radius(cf: CampfireParams) -> f32 {
-    if (cf.phase.w > 0.0) {
-        return cf.phase.w;
-    }
-    return PENUMBRA_LIGHT_RADIUS;
+    return cf.phase.w;
 }
 
 fn shadow_aux_reset() {
@@ -327,10 +349,16 @@ fn shadow_aux_reset() {
 //
 // Several blocked lights are averaged by contribution, so the brightest shadow
 // dominates the width without the result jumping when they trade places.
-fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, light_r: f32, weight_scale: f32) {
+fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, declared_r: f32, weight_scale: f32) {
     sh_full = sh_full + total;
     if (t_block < 0.0) {
         return;
+    }
+    // A declared radius is a world size and is used as given. An undeclared one
+    // becomes an angle: the same assumed angular size at any range.
+    var light_r = declared_r;
+    if (light_r <= 0.0) {
+        light_r = PENUMBRA_LIGHT_RADIUS * ldist / PENUMBRA_LIGHT_REF_DIST;
     }
     sh_deficit = sh_deficit + total;
     // A blocker closer to the light than the light's own radius is *inside* the
@@ -553,10 +581,9 @@ fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32
     }
     // A light that declares no radius falls back to the global default, so
     // scenes that never mention one behave exactly as before.
-    var lr = light.shape.x;
-    if (lr <= 0.0) {
-        lr = PENUMBRA_LIGHT_RADIUS;
-    }
+    // 0 stays 0: an undeclared size is resolved from distance in shadow_aux_note,
+    // where ldist is in scope.
+    let lr = light.shape.x;
     return add_point_light_raw(lit, hp, albedo, n, ep, light.pos.xyz, light.color.xyz, light.falloff.x, light.falloff.y, tw, axis, cos_outer, rd, spec, shine, shadow, lr, 1.0);
 }
 

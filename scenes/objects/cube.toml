@@ -119,7 +119,7 @@ flicker = 0.5
 speed = 0.5
 seed = 0
 radius = 0.5
-lights = 3
+lights = 1
 
 # Left wall (interior face +X)
 [[box]]
