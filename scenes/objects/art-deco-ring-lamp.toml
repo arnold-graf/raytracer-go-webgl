@@ -55,7 +55,7 @@ material = "metal"
 rough = 0.16
 
 # for i in range(rings)
-[[ring]] # shade ring
+[[ring]]
 cx = 0.0
 cz = 0.0
 cy = '-(stem_len + (i + 1) * ring_spacing)'

@@ -774,6 +774,25 @@ const SHADOW_RADIUS_TAPS: u32 = 31u;
 // causes: a blur leaves the interior of a plateau untouched, so pixels beside a
 // shadow keep the full radius and the exchange stays symmetric. Only the rim
 // becomes a gradient.
+// How far past its own width a shadow keeps handing its radius outward, as a
+// fraction of that width, tapering linearly to nothing.
+//
+// The dilation's reach test used to be a step: a tap within `tp` of this pixel
+// contributed its *entire* width, and one pixel further contributed none. The
+// first tap to satisfy it therefore moved the radius the whole way at once. On
+// the atrium ceiling the raw penumbra field ramps 0.3 -> 11 px over six pixels,
+// which is a perfectly smooth boundary; the dilation turned that into a plateau
+// extending sixteen pixels further out and ending in a *four*-pixel cliff, at a
+// position set by nothing in the scene -- just where distance-to-the-wide-region
+// first fell below that region's own width. That cliff is an iso-line of the
+// penumbra field, so it draws a clean curve across the ceiling, and a coherent
+// curve is visible far below the contrast at which a scattered pixel would be.
+//
+// Tapering past `tp` only *adds* radius where there was none, so the plateau
+// inside `tp` -- which is what keeps the light exchange symmetric and the umbra
+// from eroding -- is untouched.
+const SHADOW_DILATE_FEATHER: f32 = 1.0;
+
 const SHADOW_RADIUS_SMOOTH_FRAC: f32 = 0.5;
 const SHADOW_RADIUS_SMOOTH_MAX_PX: f32 = 9.0;
 const SHADOW_RADIUS_SMOOTH_TAPS: u32 = 9u;
@@ -853,6 +872,13 @@ fn shadow_clamp_y(y: i32) -> i32 {
 // Widening MAX is nearly free — the filter is memory-bound, and 10 -> 30 px with
 // the tap count tripled to match measured identically on the server room (8.8 ms)
 // and the villa (23.3) — so the shoulder only has to absorb the tail.
+// Full width out to `tp`, then a linear taper to nothing at tp*(1+FEATHER).
+// Constant inside the plateau, so this changes only the rim.
+fn shadow_dilate_weight(d: f32, tp: f32) -> f32 {
+    let feather = max(tp * SHADOW_DILATE_FEATHER, 1e-3);
+    return clamp((tp + feather - d) / feather, 0.0, 1.0);
+}
+
 fn shadow_radius(pen: f32) -> f32 {
     if (pen <= SHADOW_SOFTEN_KNEE_PX) {
         return pen;
@@ -941,9 +967,7 @@ fn shadow_radius_h(@builtin(global_invocation_id) gid: vec3<u32>) {
             // an untamed value reaches everywhere and wins the maximum over the
             // whole row. Compressing first lets distance actually decide.
             let tp = shadow_radius(t.pen_px);
-            if (abs(o) < tp) {
-                r = max(r, tp);
-            }
+            r = max(r, tp * shadow_dilate_weight(abs(o), tp));
         }
     }
     shadow_aux[idx].r_h = min(r, SHADOW_SOFTEN_MAX_PX);
@@ -970,9 +994,7 @@ fn shadow_radius_v(@builtin(global_invocation_id) gid: vec3<u32>) {
         let t = shadow_tap(ix, ty);
         if (shadow_same_surface(me, t, ix, ty, ndv0)) {
             let tp = t.r_h;
-            if (abs(o) < tp) {
-                r = max(r, tp);
-            }
+            r = max(r, tp * shadow_dilate_weight(abs(o), tp));
         }
     }
     shadow_aux[idx].pen_px = min(r, SHADOW_SOFTEN_MAX_PX);

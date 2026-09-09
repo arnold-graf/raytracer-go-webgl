@@ -277,6 +277,30 @@ const PENUMBRA_LIGHT_RADIUS: f32 = 0.05;
 // source and sharper shadows, further ones a larger source and softer shadows.
 const PENUMBRA_LIGHT_REF_DIST: f32 = 3.0;
 
+// Ceiling on the *undeclared* radius, in world units. A declared radius ignores
+// this entirely.
+//
+// The angular rule above is unbounded, so a bright light far from what it lights
+// becomes an area source the scene never asked for. The office atrium's second
+// light sits 278 units from the ceiling and declares no radius, which resolved
+// to 4.6 units -- a lamp about as tall as the atrium. What it cast was a faint
+// shadow (blocking ~15% of the light) asking for a 25 px penumbra, sitting among
+// beam shadows asking for 5. The filter rendered that correctly and it still
+// read as a defect: a straight-edged polygon of blurred ground whose outline
+// could be read straight off the radius field, with the beam shadows visibly
+// changing width as they crossed it.
+//
+// The fix is a ceiling, not a change to the rule, because the rule is right in
+// the case it was written for. Its motivating scene turned out not to be at risk
+// at all: on the night office frame a cap of 0.01 -- 460x tighter than the
+// default resolves there -- changes exactly one byte, because no undeclared
+// light drives that frame.
+//
+// This is a fallback, and a fallback is allowed to be conservative. A scene that
+// wants a genuinely broad source should say so on the light, which is both
+// cheaper to reason about and local to the scene that needs it.
+const PENUMBRA_LIGHT_MAX_RADIUS: f32 = 0.5;
+
 const PENUMBRA_EPS: f32 = 1e-3;
 
 // Per-pixel shadow accumulators, filled in while shading and consumed by the
@@ -358,7 +382,8 @@ fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, de
     // becomes an angle: the same assumed angular size at any range.
     var light_r = declared_r;
     if (light_r <= 0.0) {
-        light_r = PENUMBRA_LIGHT_RADIUS * ldist / PENUMBRA_LIGHT_REF_DIST;
+        light_r = min(PENUMBRA_LIGHT_RADIUS * ldist / PENUMBRA_LIGHT_REF_DIST,
+                      PENUMBRA_LIGHT_MAX_RADIUS);
     }
     sh_deficit = sh_deficit + total;
     // A blocker closer to the light than the light's own radius is *inside* the

@@ -528,6 +528,9 @@ the whole shadow is blurred identically:
 | 0.03 | 12 | 1.72x |
 | 0.02 | 9 | 1.90x |
 
+`PENUMBRA_LIGHT_MAX_RADIUS` bounds the *undeclared* case only; see
+[an unbounded default invents area lights](#an-unbounded-default-invents-area-lights).
+
 There is a second knob with a related effect and a different mechanism.
 `PENUMBRA_LIGHT_RADIUS` sets how wide *one* light's penumbra is;
 **`SHADOW_WIDTH_MEAN_POWER` in `types.wesl`** sets how *several* blocked lights
@@ -778,6 +781,163 @@ That is the third invalid metric in this work, after "contact hardness retained"
 (which selected sharp edges in the unfiltered render, where every edge is sharp)
 and the seam second-difference (which rewards a washed-out smear). The pattern is
 the same each time: a statistic that scores the *image* rather than the *claim*.
+
+## An unbounded default invents area lights
+
+`PENUMBRA_LIGHT_RADIUS` is an *angle*: an undeclared light resolves to
+`RADIUS * ldist / REF_DIST`, which is `ldist / 60`. That is right for what it was
+written for — a distant body should not be a pinprick — and it is unbounded,
+which is not.
+
+The office atrium's second light sits **278 units** from the ceiling and declares
+no radius, so it resolved to a **4.6-unit source**: a lamp about as tall as the
+atrium. What it cast was a faint shadow, blocking only ~15% of the light, asking
+for a **25 px** penumbra, sitting among beam shadows asking for **5**. The filter
+rendered that faithfully and it still read as a defect — a straight-edged polygon
+of blurred ground, with the beam shadows visibly changing width as they crossed
+its boundary.
+
+### The diagnosis, and two false starts
+
+Rendering the *radius field* as false colour is what settled it: the polygon's
+outline could be read straight off the field, matching the visible smudge edge
+for edge. Two readings of that image were wrong before the right one:
+
+- **"Both edges survive with the filter off, so they are geometry."** True but
+  irrelevant: the artifact was never the hard edges, it was a low-contrast
+  polygon between them.
+- **"The rim of the dilated plateau is a cliff, so smooth it harder."** The
+  radius-field smoothing does have a real defect — its reach is
+  `own * SMOOTH_FRAC`, and at a rim the outside pixel has `own = 0`, so the
+  smoothing has no reach on the side that needs it, and raising the cap alone
+  changes nothing. Fixing that (driving reach from the neighbourhood maximum
+  instead) does remove the cliff. **It is still the wrong fix**, because it drags
+  narrow shadows toward wide radii — it makes the beam shadows soften near the
+  polygon rather than making the polygon go away. Reverted.
+
+The lesson is the one this document keeps re-learning from the other end: the
+filter was doing its job correctly on a shadow that should not have existed.
+Before smoothing a radius field, ask whether the radius is right.
+
+### The fix
+
+A ceiling on the fallback, `PENUMBRA_LIGHT_MAX_RADIUS = 0.5`, and a declared
+`radius` on the light itself. A declared radius ignores the ceiling entirely.
+
+The motivating scene for the angular rule turned out never to have been at risk:
+on the night office frame a cap of **0.01** — 460x tighter than what the default
+resolves to there — changes **one byte**, because no undeclared light drives that
+frame. Measured effects of the cap alone, with the atrium's radius declared:
+
+| frame | effect of the cap |
+|---|---|
+| uplight, seam, penumbra-test | **0 px** — every light declares a radius |
+| night office (server room) | 1 byte |
+| night villa fireplace | 14.1% of px; Dirichlet +1.9%, range unchanged |
+
+Only the villa is touched at all, because its moonlight is the one light left
+that declares no radius; it resolves to 3.3 and clamps to 0.5. The frame is
+visually indistinguishable and marginally sharper, which is the expected
+direction for a smaller source. Cost is nil — one `min`, and smaller radii mean
+smaller gathers: 22.1 ms against 22.4 interleaved on that frame.
+
+**A fallback is allowed to be conservative.** A scene that wants a genuinely
+broad source should say so on the light: it is local to the scene that needs it,
+and it cannot surprise a different scene at a different range.
+
+## The dilation's reach test was a step
+
+The gather radius is dilated outward from each shadow so that a lit pixel beside
+it holds the same radius and the exchange stays symmetric. The test for how far
+that reaches was:
+
+```wgsl
+let tp = shadow_radius(t.pen_px);
+if (abs(o) < tp) { r = max(r, tp); }
+```
+
+A tap within `tp` handed over its **entire** width; one pixel further handed over
+none. So the first tap to satisfy the test moved the radius the whole way at
+once, and the field stepped.
+
+Measured on the atrium ceiling, across the boundary of the faint wide shadow —
+the raw penumbra each pixel asks for, and what the dilation made of it:
+
+| x | raw pen | after dilation |
+|---|---|---|
+| 444 | 0.48 | 0.48 |
+| 445 | 0.46 | 0.46 |
+| 446 | 0.48 | **2.86** |
+| 447 | 0.46 | 6.54 |
+| 448 | 0.44 | 9.23 |
+| 449 | 0.42 | 10.25 |
+| ... | ... | ~10.5 |
+| 458 | 1.70 | 10.84 |
+| 460 | 5.73 | 10.84 |
+| 462 | 10.12 | 11.14 |
+
+**The raw field is smooth** — it ramps 0.3 → 11 px over six pixels at x=457-463,
+which is a perfectly reasonable penumbra boundary. The dilation extended that
+plateau *sixteen pixels further out* and terminated it in a **four-pixel cliff at
+x=445-449**, at a position set by nothing in the scene: just where the distance
+to the wide region first falls below that region's own width. The blocked
+fraction across the same cut is smooth throughout (0.352 → 0.122, no step), so
+the amount of shadow was filtered and the width was not.
+
+That cliff is an iso-line of the penumbra field, so it draws a clean curve across
+a large flat surface — and by the same lesson as the falloff rings, a coherent
+curve is visible far below the contrast at which a scattered pixel would be.
+
+### The fix, and the hypothesis it replaced
+
+Feather the reach test instead of stepping it:
+
+```wgsl
+fn shadow_dilate_weight(d: f32, tp: f32) -> f32 {
+    let feather = max(tp * SHADOW_DILATE_FEATHER, 1e-3);
+    return clamp((tp + feather - d) / feather, 0.0, 1.0);
+}
+...
+r = max(r, tp * shadow_dilate_weight(abs(o), tp));
+```
+
+Full width out to `tp`, then a linear taper to nothing at `tp*(1+FEATHER)`. This
+only **adds** radius beyond `tp`, where there was none, so the plateau inside
+`tp` — the part that keeps the exchange symmetric and the umbra from eroding, and
+the reason the earlier `tp - |o|` distance taper had to be abandoned — is
+untouched. The four-pixel cliff becomes a ramp starting more than ten pixels
+earlier.
+
+**The hypothesis this replaced was wrong, and the way it was wrong is worth
+keeping.** The dilation loop is gated on `lit = tw_peak(me.frac) <= 0.0` — fully
+lit or nothing — which looks exactly like the culprit: a pixel partly shadowed by
+a narrow light would be excluded from picking up a wide neighbour's radius.
+Grading that gate on how much light the pixel still has was built and measured,
+and it moved the radius at the cliff by **0.02 px**. The reason is visible in the
+tap counts: `open` is ~0.68 on *both* sides of the cliff, so the loop was running
+all along. Of 31 taps, ~29.7 pass the surface test and only **0.3** pass the
+reach test. The gate that was blocking it was never the one that looked wrong.
+
+### Measured
+
+| | before | feathered |
+|---|---|---|
+| uplight frame | — | **bit-identical** |
+| penumbra-test, whole frame | range 7.2077 | range 7.2077, Dirichlet -0.2% |
+| villa fireplace | — | -0.004% |
+| seam frame | — | **0 px changed** |
+| flicker, `-time 0.0/0.7/1.4` | stable | stable to 0.007% |
+| cost, atrium frame, best of 4 | 7.40 ms | **6.90 ms** |
+
+Contact hardening is untouched — the frames that carry it do not change at all,
+because the plateau inside `tp` is exactly what they depend on. It is also
+*faster*: the branch became a branchless `max`, which suits the lanes better.
+
+One metric fired a false alarm worth recording: on the changed-pixel mask the
+penumbra test showed `range` dropping 6%, which is the contrast-loss flag. On the
+whole frame the range is identical to four decimals, and the umbra floor is
+unchanged pixel for pixel. The mask was 3.6% of the frame, and min/max over a
+small scattered mask is not a stable statistic.
 
 ## Measuring a shader change
 
