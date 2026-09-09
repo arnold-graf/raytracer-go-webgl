@@ -3,7 +3,7 @@
 // evaluates point lights and flickering campfires, samples baked ambient
 // occlusion, and assembles direct diffuse lighting (shade_diffuse).
 
-import package::types::{CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_KNEE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_SKIP_LEVELS, SHADOW_WIDTH_FLOOR, SHADOW_WIDTH_MEAN_POWER, ShadowAux, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
+import package::types::{CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_KNEE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_SKIP_LEVELS, SHADOW_WIDEST_BLOCKER, SHADOW_WIDEST_EXACT, SHADOW_WIDTH_FLOOR, SHADOW_WIDTH_MEAN_POWER, ShadowAux, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
 import package::profile::{PROF_SHADOW_BLOCK, PROF_SHADOW_RAYS, prof_inc};
 import package::math::{display_step_levels, mix3, perlin, smoothstepf};
 import package::texture::{texture_eval};
@@ -463,7 +463,15 @@ fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> f32 {
     var best = -1.0;
     let tb = blocker_bvh_any_hit(origin, dir, max_t);
     if (tb >= 0.0) {
-        if (!SHADOW_NEAREST_BLOCKER) {
+        // The approximate widest pick stops here, exactly as the plain any-hit
+        // did. Falling through to the plane list and the terrain march to ask
+        // whether either is *farther* is what a widest search would want, and it
+        // is not worth what it costs: on the night villa it more than doubled
+        // the terrain marching (281k steps to 677k) for a frame whose blockers
+        // are already found in the BVH. Precedence between the BVH and terrain
+        // was arbitrary before and stays arbitrary; only the choice *within* the
+        // blocker tree drove the artifact this exists to fix.
+        if (!SHADOW_NEAREST_BLOCKER && (!SHADOW_WIDEST_BLOCKER || !SHADOW_WIDEST_EXACT)) {
             prof_inc(PROF_SHADOW_BLOCK, 1u);
             return tb;
         }
@@ -474,11 +482,17 @@ fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> f32 {
         let bi = idx_tables[params.table_base.x + i];
         let t = intersect_blocker(bi, origin, dir);
         if (t > RAY_EPSILON && t < limit) {
-            if (!SHADOW_NEAREST_BLOCKER) {
+            if (!SHADOW_NEAREST_BLOCKER && !SHADOW_WIDEST_BLOCKER) {
                 prof_inc(PROF_SHADOW_BLOCK, 1u);
                 return t;
             }
-            if (best < 0.0 || t < best) {
+            if (SHADOW_WIDEST_BLOCKER && !SHADOW_WIDEST_EXACT) {
+                prof_inc(PROF_SHADOW_BLOCK, 1u);
+                return t;
+            }
+            if (SHADOW_WIDEST_BLOCKER) {
+                best = max(best, t);
+            } else if (best < 0.0 || t < best) {
                 best = t;
             }
         }
@@ -489,11 +503,17 @@ fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> f32 {
         }
         let t = hit_terrain(i, origin, dir, max_t, true, true);
         if (t > RAY_EPSILON && t < limit) {
-            if (!SHADOW_NEAREST_BLOCKER) {
+            if (!SHADOW_NEAREST_BLOCKER && !SHADOW_WIDEST_BLOCKER) {
                 prof_inc(PROF_SHADOW_BLOCK, 1u);
                 return t;
             }
-            if (best < 0.0 || t < best) {
+            if (SHADOW_WIDEST_BLOCKER && !SHADOW_WIDEST_EXACT) {
+                prof_inc(PROF_SHADOW_BLOCK, 1u);
+                return t;
+            }
+            if (SHADOW_WIDEST_BLOCKER) {
+                best = max(best, t);
+            } else if (best < 0.0 || t < best) {
                 best = t;
             }
         }

@@ -337,6 +337,11 @@ Two other findings from this pass:
   from 17 to 18 levels against a stack of 32, so this does not reopen the
   `BVH_STACK_SIZE` question.
 
+> The traversal itself was revisited later and gave up another 10%, by testing
+> each node's AABB once instead of twice. Two ways of spending that saving —
+> holding the descent in registers, and stacking the entry distance — both cost
+> more than they returned. See [bvh-traversal.md](bvh-traversal.md).
+
 ---
 
 Also tried and reverted, with no measurable win: shrinking `BVH_STACK_SIZE` from 32

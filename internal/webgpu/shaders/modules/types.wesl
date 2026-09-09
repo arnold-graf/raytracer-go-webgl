@@ -414,6 +414,31 @@ var<storage, read> idx_tables: array<u32>;
 // True costs a full traversal with no early exit on every shadow ray.
 const SHADOW_NEAREST_BLOCKER: bool = false;
 
+// Which blocker sets the penumbra width when several occlude the *same* light
+// along one shadow ray. True takes the one farthest from the receiver, which is
+// the one with the widest penumbra since pen = r*t/(ldist-t) rises with t.
+//
+// The distinction from the multi-*light* case is the whole point, and it runs
+// the opposite way. Across lights, each contributes independently to how bright
+// the pixel is, so a sharp contact shadow really is visible laid over a soft one
+// and the sharpest has to win -- that is SHADOW_WIDTH_MEAN_POWER's job. Across
+// blockers of one light, occlusion is binary: where the first already blocks it,
+// a second adds nothing, so its sharp edge is *invisible* in the overlap. The
+// width that matters there belongs to the outer boundary of the union, which is
+// the widest blocker's. A near blocker's sharp edge still governs wherever its
+// shadow reaches past the soft one, because there it is the only blocker.
+//
+// Picking the nearest instead puts a step in the width field at every inner
+// silhouette -- a boundary across which the light level barely changes, so the
+// image has no edge to hide it. That is exactly what showed up on the uplight
+// wall once the blocker BVH started ordering its children correctly.
+const SHADOW_WIDEST_BLOCKER: bool = true;
+
+// Whether the widest search is exact. False keeps the early exit and relies on
+// far-first child ordering to reach the farthest blocker first, which is what
+// makes it cost the same as the plain any-hit it replaces.
+const SHADOW_WIDEST_EXACT: bool = false;
+
 // How several blocked lights' penumbra widths combine at one point, as the
 // *negated* exponent of a contribution-weighted power mean (see shadow_aux_note).
 // The accumulator sums w/pen^P and inverts with a 1/P power, so this constant is

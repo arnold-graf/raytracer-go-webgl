@@ -939,6 +939,106 @@ whole frame the range is identical to four decimals, and the umbra floor is
 unchanged pixel for pixel. The mask was 3.6% of the frame, and min/max over a
 small scattered mask is not a stable statistic.
 
+## Which blocker sets the width, when several block the same light
+
+`shadow_blocker_t` returns **one** distance, and `pen = light_r * t_block / gap`
+is built from it. When a shadow ray passes through more than one occluder of the
+same light, that one distance has to be chosen, and the choice is not free: it
+decides the width of the penumbra at that pixel.
+
+This surfaced when the blocker BVH started ordering its children correctly. The
+old traversal passed *section-relative* child indices to `bvh_child_push`, which
+dereferenced them as absolute and therefore ordered each pair by two unrelated
+nodes' boxes. Both children were pushed regardless, so only the *order* was
+wrong — and an any-hit search returns whatever it reaches first, so the order was
+the answer. Fixing the indices made the traversal genuinely near-first, so it
+began returning the blocker **nearest the receiver**.
+
+The width field shows what that does. Rendered as false colour, the old field is
+one smooth gradient across the lampshade's shadow. The corrected-ordering field
+is the same gradient with flat near-zero polygons punched into it, each bounded
+by the silhouette of some *second*, closer occluder — a window frame, the lamp
+stem. In the image that reads as a hard arc cutting across a soft shadow.
+
+**The boundary of such a polygon is a place where the light level barely
+changes.** Both sides are already inside the first blocker's umbra, so the second
+blocker's silhouette darkens almost nothing — while the width jumps by 10 px or
+more across it. A width discontinuity with no image feature to hide behind is
+exactly the artifact class this document keeps returning to.
+
+### Widest wins, and why that is the opposite of the multi-light rule
+
+Across **lights**, the sharpest has to win: each light contributes independently
+to how bright the pixel is, so a hard contact shadow really is visible laid over
+a soft one. That is what `SHADOW_WIDTH_MEAN_POWER` is for.
+
+Across **blockers of one light**, occlusion is binary. Where the first already
+blocks the light, a second adds nothing, so its sharp edge is *invisible* in the
+overlap. What is visible there is the outer boundary of the union, and that
+belongs to the blocker with the **widest** penumbra. A near blocker's sharp edge
+still governs wherever its shadow reaches past the soft one — because there it is
+the only blocker, and wins by default.
+
+`pen` rises with `t_block`, so widest means **farthest from the receiver**.
+`SHADOW_WIDEST_BLOCKER` selects it.
+
+### Making it cost nothing
+
+Taken exactly, "farthest" means no early exit: **+10% on the uplight frame**. It
+is not needed. `blocker_child_push_widest` orders children **far-first**, which
+is the mirror of near-first ordering for a nearest search, and then
+`SHADOW_WIDEST_EXACT = false` keeps the early exit — the first blocker found is
+already the farthest in all but a sliver of cases. Against the exact search it
+differs by 7,342 bytes on the uplight frame; against the *known-good* pre-change
+render, by **32**.
+
+Two things had to be tuned before it was actually free:
+
+- **One slab pass per child, not two.** `slab_range` returns entry and exit
+  together; calling `slab_near` and `slab_far` separately repeated all six
+  divisions. Pixel-neutral, verified.
+- **Do not fall through to the terrain march.** The widest search wants to know
+  whether a plane or the terrain is *farther* than the blocker the BVH found.
+  Asking cost more than it was worth: night-villa terrain marching went
+  **281k steps to 677k**, and that single fall-through was the whole villa
+  regression. Precedence between the BVH and the terrain was arbitrary before and
+  stays arbitrary; only the choice *within* the blocker tree drove the artifact.
+- **Near-first is kept for the instance TLAS.** An instanced blocker is one
+  connected object, so the widest pick has nothing to choose within it, and
+  far-first ordering costs real time where occluders are mostly near.
+
+Measured, interleaved, best of 4, against the plain any-hit:
+
+| frame | any-hit | widest | |
+|---|---|---|---|
+| uplight wall | 13.70 ms | **12.60 ms** | **-8.0%** |
+| atrium ceiling | 5.50 | 5.70 | +3.6% |
+| villa fireplace | 19.20 | 19.10 | -0.5% |
+| villa default | 28.20 | 28.10 | -0.4% |
+| office seam | 13.60 | 13.50 | -0.7% |
+
+Correctness, against the pre-change baseline: penumbra-test **0 bytes** (contact
+hardening is untouched — that scene has one blocker per ray, so the pick never
+arises), uplight 3, seam 42. Flicker stable across `-time` to 0.07%.
+
+`SHADOW_WIDEST_EXACT = true` keeps the reference implementation, with far-side
+pruning: a box whose exit is nearer than the farthest blocker found cannot hold a
+farther one.
+
+### A measurement trap worth naming
+
+Several dumps in this investigation referenced shader variables from a change
+that had been reverted. Those shaders failed to compile, `gpuprof` exited
+non-zero with stderr redirected to `/dev/null`, the `-dump` file was left over
+from a previous run, and `cmp` duly reported **0 bytes differing**. That is the
+most dangerous possible answer, because "identical" is what an A/B is hoping to
+disprove — the same failure shape as swapping `trace_linked.wgsl` and having it
+regenerated. It produced a confident and completely wrong intermediate finding
+(that the width field had not changed, when it differs across 421,086 bytes).
+
+**Check the exit status and that the dump is non-empty.** A harness that only
+compares output files cannot tell a match from a render that never happened.
+
 ## Measuring a shader change
 
 **A/B by swapping `modules/*.wesl` and relinking. Swapping `trace_linked.wgsl`
@@ -950,7 +1050,14 @@ neither does building two binaries — the shader is read from disk at run time.
 This invalidated several timings in an earlier revision of this document. The
 failure is silent and it always fails the same way: both arms of the A/B run
 whatever the modules currently say, so the answer comes back "no difference",
-which is exactly the result that gets believed and shipped. Grepping the linked
+which is exactly the result that gets believed and shipped.
+
+**A shader that fails to compile does the same thing**, and is easier to cause: a
+diagnostic referencing a variable that no longer exists makes `gpuprof` exit
+non-zero, and with stderr suppressed the previous run's `-dump` file is still
+sitting there for `cmp` to call identical. Always check the exit status and that
+the dump is non-empty — see
+[a measurement trap worth naming](#a-measurement-trap-worth-naming). Grepping the linked
 file is not a check — it passes right up until the renderer overwrites it. The
 only reliable check is that the two arms produce *different pixels*; if a change
 you know is visible reports zero pixels differing, the swap did not take.
