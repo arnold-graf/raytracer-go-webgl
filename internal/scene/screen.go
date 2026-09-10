@@ -24,8 +24,17 @@ type ScreenSpec struct {
 	Mat        int
 	Rough      float64
 	Reflect    float64
-	TexID      int // dynamic texture slot (texture.DocumentBase+)
-	OnUse      string
-	Rest       *Transform
-	Interact   *Interactable
+	// ReflectBlur is the screen-space lobe blur; see Surface.ReflectBlur. A
+	// screen builds its own Surface rather than going through surfaceDTO, so it
+	// has to carry this itself.
+	ReflectBlur float64
+	// Specular is the Blinn-Phong highlight weight and Shininess its exponent,
+	// same as on any diffuse surface. A monitor panel is the obvious place to
+	// want a glint of the room on the glass.
+	Specular  float64
+	Shininess float64
+	TexID     int // dynamic texture slot (texture.DocumentBase+)
+	OnUse     string
+	Rest      *Transform
+	Interact  *Interactable
 }

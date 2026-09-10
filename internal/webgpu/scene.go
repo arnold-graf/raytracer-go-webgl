@@ -83,10 +83,13 @@ type GPUPrimitive struct {
 	Xf0     [4]float32
 	Xf1     [4]float32
 	Xf2     [4]float32
+	// reflect_blur, transmit_blur, and two spare. Appended rather than squeezed
+	// in so every existing offset the layout test pins stays put.
+	Params2 [4]float32
 }
 
 // primStride is the byte stride of one GPUPrimitive / Prim element.
-const primStride = 144
+const primStride = 160
 
 // primFlagTransformed marks a primitive whose Xf0..Xf2 hold a valid
 // world->local transform (mirrored by PRIM_FLAG_TRANSFORMED in trace.wgsl).
@@ -185,9 +188,10 @@ type GPUTerrainZone struct {
 	Albedo [4]float32
 	Bounds [4]float32 // minX, minZ, maxX, maxZ
 	Surf   [4]float32 // rough, reflect, specular, shininess
+	Surf2  [4]float32 // reflect_blur, and three spare
 }
 
-const terrainZoneStride = 80
+const terrainZoneStride = 96
 
 // GPUTerrainZoneVert stores one polygon vertex in XZ.
 type GPUTerrainZoneVert struct {
@@ -227,6 +231,7 @@ func PackPrimitives(s *scene.Scene) []GPUPrimitive {
 			Albedo:  albedo(pl.Albedo),
 			Albedo2: albedo(pl.Albedo2),
 			Params:  surfaceParams(pl.Surface),
+			Params2: surfaceParams2(pl.Surface),
 			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), surfaceFlags(pl.Surface)},
 		})
 	}
@@ -279,6 +284,7 @@ func spherePrim(sp *scene.Sphere) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(sp.Surface),
+		Params2: surfaceParams2(sp.Surface),
 		Meta:    [4]uint32{primSphere, uint32(sp.Mat), uint32(sp.Tex), surfaceFlags(sp.Surface)},
 	}
 	setXform(&p, sp.Xform)
@@ -294,6 +300,7 @@ func boxPrim(bx *scene.Box, holeStart uint32) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(bx.Surface),
+		Params2: surfaceParams2(bx.Surface),
 		Meta:    [4]uint32{primBox, uint32(bx.Mat), uint32(bx.Tex), surfaceFlags(bx.Surface)},
 	}
 	setXform(&p, bx.Xform)
@@ -312,6 +319,7 @@ func cylinderPrim(c *scene.Cylinder) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(c.Surface),
+		Params2: surfaceParams2(c.Surface),
 		Meta:    [4]uint32{primCylinder, uint32(c.Mat), uint32(c.Tex), surfaceFlags(c.Surface)},
 	}
 	setXform(&p, c.Xform)
@@ -330,6 +338,7 @@ func conePrim(c *scene.Cone) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(c.Surface),
+		Params2: surfaceParams2(c.Surface),
 		Meta:    [4]uint32{primCone, uint32(c.Mat), uint32(c.Tex), surfaceFlags(c.Surface)},
 	}
 	setXform(&p, c.Xform)
@@ -344,6 +353,7 @@ func torusPrim(t *scene.Torus) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(t.Surface),
+		Params2: surfaceParams2(t.Surface),
 		Meta:    [4]uint32{primTorus, uint32(t.Mat), uint32(t.Tex), surfaceFlags(t.Surface)},
 	}
 	setXform(&p, t.Xform)
@@ -362,6 +372,7 @@ func ringPrim(r *scene.Ring) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(r.Surface),
+		Params2: surfaceParams2(r.Surface),
 		Meta:    [4]uint32{primRing, uint32(r.Mat), uint32(r.Tex), surfaceFlags(r.Surface)},
 	}
 	setXform(&p, r.Xform)
@@ -380,6 +391,7 @@ func lensPrim(l *scene.Lens) GPUPrimitive {
 		Albedo:  alb,
 		Albedo2: alb2,
 		Params:  surfaceParams(l.Surface),
+		Params2: surfaceParams2(l.Surface),
 		Meta:    [4]uint32{primLens, uint32(l.Mat), uint32(l.Tex), surfaceFlags(l.Surface)},
 	}
 	setXform(&p, l.Xform)
@@ -432,6 +444,7 @@ func PackBlockers(s *scene.Scene) []GPUPrimitive {
 			Albedo:  albedo(pl.Albedo),
 			Albedo2: albedo(pl.Albedo2),
 			Params:  surfaceParams(pl.Surface),
+			Params2: surfaceParams2(pl.Surface),
 			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), surfaceFlags(pl.Surface)},
 		})
 	}
@@ -648,7 +661,8 @@ func PackTerrains(s *scene.Scene) ([]GPUTerrain, []float32, []GPUTerrainFeature,
 				Bounds: [4]float32{
 					f(minX - fadeW), f(minZ - fadeW), f(maxX + fadeW), f(maxZ + fadeW),
 				},
-				Surf: [4]float32{f(z.Rough), f(z.Reflect), f(z.Specular), f(z.Shininess)},
+				Surf:  [4]float32{f(z.Rough), f(z.Reflect), f(z.Specular), f(z.Shininess)},
+				Surf2: [4]float32{f(z.ReflectBlur), 0, 0, 0},
 			})
 		}
 		nearStart, nearEnd := t.HybridNearDistances()
@@ -711,7 +725,7 @@ func PackWaters(s *scene.Scene) []GPUWater {
 // CampfireParams in trace.wgsl (std430, 128-byte stride).
 type CampfireParams struct {
 	Core       [4]float32 // cx, cy, cz, range
-	Color      [4]float32 // r, g, b, 0
+	Color      [4]float32 // r, g, b, sub-light count (0 = default 3)
 	Param      [4]float32 // brightness, jitter, flicker, speed
 	Phase      [4]float32 // seed, flame_enabled (1 or 0), flame_scale, emitter radius
 	FlameEmber [4]float32
@@ -754,12 +768,20 @@ func PackCampfireParams(s *scene.Scene) []CampfireParams {
 		if fs <= 0 {
 			fs = 1
 		}
+		lights := fr.Lights
+		if lights == 0 {
+			lights = scene.CampfireLights
+		}
+		if lights > scene.CampfireLights {
+			lights = scene.CampfireLights
+		}
 		p := CampfireParams{
 			Core:  [4]float32{f(fr.Center.X), f(fr.Center.Y), f(fr.Center.Z), f(fr.Range)},
 			Color: albedo(fr.Color),
 			Param: [4]float32{f(bright), f(fr.Jitter), f(fr.Flicker), f(speed)},
 			Phase: [4]float32{f(fr.Seed), flameEnabled(fr.Flame), fs, f(fr.Radius)},
 		}
+		p.Color[3] = float32(lights)
 		ember, mid, tip, ash := fr.FlamePalette()
 		p.FlameEmber = albedo(ember)
 		p.FlameMid = albedo(mid)
@@ -904,6 +926,13 @@ func floatBytes(values []float32) []byte {
 
 func surfaceParams(s scene.Surface) [4]float32 {
 	return [4]float32{f(s.Rough), f(s.IOR), f(s.Reflect), f(s.Transmit)}
+}
+
+// surfaceParams2 carries the two screen-space lobe blurs. Both zero is the
+// "unfiltered, exactly as traced" case, which is every scene that does not ask
+// for the effect.
+func surfaceParams2(s scene.Surface) [4]float32 {
+	return [4]float32{f(s.ReflectBlur), f(s.TransmitBlur), 0, 0}
 }
 
 func albedo(v vec.V) [4]float32 { return [4]float32{f(v.X), f(v.Y), f(v.Z), 0} }

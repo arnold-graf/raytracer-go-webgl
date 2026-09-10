@@ -728,8 +728,8 @@ specular = 0.4
 
 [[include]]
 file = 'campfire.toml'
-at = [-5.9, 1.5, 2.35]
-props = { brightness = 0.2, speed = 0.5, range = 7 }
+at = [-6.2, 1.5, 2.35]
+props = { brightness = 0.6, speed = 0.5, range = 7, flicker = 0.4 }
 
 # [[light_flickering]] # open fire in the hearth
 # brightness = 0.35

@@ -58,6 +58,9 @@ type TerrainZone struct {
 	Reflect      float64 // secondary mirror bounce strength (surf.z)
 	Specular     float64 // Blinn–Phong highlight strength
 	Shininess    float64 // highlight exponent (0 → renderer default)
+	// ReflectBlur widens the reflected lobe in screen space, on top of
+	// whatever Rough does to the traced ray. See Surface.ReflectBlur.
+	ReflectBlur float64
 }
 
 // TerrainPad flattens a rectangular building site into the height field: inside

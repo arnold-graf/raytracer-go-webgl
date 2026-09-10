@@ -25,6 +25,19 @@ type Surface struct {
 	// reflection just as it does for mirror/metal. Ignored by materials that are
 	// already reflective/refractive (mirror, metal, glass, emit).
 	Reflect float64
+	// ReflectBlur and TransmitBlur are screen-space lobe blurs, in the same
+	// angular units as Rough, and they are a deliberate *effect* rather than a
+	// second roughness. Rough perturbs the traced ray, which keeps the
+	// reflection anchored in world space and is what makes a surface read as
+	// physically rough. These widen the lobe after the fact, which no number of
+	// traced samples per pixel could pay for: a soft reflection on a polished
+	// floor, or frosted glass that still reflects a hard highlight.
+	//
+	// Zero on both leaves the lobe exactly where it was — traced, jittered by
+	// Rough, and accumulated inline — so a scene that sets neither renders
+	// bit-for-bit as before. TransmitBlur applies to glass only.
+	ReflectBlur  float64
+	TransmitBlur float64
 	// Specular (0..1) adds Blinn–Phong highlights from point lights on diffuse/checker
 	// and glass surfaces. Shininess is the Phong exponent (typical 8–128); defaults to 32 when
 	// Specular > 0 and Shininess is omitted/zero. Ignored by mirror/metal/emit.

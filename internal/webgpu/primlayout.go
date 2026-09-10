@@ -10,7 +10,7 @@ import (
 // PackPrimitives emits spheres, planes, boxes, cylinders, cones, tori, then rings.
 type primLayout struct {
 	nSphere, nPlane, nBox, nCylinder, nCone, nTorus, nRing, nLens int
-	gpu gpuIndexMap // set for instanced scenes with dynamic NPC geometry
+	gpu                                                           gpuIndexMap // set for instanced scenes with dynamic NPC geometry
 }
 
 func computePrimLayout(s *scene.Scene) primLayout {
@@ -124,6 +124,7 @@ func repackGPUPrim(s *scene.Scene, l primLayout, gpuIdx int, dst *GPUPrimitive) 
 			Albedo:  albedo(pl.Albedo),
 			Albedo2: albedo(pl.Albedo2),
 			Params:  surfaceParams(pl.Surface),
+			Params2: surfaceParams2(pl.Surface),
 			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), surfaceFlags(pl.Surface)},
 		}
 		return

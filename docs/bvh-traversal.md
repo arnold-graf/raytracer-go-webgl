@@ -47,7 +47,7 @@ pushed only to be rejected.
 | 270 | 14.2 | 12.8 |
 | **mean** | **10.97** | **9.88 (-10.0%)** |
 
-With `RAYTRACER_SOFT_SHADOWS=1` the same change is 11.85 -> 10.90 ms (-8.0%),
+With soft shadows on (since made the default) the same change is 11.85 -> 10.90 ms (-8.0%),
 also byte-identical.
 
 ## A blocker index bug, found on the way

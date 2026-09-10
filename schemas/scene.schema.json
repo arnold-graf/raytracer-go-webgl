@@ -371,6 +371,9 @@
         "reflect": {
           "$ref": "#/definitions/surface_reflect"
         },
+        "reflect_blur": {
+          "$ref": "#/definitions/surface_reflect_blur"
+        },
         "specular": {
           "$ref": "#/definitions/surface_specular"
         },
@@ -379,6 +382,9 @@
         },
         "transmit": {
           "$ref": "#/definitions/surface_transmit"
+        },
+        "transmit_blur": {
+          "$ref": "#/definitions/surface_transmit_blur"
         },
         "thin": {
           "type": "boolean",
@@ -1170,6 +1176,9 @@
           "$ref": "#/definitions/number_or_expr",
           "description": "Secondary mirror bounce strength (same as [[box]].reflect)."
         },
+        "reflect_blur": {
+          "$ref": "#/definitions/surface_reflect_blur"
+        },
         "specular": {
           "$ref": "#/definitions/number_or_expr",
           "description": "Blinn\u2013Phong highlight strength (same as [[box]].specular)."
@@ -1445,7 +1454,7 @@
         },
         "lights": {
           "$ref": "#/definitions/number_or_expr",
-          "description": "Sub-light count. Defaults to 3 (the only value currently supported by the renderer)."
+          "description": "Sub-light count (1–3). Defaults to 3."
         },
         "flame": {
           "type": "boolean",
@@ -2071,6 +2080,15 @@
         "reflect": {
           "$ref": "#/definitions/surface_reflect"
         },
+        "reflect_blur": {
+          "$ref": "#/definitions/surface_reflect_blur"
+        },
+        "specular": {
+          "$ref": "#/definitions/surface_specular"
+        },
+        "shininess": {
+          "$ref": "#/definitions/surface_shininess"
+        },
         "on_use": {
           "type": "string"
         },
@@ -2223,6 +2241,22 @@
         }
       ],
       "description": "Paragraph lines or single-quoted expression referencing a string-list prop."
+    },
+    "surface_reflect_blur": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/number_or_expr"
+        }
+      ],
+      "description": "Screen-space blur applied to this surface's reflected lobe, in the same angular units as `rough` (0 = off). Unlike `rough`, which perturbs the traced ray and so keeps the reflection anchored in world space, this widens the lobe after tracing: a soft reflection on an otherwise polished surface. The two are independent and combine."
+    },
+    "surface_transmit_blur": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/number_or_expr"
+        }
+      ],
+      "description": "Screen-space blur applied to this surface's transmitted lobe, in the same angular units as `rough` (0 = off). Glass only. Frosts what is seen through the surface while leaving its reflections as sharp as `rough` makes them."
     }
   }
 }

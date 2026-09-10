@@ -30,8 +30,81 @@ struct RaySeg {
 
 const RAYSEG_GHOST: u32 = 1u;
 
+// RAYSEG_REFL and RAYSEG_REFR mark the two primary lobes the filter can hold
+// out: everything reached through the reflection, and everything reached through
+// the transmission. Segments carrying one accumulate into its register instead
+// of the pixel colour. The tag is inherited by every child, because a pane seen
+// inside the reflection belongs to the reflection.
+//
+// Two tags rather than one because glass forks both at a single hit and blurs
+// them by different amounts — jitter_dir gets `rough` on the reflection and
+// `rough * 0.35` on the refraction — and because they are the pair an author
+// wants to set independently. A diffuse glossy surface only raises RAYSEG_REFL.
+const RAYSEG_REFL: u32 = 2u;
+const RAYSEG_REFR: u32 = 4u;
+const RAYSEG_LOBE: u32 = 6u;
+
+// Channel switches, packed into params.refl_filter alongside the enable and
+// half-res bits because 348 is the last u32 before light_grid_min's alignment.
+// Bit 2 leaves the reflection inline and jittered, bit 3 the refraction.
+fn refl_chan_on() -> bool {
+    return (params.refl_filter & 1u) != 0u && (params.refl_filter & 4u) == 0u;
+}
+
+fn refr_chan_on() -> bool {
+    return (params.refl_filter & 1u) != 0u && (params.refl_filter & 8u) == 0u;
+}
+
+// How a ray_color call should treat the primary glossy lobe.
+//
+// GLOSS_ALWAYS traces it, which is what the filter-off path and a lead pixel
+// want. GLOSS_IF_SHARP traces it only when the surface is too near-mirror to
+// survive being sampled at half rate — a non-lead pixel, in other words, whose
+// lobe will otherwise be filled from its block's lead. GLOSS_NEVER skips it
+// outright, which is what an adaptive-AA tap wants: the tap's own lobe is
+// discarded in favour of the centre's filtered one, so tracing it was pure
+// waste even before half-res existed.
+const GLOSS_ALWAYS: u32 = 0u;
+const GLOSS_IF_SHARP: u32 = 1u;
+const GLOSS_NEVER: u32 = 2u;
+
+// refl_half_ok is the pre-trace half-resolution test. The blur radius needs the
+// reflected distance, which is exactly what has not been traced yet, so it is
+// estimated from the part that is known: radius saturates at
+// 0.5 * rough * focal_px as the reflected hit recedes, and a reflected hit at
+// about the surface's own distance gives half of that. Sampling at half rate
+// costs nothing the blur was not about to destroy anyway — but only above a
+// couple of pixels, which is why a near-mirror surface stays full rate.
+const REFL_HALF_MIN_PX: f32 = 3.0;
+
+// True when this lobe should not be traced at this pixel: an AA tap never traces
+// one, and a non-lead pixel skips it wherever the blur is wide enough to fill in.
+fn lobe_skip(gloss_mode: u32, rough: f32) -> bool {
+    if (gloss_mode == GLOSS_NEVER) {
+        return true;
+    }
+    return gloss_mode == GLOSS_IF_SHARP && (params.refl_filter & 2u) != 0u && refl_half_ok(rough);
+}
+
+fn refl_half_ok(rough: f32) -> bool {
+    let focal_px = 0.5 * f32(params.width) / max(params.aspect * params.fov_scale, 1e-6);
+    return 0.25 * rough * focal_px >= REFL_HALF_MIN_PX;
+}
+
 struct TraceResult {
     color: vec3<f32>,
+    // The primary glossy lobe, already weighted, and *excluded* from color when
+    // params.refl_filter is set. Each *_t is the distance from the surface to
+    // what that lobe hit, or -1 for no lobe.
+    refl: vec3<f32>,
+    refl_t: f32,
+    refl_blur: f32,
+    refr: vec3<f32>,
+    refr_t: f32,
+    refr_blur: f32,
+    // The surface the two lobes left from, for the filter's same-surface gate.
+    lobe_n: vec3<f32>,
+    lobe_d: f32,
     primary: Hit,
     // The primary hit's dominant-light shadow record, snapshotted out of the
     // private accumulators in shade.wesl. Zero contribution means this pixel has
@@ -98,15 +171,32 @@ fn thin_glass_ghost_surface_shift(cosi: f32) -> f32 {
 // stack: sky on a miss, emissive passthrough, single-bounce mirror/metal, the
 // two-lobe Fresnel glass blend, diffuse direct lighting, and semi-reflective
 // diffuse/checker. Reflections are gated by params.mirror.
-fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
+fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult {
     var accum = vec3<f32>(0.0, 0.0, 0.0);
+    // Everything reached through the primary glossy lobe, accumulated alongside
+    // rather than instead: each site adds its contribution to accum as before
+    // and, masked, to gloss. color is then accum - gloss. One extra multiply-add
+    // per site and no branch, which is the trade this kernel rewards.
+    var refl_acc = vec3<f32>(0.0, 0.0, 0.0);
+    var refr_acc = vec3<f32>(0.0, 0.0, 0.0);
+    var refl_t = -1.0;
+    var refr_t = -1.0;
+    var refl_blur = 0.0;
+    var refr_blur = 0.0;
+    var refl_seen = false;
+    var refr_seen = false;
+    var lobe_n = vec3<f32>(0.0, 0.0, 0.0);
+    var lobe_d = 0.0;
     var stack: array<RaySeg, MAX_SEGS>;
     stack[0] = RaySeg(origin, dir0, vec3<f32>(1.0, 1.0, 1.0), 0u, 0u);
     var sp = 1u;
     var primary = Hit(0.0, 0xffffffffu, 0u, HIT_NO_INSTANCE);
     var got_primary = false;
     var max_sp = 1u;
-    var sh_out = ShadowAux(vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 1.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0);
+    var sh_out = ShadowAux(vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 1.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
+        vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
+        vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
+        vec3<f32>(0.0, 0.0, 0.0), 0.0);
     // sh_out.soft_applied stays 0 here; only shadow_soften_v sets it.
 
     loop {
@@ -124,6 +214,9 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         let tw = seg.w;
         let depth = seg.depth;
         let seg_tag = seg.tag;
+        let rmask = select(0.0, 1.0, (seg_tag & RAYSEG_REFL) != 0u);
+        let tmask = select(0.0, 1.0, (seg_tag & RAYSEG_REFR) != 0u);
+        let inherit = seg_tag & RAYSEG_LOBE;
         var rd = seg.rd;
         var hit: Hit;
         if (depth == 0u) {
@@ -140,19 +233,33 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             hit = nearest_hit(ro, rd);
         }
         prof_inc(PROF_PATH_SEGS, 1u);
+        if (rmask > 0.0 && !refl_seen) {
+            refl_seen = true;
+            refl_t = hit.t;
+        }
+        if (tmask > 0.0 && !refr_seen) {
+            refr_seen = true;
+            refr_t = hit.t;
+        }
         if (!got_primary) {
             primary = hit;
             got_primary = true;
         }
         if (seg_tag != RAYSEG_GHOST) {
-            accum = accum + tw * accumulate_flame(ro, rd, hit.t, params.time);
+            let c_flame = tw * accumulate_flame(ro, rd, hit.t, params.time);
+            accum = accum + c_flame;
+            refl_acc = refl_acc + c_flame * rmask;
+            refr_acc = refr_acc + c_flame * tmask;
         }
         if (hit.idx == 0xffffffffu) {
             prof_inc(PROF_SKY, 1u);
             if (depth == 0u) {
                 prof_inc(PROF_PRI_SKY, 1u);
             }
-            accum = accum + tw * sky(rd);
+            let c_sky = tw * sky(rd);
+            accum = accum + c_sky;
+            refl_acc = refl_acc + c_sky * rmask;
+            refr_acc = refr_acc + c_sky * tmask;
             continue;
         }
 
@@ -182,6 +289,9 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         let hp = ro + rd * hit.t;
         var mat = MAT_DIFFUSE;
         var surf = vec4<f32>(0.0, 1.5, 0.0, 0.0);
+        // reflect_blur, transmit_blur. Zero on both is every scene that has not
+        // asked for the effect, and leaves the lobes exactly where they were.
+        var blur = vec2<f32>(0.0, 0.0);
         var alb = vec3<f32>(1.0, 1.0, 1.0);
         var n = vec3<f32>(0.0, 1.0, 0.0);
         var spec_strength = 0.0;
@@ -192,6 +302,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             let p = prims[hit.idx];
             mat = p.info.y;
             surf = p.surf;
+            blur = p.surf2.xy;
             spec_strength = p.albedo.w;
             shininess = p.albedo2.w;
             if (shininess <= 0.0) {
@@ -263,10 +374,11 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             n = terrain_zone_shade_normal(hit.idx, hp, n);
             alb = terrain_albedo(hit.idx, hp, n);
             let zs = terrain_zone_surface(hit.idx, hp.xz);
-            surf.x = zs.x;
-            surf.z = zs.y;
-            spec_strength = zs.z;
-            shininess = zs.w;
+            surf.x = zs.rough;
+            surf.z = zs.reflect;
+            blur.x = zs.reflect_blur;
+            spec_strength = zs.specular;
+            shininess = zs.shininess;
             if (shininess <= 0.0) {
                 shininess = 32.0;
             }
@@ -283,13 +395,19 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         }
 
         if (mat == MAT_EMIT) {
-            accum = accum + tw * alb;
+            let c_emit = tw * alb;
+            accum = accum + c_emit;
+            refl_acc = refl_acc + c_emit * rmask;
+            refr_acc = refr_acc + c_emit * tmask;
             continue;
         }
 
         let ep = hp + n * surf_eps;
         if (seg_tag == RAYSEG_GHOST) {
-            accum = accum + tw * shade_ghost(hp, alb, n, ep);
+            let c_ghost = tw * shade_ghost(hp, alb, n, ep);
+            accum = accum + c_ghost;
+            refl_acc = refl_acc + c_ghost * rmask;
+            refr_acc = refr_acc + c_ghost * tmask;
             continue;
         }
 
@@ -318,7 +436,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
         if ((mat == MAT_MIRROR || mat == MAT_METAL) && reflective) {
             prof_inc(PROF_MIRROR_BOUNCES, 1u);
             if (twm_alb * 0.96 > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
-                stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * alb * 0.96, depth + 1u, 0u);
+                stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * alb * 0.96, depth + 1u, inherit);
                 sp = sp + 1u;
             }
             continue;
@@ -358,9 +476,24 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                     let k_out = 1.0 - eta_out * eta_out * (1.0 - cosi_out * cosi_out);
                     if (k_out >= 0.0) {
                         let cost_out = sqrt(k_out);
-                        let rd_out = jitter_dir(normalize(rd_in * eta_out + exit_n * (eta_out * cosi_out - cost_out)), exit_hp, rough * 0.35);
-                        stack[sp] = RaySeg(exit_hp + exit_n * surf_eps, rd_out, tw * alb * (1.0 - reflectance), depth + 1u, 0u);
-                        sp = sp + 1u;
+                        var rd_out = jitter_dir(normalize(rd_in * eta_out + exit_n * (eta_out * cosi_out - cost_out)), exit_hp, rough * 0.35);
+                        var ttag = inherit;
+                        var t_skip = false;
+                        if (depth == 0u && blur.y > 0.0 && refr_chan_on()) {
+                            refr_blur = blur.y;
+                            lobe_n = n;
+                            lobe_d = hit.t;
+                            if (lobe_skip(gloss_mode, blur.y)) {
+                                refr_t = -2.0;
+                                t_skip = true;
+                            } else {
+                                ttag = RAYSEG_REFR;
+                            }
+                        }
+                        if (!t_skip) {
+                            stack[sp] = RaySeg(exit_hp + exit_n * surf_eps, rd_out, tw * alb * (1.0 - reflectance), depth + 1u, ttag);
+                            sp = sp + 1u;
+                        }
                     }
                 }
             } else {
@@ -368,9 +501,24 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                 // separate hit with its own Fresnel/refraction lobes.
                 if (!tir && w_refl < 0.98 && w_trans > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
                     let cost = sqrt(k);
-                    let rr = jitter_dir(normalize(rd * eta + n * (eta * cosi - cost)), hp, rough * 0.35);
-                    stack[sp] = RaySeg(hp - n * surf_eps, rr, tw * alb * (1.0 - reflectance), depth + 1u, 0u);
-                    sp = sp + 1u;
+                    var rr = jitter_dir(normalize(rd * eta + n * (eta * cosi - cost)), hp, rough * 0.35);
+                    var ttag = inherit;
+                    var t_skip = false;
+                    if (depth == 0u && blur.y > 0.0 && refr_chan_on()) {
+                        refr_blur = blur.y;
+                        lobe_n = n;
+                        lobe_d = hit.t;
+                        if (lobe_skip(gloss_mode, blur.y)) {
+                            refr_t = -2.0;
+                            t_skip = true;
+                        } else {
+                            ttag = RAYSEG_REFR;
+                        }
+                    }
+                    if (!t_skip) {
+                        stack[sp] = RaySeg(hp - n * surf_eps, rr, tw * alb * (1.0 - reflectance), depth + 1u, ttag);
+                        sp = sp + 1u;
+                    }
                 }
             }
 
@@ -382,9 +530,29 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                 refl_min = 0.2;
             }
             if (w_refl > refl_min && twm * w_refl > SEG_MIN_CONTRIB && sp < MAX_SEGS) {
-                let rd_refl = jitter_dir(reflect(rd, n), hp, rough);
-                stack[sp] = RaySeg(ep, rd_refl, tw * w_refl, depth + 1u, 0u);
-                sp = sp + 1u;
+                var rd_refl = jitter_dir(reflect(rd, n), hp, rough);
+                var rtag = inherit;
+                var r_skip = false;
+                if (depth == 0u && blur.x > 0.0 && refl_chan_on()) {
+                    refl_blur = blur.x;
+                    lobe_n = n;
+                    lobe_d = hit.t;
+                    if (lobe_skip(gloss_mode, blur.x)) {
+                        refl_t = -2.0;
+                        r_skip = true;
+                    } else {
+                        rtag = RAYSEG_REFL;
+                    }
+                }
+                if (!r_skip) {
+                    stack[sp] = RaySeg(ep, rd_refl, tw * w_refl, depth + 1u, rtag);
+                    sp = sp + 1u;
+                }
+
+                // The thin-glass ghost stays inline and unfiltered for now: it
+                // is a second-pane reflection at a different angle, so it is not
+                // the lobe either channel is holding out, and at 0.42 of an
+                // already-Fresnel weight it is faint enough to leave sharp.
 
                 if (thin && depth == 0u && params.thin_glass_ghost != 0u && sp < MAX_SEGS) {
                     let slide = thin_glass_ghost_slide(n, rd);
@@ -403,7 +571,10 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
                 }
             }
             if (spec_strength > 0.0) {
-                accum = accum + tw * shade_specular(hp, n, ep, tw, rd, spec_strength, shininess);
+                let c_spec = tw * shade_specular(hp, n, ep, tw, rd, spec_strength, shininess);
+                accum = accum + c_spec;
+                refl_acc = refl_acc + c_spec * rmask;
+            refr_acc = refr_acc + c_spec * tmask;
             }
             continue;
         }
@@ -427,22 +598,49 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>) -> TraceResult {
             glossy_min = SEG_MIN_CONTRIB;
         }
         if (refl > 0.0 && reflective && twm * refl > glossy_min && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) && sp < MAX_SEGS) {
-            prof_inc(PROF_DIFFUSE_REFL, 1u);
-            accum = accum + tw * lit * (1.0 - refl);
+            let c_lit_r = tw * lit * (1.0 - refl);
+            accum = accum + c_lit_r;
+            refl_acc = refl_acc + c_lit_r * rmask;
+            refr_acc = refr_acc + c_lit_r * tmask;
             if (depth == 0u) {
                 // A glossy surface keeps only (1 - refl) of its direct lighting;
                 // the rest is the reflected lobe. The record has to match, or
                 // the filter adds back light this pixel never had.
                 sh_out.full = sh_out.full * (1.0 - refl);
             }
-            stack[sp] = RaySeg(ep, jitter_dir(reflect(rd, n), hp, rough), tw * refl, depth + 1u, 0u);
+            // The filter wants a *mirror* ray: the blur is applied afterwards,
+            // from the roughness and the reflected distance, so perturbing the
+            // ray here would only sample that blur once and call it noise.
+            var grd = jitter_dir(reflect(rd, n), hp, rough);
+            var gtag = inherit;
+            // The ray keeps its jitter: `rough` is world-space roughness and
+            // stays exactly what it was. reflect_blur only decides whether this
+            // lobe is held out and widened afterwards.
+            if (depth == 0u && blur.x > 0.0 && refl_chan_on()) {
+                refl_blur = blur.x;
+                lobe_n = n;
+                lobe_d = hit.t;
+                if (lobe_skip(gloss_mode, blur.x)) {
+                    // -2 marks the lobe as owed rather than absent, which is
+                    // what refl_fill looks for; -1 stays "no lobe at all".
+                    refl_t = -2.0;
+                    continue;
+                }
+                gtag = RAYSEG_REFL;
+            }
+            prof_inc(PROF_DIFFUSE_REFL, 1u);
+            stack[sp] = RaySeg(ep, grd, tw * refl, depth + 1u, gtag);
             sp = sp + 1u;
             continue;
         }
-        accum = accum + tw * lit;
+        let c_lit = tw * lit;
+        accum = accum + c_lit;
+        refl_acc = refl_acc + c_lit * rmask;
+        refr_acc = refr_acc + c_lit * tmask;
     }
     prof_max(PROF_MAX_SEGS, max_sp);
-    return TraceResult(accum, primary, sh_out);
+    return TraceResult(max(accum - refl_acc - refr_acc, vec3<f32>(0.0, 0.0, 0.0)),
+        refl_acc, refl_t, refl_blur, refr_acc, refr_t, refr_blur, lobe_n, lobe_d, primary, sh_out);
 }
 
 // quantize_rgb reduces dithered 0..255 RGB to a retro color depth. mode 1 is
@@ -702,8 +900,20 @@ fn supersample_edge(gx: f32, gy: f32, center: vec3<f32>, tap: vec2<f32>, idx: u3
     var sum = vec3<f32>(0.0, 0.0, 0.0);
     for (var i = 0u; i < AA_TAPS; i = i + 1u) {
         let off = aa_tap_offset(i, tap);
-        let res = ray_color(ro, pixel_ray_dir(gx, gy, off.x, off.y));
-        sum = sum + aa_tap_correct(res, aux);
+        let res = ray_color(ro, pixel_ray_dir(gx, gy, off.x, off.y), GLOSS_ALWAYS);
+        var e = aa_tap_correct(res, aux);
+        // The tap adds its *own* lobes, unfiltered.
+        //
+        // Handing it the centre's filtered lobes is cheaper — the tap need not
+        // trace them at all — and it is what the penumbra correction does with
+        // its target visibility. It is not safe here. AA fires precisely where
+        // the tap lands on different geometry, a glass pixel's transmitted lobe
+        // can be most of its radiance, and pushing the centre's through a tap
+        // that is looking at something else put 236 isolated pixels up to 190
+        // levels out on office-sunset's glass silhouettes. A shadow fraction
+        // transfers one sub-pixel over; a lobe's radiance does not.
+        e = e + res.refl + res.refr;
+        sum = sum + e;
     }
     if (AA_TAPS == 1u) {
         return center * (1.0 - AA_TAP_WEIGHT) + sum * AA_TAP_WEIGHT;
@@ -751,6 +961,93 @@ fn write_pixel(gid: vec2<u32>, col: vec3<f32>) {
     pixels[pixel_index(gid.x, gid.y)] = r | (g << 8u) | (b << 16u) | (255u << 24u);
 }
 
+// REFL_SPREAD converts a surface's `rough` into the half-angle its reflection is
+// scattered through. jitter_dir perturbed the direction by up to 0.5*rough per
+// component, so this keeps the filtered result the same width as the jittered
+// one it replaces; it is the knob for overall reflection softness.
+const REFL_SPREAD: f32 = 0.5;
+
+// The same for the transmitted lobe. Equal to REFL_SPREAD today because the
+// difference between the two is already carried in the roughness each lobe
+// records — glass jitters transmission at `rough * 0.35` — so this is the knob
+// for making them differ *beyond* that, which is the point of the split.
+const REFR_SPREAD: f32 = 0.5;
+
+// Cap and tap count are a matched pair, on the same rule as the penumbra comb:
+// two more than twice the cap, so the comb steps at most one pixel at the widest
+// radius and has nothing to alias against. Raise one and raise the other.
+const REFL_MAX_PX: f32 = 16.0;
+const REFL_TAPS: u32 = 33u;
+
+const REFL_MIN_DOT: f32 = 0.9;
+const REFL_MIN_DENOM: f32 = 0.02;
+const REFL_DEPTH_REL: f32 = 0.02;
+
+// The blur a lobe wants, in pixels. `spread` converts the surface's `rough` into
+// the half-angle the lobe is scattered through; the reflection and the
+// refraction keep their own, so a pane can later be frosted in transmission
+// while still reflecting sharply.
+fn lobe_radius_px(spread: f32, rough: f32, t_lobe: f32, depth: f32) -> f32 {
+    if (rough <= 0.0 || t_lobe <= 0.0 || depth <= 0.0) {
+        return 0.0;
+    }
+    // Pixels per unit of lateral offset at unit forward distance.
+    let focal_px = 0.5 * f32(params.width) / max(params.aspect * params.fov_scale, 1e-6);
+    // The lobe's image sits behind the surface, so it is (depth + t) away from
+    // the camera however near the surface itself is.
+    let apparent = depth + t_lobe;
+    return min(spread * rough * t_lobe * focal_px / max(apparent, 1e-3), REFL_MAX_PX);
+}
+
+fn refl_radius_px(rough: f32, t_lobe: f32, depth: f32) -> f32 {
+    return lobe_radius_px(REFL_SPREAD, rough, t_lobe, depth);
+}
+
+fn refr_radius_px(rough: f32, t_lobe: f32, depth: f32) -> f32 {
+    return lobe_radius_px(REFR_SPREAD, rough, t_lobe, depth);
+}
+
+fn refl_clamp_x(x: i32) -> i32 {
+    return clamp(x, 0, i32(params.width) - 1);
+}
+
+fn refl_clamp_y(y: i32) -> i32 {
+    return clamp(y, 0, i32(params.height) - 1);
+}
+
+// The tap has to sit on the same *reflecting* surface: extended as a plane and
+// predicted along the tap's own view ray, so the tolerance stays tight at
+// grazing incidence where a floor's depth changes fast between neighbours.
+//
+// It deliberately does *not* ask what the two taps are reflecting. That gate was
+// written first, on the theory that a reflected silhouette would otherwise
+// smear, and it is exactly backwards: a rough surface gathers over a cone that
+// straddles the silhouette, so mixing the bar with the sky behind it is the
+// blur, not an artifact of it. With the gate in, the reflection came back
+// pin-sharp — every tap across the only edges in the frame was rejected, which
+// is the one place the filter had anything to do.
+//
+// The reflected distance still sizes the radius. It just does not veto.
+fn lobe_compatible(me: ShadowAux, t: ShadowAux, tx: i32, ty: i32, ndv0: f32) -> bool {
+    if (t.lobe_depth <= 0.0) {
+        return false;
+    }
+    if (dot(me.lobe_normal, t.lobe_normal) < REFL_MIN_DOT) {
+        return false;
+    }
+    let v_tap = pixel_ray_dir(f32(tx), f32(ty), 0.5, 0.5);
+    let denom = dot(me.lobe_normal, v_tap);
+    if (abs(denom) < REFL_MIN_DENOM) {
+        return false;
+    }
+    let d_pred = me.lobe_depth * ndv0 / denom;
+    return abs(t.lobe_depth - d_pred) <= me.lobe_depth * REFL_DEPTH_REL;
+}
+
+fn refl_ndv0(me: ShadowAux, gid: vec2<u32>) -> f32 {
+    return dot(me.lobe_normal, pixel_ray_dir(f32(gid.x), f32(gid.y), 0.5, 0.5));
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (gid.x >= params.width || gid.y >= params.height) {
@@ -763,26 +1060,243 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let g2 = vec2<u32>(gid.xy);
 
     prof_inc(PROF_PIXELS, 1u);
-    let tr = ray_color(ro, pixel_ray_dir(gx, gy, 0.5, 0.5));
+    // One pixel of each 2x2 block leads: it traces the glossy lobe, and the
+    // other three fill from it wherever the blur is wide enough to hide the
+    // difference. refl_half_ok inside ray_color makes that call per surface,
+    // because only it knows the roughness at the hit.
+    let lead = (gid.x & 1u) == 0u && (gid.y & 1u) == 0u;
+    let tr = ray_color(ro, pixel_ray_dir(gx, gy, 0.5, 0.5), select(GLOSS_IF_SHARP, GLOSS_ALWAYS, lead));
 
     prof_inc(PROF_BVH_STEPS, bvh_steps_acc);
     prof_inc(PROF_PRIM_TESTS, prim_tests_acc);
 
     let idx = pixel_index(gid.x, gid.y);
     let soft = params.soft_shadows != 0u;
+    let filt = (params.refl_filter & 1u) != 0u;
+
+    // With the filter on the glossy lobe is left out of the pixel until
+    // refl_blur_v has widened it and adds it back; with it off the lobe was
+    // never held out in the first place and folds straight in here.
+    var col = tr.color;
+    var aux = tr.sh;
+    if (filt) {
+        // Distances are passed through, not clamped: -1 is "no lobe here", -2 is
+        // "lobe owed to refl_fill", and a real distance is a real distance. Only
+        // a pixel with no reflecting surface under it is forced to -1.
+        aux.refl_color = tr.refl;
+        aux.refl_color_h = tr.refl;
+        aux.refl_radius_px = refl_radius_px(tr.refl_blur, max(tr.refl_t, 0.0), tr.lobe_d);
+        aux.refl_t = select(-1.0, tr.refl_t, tr.lobe_d > 0.0);
+        aux.refr_color = tr.refr;
+        aux.refr_color_h = tr.refr;
+        aux.refr_radius_px = refr_radius_px(tr.refr_blur, max(tr.refr_t, 0.0), tr.lobe_d);
+        aux.refr_t = select(-1.0, tr.refr_t, tr.lobe_d > 0.0);
+        aux.lobe_normal = tr.lobe_n;
+        aux.lobe_depth = tr.lobe_d;
+    } else {
+        col = col + tr.refl + tr.refr;
+    }
+
     // The soften pass needs the linear colour to add light back into, so the
     // scratch is written whenever it runs even if adaptive AA is off. It carries
     // its own normal and depth for surface continuity and does not read aa_hits.
-    if (params.adaptive_aa != 0u || soft) {
-        hdr_pixels[idx] = vec4<f32>(tr.color, display_luma(tr.color));
+    if (params.adaptive_aa != 0u || soft || filt) {
+        hdr_pixels[idx] = vec4<f32>(col, display_luma(col));
     }
     if (params.adaptive_aa != 0u) {
         aa_hits[idx] = pack_hit(tr.primary);
     }
-    if (soft) {
-        shadow_aux[idx] = tr.sh;
+    if (soft || filt) {
+        shadow_aux[idx] = aux;
     }
-    write_pixel(g2, tr.color);
+    write_pixel(g2, col);
+}
+
+// refl_fill hands a skipped pixel the lobe its block's lead traced. Only pixels
+// marked -2 are touched, so a pixel with no glossy surface under it stays empty.
+//
+// The lead can be on the far side of a silhouette, in which case the four
+// neighbouring blocks' leads are tried before giving up. Giving up leaves the
+// lobe at zero, which reads as a missing reflection on a one-pixel rim; that is
+// the cost of the scheme and it is why the radius gate exists — at a wide blur
+// the rim is inside the gather of every pixel around it anyway.
+@compute @workgroup_size(8, 8, 1)
+fn refl_fill(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (gid.x >= params.width || gid.y >= params.height) {
+        return;
+    }
+    let idx = pixel_index(gid.x, gid.y);
+    let me = shadow_aux[idx];
+    let want_refl = me.refl_t < -1.5;
+    let want_refr = me.refr_t < -1.5;
+    if (!want_refl && !want_refr) {
+        return;
+    }
+    let ix = i32(gid.x);
+    let iy = i32(gid.y);
+    let ndv0 = refl_ndv0(me, gid.xy);
+    let bx = ix & ~1;
+    let by = iy & ~1;
+    var cand = array<vec2<i32>, 5>(
+        vec2<i32>(bx, by),
+        vec2<i32>(bx - 2, by),
+        vec2<i32>(bx + 2, by),
+        vec2<i32>(bx, by - 2),
+        vec2<i32>(bx, by + 2),
+    );
+    var got_refl = !want_refl;
+    var got_refr = !want_refr;
+    for (var k = 0u; k < 5u; k = k + 1u) {
+        if (got_refl && got_refr) {
+            break;
+        }
+        let cx = refl_clamp_x(cand[k].x);
+        let cy = refl_clamp_y(cand[k].y);
+        let t = shadow_aux[pixel_index(u32(cx), u32(cy))];
+        if (!lobe_compatible(me, t, cx, cy, ndv0)) {
+            continue;
+        }
+        if (!got_refl && t.refl_t >= 0.0) {
+            shadow_aux[idx].refl_color = t.refl_color;
+            shadow_aux[idx].refl_color_h = t.refl_color;
+            shadow_aux[idx].refl_t = t.refl_t;
+            shadow_aux[idx].refl_radius_px = t.refl_radius_px;
+            got_refl = true;
+        }
+        if (!got_refr && t.refr_t >= 0.0) {
+            shadow_aux[idx].refr_color = t.refr_color;
+            shadow_aux[idx].refr_color_h = t.refr_color;
+            shadow_aux[idx].refr_t = t.refr_t;
+            shadow_aux[idx].refr_radius_px = t.refr_radius_px;
+            got_refr = true;
+        }
+    }
+    // Nothing usable nearby: leave it empty rather than borrow across a
+    // silhouette, and mark it absent so the blur skips it.
+    if (!got_refl) {
+        shadow_aux[idx].refl_t = -1.0;
+    }
+    if (!got_refr) {
+        shadow_aux[idx].refr_t = -1.0;
+    }
+}
+
+// refl_blur_h / refl_blur_v widen the glossy lobe into the blur its roughness
+// implies. Separable, for the same reason the penumbra filter is: 2N taps
+// instead of N^2 for the same reach.
+@compute @workgroup_size(8, 8, 1)
+fn refl_blur_h(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (gid.x >= params.width || gid.y >= params.height) {
+        return;
+    }
+    let idx = pixel_index(gid.x, gid.y);
+    let me = shadow_aux[idx];
+    let do_refl = me.refl_t >= 0.0 && me.refl_radius_px >= 1.0;
+    let do_refr = me.refr_t >= 0.0 && me.refr_radius_px >= 1.0;
+    if (!do_refl) {
+        shadow_aux[idx].refl_color_h = me.refl_color;
+    }
+    if (!do_refr) {
+        shadow_aux[idx].refr_color_h = me.refr_color;
+    }
+    if (!do_refl && !do_refr) {
+        return;
+    }
+    let ix = i32(gid.x);
+    let iy = i32(gid.y);
+    let ndv0 = refl_ndv0(me, gid.xy);
+    // Both channels walk the same comb, each weighting it against its own
+    // radius, so the neighbour records are read once rather than twice.
+    let r_max = max(me.refl_radius_px, me.refr_radius_px);
+    var acc_r = me.refl_color;
+    var wsum_r = 1.0;
+    var acc_t = me.refr_color;
+    var wsum_t = 1.0;
+    for (var i = 0u; i < REFL_TAPS; i = i + 1u) {
+        let o = (f32(i) / f32(REFL_TAPS - 1u) * 2.0 - 1.0) * r_max;
+        let tx = refl_clamp_x(ix + i32(round(o)));
+        let t = shadow_aux[pixel_index(u32(tx), u32(iy))];
+        if (!lobe_compatible(me, t, tx, iy, ndv0)) {
+            continue;
+        }
+        let d = abs(o);
+        if (do_refl && t.refl_t >= 0.0 && d <= me.refl_radius_px) {
+            let u = d / me.refl_radius_px;
+            let w = 1.0 - u * u;
+            acc_r = acc_r + t.refl_color * w;
+            wsum_r = wsum_r + w;
+        }
+        if (do_refr && t.refr_t >= 0.0 && d <= me.refr_radius_px) {
+            let u = d / me.refr_radius_px;
+            let w = 1.0 - u * u;
+            acc_t = acc_t + t.refr_color * w;
+            wsum_t = wsum_t + w;
+        }
+    }
+    if (do_refl) {
+        shadow_aux[idx].refl_color_h = acc_r / max(wsum_r, 1e-4);
+    }
+    if (do_refr) {
+        shadow_aux[idx].refr_color_h = acc_t / max(wsum_t, 1e-4);
+    }
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn refl_blur_v(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (gid.x >= params.width || gid.y >= params.height) {
+        return;
+    }
+    let idx = pixel_index(gid.x, gid.y);
+    let me = shadow_aux[idx];
+    let do_refl = me.refl_t >= 0.0 && me.refl_radius_px >= 1.0;
+    let do_refr = me.refr_t >= 0.0 && me.refr_radius_px >= 1.0;
+    var lobe_r = me.refl_color_h;
+    var lobe_t = me.refr_color_h;
+    if (do_refl || do_refr) {
+        let ix = i32(gid.x);
+        let iy = i32(gid.y);
+        let ndv0 = refl_ndv0(me, gid.xy);
+        let r_max = max(me.refl_radius_px, me.refr_radius_px);
+        var acc_r = me.refl_color_h;
+        var wsum_r = 1.0;
+        var acc_t = me.refr_color_h;
+        var wsum_t = 1.0;
+        for (var i = 0u; i < REFL_TAPS; i = i + 1u) {
+            let o = (f32(i) / f32(REFL_TAPS - 1u) * 2.0 - 1.0) * r_max;
+            let ty = refl_clamp_y(iy + i32(round(o)));
+            let t = shadow_aux[pixel_index(u32(ix), u32(ty))];
+            if (!lobe_compatible(me, t, ix, ty, ndv0)) {
+                continue;
+            }
+            let d = abs(o);
+            if (do_refl && t.refl_t >= 0.0 && d <= me.refl_radius_px) {
+                let u = d / me.refl_radius_px;
+                let w = 1.0 - u * u;
+                acc_r = acc_r + t.refl_color_h * w;
+                wsum_r = wsum_r + w;
+            }
+            if (do_refr && t.refr_t >= 0.0 && d <= me.refr_radius_px) {
+                let u = d / me.refr_radius_px;
+                let w = 1.0 - u * u;
+                acc_t = acc_t + t.refr_color_h * w;
+                wsum_t = wsum_t + w;
+            }
+        }
+        if (do_refl) {
+            lobe_r = acc_r / max(wsum_r, 1e-4);
+        }
+        if (do_refr) {
+            lobe_t = acc_t / max(wsum_t, 1e-4);
+        }
+    }
+    // Parked back in colour so aa_resolve can hand a tap the neighbourhood's
+    // conclusion instead of the tap's own unfiltered lobes. Safe to overwrite:
+    // every invocation reads neighbours' *_color_h, never their *_color.
+    shadow_aux[idx].refl_color = lobe_r;
+    shadow_aux[idx].refr_color = lobe_t;
+    let col = max(hdr_pixels[idx].xyz + lobe_r + lobe_t, vec3<f32>(0.0, 0.0, 0.0));
+    hdr_pixels[idx] = vec4<f32>(col, display_luma(col));
+    write_pixel(vec2<u32>(gid.xy), col);
 }
 
 // SHADOW_SOFTEN_TAPS is how many neighbours the penumbra filter gathers.

@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	animSec      = 0.55
-	panelThick   = 0.002
+	animSec    = 0.55
+	panelThick = 0.002
 )
 
 // Manager owns runtime screen agents and drives the view-camera animation.
@@ -78,13 +78,16 @@ func spawnAgent(sc *scene.Scene, spec scene.ScreenSpec) (agent, error) {
 		Min: vec.New(-w/2, -h/2, -d/2),
 		Max: vec.New(w/2, h/2, d/2),
 		Surface: scene.Surface{
-			Mat:     mat,
-			Albedo:  spec.Albedo,
-			Rough:   spec.Rough,
-			Reflect: spec.Reflect,
-			Tex:     spec.TexID,
-			IOR:     1.5,
-			Xform:   rest.Clone(),
+			Mat:         mat,
+			Albedo:      spec.Albedo,
+			Rough:       spec.Rough,
+			Reflect:     spec.Reflect,
+			ReflectBlur: spec.ReflectBlur,
+			Specular:    spec.Specular,
+			Shininess:   spec.Shininess,
+			Tex:         spec.TexID,
+			IOR:         1.5,
+			Xform:       rest.Clone(),
 		},
 	})
 	sc.DynamicBodies = append(sc.DynamicBodies, scene.DynamicBody{

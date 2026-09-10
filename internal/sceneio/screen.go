@@ -9,20 +9,23 @@ import (
 )
 
 type screenDTO struct {
-	ID         string   `toml:"id"`
+	ID string `toml:"id"`
 	placementDTO
-	Width      float64  `toml:"width"`
-	Height     float64  `toml:"height"`
-	Depth      float64  `toml:"depth"`
-	Headline   string   `toml:"headline"`
-	Paragraphs []string `toml:"paragraphs"`
-	Font       string   `toml:"font"`
-	FontSizePx int      `toml:"font_size_px"`
-	FontColor  vec3     `toml:"font_color"`
-	Material   string   `toml:"material"`
-	Albedo     vec3     `toml:"albedo"`
-	Rough      float64  `toml:"rough"`
-	Reflect    float64  `toml:"reflect"`
+	Width       float64  `toml:"width"`
+	Height      float64  `toml:"height"`
+	Depth       float64  `toml:"depth"`
+	Headline    string   `toml:"headline"`
+	Paragraphs  []string `toml:"paragraphs"`
+	Font        string   `toml:"font"`
+	FontSizePx  int      `toml:"font_size_px"`
+	FontColor   vec3     `toml:"font_color"`
+	Material    string   `toml:"material"`
+	Albedo      vec3     `toml:"albedo"`
+	Rough       float64  `toml:"rough"`
+	Reflect     float64  `toml:"reflect"`
+	ReflectBlur float64  `toml:"reflect_blur"`
+	Specular    float64  `toml:"specular"`
+	Shininess   float64  `toml:"shininess"`
 	interactPropsDTO
 	transformDTO
 }
@@ -89,28 +92,31 @@ func (d screenDTO) build(parentDir string, slot int) (scene.ScreenSpec, error) {
 	}
 
 	return scene.ScreenSpec{
-		ID:         id,
-		PosX:       px,
-		PosY:       py,
-		PosZ:       pz,
-		Width:      w,
-		Height:     h,
-		Depth:      dep,
-		RotateX:    d.RotateX,
-		RotateY:    d.RotateY,
-		RotateZ:    d.RotateZ,
-		Headline:   d.Headline,
-		Paragraphs: paras,
-		Font:       font,
-		FontSizePx: d.FontSizePx,
-		Albedo:     bg,
-		FontColor:  fontCol,
-		Mat:        mat,
-		Rough:      d.Rough,
-		Reflect:    d.Reflect,
-		OnUse:      d.OnUse,
-		Rest:       rest,
-		Interact:   &ia,
+		ID:          id,
+		PosX:        px,
+		PosY:        py,
+		PosZ:        pz,
+		Width:       w,
+		Height:      h,
+		Depth:       dep,
+		RotateX:     d.RotateX,
+		RotateY:     d.RotateY,
+		RotateZ:     d.RotateZ,
+		Headline:    d.Headline,
+		Paragraphs:  paras,
+		Font:        font,
+		FontSizePx:  d.FontSizePx,
+		Albedo:      bg,
+		FontColor:   fontCol,
+		Mat:         mat,
+		Rough:       d.Rough,
+		Reflect:     d.Reflect,
+		ReflectBlur: d.ReflectBlur,
+		Specular:    d.Specular,
+		Shininess:   d.Shininess,
+		OnUse:       d.OnUse,
+		Rest:        rest,
+		Interact:    &ia,
 	}, nil
 }
 

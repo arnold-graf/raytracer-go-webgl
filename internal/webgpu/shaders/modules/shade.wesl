@@ -354,6 +354,14 @@ fn campfire_light_radius(cf: CampfireParams) -> f32 {
     return cf.phase.w;
 }
 
+fn campfire_light_count(cf: CampfireParams) -> u32 {
+    let n = u32(cf.color.w);
+    if (n == 0u) {
+        return 3u;
+    }
+    return min(n, 3u);
+}
+
 fn shadow_aux_reset() {
     sh_deficit = vec3<f32>(0.0, 0.0, 0.0);
     sh_full = vec3<f32>(0.0, 0.0, 0.0);
@@ -455,7 +463,10 @@ fn shadow_aux_snapshot(tw: vec3<f32>, n: vec3<f32>, depth: f32) -> ShadowAux {
     }
     // The fraction needs no scaling at all — tw and AO are in both sums.
     let frac = sh_deficit / max(sh_full, vec3<f32>(PENUMBRA_EPS, PENUMBRA_EPS, PENUMBRA_EPS));
-    return ShadowAux(frac, pen, n, depth, frac, 0.0, tw * sh_full * sh_ao, 0.0);
+    return ShadowAux(frac, pen, n, depth, frac, 0.0, tw * sh_full * sh_ao, 0.0,
+        vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
+        vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
+        vec3<f32>(0.0, 0.0, 0.0), 0.0);
 }
 
 fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> f32 {
@@ -783,7 +794,6 @@ fn campfire_sublight(cf: CampfireParams, j: u32, ts: f32) -> CampfireSample {
 }
 
 // Direct diffuse lighting: ambient + point lights + campfires + baked AO.
-// Campfire core occlusion also uses SHADOW_SKIP_LEVELS (see loop below).
 fn scene_ambient(n: vec3<f32>) -> vec3<f32> {
     let t = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
     return mix(params.ambient_ground.xyz, params.ambient_sky.xyz, t);
@@ -853,52 +863,12 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
         if (cd2 > cull.x) {
             continue;
         }
-        if (params.shadows != 0u) {
-            var cdist = sqrt(cd2);
-            if (cdist == 0.0) {
-                cdist = 1.0;
-            }
-            let cdir = cl / cdist;
-            let ndl = dot(n, cdir);
-            if (ndl >= 0.001) {
-                let att = light_atten(cd2);
-                let peak = att * ndl * cf.param.x * max(alb.x, max(alb.y, alb.z));
-                if (display_step_levels(tw_peak(tw) * tw_peak(lit), tw_peak(tw) * peak) >= SHADOW_SKIP_LEVELS) {
-                    let ct = shadow_blocker_t(ep, cdir, cdist);
-                    if (ct >= 0.0) {
-                        // The whole campfire is occluded here, so its sub-lights
-                        // are skipped and never record anything — which is why
-                        // campfire shadows stayed hard without this.
-                        //
-                        // The contribution is *measured*, not estimated: each
-                        // sub-light is evaluated with shadow = false, which
-                        // returns its unoccluded contribution without tracing a
-                        // ray and without recording anything itself. An earlier
-                        // version guessed at it (one sub-light scaled by three)
-                        // and guessed high, so the filter added back light the
-                        // pixel never had — campfire shadows brightened their
-                        // surroundings instead of darkening them.
-                        let cts = params.time * cf.param.w;
-                        var probe = vec3<f32>(0.0, 0.0, 0.0);
-                        var inst = 0.0;
-                        for (var pj = 0u; pj < 3u; pj = pj + 1u) {
-                            let psl = campfire_sublight(cf, pj, cts);
-                            inst = inst + psl.intensity;
-                            probe = add_point_light_raw(probe, hp, alb, n, ep, psl.pos, psl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, false, campfire_light_radius(cf), 1.0);
-                        }
-                        shadow_aux_note(hp, probe, cdist, ct, campfire_light_radius(cf),
-                            3.0 * cf.param.x / max(inst, PENUMBRA_EPS));
-                        continue;
-                    }
-                }
-            }
-        }
-        // Each sub-light shadows itself. The sub-light positions are driven by
-        // params.time, so these are the rays that animate a campfire's cast
-        // shadows; the static core test above only decides whether the whole
-        // campfire is occluded and cannot stand in for them.
+        // Each sub-light shadows itself. Positions are driven by params.time, so
+        // these rays animate the campfire's cast shadows. There is no separate
+        // static core light — cf.core is only the cluster anchor for culling.
         let ts = params.time * cf.param.w;
-        for (var j = 0u; j < 3u; j = j + 1u) {
+        let nlights = campfire_light_count(cf);
+        for (var j = 0u; j < nlights; j = j + 1u) {
             let sl = campfire_sublight(cf, j, ts);
             lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true, campfire_light_radius(cf), campfire_steady_scale(cf, sl));
         }
@@ -934,29 +904,9 @@ fn shade_specular(hp: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd:
         if (cd2 > cull.x) {
             continue;
         }
-        if (params.shadows != 0u) {
-            var cdist = sqrt(cd2);
-            if (cdist == 0.0) {
-                cdist = 1.0;
-            }
-            let cdir = cl / cdist;
-            let ndl = dot(n, cdir);
-            if (ndl >= 0.001) {
-                let att = light_atten(cd2);
-                let peak = att * ndl * cf.param.x;
-                if (display_step_levels(tw_peak(tw) * tw_peak(lit), tw_peak(tw) * peak) >= SHADOW_SKIP_LEVELS) {
-                    if (shadowed(ep, cdir, cdist)) {
-                        continue;
-                    }
-                }
-            }
-        }
-        // Each sub-light shadows itself. The sub-light positions are driven by
-        // params.time, so these are the rays that animate a campfire's cast
-        // shadows; the static core test above only decides whether the whole
-        // campfire is occluded and cannot stand in for them.
         let ts = params.time * cf.param.w;
-        for (var j = 0u; j < 3u; j = j + 1u) {
+        let nlights = campfire_light_count(cf);
+        for (var j = 0u; j < nlights; j = j + 1u) {
             let sl = campfire_sublight(cf, j, ts);
             lit = add_point_light_raw(lit, hp, no_diffuse, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true, campfire_light_radius(cf), campfire_steady_scale(cf, sl));
         }

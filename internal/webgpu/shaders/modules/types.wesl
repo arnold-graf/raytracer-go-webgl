@@ -73,7 +73,11 @@ struct Params {
     // what was struct padding before light_grid_min's vec4 alignment, so Params
     // keeps its size.
     soft_shadows: u32,
-    _pad_shadow: u32,
+    // refl_filter: when set, the primary glossy lobe is traced as an unperturbed
+    // mirror ray, held out of the pixel colour in refl_aux, and blurred by the
+    // refl_blur passes before being added back. Clear, and the lobe is jittered
+    // and added inline as it always was.
+    refl_filter: u32,
     // Light cluster grid: world -> cell index transform for light_span().
     // light_grid_inv_cell of zero collapses every point onto cell 0, which is
     // how the degenerate one-cell grid reproduces a full light loop.
@@ -101,6 +105,7 @@ struct Prim {
     xf0: vec4<f32>,     // world->local rotation row0 (xyz) + translation t.x (w)
     xf1: vec4<f32>,     // world->local rotation row1 (xyz) + translation t.y (w)
     xf2: vec4<f32>,     // world->local rotation row2 (xyz) + translation t.z (w)
+    surf2: vec4<f32>,   // reflect_blur, transmit_blur, spare, spare
 };
 
 // Hole mirrors GPUHole in scene.go (std430, 32-byte stride): one axis-aligned
@@ -115,7 +120,7 @@ struct Hole {
 // each frame. Mirrors struct CampfireParams in scene.go (std430, 128-byte stride).
 struct CampfireParams {
     core: vec4<f32>,  // cx, cy, cz, range
-    color: vec4<f32>, // base color (r, g, b, 0) — tints applied per sub-light
+    color: vec4<f32>, // base color (r, g, b, sub-light count; 0 = default 3)
     param: vec4<f32>, // brightness, jitter, flicker, speed
     phase: vec4<f32>, // seed, flame_enabled (1/0), flame_scale, emitter radius (0 = default)
     flame_ember: vec4<f32>,
@@ -182,6 +187,7 @@ struct TerrainZone {
     albedo: vec4<f32>,
     bounds: vec4<f32>,  // minX, minZ, maxX, maxZ
     surf: vec4<f32>,    // rough, reflect, specular, shininess
+    surf2: vec4<f32>,   // reflect_blur, and three spare
 };
 
 struct TerrainZoneVert {
@@ -373,6 +379,60 @@ struct ShadowAux {
     // target, and supersample_edge would "correct" a tap the filter never
     // touched.
     soft_applied: f32,
+
+    // --- reflection filter ---
+    //
+    // The glossy lobe rides in this record rather than a buffer of its own
+    // because there is no buffer of its own to be had: Metal allows a compute
+    // stage 31 buffers and the megakernel uses every one (the same wall that put
+    // every index list into idx_tables). It costs nothing to share — both are
+    // per-pixel screen-space scratch written by main and consumed by a separable
+    // filter, and the reflection filter wants `normal` and `depth` above anyway.
+    //
+    // A rough surface scatters the reflected ray through a fixed *angle*, so the
+    // image it reflects is smeared by that angle times how far away that image
+    // is. That is the penumbra filter's structure with the blocker distance
+    // swapped for the reflected hit distance — a quantity a real ray already
+    // measured, so this is a filter over exact data and not a reconstruction.
+
+    // The lobe's radiance, weighted by throughput and the surface's reflect
+    // fraction, held out of hdr_pixels until refl_blur_v adds it back. The
+    // vertical pass overwrites it with the filtered result, so aa_resolve can
+    // hand a tap the neighbourhood's conclusion instead of its own sharp lobe.
+    refl_color: vec3<f32>,
+    // Distance from the reflecting surface to what the reflected ray hit, or
+    // negative where there is no lobe. Sizes the blur, and gates it: neighbours
+    // whose reflected rays landed at very different distances are looking at
+    // different objects and must not mix.
+    refl_t: f32,
+    // Row-blurred colour, written by the horizontal pass, read by the vertical.
+    refl_color_h: vec3<f32>,
+    refl_radius_px: f32,
+
+    // The transmitted lobe, carried separately from the reflected one.
+    //
+    // Glass forks two lobes at one hit and blurs them by different amounts —
+    // jitter_dir is called with `rough` on the reflection and `rough * 0.35` on
+    // the refraction — so one shared channel could only ever draw both at one
+    // width. They are also the two things an author most wants to dial
+    // independently: a frosted pane that still reflects sharply, or a mirror-ish
+    // pane you can barely see through. Keeping them apart from the start costs
+    // 32 bytes and removes the need to unpick it later.
+    refr_color: vec3<f32>,
+    refr_t: f32,
+    refr_color_h: vec3<f32>,
+    refr_radius_px: f32,
+
+    // The reflecting/refracting surface itself, for the same-surface gate and
+    // for the apparent-distance term in the radius.
+    //
+    // Deliberately not the `normal`/`depth` above. Those are written only by a
+    // *diffuse* primary hit, and glass never takes that path — but filling them
+    // in for glass would also enrol glass pixels in the penumbra filter's
+    // gathers carrying frac = 0, which reads as "fully lit" and would lighten
+    // every shadow beside a window.
+    lobe_normal: vec3<f32>,
+    lobe_depth: f32,
 };
 
 @group(0) @binding(18)

@@ -53,6 +53,8 @@ type surfaceDTO struct {
 	IOR               *float64 `toml:"ior"`
 	Texture           string   `toml:"texture"`
 	Reflect           float64  `toml:"reflect"`
+	ReflectBlur       float64  `toml:"reflect_blur"`
+	TransmitBlur      float64  `toml:"transmit_blur"`
 	Specular          float64  `toml:"specular"`
 	Shininess         float64  `toml:"shininess"`
 	Transmit          float64  `toml:"transmit"`
@@ -97,7 +99,8 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 	return scene.Surface{
 		Mat: mat, Albedo: s.Albedo.toV(), Albedo2: s.Albedo2.toV(), Rough: s.Rough, IOR: ior, Tex: tex,
 		TexU: texU, TexV: texV,
-		Reflect: s.Reflect, Specular: s.Specular, Shininess: s.Shininess,
+		Reflect: s.Reflect, ReflectBlur: s.ReflectBlur, TransmitBlur: s.TransmitBlur,
+		Specular: s.Specular, Shininess: s.Shininess,
 		Transmit: s.Transmit, Thin: thin, TwoPane: twoPane, NoCollision: noCollision,
 		TextureNormalMap:  texNormalMap,
 		TextureScale:      s.TextureScale,
@@ -558,6 +561,7 @@ type terrainZoneDTO struct {
 	Reflect      float64      `toml:"reflect"`
 	Specular     float64      `toml:"specular"`
 	Shininess    float64      `toml:"shininess"`
+	ReflectBlur  float64      `toml:"reflect_blur"`
 	Center       [2]float64   `toml:"center"`
 	Half         [2]float64   `toml:"half"`
 	Width        float64      `toml:"width"`
@@ -651,6 +655,7 @@ func (z terrainZoneDTO) buildZoneFromVerts(verts []vec.V) (scene.TerrainZone, er
 		Reflect:      z.Reflect,
 		Specular:     z.Specular,
 		Shininess:    z.Shininess,
+		ReflectBlur:  z.ReflectBlur,
 	}, nil
 }
 

@@ -9,6 +9,20 @@ import (
 	"raytracer/internal/vec"
 )
 
+func TestPackCampfireParamsLights(t *testing.T) {
+	sc := &scene.Scene{
+		Campfires: []scene.Campfire{{
+			Center: vec.New(0, 1, 0),
+			Color:  vec.New(3, 1, 0.5),
+			Lights: 1,
+		}},
+	}
+	cf := PackCampfireParams(sc)[0]
+	if cf.Color[3] != 1 {
+		t.Fatalf("sub-light count = %v, want 1", cf.Color[3])
+	}
+}
+
 func TestPackCampfireParamsFlame(t *testing.T) {
 	sc := &scene.Scene{
 		Campfires: []scene.Campfire{{

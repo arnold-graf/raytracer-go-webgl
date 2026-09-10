@@ -33,7 +33,10 @@ const (
 	// Must match AA_RESOLVE_WG in types.wesl.
 	aaResolveWG = 64
 	// struct ShadowAux in types.wesl (std430, 64-byte stride), one per pixel.
-	shadowAuxStride = 64
+	// shadowAuxStride is the byte stride of one ShadowAux in types.wesl. It
+	// carries the reflection filter's per-pixel record too; there is no spare
+	// buffer binding for a second one.
+	shadowAuxStride = 144
 	workgroupXY     = 8
 	// Six square portal captures (see texture.MaxCaptureDim).
 	maxCaptureDim = texture.MaxCaptureDim
@@ -106,6 +109,9 @@ type Renderer struct {
 	shadowRadiusV      *wgpu.ComputePipeline
 	shadowPipelineH    *wgpu.ComputePipeline
 	shadowPipelineV    *wgpu.ComputePipeline
+	reflFillPipeline   *wgpu.ComputePipeline
+	reflBlurH          *wgpu.ComputePipeline
+	reflBlurV          *wgpu.ComputePipeline
 	bind               *wgpu.BindGroup
 
 	// Scene-specialized shader. The tracer is one megakernel whose register
@@ -810,6 +816,12 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		rp.maxBounceDepth = v.MaxBounceDepth
 	}
 	rp.softShadows = softShadowsEnabled()
+	// The lobe filter is scene-driven, not a global mode: it runs only when some
+	// primitive actually asks for it, so a scene that sets neither blur pays
+	// nothing and renders exactly as it did before.
+	rp.reflFilter = (primsWantLobeBlur(rp.prims) || zonesWantLobeBlur(rp.terrainZones)) && !reflBlurDisabled()
+	rp.reflHalf = rp.reflFilter && reflHalfEnabled()
+	rp.reflNoRefl, rp.reflNoRefr = reflChannels()
 	if v == nil || v.Scene == nil {
 		rp = renderParams{}
 	}
@@ -855,16 +867,96 @@ func featuresFor(p *renderParams) shaders.Features {
 	return f
 }
 
-// softShadowsOverride caches RAYTRACER_SOFT_SHADOWS, the opt-in switch for
-// contact-hardening penumbrae. Off by default; see docs/soft-shadows.md.
+// softShadowsOverride caches the switch for contact-hardening penumbrae, which
+// are **on by default**. RAYTRACER_SOFT_SHADOWS=0 or RAYTRACER_NO_SOFT_SHADOWS=1
+// turns them off, which is what to reach for when A/B-ing against hard shadows;
+// see docs/soft-shadows.md.
 var softShadowsOverride = struct {
 	once sync.Once
 	on   bool
 }{}
 
+// primsWantLobeBlur reports whether any primitive asks for the lobe filter, by
+// setting reflect_blur or transmit_blur. Params2.x/y carry them; see
+// surfaceParams2.
+func primsWantLobeBlur(prims []GPUPrimitive) bool {
+	for i := range prims {
+		if prims[i].Params2[0] > 0 || prims[i].Params2[1] > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// zonesWantLobeBlur is the same question for terrain zones, which reach the
+// shader through their own buffer and would otherwise never switch the filter
+// on. Surf2.x carries reflect_blur; a zone has no transmitted lobe.
+func zonesWantLobeBlur(zones []GPUTerrainZone) bool {
+	for i := range zones {
+		if zones[i].Surf2[0] > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// reflBlurDisabled reads RAYTRACER_NO_REFL_BLUR, which forces every lobe back
+// inline. Debug only, for A/B against the unfiltered image.
+var reflBlurOffOverride = struct {
+	once sync.Once
+	on   bool
+}{}
+
+func reflBlurDisabled() bool {
+	reflBlurOffOverride.once.Do(func() {
+		reflBlurOffOverride.on = os.Getenv("RAYTRACER_NO_REFL_BLUR") == "1"
+	})
+	return reflBlurOffOverride.on
+}
+
+// reflHalfEnabled caches RAYTRACER_REFL_HALF, which traces the glossy lobe for
+// one pixel in four wherever the blur is wide enough to hide it. Implies the
+// filter, which is the thing that makes the missing three affordable.
+var reflHalfOverride = struct {
+	once sync.Once
+	on   bool
+}{}
+
+// reflChannels reads RAYTRACER_REFL_CHANNELS and reports which channels to leave
+// alone. "refl" filters reflections only, "refr" refractions only; anything else
+// (including unset) filters both. Glass forks the two at one hit and blurs them
+// by different amounts, so being able to judge them apart is worth a switch.
+var reflChannelOverride = struct {
+	once           sync.Once
+	noRefl, noRefr bool
+}{}
+
+func reflChannels() (noRefl, noRefr bool) {
+	reflChannelOverride.once.Do(func() {
+		switch os.Getenv("RAYTRACER_REFL_CHANNELS") {
+		case "refl":
+			reflChannelOverride.noRefr = true
+		case "refr":
+			reflChannelOverride.noRefl = true
+		}
+	})
+	return reflChannelOverride.noRefl, reflChannelOverride.noRefr
+}
+
+func reflHalfEnabled() bool {
+	reflHalfOverride.once.Do(func() {
+		reflHalfOverride.on = os.Getenv("RAYTRACER_REFL_HALF") == "1"
+	})
+	return reflHalfOverride.on
+}
+
 func softShadowsEnabled() bool {
 	softShadowsOverride.once.Do(func() {
-		softShadowsOverride.on = os.Getenv("RAYTRACER_SOFT_SHADOWS") == "1"
+		// Default on. Both spellings of "off" are honoured: =0 for anyone who
+		// already had the variable set, and the NO_ form this codebase uses
+		// elsewhere for kill switches.
+		softShadowsOverride.on = os.Getenv("RAYTRACER_SOFT_SHADOWS") != "0" &&
+			os.Getenv("RAYTRACER_NO_SOFT_SHADOWS") != "1"
 	})
 	return softShadowsOverride.on
 }
@@ -960,6 +1052,54 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 		shadowPipelineH.Release()
 		return fmt.Errorf("create shadow soften v pipeline: %w", err)
 	}
+	reflFillPipeline, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
+		Label:   "reflection fill pipeline",
+		Layout:  r.pipeLayout,
+		Compute: wgpu.ProgrammableStageDescriptor{Module: shader, EntryPoint: "refl_fill"},
+	})
+	if err != nil {
+		pipeline.Release()
+		aaClassifyPipeline.Release()
+		aaPipeline.Release()
+		shadowRadiusH.Release()
+		shadowRadiusV.Release()
+		shadowPipelineH.Release()
+		shadowPipelineV.Release()
+		return fmt.Errorf("create reflection fill pipeline: %w", err)
+	}
+	reflBlurH, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
+		Label:   "reflection blur pipeline (horizontal)",
+		Layout:  r.pipeLayout,
+		Compute: wgpu.ProgrammableStageDescriptor{Module: shader, EntryPoint: "refl_blur_h"},
+	})
+	if err != nil {
+		pipeline.Release()
+		aaClassifyPipeline.Release()
+		aaPipeline.Release()
+		shadowRadiusH.Release()
+		shadowRadiusV.Release()
+		shadowPipelineH.Release()
+		shadowPipelineV.Release()
+		reflFillPipeline.Release()
+		return fmt.Errorf("create reflection blur h pipeline: %w", err)
+	}
+	reflBlurV, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
+		Label:   "reflection blur pipeline (vertical)",
+		Layout:  r.pipeLayout,
+		Compute: wgpu.ProgrammableStageDescriptor{Module: shader, EntryPoint: "refl_blur_v"},
+	})
+	if err != nil {
+		pipeline.Release()
+		aaClassifyPipeline.Release()
+		aaPipeline.Release()
+		shadowRadiusH.Release()
+		shadowRadiusV.Release()
+		shadowPipelineH.Release()
+		shadowPipelineV.Release()
+		reflFillPipeline.Release()
+		reflBlurH.Release()
+		return fmt.Errorf("create reflection blur v pipeline: %w", err)
+	}
 
 	if r.pipeline != nil {
 		r.pipeline.Release()
@@ -982,6 +1122,17 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 	if r.shadowPipelineV != nil {
 		r.shadowPipelineV.Release()
 	}
+	if r.reflFillPipeline != nil {
+		r.reflFillPipeline.Release()
+	}
+	if r.reflBlurH != nil {
+		r.reflBlurH.Release()
+	}
+	if r.reflBlurV != nil {
+		r.reflBlurV.Release()
+	}
+	r.reflFillPipeline = reflFillPipeline
+	r.reflBlurH, r.reflBlurV = reflBlurH, reflBlurV
 	r.pipeline, r.aaClassifyPipeline, r.aaPipeline = pipeline, aaClassifyPipeline, aaPipeline
 	r.shadowRadiusH, r.shadowRadiusV = shadowRadiusH, shadowRadiusV
 	r.shadowPipelineH, r.shadowPipelineV = shadowPipelineH, shadowPipelineV
@@ -1057,6 +1208,10 @@ type renderParams struct {
 	maxBounceDepth uint32
 	adaptiveAA     bool
 	softShadows    bool
+	reflFilter     bool
+	reflHalf       bool
+	reflNoRefl     bool
+	reflNoRefr     bool
 	profileEnabled bool
 	// uploadStatic is set when the cached scene buffers changed this frame and
 	// must be re-sent to the GPU. When false, render() uploads only the per-frame
@@ -1261,7 +1416,7 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 // submitTrace encodes and submits one compute dispatch, copying the rendered
 // output (and, when profiling, the atomic counters) into dst. It does not wait
 // on the GPU; the returned submission index lets the caller poll for it later.
-func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveAA, softShadows bool) (wgpu.SubmissionIndex, error) {
+func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveAA, softShadows, reflFilter, reflHalf bool) (wgpu.SubmissionIndex, error) {
 	if adaptiveAA {
 		// Empty task list, and an indirect header that dispatches nothing if
 		// aa_classify finds no edges at all.
@@ -1281,6 +1436,21 @@ func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveA
 	gx := uint32((fw + workgroupXY - 1) / workgroupXY)
 	gy := uint32((fh + workgroupXY - 1) / workgroupXY)
 	pass.DispatchWorkgroups(gx, gy, 1)
+	if reflFilter {
+		// Same pass as main, before everything downstream: the glossy lobe is
+		// missing from hdr_pixels until refl_blur_v adds it back, and both the
+		// penumbra filter and AA classification read that buffer.
+		if reflHalf {
+			// Hand the three skipped pixels of each 2x2 their lead's lobe
+			// before anything gathers over the field.
+			pass.SetPipeline(r.reflFillPipeline)
+			pass.DispatchWorkgroups(gx, gy, 1)
+		}
+		pass.SetPipeline(r.reflBlurH)
+		pass.DispatchWorkgroups(gx, gy, 1)
+		pass.SetPipeline(r.reflBlurV)
+		pass.DispatchWorkgroups(gx, gy, 1)
+	}
 	if softShadows {
 		// Same pass as main: consecutive dispatches inside a compute pass see
 		// each other's storage writes. Ordered before AA classification so edge
@@ -1408,7 +1578,7 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 		return err
 	}
 	gpuStart := time.Now()
-	sub, err := r.submitTrace(r.read, fw, fh, p.profileEnabled, p.adaptiveAA, p.softShadows)
+	sub, err := r.submitTrace(r.read, fw, fh, p.profileEnabled, p.adaptiveAA, p.softShadows, p.reflFilter, p.reflHalf)
 	if err != nil {
 		return err
 	}
@@ -1447,7 +1617,7 @@ func (r *Renderer) renderPipelined(buf []byte, cam *camera.Camera, p renderParam
 	size := uint64(r.w * r.h * 4)
 	curSlot := r.pipeParity
 
-	sub, err := r.submitTrace(r.reads[curSlot], r.w, r.h, p.profileEnabled, p.adaptiveAA, p.softShadows)
+	sub, err := r.submitTrace(r.reads[curSlot], r.w, r.h, p.profileEnabled, p.adaptiveAA, p.softShadows, p.reflFilter, p.reflHalf)
 	if err != nil {
 		return err
 	}
@@ -1597,6 +1767,24 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	}
 	if p.softShadows {
 		putU32(out[344:348], 1)
+	}
+	if p.reflFilter {
+		// bit 0 enables the filter, bit 1 halves the rate the lobe is traced at.
+		// Packed into one word because 348 is the last u32 before light_grid_min's
+		// vec4 alignment and there is no spare slot.
+		v := uint32(1)
+		if p.reflHalf {
+			v |= 2
+		}
+		// Bits 2 and 3 leave a channel inline and jittered, so reflection and
+		// refraction blur can be judged, tuned and shipped independently.
+		if p.reflNoRefl {
+			v |= 4
+		}
+		if p.reflNoRefr {
+			v |= 8
+		}
+		putU32(out[348:352], v)
 	}
 	// Light cluster grid transform (vec4-aligned): world -> cell index.
 	putVec4(out[352:368], p.lightGrid.Min)

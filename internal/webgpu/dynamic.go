@@ -184,6 +184,7 @@ func packPrimitivesOmitDynamic(s *scene.Scene, skipFrom *scene.Scene) []GPUPrimi
 			Albedo:  albedo(pl.Albedo),
 			Albedo2: albedo(pl.Albedo2),
 			Params:  surfaceParams(pl.Surface),
+			Params2: surfaceParams2(pl.Surface),
 			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), surfaceFlags(pl.Surface)},
 		})
 	}
@@ -247,6 +248,7 @@ func packBlockersOmitDynamic(s *scene.Scene, skipFrom *scene.Scene) []GPUPrimiti
 			Albedo:  albedo(pl.Albedo),
 			Albedo2: albedo(pl.Albedo2),
 			Params:  surfaceParams(pl.Surface),
+			Params2: surfaceParams2(pl.Surface),
 			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), surfaceFlags(pl.Surface)},
 		})
 	}

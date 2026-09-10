@@ -28,7 +28,7 @@ type Campfire struct {
 	// shadows, in world units. 0 uses the shader default. A fire is a broad
 	// source, so this is usually larger than a bulb's.
 	Radius float64
-	Lights     int     // sub-light count (renderer currently supports 3)
+	Lights     int     // sub-light count (1..CampfireLights; 0 = default)
 	Flame      bool    // procedural volumetric flame at the core
 	// FlameEmber/Mid/Tip/Ash are linear HDR colors for particle life stages.
 	// Unset in TOML defaults to DefaultFlameEmber etc.
@@ -85,10 +85,24 @@ var campfireBase = [CampfireLights]vec.V{
 	{X: 0.03, Y: 0.52, Z: 0.16},
 }
 
+func (f *Campfire) lightCount() int {
+	n := f.Lights
+	if n == 0 {
+		n = CampfireLights
+	}
+	if n > CampfireLights {
+		n = CampfireLights
+	}
+	return n
+}
+
 // LightAt returns the current world position and HDR color of sub-light j at
 // animation time t (seconds). The flicker is a sum of incommensurate sines, so
 // it reads as smooth quasi-random fire motion rather than a periodic wobble.
 func (f *Campfire) LightAt(j int, t float64) (pos, color vec.V) {
+	if j < 0 || j >= f.lightCount() {
+		return vec.V{}, vec.V{}
+	}
 	sp := f.Speed
 	if sp == 0 {
 		sp = 1

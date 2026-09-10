@@ -1,14 +1,21 @@
 # Contact-hardening soft shadows
 
-**Status:** implemented behind `RAYTRACER_SOFT_SHADOWS=1`, off by default. With
-the flag clear the renderer is bit-identical to before on every view tested.
-**Cost:** +2.3% on outdoors-night-villa, +5.1% on the office server room,
-+5.4% on the office atrium.
+**Status:** **on by default.** `RAYTRACER_SOFT_SHADOWS=0` (or
+`RAYTRACER_NO_SOFT_SHADOWS=1`) turns them off, which is what to reach for when
+A/B-ing against hard shadows.
+**Cost, measured at the default:** **+11.5%** on office-sunset (9.98 -> 11.12 ms,
+four views interleaved, best of three) and **+6.4%** on outdoors-night-villa
+(20.4 -> 21.7 ms).
 **Rays:** none. The shadow ray count is unchanged.
 
 ```
-RAYTRACER_SOFT_SHADOWS=1 go run .
+RAYTRACER_SOFT_SHADOWS=0 go run .   # back to hard shadows
 ```
+
+> The +2.3% / +5.1% / +5.4% this document used to quote were per-sub-scene
+> (villa, server room, atrium) and predate a good deal of change. The figures
+> above are the whole office index and the whole villa, measured at the point
+> the default flipped. Penumbrae cost about a tenth of the frame.
 
 ---
 

@@ -162,13 +162,28 @@ fn terrain_zone_shade_normal(i: u32, p: vec3<f32>, base_n: vec3<f32>) -> vec3<f3
     return terrain_zone_bump_normal(p, base_n, p.xz, z, pick.x);
 }
 
-// terrain_zone_surface returns rough, reflect, specular, shininess scaled by zone weight.
-fn terrain_zone_surface(i: u32, xz: vec2<f32>) -> vec4<f32> {
+// ZoneSurface is what a terrain zone contributes at a point. It is a struct
+// rather than another packed vec4 because the four lanes were already spoken
+// for, and because terrain_zone_pick walks the zone list — a second query just
+// to fetch one more float would double that walk.
+struct ZoneSurface {
+    rough: f32,
+    reflect: f32,
+    specular: f32,
+    shininess: f32,
+    reflect_blur: f32,
+};
+
+// terrain_zone_surface returns rough, reflect and specular scaled by the zone's
+// fade weight; shininess and reflect_blur are widths rather than amounts, so
+// they are taken as authored. Where the weight goes to zero `reflect` does too,
+// and the lobe they describe disappears with it.
+fn terrain_zone_surface(i: u32, xz: vec2<f32>) -> ZoneSurface {
     let pick = terrain_zone_pick(i, xz);
     if (pick.x <= 0.001 || pick.y < 0.0) {
-        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+        return ZoneSurface(0.0, 0.0, 0.0, 0.0, 0.0);
     }
     let z = terrain_zone_at(i, i32(pick.y));
     let w = pick.x;
-    return vec4<f32>(z.surf.x * w, z.surf.y * w, z.surf.z * w, z.surf.w);
+    return ZoneSurface(z.surf.x * w, z.surf.y * w, z.surf.z * w, z.surf.w, z.surf2.x);
 }
