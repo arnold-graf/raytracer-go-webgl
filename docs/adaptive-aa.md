@@ -5,7 +5,9 @@
 hooks into the ray tracer — without assuming game-engine or GPU background.
 
 For performance numbers and tuning history, see
-[Adaptive AA in megakernel-optimization.md](megakernel-optimization.md#adaptive-aa-classify-then-resolve-indirectly).
+[Adaptive AA in megakernel-optimization.md](megakernel-optimization.md#adaptive-aa-classify-then-resolve-indirectly)
+and, for where the time actually goes and how the tap is placed and weighted,
+[aa-tap-tuning.md](aa-tap-tuning.md).
 
 ---
 
@@ -16,7 +18,7 @@ silhouettes, shadow boundaries, and sharp brightness changes all show as
 stair-steps.
 
 **Adaptive AA** smooths those edges by tracing **one extra camera ray** on
-pixels that need it, then averaging that ray with the center sample (50/50).
+pixels that need it, then blending that ray with the center sample.
 
 This is **not** a screen-space blur (no FXAA/SMAA-style filter over finished
 pixels). The extra sample goes through the same path tracer as the primary ray
@@ -104,10 +106,13 @@ shadow creates a visible staircase.
 ### Sub-pixel tap direction
 
 If an edge is found on an axis, the extra ray is **not** shot through the pixel
-center again. The tap is offset to `0.25` or `0.75` along that axis, toward the
-brighter neighbor — so the supersample actually pulls the color toward the edge.
-If no edge is found, that axis uses `0.5` (center); if both axes are center, the
-pixel is skipped entirely.
+center again. The tap is offset by `AA_TAP_REACH` (0.35) along that axis, toward
+the brighter neighbor — so the supersample actually pulls the color toward the
+edge. If no edge is found, that axis uses `0.5` (center); if both axes are
+center, the pixel is skipped entirely.
+
+The packed task stores a *direction* per axis rather than a literal offset, so
+the reach is a tunable constant and not baked into the encoding.
 
 Tasks are packed into one `u32` per edge pixel (coordinates + tap indices) and
 appended to **`aa_list`**. The expensive resolve pass only runs for entries in
@@ -122,7 +127,10 @@ For each task, `aa_resolve`:
 1. Reads the center HDR color from `hdr_pixels`.
 2. Calls `ray_color` again with the same camera, but `pixel_ray_dir` uses the
    packed sub-pixel tap.
-3. Averages center and extra: `(center + extra) × 0.5`.
+3. Blends center and extra: `center × (1 - AA_TAP_WEIGHT) + extra × AA_TAP_WEIGHT`.
+   The weight is 0.30, not 0.5: the two samples are not symmetric about the pixel
+   center, so equal weights bias the estimate toward whichever side the tap was
+   aimed at. See [aa-tap-tuning.md](aa-tap-tuning.md).
 4. Tonemaps, dithers, quantizes, and writes `pixels` (same path as `main`).
 
 So AA is **integrated with the ray tracer**, not a post-process on the 8-bit
@@ -157,6 +165,9 @@ for the curvature test at the shipped threshold).
 | Adaptive AA on/off | App / `render.View.AdaptiveAA`, `params.adaptive_aa` | Enables the three-step path vs single `main` pass |
 | `AA_GEOM_MIN_LEVELS` | `trace.wesl` | Minimum luminance gap for silhouette edges |
 | `AA_SHADE_MIN_CURVE` | `trace.wesl` | Minimum curvature for same-surface shadow edges |
+| `AA_TAP_REACH` | `trace.wesl` | How far from the pixel center the tap sits (0.35) |
+| `AA_TAP_WEIGHT` | `trace.wesl` | The tap's share of the blend (0.30) |
+| `AA_TAPS` | `trace.wesl` | Extra rays per flagged pixel (1). Higher values exist to build a reference; cost is linear in it |
 | `AA_RESOLVE_WG` | `types.wesl` / `device.go` | Thread batch size for the resolve pass (64) |
 
 `cmd/gpuprof` defaults to adaptive AA on to match the app (`-aa` flag).

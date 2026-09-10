@@ -163,6 +163,11 @@ Cost is ~0.8 ms. This is affordable *because* of the compaction above: AA cost n
 scales with actual edge count instead of per-workgroup waste, so widening the
 trigger is much cheaper than it would have been before.
 
+> Later measurement puts the *whole* AA pass at 2.4-3.8 ms, 27-30% of the frame,
+> and all of it in the resolve dispatch — a tap ray costs about 4x what the same
+> ray costs in `main`, mostly to divergence. See
+> [aa-tap-tuning.md](aa-tap-tuning.md).
+
 Verified on a magnified crop of the office desk lamp — the stem and base rim
 smoothed noticeably, along with the shadow boundary on the desk.
 

@@ -4,7 +4,7 @@
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
 import package::types::{AA_RESOLVE_WG, GLOSSY_MIN_CONTRIB, HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, ShadowAux, aa_dispatch, aa_hits, aa_list, hdr_pixels, params, pixels, prims, shadow_aux, waters};
-import package::profile::{PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MAX_SEGS, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc, prof_max};
+import package::profile::{PROF_AA_GEOM, PROF_AA_SHADE, PROF_AA_TASKS, PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MAX_SEGS, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc, prof_max};
 import package::math::{surface_grazing_weight, tonemap};
 import package::texture::{plane_albedo, prim_texture_bump_normal, texture_eval, texture_eval_box, texture_eval_surface};
 import package::sky::{sky};
@@ -565,21 +565,30 @@ fn aa_neighbor(fp: u32, center_luma: f32, x: u32, y: u32, inside: bool) -> AANei
 // The tap always aims at the stronger of the two sides. Aiming matters because
 // the resolve pass averages the center sample with this single extra ray, so a
 // tap at 0.5 would just re-trace the center and change nothing.
-fn aa_axis_tap(center: f32, lo: AANeighbor, hi: AANeighbor) -> f32 {
+// Returns vec2(tap, kind), kind being 0 for no edge, 1 for a silhouette and 2
+// for same-surface curvature. The kind is only read by the profile counters.
+fn aa_axis_tap(center: f32, lo: AANeighbor, hi: AANeighbor) -> vec2<f32> {
     let d_lo = abs(center - lo.luma);
     let d_hi = abs(center - hi.luma);
 
+    var kind = 0.0;
     var edge = (lo.surface_edge && d_lo >= AA_GEOM_MIN_LEVELS) || (hi.surface_edge && d_hi >= AA_GEOM_MIN_LEVELS);
+    if (edge) {
+        kind = 1.0;
+    }
     if (!edge && lo.inside && hi.inside) {
         edge = abs(lo.luma + hi.luma - 2.0 * center) >= AA_SHADE_MIN_CURVE;
+        if (edge) {
+            kind = 2.0;
+        }
     }
     if (!edge) {
-        return 0.5;
+        return vec2<f32>(0.5, 0.0);
     }
     if (d_lo >= d_hi) {
-        return 0.25;
+        return vec2<f32>(0.25, kind);
     }
-    return 0.75;
+    return vec2<f32>(0.75, kind);
 }
 
 // hits_edge is true when two packed primary hits belong to different surfaces.
@@ -611,10 +620,18 @@ fn analyze_edge(gid: vec2<u32>, fp: u32, luma: f32) -> vec4<f32> {
 
     let sx = aa_axis_tap(luma, left, right);
     let sy = aa_axis_tap(luma, down, up);
-    if (sx == 0.5 && sy == 0.5) {
+    if (sx.x == 0.5 && sy.x == 0.5) {
         return vec4<f32>(0.5, 0.5, 0.0, 0.0);
     }
-    return vec4<f32>(sx, sy, 0.0, 1.0);
+    prof_inc(PROF_AA_TASKS, 1u);
+    let kinds = u32(sx.y) | u32(sy.y);
+    if ((kinds & 1u) != 0u) {
+        prof_inc(PROF_AA_GEOM, 1u);
+    }
+    if ((kinds & 2u) != 0u) {
+        prof_inc(PROF_AA_SHADE, 1u);
+    }
+    return vec4<f32>(sx.x, sy.x, 0.0, 1.0);
 }
 
 // supersample_edge blends the pass-1 center sample with one tap toward the edge.
@@ -637,11 +654,65 @@ fn analyze_edge(gid: vec2<u32>, fp: u32, luma: f32) -> vec4<f32> {
 // another step of a staircase entirely. Along stair nosings, where every shadow
 // edge crosses a geometric edge, that read as the softening being undone: ragged,
 // re-hardened shadow borders visible only with AA on.
+// AA_TAPS is how many extra rays a flagged pixel traces. Shipping value is 1:
+// the resolve pass is throughput-bound, so cost is very close to linear in this
+// (measured 2.05x / 3.05x / 5.05x / 6.97x at 2 / 3 / 5 / 7 taps). Higher values
+// exist to generate a reference for tuning the single tap against.
+const AA_TAPS: u32 = 1u;
+
+// AA_TAP_REACH is how far from the pixel centre the single aimed tap sits.
+//
+// With one extra ray the pixel is estimated from two samples, the centre plus
+// this one, and the pair is *not* symmetric about the centre — so the estimator
+// is biased toward whichever side the tap was aimed at, and the reach sets how
+// strong that bias is. Tuned against a 31-tap reference; see
+// docs/adaptive-aa.md.
+const AA_TAP_REACH: f32 = 0.35;
+
+// AA_TAP_WEIGHT is the tap's share of the blend, the centre taking the rest.
+const AA_TAP_WEIGHT: f32 = 0.30;
+
+// van der Corput radical inverse, base 2 — the second dimension of a Hammersley
+// set. Only used to place reference taps.
+fn aa_radical_inverse(bits_in: u32) -> f32 {
+    var bits = bits_in;
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return f32(bits) * 2.3283064365386963e-10;
+}
+
+// aa_tap_offset places tap i inside the pixel. One tap uses the aimed offset the
+// classifier chose, because a single sample averaged with the centre has to be
+// put where it will actually disagree. Above one the aim is dropped for a
+// Hammersley set, which covers the pixel evenly and so converges on the box
+// average this is all trying to estimate.
+fn aa_tap_offset(i: u32, aimed: vec2<f32>) -> vec2<f32> {
+    if (AA_TAPS == 1u) {
+        return aimed;
+    }
+    return vec2<f32>((f32(i) + 0.5) / f32(AA_TAPS), aa_radical_inverse(i));
+}
+
 fn supersample_edge(gx: f32, gy: f32, center: vec3<f32>, tap: vec2<f32>, idx: u32) -> vec3<f32> {
     let ro = params.cam_pos.xyz;
-    let res = ray_color(ro, pixel_ray_dir(gx, gy, tap.x, tap.y));
-    var extra = res.color;
     let aux = shadow_aux[idx];
+    var sum = vec3<f32>(0.0, 0.0, 0.0);
+    for (var i = 0u; i < AA_TAPS; i = i + 1u) {
+        let off = aa_tap_offset(i, tap);
+        let res = ray_color(ro, pixel_ray_dir(gx, gy, off.x, off.y));
+        sum = sum + aa_tap_correct(res, aux);
+    }
+    if (AA_TAPS == 1u) {
+        return center * (1.0 - AA_TAP_WEIGHT) + sum * AA_TAP_WEIGHT;
+    }
+    return (center + sum) / f32(AA_TAPS + 1u);
+}
+
+fn aa_tap_correct(res: TraceResult, aux: ShadowAux) -> vec3<f32> {
+    var extra = res.color;
     if (params.soft_shadows != 0u && aux.soft_applied > 0.0) {
         // Scaled by the *lesser* of the two unoccluded lights, not the tap's own.
         //
@@ -661,7 +732,7 @@ fn supersample_edge(gx: f32, gy: f32, center: vec3<f32>, tap: vec2<f32>, idx: u3
         let lit_bound = min(res.sh.full, aux.full);
         extra = max(extra + (res.sh.frac - aux.frac) * lit_bound, vec3<f32>(0.0, 0.0, 0.0));
     }
-    return (center + extra) * 0.5;
+    return extra;
 }
 
 fn write_pixel(gid: vec2<u32>, col: vec3<f32>) {
@@ -1155,10 +1226,14 @@ fn aa_task_pixel(task: u32) -> vec2<u32> {
     return vec2<u32>(task & 0xfffu, (task >> 12u) & 0xfffu);
 }
 
+// The two packed bits per axis are a *direction* — low, centre, high — not a
+// literal offset, so the reach can be tuned without touching the packing.
 fn aa_task_tap(task: u32) -> vec2<f32> {
     let sxi = (task >> 24u) & 3u;
     let syi = (task >> 26u) & 3u;
-    return vec2<f32>(f32(sxi + 1u) * 0.25, f32(syi + 1u) * 0.25);
+    let dx = f32(sxi) - 1.0;
+    let dy = f32(syi) - 1.0;
+    return vec2<f32>(0.5, 0.5) + AA_TAP_REACH * vec2<f32>(dx, dy);
 }
 
 // aa_classify is AA pass 2 of 3: one thread per pixel, but it only reads the
@@ -1169,23 +1244,55 @@ fn aa_task_tap(task: u32) -> vec2<f32> {
 // whole workgroup was billed for a full extra ray tree while most of its lanes
 // sat idle. Compacting first means aa_resolve launches only full workgroups of
 // genuine work.
+// Workgroup-local compaction state. Each 8x8 tile counts its own edge pixels,
+// claims one contiguous block of the task list, and fills it.
+var<workgroup> aa_wg_count: atomic<u32>;
+var<workgroup> aa_wg_base: u32;
+
 @compute @workgroup_size(8, 8, 1)
-fn aa_classify(@builtin(global_invocation_id) gid: vec3<u32>) {
-    if (gid.x >= params.width || gid.y >= params.height) {
+fn aa_classify(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_index) lidx: u32) {
+    if (lidx == 0u) {
+        atomicStore(&aa_wg_count, 0u);
+    }
+    workgroupBarrier();
+
+    // No early return: every lane has to reach the barriers below, so an
+    // out-of-range lane participates as simply "not flagged".
+    var flagged = false;
+    var task = 0u;
+    if (gid.x < params.width && gid.y < params.height) {
+        let idx = pixel_index(gid.x, gid.y);
+        let edge = analyze_edge(vec2<u32>(gid.xy), aa_hits[idx], hdr_pixels[idx].w);
+        if (edge.w >= 0.5) {
+            flagged = true;
+            task = aa_pack_task(gid.x, gid.y, edge.xy);
+        }
+    }
+
+    // One atomic per tile instead of one per edge pixel. The point is not the
+    // reduced contention, it is that a tile's tasks come out *contiguous*: the
+    // resolve pass then fills each of its workgroups from a few adjacent tiles
+    // rather than from 64 unrelated points on the screen, and 64 neighbouring
+    // camera rays are near-parallel where 64 scattered ones are not.
+    var slot = 0u;
+    if (flagged) {
+        slot = atomicAdd(&aa_wg_count, 1u);
+    }
+    workgroupBarrier();
+    if (lidx == 0u) {
+        aa_wg_base = atomicAdd(&aa_dispatch[3], atomicLoad(&aa_wg_count));
+    }
+    workgroupBarrier();
+
+    if (!flagged) {
         return;
     }
-    let idx = pixel_index(gid.x, gid.y);
-    let edge = analyze_edge(vec2<u32>(gid.xy), aa_hits[idx], hdr_pixels[idx].w);
-    if (edge.w < 0.5) {
+    let g = aa_wg_base + slot;
+    if (g >= arrayLength(&aa_list)) {
         return;
     }
-    let slot = atomicAdd(&aa_dispatch[3], 1u);
-    if (slot >= arrayLength(&aa_list)) {
-        return;
-    }
-    aa_list[slot] = aa_pack_task(gid.x, gid.y, edge.xy);
-    // Grow the indirect workgroup count to cover this slot.
-    atomicMax(&aa_dispatch[0], (slot + AA_RESOLVE_WG) / AA_RESOLVE_WG);
+    aa_list[g] = task;
+    atomicMax(&aa_dispatch[0], (g + AA_RESOLVE_WG) / AA_RESOLVE_WG);
 }
 
 // aa_resolve is AA pass 3 of 3: supersample the compacted task list. Dispatched

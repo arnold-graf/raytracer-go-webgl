@@ -29,6 +29,9 @@ const (
 	profBVHSteps
 	profPrimTests
 	profMaxSegs
+	profAATasks
+	profAAGeom
+	profAAShade
 	profCounterCount
 )
 
@@ -58,6 +61,9 @@ type GPUProfileCounters struct {
 	BVHSteps       uint32
 	PrimTests      uint32
 	MaxSegs        uint32
+	AATasks        uint32
+	AAGeom         uint32
+	AAShade        uint32
 }
 
 func decodeProfileCounters(raw []byte) GPUProfileCounters {
@@ -90,6 +96,9 @@ func decodeProfileCounters(raw []byte) GPUProfileCounters {
 	c.BVHSteps = vals[profBVHSteps]
 	c.PrimTests = vals[profPrimTests]
 	c.MaxSegs = vals[profMaxSegs]
+	c.AATasks = vals[profAATasks]
+	c.AAGeom = vals[profAAGeom]
+	c.AAShade = vals[profAAShade]
 	return c
 }
 
@@ -127,6 +136,12 @@ func FormatGPUProfile(c GPUProfileCounters, gpuMS float64) string {
 	if c.TerrainSteps > 0 {
 		fmt.Fprintf(&b, "  terrain march steps: %6d  (%.1f per shadow/terrain test)\n",
 			c.TerrainSteps, float64(c.TerrainSteps)/float64(maxU32(c.ShadowRays+c.HitTerrain, 1)))
+	}
+	if c.AATasks > 0 {
+		fmt.Fprintf(&b, "  adaptive AA:       %8d supersampled  (%5.1f%% of pixels)\n",
+			c.AATasks, 100*float64(c.AATasks)/pix)
+		fmt.Fprintf(&b, "    silhouette %d (%.1f%%)  curvature %d (%.1f%%)\n",
+			c.AAGeom, 100*float64(c.AAGeom)/pix, c.AAShade, 100*float64(c.AAShade)/pix)
 	}
 	fmt.Fprintf(&b, "  bounces: mirror %d  glass %d  diffuse_refl %d\n",
 		c.MirrorBounces, c.GlassBounces, c.DiffuseRefl)

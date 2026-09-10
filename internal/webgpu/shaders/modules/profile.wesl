@@ -28,7 +28,14 @@ const PROF_PRIM_TESTS: u32 = 19u;
 // MAX_SEGS in trace.wesl is sized from this, so it can be justified by
 // measurement instead of by counting worst cases on paper.
 const PROF_MAX_SEGS: u32 = 20u;
-const PROF_COUNTER_COUNT: u32 = 21u;
+// Adaptive-AA classification, counted once per pixel in analyze_edge. TASKS is
+// how many pixels the resolve pass will trace an extra ray for; GEOM and SHADE
+// say which detector claimed them, and overlap when a pixel is flagged on one
+// axis by each.
+const PROF_AA_TASKS: u32 = 21u;
+const PROF_AA_GEOM: u32 = 22u;
+const PROF_AA_SHADE: u32 = 23u;
+const PROF_COUNTER_COUNT: u32 = 24u;
 
 fn prof_inc(idx: u32, delta: u32) {
     if (params.profile_enabled != 0u && idx < PROF_COUNTER_COUNT) {
