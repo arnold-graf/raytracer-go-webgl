@@ -155,6 +155,40 @@ func (b *BVH) Bounds() (min, max vec.V, ok bool) {
 	return b.nodes[0].min, b.nodes[0].max, true
 }
 
+// BoundsBelow returns the bounds of the primitives whose world AABB is no
+// larger than limit on any axis, ignoring the rest.
+//
+// It exists for the AO volume. A uniform grid has to span whatever bounds it
+// is given, so a single enormous primitive — a mountain, a sky shell, a ground
+// slab — drags the cell size up for the entire scene. In the night villa one
+// primitive accounts for 502,655 of the scene's 511,612 m² of surface and
+// stretches the bounds to 2,205 units tall, which forces 17 m cells on a
+// 10 m room. Geometry that large has no crevices at occlusion scale, so
+// leaving it out of the *sizing* (it still occludes) is free resolution.
+// EachPrimBounds visits every primitive's world AABB. Diagnostic helper.
+func (b *BVH) EachPrimBounds(fn func(min, max vec.V)) {
+	for i := range b.prims {
+		fn(b.prims[i].min, b.prims[i].max)
+	}
+}
+
+func (b *BVH) BoundsBelow(limit float64) (min, max vec.V, ok bool) {
+	for i := range b.prims {
+		p := &b.prims[i]
+		e := p.max.Sub(p.min)
+		if e.X > limit || e.Y > limit || e.Z > limit {
+			continue
+		}
+		if !ok {
+			min, max, ok = p.min, p.max, true
+			continue
+		}
+		min = vec.V{X: math.Min(min.X, p.min.X), Y: math.Min(min.Y, p.min.Y), Z: math.Min(min.Z, p.min.Z)}
+		max = vec.V{X: math.Max(max.X, p.max.X), Y: math.Max(max.Y, p.max.Y), Z: math.Max(max.Z, p.max.Z)}
+	}
+	return min, max, ok
+}
+
 func (b *BVH) add(kind, idx int, min, max vec.V) {
 	b.prims = append(b.prims, primRef{
 		kind: kind, idx: idx, min: min, max: max,
@@ -170,7 +204,15 @@ func (b *BVH) addBounded(kind, idx int, xform *scene.Transform, lmin, lmax vec.V
 		b.add(kind, idx, lmin, lmax)
 		return
 	}
-	wmin, wmax := lmin, lmax
+	// Seeded from the first transformed corner, not from the local bounds.
+	// Seeding with lmin/lmax unions the *untransformed* box into the result,
+	// so a primitive whose local coordinates sit near the origin but whose
+	// placement is 200 units away gets an AABB spanning both — which is how
+	// office-sunset ended up with a smallest primitive extent of 34 m and a
+	// median of 201 m. That inflates every interior node it lands in, and it
+	// inflates Bounds() for the whole scene.
+	var wmin, wmax vec.V
+	first := true
 	for _, dx := range [2]float64{0, 1} {
 		for _, dy := range [2]float64{0, 1} {
 			for _, dz := range [2]float64{0, 1} {
@@ -179,6 +221,10 @@ func (b *BVH) addBounded(kind, idx int, xform *scene.Transform, lmin, lmax vec.V
 					Y: lmin.Y + dy*(lmax.Y-lmin.Y),
 					Z: lmin.Z + dz*(lmax.Z-lmin.Z),
 				})
+				if first {
+					wmin, wmax, first = c, c, false
+					continue
+				}
 				wmin = minV(wmin, c)
 				wmax = maxV(wmax, c)
 			}

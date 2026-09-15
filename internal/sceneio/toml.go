@@ -323,6 +323,54 @@ type lensDTO struct {
 	surfaceDTO
 }
 
+// ambientZoneDTO is one [[ambient_zone]] table: a box plus its six face
+// colours. Faces are optional individually; an omitted one is black.
+type ambientZoneDTO struct {
+	Min vec3 `toml:"min"`
+	Max vec3 `toml:"max"`
+	PX  vec3 `toml:"px"`
+	NX  vec3 `toml:"nx"`
+	PY  vec3 `toml:"py"`
+	NY  vec3 `toml:"ny"`
+	PZ  vec3 `toml:"pz"`
+	NZ  vec3 `toml:"nz"`
+}
+
+// xformBounds re-bounds an axis-aligned box after a transform by taking the
+// extent of its eight transformed corners. A rotated box is not axis aligned,
+// so the result is conservative rather than exact.
+func xformBounds(xf *scene.Transform, mn, mx vec.V) (vec.V, vec.V) {
+	first := true
+	var lo, hi vec.V
+	for i := 0; i < 8; i++ {
+		c := vec.V{X: mn.X, Y: mn.Y, Z: mn.Z}
+		if i&1 != 0 {
+			c.X = mx.X
+		}
+		if i&2 != 0 {
+			c.Y = mx.Y
+		}
+		if i&4 != 0 {
+			c.Z = mx.Z
+		}
+		w := xf.ToWorld(c)
+		if first {
+			lo, hi, first = w, w, false
+			continue
+		}
+		lo = vec.V{X: math.Min(lo.X, w.X), Y: math.Min(lo.Y, w.Y), Z: math.Min(lo.Z, w.Z)}
+		hi = vec.V{X: math.Max(hi.X, w.X), Y: math.Max(hi.Y, w.Y), Z: math.Max(hi.Z, w.Z)}
+	}
+	return lo, hi
+}
+
+func (d ambientZoneDTO) build() scene.AmbientZone {
+	return scene.AmbientZone{
+		Min: d.Min.toV(), Max: d.Max.toV(),
+		Faces: [6]vec.V{d.PX.toV(), d.NX.toV(), d.PY.toV(), d.NY.toV(), d.PZ.toV(), d.NZ.toV()},
+	}
+}
+
 type lightDTO struct {
 	Pos    vec3    `toml:"pos"`
 	Color  vec3    `toml:"color"`
@@ -773,6 +821,7 @@ type sceneDTO struct {
 	Terrain         []terrainDTO         `toml:"terrain"`
 	Water           []waterDTO           `toml:"water"`
 	Light           []lightDTO           `toml:"light"`
+	AmbientZone     []ambientZoneDTO     `toml:"ambient_zone"`
 	LightFlickering []lightFlickeringDTO `toml:"light_flickering"`
 	Sound           []soundDTO           `toml:"sound"`
 	Point           []pointDTO           `toml:"point"`
@@ -966,6 +1015,17 @@ func (dto sceneDTO) applyOverrides(s *scene.Scene) error {
 			s.Campfires = append(s.Campfires, d.build())
 		}
 	}
+	// Replace rather than append, matching how this function treats every
+	// other list: an `extends` child that declares zones owns them outright.
+	if dto.AmbientZone != nil {
+		s.AmbientZones = s.AmbientZones[:0]
+		for _, d := range dto.AmbientZone {
+			z := d.build()
+			if z.Valid() {
+				s.AmbientZones = append(s.AmbientZones, z)
+			}
+		}
+	}
 	// Extends children may add [[terrain.pad]] tables (with a stub [[terrain]]
 	// header so TOML decode succeeds). Merge pads into the base heightfield.
 	var pads []scene.TerrainPad
@@ -1127,6 +1187,12 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			CX: d.Pos[0], CZ: d.Pos[1], Radius: d.Radius, Level: d.Level, MaskShoreline: mask,
 			Ripple: d.Ripple, RippleSpeed: d.RippleSpeed, RippleDirX: dirX, RippleDirZ: dirZ, Surface: surf,
 		})
+	}
+	for _, d := range dto.AmbientZone {
+		z := d.build()
+		if z.Valid() {
+			s.AmbientZones = append(s.AmbientZones, z)
+		}
 	}
 	for _, d := range dto.Light {
 		s.Lights = append(s.Lights, d.build())
@@ -1387,6 +1453,15 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 		o := sub.Lenses[i]
 		o.Xform = xf.Compose(o.Xform)
 		dst.Lenses = append(dst.Lenses, o)
+	}
+	for i := range sub.AmbientZones {
+		z := sub.AmbientZones[i]
+		if xf != nil {
+			// A rotated zone is no longer axis aligned, so the transformed
+			// corners are re-bounded rather than pretending otherwise.
+			z.Min, z.Max = xformBounds(xf, z.Min, z.Max)
+		}
+		dst.AmbientZones = append(dst.AmbientZones, z)
 	}
 	for i := range sub.Lights {
 		l := sub.Lights[i]

@@ -16,30 +16,31 @@ type CameraStart struct {
 
 // Scene holds every primitive and light in the world.
 type Scene struct {
-	Spheres   []Sphere
-	Planes    []Plane
-	Boxes     []Box
-	Cylinders []Cylinder
-	Cones     []Cone
-	Tori      []Torus
-	Rings     []Ring
-	Lenses    []Lens
-	Terrains  []Terrain
-	Waters    []WaterPool
-	Lights    []Light
-	Campfires []Campfire
-	Ambiences []Ambience
-	Interactables []Interactable
-	Points        []Point
-	NPCSpawns     []NPCSpawn
-	DoorSpecs     []DoorSpec
-	DocumentSpecs []DocumentSpec
-	ScreenSpecs   []ScreenSpec
-	DynamicBodies []DynamicBody
-	PhysicsGroups []PhysicsGroup
-	FilePhysics   PhysicsSpec // from object file [physics] at load (not simulated until merged)
-	Reactive      *ReactiveSpec
-	Start         CameraStart
+	Spheres        []Sphere
+	Planes         []Plane
+	Boxes          []Box
+	Cylinders      []Cylinder
+	Cones          []Cone
+	Tori           []Torus
+	Rings          []Ring
+	Lenses         []Lens
+	Terrains       []Terrain
+	Waters         []WaterPool
+	Lights         []Light
+	AmbientZones   []AmbientZone
+	Campfires      []Campfire
+	Ambiences      []Ambience
+	Interactables  []Interactable
+	Points         []Point
+	NPCSpawns      []NPCSpawn
+	DoorSpecs      []DoorSpec
+	DocumentSpecs  []DocumentSpec
+	ScreenSpecs    []ScreenSpec
+	DynamicBodies  []DynamicBody
+	PhysicsGroups  []PhysicsGroup
+	FilePhysics    PhysicsSpec // from object file [physics] at load (not simulated until merged)
+	Reactive       *ReactiveSpec
+	Start          CameraStart
 	PlayerMovement PlayerMovement
 	Env            Environment
 

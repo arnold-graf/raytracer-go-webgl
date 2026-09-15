@@ -20,6 +20,25 @@ const (
 	// AOMaxDist is the baked ambient-occlusion probe radius.
 	AOMaxDist = 0.9
 
+	// Live GI grid. The megakernel already declares 30 storage/uniform
+	// buffers and naga spends one more on the runtime-array sizes table,
+	// which is exactly Metal's limit of 31 per stage — so the grid has no
+	// binding of its own and lives in the tail of ao_volume instead.
+	//
+	// AOVolumeFloats is where the AO data ends and the probe field begins.
+	AOVolumeFloats = 6_000_000
+
+	// GIProbeFloats mirrors GI_PROBE_FLOATS in types.wesl: an 8x8 octahedral
+	// irradiance map plus a 16x16 octahedral depth map.
+	GIProbeFloats = 8*8*3 + 16*16*2
+	// GIProbeMaxCells is what the two live cascades share: the fine one's
+	// GI_C0_MAX reservation and the coarse one's cap.
+	GIProbeMaxCells = 2048 + 2048
+	// GIVolumeTotalFloats sizes ao_volume when no bake is loaded. A bake sizes
+	// the buffer from its own header instead, because it is the scene that
+	// decides how many probes it needs.
+	GIVolumeTotalFloats = AOVolumeFloats + GIProbeMaxCells*GIProbeFloats
+
 	// GammaLUTSize is the CPU gamma lookup resolution. The GPU path can either
 	// mirror this exactly or use it in parity tests to confirm its approximation.
 	GammaLUTSize = 4096

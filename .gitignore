@@ -15,3 +15,6 @@ tmp/
 
 # OS
 .DS_Store
+
+# Baked GI probe volumes. Build artifacts, and hundreds of megabytes each.
+*.gi

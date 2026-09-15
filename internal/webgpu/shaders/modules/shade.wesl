@@ -3,7 +3,7 @@
 // evaluates point lights and flickering campfires, samples baked ambient
 // occlusion, and assembles direct diffuse lighting (shade_diffuse).
 
-import package::types::{CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_KNEE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_SKIP_LEVELS, SHADOW_WIDEST_BLOCKER, SHADOW_WIDEST_EXACT, SHADOW_WIDTH_FLOOR, SHADOW_WIDTH_MEAN_POWER, ShadowAux, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
+import package::types::{AO_ENABLED, AO_INDIRECT_ONLY, CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_KNEE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_SKIP_LEVELS, SHADOW_WIDEST_BLOCKER, SHADOW_WIDEST_EXACT, SHADOW_WIDTH_FLOOR, SHADOW_WIDTH_MEAN_POWER, ShadowAux, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
 import package::profile::{PROF_SHADOW_BLOCK, PROF_SHADOW_RAYS, prof_inc};
 import package::math::{display_step_levels, mix3, perlin, smoothstepf};
 import package::texture::{texture_eval};
@@ -11,6 +11,7 @@ import package::intersect::{intersect_blocker, xf_to_world_normal};
 import package::terrain::{hit_terrain, terrain_shadow_skip};
 import package::terrain_zone::{terrain_zone_albedo};
 import package::bvh::{blocker_bvh_any_hit};
+import package::gi::{GI_PROBE_GAIN, GI_PROBE_RIS, gi_luma, gi_on, gi_probe_irradiance, gi_probe_rand};
 
 // face_axis returns (normal.xyz, dist.w): the outward axis normal of the
 // [mn,mx] box face nearest to hp, plus that distance. Mirrors scene.faceAxis.
@@ -332,6 +333,10 @@ var<private> sh_pen_w: f32 = 0.0;
 // filter restores un-attenuated light, too bright by 1/ao exactly where AO
 // darkens, which is corners and creases — where shadow fringes are.
 var<private> sh_ao: f32 = 1.0;
+// The occlusion actually applied to *direct* light. One when AO is restricted
+// to the ambient term, because then the penumbra filter must restore direct
+// light unattenuated or it puts back more than the frame deposited.
+var<private> sh_ao_direct: f32 = 1.0;
 
 // Linear Rec.709 luminance, for weighting penumbra widths by how much light each
 // blocked source actually contributes.
@@ -368,6 +373,7 @@ fn shadow_aux_reset() {
     sh_pen_sum = 0.0;
     sh_pen_w = 0.0;
     sh_ao = 1.0;
+    sh_ao_direct = 1.0;
 }
 
 // shadow_aux_note records the light one blocked source is withholding from this
@@ -463,7 +469,7 @@ fn shadow_aux_snapshot(tw: vec3<f32>, n: vec3<f32>, depth: f32) -> ShadowAux {
     }
     // The fraction needs no scaling at all — tw and AO are in both sums.
     let frac = sh_deficit / max(sh_full, vec3<f32>(PENUMBRA_EPS, PENUMBRA_EPS, PENUMBRA_EPS));
-    return ShadowAux(frac, pen, n, depth, frac, 0.0, tw * sh_full * sh_ao, 0.0,
+    return ShadowAux(frac, pen, n, depth, frac, 0.0, tw * sh_full * sh_ao_direct, 0.0,
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), 0.0);
@@ -665,6 +671,150 @@ fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32
     return add_point_light_raw(lit, hp, albedo, n, ep, light.pos.xyz, light.color.xyz, light.falloff.x, light.falloff.y, tw, axis, cos_outer, rd, spec, shine, shadow, lr, 1.0);
 }
 
+
+// Direct lighting for a probe ray's hit.
+//
+// shade_diffuse traces a shadow ray per light in the cluster, which is right
+// for a pixel and the wrong shape for a probe: probe rays are the whole cost
+// of this feature, and in the office a cluster is several lights deep.
+//
+// This keeps everything that can change the answer and replaces only the
+// per-light shadow loop with one importance-sampled light:
+//
+//   - wide lights exactly, because there are few and they reach everywhere;
+//   - campfires exactly, because an earlier cheap path dropped them and with
+//     them the villa fireplace's entire bounce — the light this feature
+//     exists to show;
+//   - the clustered lights by resampled importance, one shadow ray.
+//
+// The importance step is what makes a single sample survivable. Picking
+// uniformly from the cluster and scaling by its population is unbiased but so
+// noisy that the hysteresis cannot average it out inside a clamp — the path
+// tracer found the same thing scene-wide. Drawing GI_PROBE_RIS candidates,
+// weighting them by what they would contribute unshadowed, and keeping one
+// concentrates the sample on the light that matters.
+fn gi_probe_shade(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
+    // The previous frame's field: where bounces past the first come from.
+    var lit = alb * scene_ambient_at(hp, n);
+
+    let wide = wide_span();
+    for (var i = wide.x; i < wide.y; i = i + 1u) {
+        lit = add_point_light(lit, hp, alb, n, ep, lights[idx_tables[i]], tw, rd, 0.0, 0.0, true);
+    }
+
+    let span = light_span(hp);
+    let count = span.y - span.x;
+    if (count > 0u) {
+        // Reservoir over GI_PROBE_RIS uniform draws, weighted by p_hat.
+        var chosen = span.x;
+        var p_chosen = 0.0;
+        var wsum = 0.0;
+        let draws = min(count, GI_PROBE_RIS);
+        for (var k = 0u; k < draws; k = k + 1u) {
+            gi_probe_rand = gi_probe_next(gi_probe_rand);
+            let idx = span.x + gi_probe_rand % count;
+            let ph = gi_probe_p_hat(lights[idx_tables[idx]], hp, n, alb);
+            if (ph <= 0.0) {
+                continue;
+            }
+            wsum = wsum + ph;
+            gi_probe_rand = gi_probe_next(gi_probe_rand);
+            // Keep this candidate with probability ph/wsum.
+            if (f32(gi_probe_rand) * 2.3283064e-10 * wsum < ph) {
+                chosen = idx;
+                p_chosen = ph;
+            }
+        }
+        if (p_chosen > 0.0) {
+            // RIS weight for uniform draws from a population of `count`:
+            //   W = count * sum(p_hat) / (draws * p_hat(kept))
+            // At draws = 1 this collapses to `count`, which is the plain
+            // uniform estimator — the unbiased, very noisy one this exists to
+            // improve on.
+            let w = f32(count) * wsum / (f32(draws) * p_chosen);
+            let one = add_point_light(vec3<f32>(0.0), hp, alb, n, ep, lights[idx_tables[chosen]], tw, rd, 0.0, 0.0, true);
+            lit = lit + one * w;
+        }
+    }
+
+    for (var ci = 0u; FEAT_CAMPFIRE && ci < params.campfire_count; ci = ci + 1u) {
+        let cf = campfires[ci];
+        let cl = cf.core.xyz - hp;
+        let cd2 = dot(cl, cl);
+        let cull = campfire_cull(cf);
+        if (cd2 > cull.x) {
+            continue;
+        }
+        let ts = params.time * cf.param.w;
+        let nlights = campfire_light_count(cf);
+        for (var j = 0u; j < nlights; j = j + 1u) {
+            let sl = campfire_sublight(cf, j, ts);
+            lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, 0.0, 0.0, true, campfire_light_radius(cf), campfire_steady_scale(cf, sl));
+        }
+    }
+    return lit;
+}
+
+// What a light would contribute here if nothing were in the way: the quantity
+// the resampling is importance-sampling against.
+fn gi_probe_p_hat(lt: Light, hp: vec3<f32>, n: vec3<f32>, alb: vec3<f32>) -> f32 {
+    let ld = lt.pos.xyz - hp;
+    let d2 = dot(ld, ld);
+    if (d2 > lt.falloff.x) {
+        return 0.0;
+    }
+    let ndl = max(dot(n, ld * inverseSqrt(max(d2, 1e-8))), 0.0);
+    if (ndl <= 0.0) {
+        return 0.0;
+    }
+    return gi_luma(lt.color.xyz * alb) * light_atten(d2 * lt.falloff.y) * ndl;
+}
+
+fn gi_probe_next(x_in: u32) -> u32 {
+    var x = x_in;
+    x = x ^ (x >> 17u);
+    x = x * 0xed5ad4bbu;
+    x = x ^ (x >> 11u);
+    x = x * 0xac4c1b51u;
+    x = x ^ (x >> 15u);
+    return x;
+}
+
+// ------------------------------------------------- surface irradiance cache
+//
+// Irradiance stored per primitive face rather than per volume cell.
+//
+// This exists because a grid cannot be sized for these scenes. The same
+// failure has now appeared four times — the AO volume's bounds, the ambient
+// zones' bounds, the light grid's own note about one distant light, and the
+// GI grid landing on 18 m cells in the villa. One uniform structure cannot
+// serve a two-kilometre valley and a ten-metre room.
+//
+// Surfaces have no such problem. Storage scales with geometry, not with world
+// volume, so a villa in a valley costs exactly what a villa in a box costs.
+// The lookup is one array index off hit.idx, cheaper than the eight-corner
+// trilinear read a grid needs. And the resolution is far better where it
+// matters: the median primitive is 5.84 m2 in the villa and 0.26 m2 in the
+// office, against that 18 m cell.
+//
+// The known weakness is the other tail of the same distribution: the ten
+// largest primitives hold 35-40% of all surface area, and each face of those
+// gets a single value. Splitting per face rather than per primitive is what
+// makes that tolerable, since boxes dominate and their faces are the large
+// flat things.
+//
+// Layout reuses the GI grid's two regions, indexed by primitive instead of
+// cell: maxPrims * 18 floats is exactly the size already reserved. The two
+// modes are mutually exclusive.
+
+// Primitive being shaded, set by ray_color at the primary hit. Sentinel means
+// "nothing addressable" — a miss, terrain, water, or an instanced primitive,
+// whose index refers to a template rather than a placement.
+// Rays each face casts per update, and the fraction of faces refreshed per
+// frame. 1462 primitives at 6 faces and 8 rays is 70k rays; a quarter of them
+// per frame is 18k, against the ~1.1M the frame already traces. Every ray
+// starts on a real surface where light actually lands, which is the whole
+// advantage over a probe grid sampling empty air.
 // ao_sample reproduces aoVolume.sample: nudge off the surface by bias along n,
 // then trilinearly interpolate the ambient cube and blend its three relevant
 // faces by the surface normal.
@@ -794,11 +944,121 @@ fn campfire_sublight(cf: CampfireParams, j: u32, ts: f32) -> CampfireSample {
 }
 
 // Direct diffuse lighting: ambient + point lights + campfires + baked AO.
+// Per-region ambient cubes, packed into idx_tables at params.table_base.w:
+// one count word, then per zone min.xyz, max.xyz and six RGB faces in
+// +X, -X, +Y, -Y, +Z, -Z order — the same basis ao_sample already uses.
+//
+// A count of zero is the off switch and leaves scene_ambient_at returning
+// exactly what scene_ambient always returned, byte for byte.
+const AMBIENT_ZONE_WORDS: u32 = 24u;
+
+fn ambient_zone_f32(i: u32) -> f32 {
+    return bitcast<f32>(idx_tables[i]);
+}
+
+fn ambient_zone_face(base: u32, face: u32) -> vec3<f32> {
+    let o = base + 6u + face * 3u;
+    return vec3<f32>(ambient_zone_f32(o), ambient_zone_f32(o + 1u), ambient_zone_f32(o + 2u));
+}
+
+// AMBIENT_ZONE_BLEND is the width of the band, in world units, over which
+// neighbouring zones hand over. A zone's influence is its box dilated by half
+// this on every side, ramping linearly from one at the inner edge to zero at
+// the outer, so two zones sharing a face each contribute exactly a half there
+// and the pair forms a partition of unity across the seam.
+//
+// Without it, taking the first zone containing the point makes the boundary a
+// hard step in the ambient term, and where ambient dominates — a shaded wall,
+// which is precisely where this feature is meant to matter — that step is a
+// visible band running across the surface.
+const AMBIENT_ZONE_BLEND: f32 = 1.0;
+
+// A zone's influence at p: one well inside, zero well outside, linear across
+// the handover band.
+fn ambient_zone_weight(zb: u32, p: vec3<f32>) -> f32 {
+    let mn = vec3<f32>(ambient_zone_f32(zb), ambient_zone_f32(zb + 1u), ambient_zone_f32(zb + 2u));
+    let mx = vec3<f32>(ambient_zone_f32(zb + 3u), ambient_zone_f32(zb + 4u), ambient_zone_f32(zb + 5u));
+    let inside = min(p - mn, mx - p); // per axis, negative outside the box
+    let t = clamp(inside / AMBIENT_ZONE_BLEND + vec3<f32>(0.5), vec3<f32>(0.0), vec3<f32>(1.0));
+    // Smoothstep rather than the linear ramp. A linear blend is only C0: its
+    // slope jumps at both ends of the handover band, and a slope
+    // discontinuity in an otherwise smooth gradient is a Mach band — the same
+    // effect light-falloff-rings.md traced to the attenuation clamp. The cubic
+    // still sums to one across a shared face, since S(t) + S(1-t) = 1.
+    let w = vec3<f32>(
+        smoothstepf(0.0, 1.0, t.x),
+        smoothstepf(0.0, 1.0, t.y),
+        smoothstepf(0.0, 1.0, t.z));
+    return w.x * w.y * w.z;
+}
+
+// One zone's ambient cube, evaluated for a normal. Faces are weighted by the
+// squared components, which sum to one — the basis ao_face already uses.
+fn ambient_zone_cube(zb: u32, n: vec3<f32>) -> vec3<f32> {
+    let w = n * n;
+    return ambient_zone_face(zb, select(1u, 0u, n.x >= 0.0)) * w.x
+        + ambient_zone_face(zb, select(3u, 2u, n.y >= 0.0)) * w.y
+        + ambient_zone_face(zb, select(5u, 4u, n.z >= 0.0)) * w.z;
+}
+
 fn scene_ambient(n: vec3<f32>) -> vec3<f32> {
     let t = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
     return mix(params.ambient_ground.xyz, params.ambient_sky.xyz, t);
 }
 
+
+// scene_ambient_at is scene_ambient with a position, so a region can override
+// the scene-wide pair.
+//
+// This exists because the constants are the single worst approximation in this
+// renderer's lighting: two colours blended by the normal's Y, identical for a
+// desk under a lit atrium and a shelf in a windowless server room. Cubes baked
+// per region fix that for six colours each, and unlike a probe lattice they
+// cannot leak between rooms, because the boundaries are the rooms.
+//
+// Every zone is tested rather than stopping at the first hit, because the
+// blend needs every overlapping influence. That is a linear scan per shaded
+// vertex: affordable for the handful of zones a scene draws by hand, and it
+// would want a grid long before reaching maxAmbientZones.
+fn scene_ambient_at(p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    if (gi_on()) {
+        return gi_probe_irradiance(p, n) * GI_PROBE_GAIN;
+    }
+    return scene_ambient_baked(p, n);
+}
+
+
+// The authored answer: zones where they cover, scene constants elsewhere.
+// Defined over the whole level, coarse, and free — which is exactly what the
+// live grid is not, and why it is worth keeping underneath it.
+fn scene_ambient_baked(p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    let base = params.table_base.w;
+    let count = idx_tables[base];
+    if (count == 0u) {
+        return scene_ambient(n);
+    }
+    var accum = vec3<f32>(0.0);
+    var total = 0.0;
+    for (var i = 0u; i < count; i = i + 1u) {
+        let zb = base + 1u + i * AMBIENT_ZONE_WORDS;
+        let w = ambient_zone_weight(zb, p);
+        if (w <= 0.0) {
+            continue;
+        }
+        accum = accum + ambient_zone_cube(zb, n) * w;
+        total = total + w;
+    }
+    if (total <= 0.0) {
+        return scene_ambient(n);
+    }
+    let zoned = accum / total;
+    if (total >= 1.0) {
+        return zoned;
+    }
+    // At the outer edge the influences no longer sum to one, so the remainder
+    // fades back to the scene-wide constants instead of ending on a step.
+    return mix(scene_ambient(n), zoned, total);
+}
 // light_span returns the [start, end) range of light_grid_idx listing every
 // light whose influence sphere can reach hp. A point outside the grid is beyond
 // every light's cull radius, so its span is empty.
@@ -827,7 +1087,7 @@ fn wide_span() -> vec2<u32> {
 fn shade_ghost(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> vec3<f32> {
     // Faint second-pane lobe: ambient + direct light, no shadow/AO/campfire rays.
     let tw_skip = vec3<f32>(GHOST_SHADOW_TW);
-    var lit = alb * scene_ambient(n);
+    var lit = alb * scene_ambient_at(hp, n);
     let rd_skip = vec3<f32>(0.0, 0.0, -1.0);
     let wide = wide_span();
     for (var i = wide.x; i < wide.y; i = i + 1u) {
@@ -842,7 +1102,8 @@ fn shade_ghost(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> ve
 
 fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32) -> vec3<f32> {
     shadow_aux_reset();
-    var lit = alb * scene_ambient(n);
+    let ambient = alb * scene_ambient_at(hp, n);
+    var lit = ambient;
     let wide = wide_span();
     for (var i = wide.x; i < wide.y; i = i + 1u) {
         lit = add_point_light(lit, hp, alb, n, ep, lights[idx_tables[i]], tw, rd, spec, shine, true);
@@ -873,9 +1134,24 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
             lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true, campfire_light_radius(cf), campfire_steady_scale(cf, sl));
         }
     }
-    if (params.ao_enabled != 0u) {
+    if ((params.ao_enabled & AO_ENABLED) != 0u) {
         sh_ao = ao_sample(ep, n);
-        lit = lit * sh_ao;
+        if ((params.ao_enabled & AO_INDIRECT_ONLY) != 0u) {
+            // Occlusion belongs to the ambient term alone. Direct light
+            // already has real shadow rays, so multiplying it by a baked
+            // occlusion factor darkens a surface twice — and darkens one in
+            // full light merely for being near a wall, which is the visible
+            // symptom: a lit desk against a lit wall reads as though it were
+            // in shadow.
+            //
+            // (ambient + direct) - ambient*(1 - ao) == ambient*ao + direct,
+            // so the light loops above need no restructuring.
+            lit = lit - ambient * (1.0 - sh_ao);
+            sh_ao_direct = 1.0;
+        } else {
+            lit = lit * sh_ao;
+            sh_ao_direct = sh_ao;
+        }
     }
     return lit;
 }

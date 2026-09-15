@@ -1,0 +1,129 @@
+# Indirect shadow test.
+#
+# A closed room whose only light is a narrow spot aimed at one white wall. The
+# cone never touches the floor, so every photon reaching the floor has bounced
+# at least once: the floor is lit entirely by indirect light. A pillar stands
+# in the bounce path and casts a shadow that exists only in that indirect
+# light.
+#
+# What it is for: separating "how much bounce light is there" from "is the
+# bounce light occluded". Any approximation that stores irradiance without
+# visibility — a flat ambient constant, an ambient zone, an irradiance probe
+# with no depth term — reproduces the brightness and loses the shadow.
+#
+#   go run ./cmd/pathtrace -scene scenes/test/indirect-shadow.toml -spp 512 -o tmp/gitest/pt.png
+#   go run ./cmd/pathtrace -scene scenes/test/indirect-shadow.toml -spp 512 -depth 1 -o tmp/gitest/direct.png
+#   go run ./cmd/pathtrace -scene scenes/test/indirect-shadow.toml -spp 512 -debug indirect
+#   go run ./cmd/gpuprof   -scene scenes/test/indirect-shadow.toml -ablate=false -dump out.raw
+#
+# Expected, floor luminance behind the pillar versus clear floor at the same
+# depth:
+#
+#   path tracer, direct only    0.0 / 0.0    <- nothing direct reaches the floor
+#   path tracer, full          49.1 / 96.5   <- ratio 0.51, the indirect shadow
+#   megakernel                 32.0 / 32.0   <- ratio 1.00, beyond 0.9 m
+#
+# The megakernel is not entirely flat: the baked AO volume darkens a contact
+# band at the pillar's base, 32.0 down to about 17 in the render, and the
+# volume itself reads 0.776 one decimetre from the pillar face. But AOMaxDist
+# is 0.9, so AO is exactly 1.000 from 0.9 m outward and the floor is constant
+# everywhere else.
+#
+# That contrast is the point of the scene. The megakernel has a *contact*
+# shadow a decimetre wide; the path tracer has a *cast* shadow halving the
+# light over several metres. Both are the same physical effect at different
+# scales, and only one of them is modelled.
+#
+# Note on authoring: camera yaw and light yaw run in OPPOSITE directions in
+# this codebase. Camera.Basis() uses fwd.x = -sin(yaw); spot_dir() uses
+# +sin(yaw). A camera and a spot that share a yaw value point mirrored about
+# the Z axis.
+
+[camera]
+pos = [2.5, 1.8, 2.5]
+yaw = 0.951
+pitch = -0.316
+
+# ---- room: a closed box so nothing is lit by the sky ----
+
+[[box]]  # floor
+material = "diffuse"
+albedo = [0.55, 0.55, 0.55]
+pos_x = -4.0
+pos_y = -0.1
+pos_z = -5.0
+width = 8.0
+height = 0.1
+depth = 10.0
+
+[[box]]  # ceiling
+material = "diffuse"
+albedo = [0.12, 0.12, 0.12]
+pos_x = -4.0
+pos_y = 5.0
+pos_z = -5.0
+width = 8.0
+height = 0.1
+depth = 10.0
+
+[[box]]  # reflector: the only bright surface, and the source of all bounce
+material = "diffuse"
+albedo = [0.92, 0.90, 0.86]
+pos_x = -4.1
+pos_y = 0.0
+pos_z = -5.0
+width = 0.1
+height = 5.0
+depth = 10.0
+
+[[box]]  # right wall, dark so it contributes little bounce
+material = "diffuse"
+albedo = [0.10, 0.10, 0.12]
+pos_x = 4.0
+pos_y = 0.0
+pos_z = -5.0
+width = 0.1
+height = 5.0
+depth = 10.0
+
+[[box]]  # back wall
+material = "diffuse"
+albedo = [0.10, 0.10, 0.12]
+pos_x = -4.0
+pos_y = 0.0
+pos_z = -5.1
+width = 8.0
+height = 5.0
+depth = 0.1
+
+[[box]]  # front wall, behind the camera
+material = "diffuse"
+albedo = [0.10, 0.10, 0.12]
+pos_x = -4.0
+pos_y = 0.0
+pos_z = 5.0
+width = 8.0
+height = 5.0
+depth = 0.1
+
+# ---- the occluder ----
+
+[[box]]  # pillar standing in the bounce path
+material = "diffuse"
+albedo = [0.35, 0.35, 0.38]
+pos_x = -1.6
+pos_y = 0.0
+pos_z = -0.4
+width = 0.5
+height = 1.6
+depth = 0.8
+
+# ---- light: a narrow spot that only ever touches the reflector ----
+
+[[light]]
+pos = [-2.0, 2.5, 0.0]
+color = [34.0, 31.0, 26.0]
+dir = [-1.0, 0.0, 0.0]
+cone_angle = 38.0
+range = 30.0
+radius = 0.12

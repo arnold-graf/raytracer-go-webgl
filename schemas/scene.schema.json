@@ -111,6 +111,13 @@
         "$ref": "#/definitions/light"
       }
     },
+    "ambient_zone": {
+      "type": "array",
+      "description": "TOML [[ambient_zone]]. Per-region ambient cubes; see definitions/ambient_zone.",
+      "items": {
+        "$ref": "#/definitions/ambient_zone"
+      }
+    },
     "light_flickering": {
       "type": "array",
       "description": "TOML [[light_flickering]]. Flickering warm light cluster; optional flame = true adds a procedural volumetric flame at the core.",
@@ -1454,7 +1461,7 @@
         },
         "lights": {
           "$ref": "#/definitions/number_or_expr",
-          "description": "Sub-light count (1–3). Defaults to 3."
+          "description": "Sub-light count (1\u20133). Defaults to 3."
         },
         "flame": {
           "type": "boolean",
@@ -2257,6 +2264,89 @@
         }
       ],
       "description": "Screen-space blur applied to this surface's transmitted lobe, in the same angular units as `rough` (0 = off). Glass only. Frosts what is seen through the surface while leaving its reflections as sharp as `rough` makes them."
+    },
+    "ambient_zone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min",
+        "max"
+      ],
+      "description": "An axis-aligned region with its own ambient cube, replacing [environment].ambient_sky / ambient_ground inside it. Bake the six colours with cmd/ambientbake; enable at runtime with RAYTRACER_AMBIENT_ZONES=1.",
+      "properties": {
+        "min": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Lower corner of the region, in world units."
+        },
+        "max": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Upper corner of the region, in world units."
+        },
+        "px": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Ambient radiance for surfaces facing +X."
+        },
+        "nx": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Ambient radiance for surfaces facing -X."
+        },
+        "py": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Ambient radiance for surfaces facing +Y (up)."
+        },
+        "ny": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Ambient radiance for surfaces facing -Y (down)."
+        },
+        "pz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Ambient radiance for surfaces facing +Z."
+        },
+        "nz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Ambient radiance for surfaces facing -Z."
+        }
+      }
     }
   }
 }

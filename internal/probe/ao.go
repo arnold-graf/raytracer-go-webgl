@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"sync"
 
+	"os"
 	"raytracer/internal/gpuscene"
 	"raytracer/internal/vec"
 )
@@ -24,13 +25,21 @@ import (
 // and blends its three relevant faces by the surface normal, reconstructing a
 // normal-aware occlusion term with no per-pixel rays.
 const (
-	aoVolTargetCell = 0.45      // desired grid cell size (world units)
-	aoVolMaxAxis    = 128       // hard cap on cells along any axis
-	aoVolMaxCells   = 1_000_000 // hard cap on total cells (memory + bake time)
-	aoVolBakeDirs   = 32        // sphere probe rays per cell during baking
-	aoVolRadius     = gpuscene.AOMaxDist // occlusion probe range
-	aoVolMinVis     = 0.45      // clamp: never darken below this multiplier
-	aoVolContrast   = 1.3       // >1 deepens crevices while keeping open areas bright
+	aoVolTargetCell = 0.45 // desired grid cell size (world units)
+	aoVolMaxAxis    = 128  // hard cap on cells along any axis
+	// With tight bounds the per-axis cap is what binds, not the cell budget,
+	// so it is raised and aoVolMaxCells becomes the real limit.
+	aoVolTightMaxAxis = 1024
+	// aoSmallPrimMax is the largest primitive, on any axis, that the volume is
+	// sized to cover. Anything bigger still occludes; it just does not get a
+	// vote on resolution. 25 m keeps every wall, stair and piece of furniture
+	// in these scenes and drops only mountains and sky shells.
+	aoSmallPrimMax = 25.0
+	aoVolMaxCells  = 1_000_000          // hard cap on total cells (memory + bake time)
+	aoVolBakeDirs  = 32                 // sphere probe rays per cell during baking
+	aoVolRadius    = gpuscene.AOMaxDist // occlusion probe range
+	aoVolMinVis    = 0.45               // clamp: never darken below this multiplier
+	aoVolContrast  = 1.3                // >1 deepens crevices while keeping open areas bright
 )
 
 // AOData is the baked ambient-occlusion volume, ready for upload to the GPU.
@@ -67,6 +76,17 @@ func (p *Probe) BakeAO() (AOData, bool) {
 	if !ok {
 		return AOData{}, false // no finite geometry to occlude against
 	}
+	maxAxis := aoVolMaxAxis
+	if aoTightBounds() {
+		// Size the grid to the geometry that actually has crevices. Without
+		// this the villa's bounds are 2,205 units tall because of one
+		// primitive, which forces 17 m cells on a 10 m room; with it they are
+		// 198, and the cells land near a metre.
+		if tmin, tmax, tok := p.accel.BoundsBelow(aoSmallPrimMax); tok {
+			bmin, bmax = tmin, tmax
+			maxAxis = aoVolTightMaxAxis
+		}
+	}
 	// Pad by the probe radius so surfaces lying on the geometry's boundary are
 	// surrounded by open-space cells (sampling steps off the surface by ~1 cell).
 	pad := vec.V{X: aoVolRadius, Y: aoVolRadius, Z: aoVolRadius}
@@ -76,7 +96,7 @@ func (p *Probe) BakeAO() (AOData, bool) {
 	// Pick a uniform cell size honouring the target, the per-axis cap and the
 	// total-cell cap.
 	cell := aoVolTargetCell
-	cell = math.Max(cell, math.Max(ext.X, math.Max(ext.Y, ext.Z))/aoVolMaxAxis)
+	cell = math.Max(cell, math.Max(ext.X, math.Max(ext.Y, ext.Z))/float64(maxAxis))
 	var nx, ny, nz int
 	for {
 		nx = int(math.Ceil(ext.X/cell)) + 1
@@ -205,4 +225,51 @@ func (c *sliceCounter) add() int {
 	c.n++
 	c.mu.Unlock()
 	return v
+}
+
+// Bounds returns the scene's geometry bounds, as BakeAO uses them to size the
+// AO volume. Exported so offline tools can partition the same space.
+func (p *Probe) Bounds() (vec.V, vec.V, bool) {
+	return p.accel.Bounds()
+}
+
+// LitBounds is the box the live GI probe grid should span: the geometry small
+// enough to be part of the built environment, excluding the handful of huge
+// primitives that set the raw bounds.
+//
+// It is the same filter BakeAO uses for its tight-bounds mode, exposed on its
+// own because the probe grid needs it whether or not that mode is on. The
+// difference is not marginal: the villa's raw bounds are 826 x 2202 x 895 m,
+// which at any affordable probe count puts the probes tens of metres apart and
+// they see nothing but sky. Filtered they are 163 x 93 x 217 m.
+func (p *Probe) LitBounds() (vec.V, vec.V, bool) {
+	return p.accel.BoundsBelow(aoSmallPrimMax)
+}
+
+// EachPrimBounds visits every primitive's world AABB.
+//
+// The probe baker uses it to decide which cells are near enough to geometry to
+// be worth a probe. Walking the geometry rather than the cells keeps that
+// linear in scene size instead of in volume, which is the difference between
+// a moment and a minute on a grid of three million cells.
+func (p *Probe) EachPrimBounds(fn func(min, max vec.V)) {
+	p.accel.EachPrimBounds(fn)
+}
+
+// aoTightBounds sizes the AO volume to small-scale geometry only.
+//
+// Off by default: it changes every baked volume, and the volume feeds the
+// ambient term the scenes were authored against. Meant to ship together with
+// RAYTRACER_AO_INDIRECT_ONLY, which is what makes a finer volume land only on
+// indirect light instead of double-darkening direct light.
+func aoTightBounds() bool {
+	aoTightOverride.once.Do(func() {
+		aoTightOverride.on = os.Getenv("RAYTRACER_AO_TIGHT_BOUNDS") == "1"
+	})
+	return aoTightOverride.on
+}
+
+var aoTightOverride struct {
+	once sync.Once
+	on   bool
 }

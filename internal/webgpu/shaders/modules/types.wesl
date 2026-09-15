@@ -89,6 +89,32 @@ struct Params {
     light_grid_inv_cell: vec4<f32>,
     light_grid_dim: vec4<u32>,
     table_base: vec4<u32>,
+    // Live GI grid: xyz is the grid origin, w is 1/cell.
+    gi_min: vec4<f32>,
+    // xyz are the cell counts, w is the enable flag.
+    gi_dim: vec4<u32>,
+    // Coarse cascade (mode 3): origin and 1/cell, then the cell counts.
+    // Scene-anchored and never moves, so it needs no toroidal indexing.
+    gi2_min: vec4<f32>,
+    gi2_dim: vec4<u32>,
+    // Probe update schedule (mode 3). x/y are the first probe and the count
+    // for the fine cascade, z seeds the per-frame rotation of the ray
+    // directions, w is the first probe of the coarse cascade.
+    gi_probe: vec4<u32>,
+    // x is how many coarse probes to refresh this frame.
+    gi_probe2: vec4<u32>,
+    // Baked volume (mode 4). A sparse grid: gi_bake_min is its origin with
+    // 1/spacing in w, gi_bake_dim its cell counts, and the two bases locate
+    // the index grid and the slot->cell list inside ao_volume.
+    //
+    // Sparse because a volume that covers a level with no culling cannot be
+    // dense: the villa at one metre is 3.3M cells, which is 9 GB of probes
+    // and 13 MB of index. Almost all of it is empty air.
+    gi_bake_min: vec4<f32>,
+    gi_bake_dim: vec4<u32>,
+    // x: index grid base, y: slot->cell list base, z: active probe count,
+    // w: blend rate for the bake's running average, bitcast from f32.
+    gi_bake: vec4<u32>,
 };
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).
@@ -246,7 +272,7 @@ var<storage, read> waters: array<Water>;
 var<storage, read> perm: array<u32>;
 
 @group(0) @binding(10)
-var<storage, read> ao_volume: array<f32>;
+var<storage, read_write> ao_volume: array<f32>;
 
 @group(0) @binding(11)
 var<storage, read> campfires: array<CampfireParams>;
@@ -580,6 +606,61 @@ const DOCUMENT_TEX_H: u32 = 512u;
 
 // ── Ray intersection guards ──────────────────────────────────────────────────
 // Minimum hit distance (avoids self-intersection). Used by all primitive tests.
+// ao_enabled is a bitfield, not a bool: bit 0 turns the baked volume on, bit 1
+// restricts it to the ambient term instead of scaling direct light too.
+const AO_ENABLED: u32 = 1u;
+const AO_INDIRECT_ONLY: u32 = 2u;
+
+
+// Probe storage (mode 3): an octahedral irradiance map, then an octahedral
+// map of (mean distance, mean squared distance).
+//
+// The first version stored six face directions of each, projected with cosine
+// lobes. That is far too blurred to be a visibility test: a face's "mean
+// distance in +X" averaged the whole +X hemisphere, so a probe beside a wall
+// recorded a mean of half the room and happily lit points behind it. Leaking
+// is what an angular resolution of six directions buys. DDGI's octahedral
+// maps are the fix, and the depth map is deliberately finer than the
+// irradiance one — irradiance is smooth, occlusion is not.
+const GI_PROBE_BASE: u32 = 6000000u;
+const GI_OCT_IRR: u32 = 8u;
+// Deliberately finer than the irradiance map. Irradiance is smooth and 8x8
+// carries it; occlusion is not, and at 8x8 a texel spans about 45 degrees
+// while the bilinear read blends four of them — so the lookup averaged over
+// roughly 90 degrees and a probe a metre from a wall reported metres of clear
+// space through it. No update lobe can sharpen past the resolution of the map
+// it writes into.
+const GI_OCT_DEPTH: u32 = 16u;
+const GI_PROBE_MOMENTS: u32 = 192u;
+const GI_PROBE_FLOATS: u32 = 704u;
+// Rays each probe casts per update. The update is O(probes * rays), which is
+// the whole point: the mode-1 gather was O(cells^2) and that is what capped
+// the grid at 12^3 and forced it to follow the camera.
+// Rays per probe per frame. Low, because every probe is updated every frame:
+// the estimator is the hysteresis blend over many frames, not any one update.
+// DDGI casts 64-256 here, on hardware with ray-tracing cores; a software BVH
+// traversal measures 56 ns a ray, so the budget is rays per frame and this is
+// where it is spent.
+const GI_PROBE_RAYS: u32 = 32u;
+
+// Threads per workgroup, and probes per workgroup.
+//
+// Tracing is the long pole, so every lane must be tracing, which means a lane
+// per ray. It also has to be a whole SIMD group: Apple's is 32 lanes, and a
+// 16-wide workgroup wastes half of one — measured, that alone was 1.7x on the
+// pass. GI_PROBE_RAYS is therefore 32 and a workgroup carries one probe;
+// GI_PROBES_PER_WG exists so a lower ray count can pack several instead.
+const GI_PROBE_WG: u32 = 32u;
+const GI_PROBES_PER_WG: u32 = 1u;
+
+// Storage reserved for the fine cascade, which the coarse one starts after.
+// Fixed rather than derived so the coarse base does not move when the fine
+// grid is resized.
+const GI_C0_MAX: u32 = 2048u;
+
+// Marks a cell of the baked volume's index grid that holds no probe.
+const GI_PROBE_EMPTY: u32 = 0xffffffffu;
+
 const RAY_EPSILON: f32 = 1e-4;
 // Nudge ray origins off surfaces before shadow and bounce rays.
 const SURFACE_EPSILON: f32 = 5e-4;

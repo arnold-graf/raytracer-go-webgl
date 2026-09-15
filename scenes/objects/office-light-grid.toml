@@ -42,7 +42,7 @@ panel_height = 0.01
 panel_depth = 1.0
 emit_albedo = [1, 0.5, 0.5]
 light_color = [0.5, 0.5, 1]
-light_brightness = 0.3
+light_brightness = 0.5
 light_range = 7.0
 
 [const]

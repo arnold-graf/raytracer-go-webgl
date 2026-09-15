@@ -18,6 +18,10 @@ MODULES = [
     "flame",
     "instance",
     "bvh",
+    # The probe field sits below shade: it holds storage and sampling only, so
+    # it depends on nothing above types and math, and nothing above it has to
+    # think about it.
+    "gi",
     "shade",
     "trace",
 ]

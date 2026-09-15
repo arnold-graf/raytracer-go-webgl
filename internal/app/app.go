@@ -58,7 +58,9 @@ type Game struct {
 	thinGlassGhost bool
 	ao            bool
 	adaptiveAA    bool
-	// colorQuant: 0 = 8-bit dither, 1 = 15-bit (default), 2 = crush (24 levels/ch). Key 5 cycles.
+	// colorQuant: 0 = 8-bit dither, 1 = 15-bit (default), 2 = crush (24 levels/ch),
+	// 4 = path-tracer grain. Key 5 cycles quantCycle; 3 (raw RGB) is reserved for
+	// portal capture and deliberately left out of the cycle.
 	colorQuant uint32
 
 	buf   []byte
@@ -874,7 +876,7 @@ func (g *Game) handleToggles() {
 		g.cam.NoClip = !g.cam.NoClip
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit5) {
-		g.colorQuant = (g.colorQuant + 1) % 3
+		g.colorQuant = nextQuant(g.colorQuant)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit7) {
 		g.adaptiveAA = !g.adaptiveAA
@@ -1039,6 +1041,19 @@ func onOff(b bool) string {
 	return "off"
 }
 
+// quantCycle is the order key 5 steps through. 3 (raw RGB) is omitted: it is
+// portal capture's internal mode, not a look.
+var quantCycle = [...]uint32{0, 1, 2, 4}
+
+func nextQuant(q uint32) uint32 {
+	for i, v := range quantCycle {
+		if v == q {
+			return quantCycle[(i+1)%len(quantCycle)]
+		}
+	}
+	return quantCycle[0]
+}
+
 func quantLabel(q uint32) string {
 	switch q {
 	case 0:
@@ -1047,6 +1062,8 @@ func quantLabel(q uint32) string {
 		return "15bit"
 	case 2:
 		return "crush"
+	case 4:
+		return "grain"
 	default:
 		return "?"
 	}

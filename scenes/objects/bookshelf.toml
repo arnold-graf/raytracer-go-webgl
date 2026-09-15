@@ -31,8 +31,9 @@ albedo = [0.46, 0.40, 0.34]
 reflect = 0
 rough = 0.18
 metal_albedo = [0.52, 0.54, 0.56]
-metal_reflect = 0.45
-metal_rough = 0.0
+metal_reflect = 1
+metal_rough = 0
+metal_blur = 0.3
 post_d = 0.05
 post_inset = 0.05
 shelf_th = 0.032
@@ -92,7 +93,7 @@ depth = 'depth'
 # four vertical metal posts
 # for i in range(4)
 [[cylinder]]
-material = "metal"
+material = "diffuse"
 albedo = 'metal_albedo'
 reflect = 'metal_reflect'
 rough = 'metal_rough'
@@ -101,4 +102,5 @@ pos_y = 0.0
 pos_z = 'leg_z(i, off_z, post_d / 2)'
 width = 'post_d'
 height = 'shelf_height'
+reflect_blur = 'metal_blur'
 # endfor

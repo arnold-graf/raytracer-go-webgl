@@ -4,6 +4,7 @@ width = 0.5
 albedo = [1,1,1]
 reflect = 0.1
 rough = 0.0
+reflect_blur = 0.1
 
 # base
 [[cylinder]]
@@ -17,6 +18,7 @@ pos_y = 0
 pos_z = -0.2
 reflect = 'reflect'
 rough = 'rough'
+
 # top
 [[cylinder]]
 material = "diffuse"

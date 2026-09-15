@@ -11,6 +11,7 @@ import (
 	"raytracer/internal/camera"
 	"raytracer/internal/probe"
 	"raytracer/internal/scene"
+	"raytracer/internal/vec"
 )
 
 // View is one frame's worth of scene state handed to the renderer: the scene to
@@ -30,9 +31,17 @@ type View struct {
 	// when both AOok and the AO toggle are set.
 	AOData    probe.AOData
 	AOok      bool
+	// Bounds for the live GI probe grid: the built environment, excluding
+	// the outsized primitives that dominate the scene's raw extent. Set from
+	// probe.Probe.LitBounds. Zero-value GIBoundsOK falls back to the AO
+	// volume's own box.
+	GIMin, GIMax vec.V
+	GIBoundsOK   bool
 	AOVersion uint64 // bumps when AOData is replaced (e.g. after an async bake)
 
-	// ColorQuant selects the post-dither color depth: 0 = 8-bit dither, 1 = 15-bit (default), 2 = crush (24 levels/ch).
+	// ColorQuant selects the post-dither color depth: 0 = 8-bit dither, 1 = 15-bit (default),
+	// 2 = crush (24 levels/ch), 4 = path-tracer grain instead of the ordered dither.
+	// 3 is raw RGB, used by portal capture rather than offered in the key-5 cycle.
 	ColorQuant uint32
 
 	// AdaptiveAA enables neighbor-detected edge supersampling (two-pass).

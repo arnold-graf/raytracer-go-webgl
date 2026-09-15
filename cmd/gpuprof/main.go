@@ -54,6 +54,7 @@ func main() {
 	dump := flag.String("dump", "", "write the final RGBA frame buffer to this file (for A/B pixel diffs)")
 	mountains := flag.Bool("mountains", false, "use mountain-view camera preset (yaw=0°, villa valley view)")
 	aa := flag.Bool("aa", true, "enable adaptive anti-aliasing (two-pass), as the app does")
+	quant := flag.Uint("quant", 1, "color mode: 0 = 8-bit dither, 1 = 15-bit, 2 = crush, 3 = raw, 4 = path-tracer grain")
 	depth := flag.Uint("depth", defaultBounceDepth, "max mirror/glass bounce depth (app uses 4; 0 = shader default of 2)")
 	clock := flag.Float64("time", 0, "animation clock in seconds (campfire sub-lights, flames, water ripples)")
 	flag.Parse()
@@ -107,7 +108,9 @@ func main() {
 	}
 	defer r.Release()
 
-	aoData, aoOK := probe.New(sc).BakeAO()
+	pb := probe.New(sc)
+	aoData, aoOK := pb.BakeAO()
+	giMin, giMax, giOK := pb.LitBounds()
 	view := &render.View{
 		Scene:          sc,
 		Time:           *clock,
@@ -116,7 +119,11 @@ func main() {
 		AO:             true,
 		AOData:         aoData,
 		AOok:           aoOK,
+		GIMin:          giMin,
+		GIMax:          giMax,
+		GIBoundsOK:     giOK,
 		AdaptiveAA:     *aa,
+		ColorQuant:     uint32(*quant),
 		MaxBounceDepth: uint32(*depth),
 	}
 
