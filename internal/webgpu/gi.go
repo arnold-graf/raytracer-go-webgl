@@ -18,7 +18,14 @@
 package webgpu
 
 import (
+	"log"
 	"math"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+
+	"raytracer/internal/gpuscene"
 
 	"raytracer/internal/gibake"
 	"raytracer/internal/vec"
@@ -57,18 +64,106 @@ const giProbesPerWorkgroup = 1
 // assertion, which reads like a driver bug rather than a limit.
 const probeDispatchWidth = 32768
 
-// The fine cascade: camera-anchored, and fine enough to resolve room-scale
-// bounce. 2 m over 32 x 16 x 32 m.
+// The fine cascade is the live near field: camera-anchored, and fine enough to
+// resolve room-scale bounce. 2 m over 32 x 16 x 32 m by default.
+//
+// Sized at runtime, because how much of the world wants live indirect light is
+// a property of the scene rather than of the renderer:
+//
+//	RAYTRACER_LIVE_GI_PT_CELL=3        # metres between probes
+//	RAYTRACER_LIVE_GI_PT_DIM=24x12x24  # cells per axis, or one number for all
+//
+// Both extend the box, and they trade against each other: more cells cost rays
+// and storage, a larger cell costs resolution. The product must fit
+// giFineMaxProbes, and a request that does not is refused with the arithmetic
+// rather than quietly clamped.
 const (
-	giFineCell = 2.0
-	giFineDimX = 16
-	giFineDimY = 8
-	giFineDimZ = 16
+	giFineCellDefault = 2.0
+	giFineDimXDefault = 16
+	giFineDimYDefault = 8
+	giFineDimZDefault = 16
 )
 
-// giFineProbes is the fine cascade's probe count; it must not exceed GI_C0_MAX
-// in types.wesl, which is where the coarse cascade's storage starts.
-const giFineProbes = giFineDimX * giFineDimY * giFineDimZ
+// giFineMaxProbes is the storage reserved for the fine cascade. Must match
+// GI_C0_MAX in types.wesl, which is where the coarse cascade starts.
+const giFineMaxProbes = 16384
+
+type giFineConfig struct {
+	cell float64
+	dim  [3]uint32
+}
+
+func (c giFineConfig) probes() uint32 { return c.dim[0] * c.dim[1] * c.dim[2] }
+
+func (c giFineConfig) extent() vec.V {
+	return vec.V{
+		X: float64(c.dim[0]) * c.cell,
+		Y: float64(c.dim[1]) * c.cell,
+		Z: float64(c.dim[2]) * c.cell,
+	}
+}
+
+var giFineOverride struct {
+	once sync.Once
+	cfg  giFineConfig
+}
+
+// giFine reads the live near field's size, once.
+func giFine() giFineConfig {
+	giFineOverride.once.Do(func() {
+		c := giFineConfig{
+			cell: giFineCellDefault,
+			dim:  [3]uint32{giFineDimXDefault, giFineDimYDefault, giFineDimZDefault},
+		}
+		if v := os.Getenv("RAYTRACER_LIVE_GI_PT_CELL"); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+				c.cell = f
+			} else {
+				log.Printf("RAYTRACER_LIVE_GI_PT_CELL=%q is not a positive number; using %.1f m", v, c.cell)
+			}
+		}
+		if v := os.Getenv("RAYTRACER_LIVE_GI_PT_DIM"); v != "" {
+			if d, ok := parseFineDim(v); !ok {
+				log.Printf("RAYTRACER_LIVE_GI_PT_DIM=%q is not N or XxYxZ; using %dx%dx%d", v, c.dim[0], c.dim[1], c.dim[2])
+			} else if n := d[0] * d[1] * d[2]; n > giFineMaxProbes {
+				log.Printf("RAYTRACER_LIVE_GI_PT_DIM=%q is %d probes, over the %d reserved; using %dx%dx%d",
+					v, n, giFineMaxProbes, c.dim[0], c.dim[1], c.dim[2])
+			} else {
+				c.dim = d
+			}
+		}
+		e := c.extent()
+		log.Printf("live GI near field: %dx%dx%d probes at %.1f m = %.0f x %.0f x %.0f m",
+			c.dim[0], c.dim[1], c.dim[2], c.cell, e.X, e.Y, e.Z)
+		giFineOverride.cfg = c
+	})
+	return giFineOverride.cfg
+}
+
+// parseFineDim accepts "N" (applied to X and Z, with Y halved, because rooms
+// are wider than they are tall) or "XxYxZ".
+func parseFineDim(v string) ([3]uint32, bool) {
+	parts := strings.Split(strings.ToLower(v), "x")
+	nums := make([]uint32, 0, 3)
+	for _, p := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(p))
+		if err != nil || n < 2 {
+			return [3]uint32{}, false
+		}
+		nums = append(nums, uint32(n))
+	}
+	switch len(nums) {
+	case 1:
+		y := nums[0] / 2
+		if y < 2 {
+			y = 2
+		}
+		return [3]uint32{nums[0], y, nums[0]}, true
+	case 3:
+		return [3]uint32{nums[0], nums[1], nums[2]}, true
+	}
+	return [3]uint32{}, false
+}
 
 // giMaxProbes caps the coarse cascade.
 const giMaxProbes = 2048
@@ -92,18 +187,16 @@ const giForwardBias = 0.35
 // so a probe keeps its world position — and so, through the toroidal slot
 // mapping, its history — as the viewer moves.
 func buildGIFineGrid(cam, fwd vec.V) giGrid {
-	half := vec.V{
-		X: giFineDimX * giFineCell * 0.5,
-		Y: giFineDimY * giFineCell * 0.5,
-		Z: giFineDimZ * giFineCell * 0.5,
-	}
+	cfg := giFine()
+	e := cfg.extent()
+	half := vec.V{X: e.X * 0.5, Y: e.Y * 0.5, Z: e.Z * 0.5}
 	c := cam.Add(fwd.Scale(half.Z * giForwardBias))
-	snap := func(v float64) float64 { return math.Floor(v/giFineCell) * giFineCell }
+	snap := func(v float64) float64 { return math.Floor(v/cfg.cell) * cfg.cell }
 	return giGrid{
 		Min:  vec.V{X: snap(c.X - half.X), Y: snap(c.Y - half.Y), Z: snap(c.Z - half.Z)},
-		Inv:  1 / giFineCell,
-		Cell: giFineCell,
-		Dim:  [3]uint32{giFineDimX, giFineDimY, giFineDimZ},
+		Inv:  1 / cfg.cell,
+		Cell: cfg.cell,
+		Dim:  cfg.dim,
 	}
 }
 
@@ -196,7 +289,10 @@ func giCellsOf(p renderParams) uint32 {
 // A loaded bake is already solved, so it dispatches nothing unless the baker
 // is driving it. The live cascades walk half of each per frame.
 func (r *Renderer) giSchedule(rp *renderParams, gi giGrid) {
+	rp.giFineBase = uint32(gpuscene.AOVolumeFloats)
+	rp.giFineKeyBase = uint32(r.giFineKeyBase)
 	if r.baked != nil {
+		rp.giFineBase = uint32(r.bakedFineBase)
 		rp.bake = gi
 		rp.bakeIndexBase = uint32(r.bakedIndexBase)
 		rp.bakeCellBase = uint32(r.bakedCellBase)
@@ -205,9 +301,15 @@ func (r *Renderer) giSchedule(rp *renderParams, gi giGrid) {
 		if r.bakeDrive {
 			rp.probeCount = uint32(r.baked.Count())
 		}
+		if r.giExternal {
+			rp.giNearLive = 1
+		}
 		return
 	}
-	fine := uint32(giFineProbes)
+	if r.giExternal {
+		return
+	}
+	fine := giFine().probes()
 	rp.probeCount = (fine + 1) / 2
 	rp.probeBase = uint32((uint64(r.giFrame) * uint64(rp.probeCount)) % uint64(max32(fine, 1)))
 	coarse := gi.cells()
@@ -238,6 +340,9 @@ func giParams(out []byte, p renderParams, fine giGrid) {
 	putU32(out[492:496], p.probeBase2)
 	putU32(out[496:500], p.probeCount2)
 	putU32(out[500:504], p.probeDispatchW)
+	putU32(out[504:508], p.giNearLive)
+	putU32(out[508:512], p.giFineBase)
+	putU32(out[560:564], p.giFineKeyBase)
 	putVec4(out[512:528], p.bake.Min)
 	putF32(out[524:528], float32(p.bake.Inv))
 	putU32(out[528:532], p.bake.Dim[0])
@@ -254,11 +359,25 @@ type giVolume struct {
 	// baked is the loaded volume, nil unless RAYTRACER_GI_BAKE is set.
 	// bakedUp records that it has reached the GPU; bakeDrive makes the pass
 	// run over every probe in it, which only cmd/probebake asks for.
-	baked          *gibake.Volume
+	baked         *gibake.Volume
+	bakedFineBase uint64
+	// giFineKeyBase is where the fine cascade's per-slot cell keys live in
+	// ao_volume: one u32 a slot, so a pass can tell that a toroidal slot has
+	// come to stand for a different world cell.
+	giFineKeyBase  uint64
 	bakedIndexBase uint64
 	bakedCellBase  uint64
 	bakedUp        bool
 	bakeDrive      bool
 	bakeBlend      float32
 	giFrame        uint64
+	// giExternal is set once something else is filling the field — the path
+	// traced probe update. Two transports blending into the same texels would
+	// not error; they would average into a field that is neither, so the
+	// megakernel's own pass stands down.
+	giExternal bool
+	// The live near-field path tracer, built on first use and only when
+	// RAYTRACER_LIVE_GI_PT asks for one.
+	livePT       *PathTracer
+	livePTFailed bool
 }

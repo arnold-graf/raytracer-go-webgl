@@ -394,7 +394,7 @@ would lighten every shadow beside a window.
 reflection at a different angle, so it is not the lobe either channel holds out,
 and at 0.42 of an already-Fresnel weight it is faint enough to leave sharp.
 
-### The AA tap has to trace its own lobes
+### The AA tap has to trace its own lobes, and then may throw them away
 
 The penumbra filter hands an AA tap its *conclusion* — a target visibility — and
 that transfers one sub-pixel over because it is a fraction, smooth by
@@ -408,9 +408,40 @@ glass otherwise traces a full two-lobe fork. It also put **236 isolated pixels u
 to 190 levels out** along glass silhouettes. Tracing its own lobes instead brings
 that to **45 pixels**, and costs the whole saving.
 
-Shipped as the correct one. The cheap variant is one line (`GLOSS_NEVER` instead
-of `GLOSS_ALWAYS` at the tap's `ray_color` call) if someone wants to re-price it;
-`GLOSS_NEVER` is otherwise unused now.
+But *always* keeping what it traced is wrong in the other direction, and a
+blurred surface is where that shows. The centre's lobe has been through
+`refl_blur_h`/`refl_blur_v`; the tap's is a single point sample of the same lobe,
+and on a curved surface a sub-pixel shift swings the reflected ray far enough to
+land somewhere much brighter. Blended in at `AA_TAP_WEIGHT` that redraws the
+unfiltered reflection over the filtered one at 30%: sharp bright streaks down the
+front office's bookshelf posts (`reflect_blur = 0.3`), which AA flags all the way
+along their highlight.
+
+So the tap traces its lobes and then `supersample_edge` asks it the question the
+filter already asks of a neighbour — same reflecting surface or not
+(`aa_tap_same_lobe`, which is `lobe_compatible` minus the depth prediction, since
+a sub-pixel offset shares the centre's view ray). Same surface and the filtered
+lobe describes the tap too, so the tap's own is discarded; different geometry and
+only the tap's own will do.
+
+Measured on the bookshelf-post frame (office-sunset, `-quant 3`, isolated
+speckle over the posts, counting pixels ≥ 8 levels outside their neighbours'
+range):
+
+| | speckles | total excess | worst |
+|---|---|---|---|
+| no AA (reference) | 5 | 131 | 68 |
+| tap keeps its own lobes | 21 | 425 | 63 |
+| tap always takes the centre's | 5 | 77 | 28 |
+| **same-surface gate** | **6** | **116** | **39** |
+
+Across a sweep of five scenes × four yaws every frame that moved at all improved
+and the rest came out bit-identical, the glass views among them: the gate falls
+through to the tap's own lobes exactly where the glass argument applies. Cost is
+unchanged (65.5 ms against 65.7 on the post frame, inside noise) — the tap still
+traces the lobe, because it cannot know whether it needs it until it has hit
+something. `GLOSS_NEVER` is still unused; it remains the one-line cheap variant
+if someone wants to re-price it.
 
 ### Cost of the wider record
 

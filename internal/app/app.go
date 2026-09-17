@@ -5,6 +5,7 @@ package app
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 	"os"
@@ -30,6 +31,7 @@ import (
 	"raytracer/internal/scenestate"
 	"raytracer/internal/screen"
 	"raytracer/internal/vec"
+	"raytracer/internal/vpl"
 )
 
 // Game is the Ebiten game implementing the render loop and input handling.
@@ -884,6 +886,17 @@ func (g *Game) handleToggles() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit8) {
 		g.thinGlassGhost = !g.thinGlassGhost
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyDigit9) {
+		// Virtual point lights on/off. The set is generated once and attached or
+		// detached, so the two states are the same lights and differ only in
+		// whether the scene is carrying them.
+		on, n := vpl.Toggle(g.sc)
+		if n == 0 {
+			log.Printf("vpl: nothing to toggle (no bounce found in this scene)")
+		} else {
+			log.Printf("vpl: %d virtual lights %s", n, map[bool]string{true: "on", false: "off"}[on])
+		}
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit0) {
 		g.hudHidden = !g.hudHidden
 		if g.hudHidden {
@@ -1024,8 +1037,8 @@ func (g *Game) backendName() string {
 
 func (g *Game) statusLine() string {
 	if g.locked {
-		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s npc[6]:%s AA[7]:%s ghost[8]:%s px[-/+]:%d fps[H]:%s  HUD[0]  ESC release",
-			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), onOff(g.adaptiveAA), onOff(g.thinGlassGhost), g.pixSize, capLabel(g.fpsCap))
+		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s npc[6]:%s AA[7]:%s ghost[8]:%s vpl[9]:%s px[-/+]:%d fps[H]:%s  HUD[0]  ESC release",
+			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), onOff(g.adaptiveAA), onOff(g.thinGlassGhost), onOff(vpl.Active(g.sc)), g.pixSize, capLabel(g.fpsCap))
 	}
 	return "click to capture mouse"
 }

@@ -59,6 +59,12 @@ func TestCampfireSublightMatchesLightAt(t *testing.T) {
 			Center: vec.New(1, 0.1, -2), Color: vec.New(1, 0.6, 0.3),
 			Brightness: 5, Range: 0, Jitter: 0.02, Flicker: 0.4, Speed: 0, Seed: 1,
 		},
+		{
+			// Jitter well past the cap, so the clamp is live on both sides.
+			Center: vec.New(0, 0.7, 0), Color: vec.New(3.6, 1.7, 0.55),
+			Brightness: 1, Range: 20, Jitter: 0.5, Flicker: 0.45, Speed: 1, Seed: 0.4,
+			MaxFlickerDistance: 0.12,
+		},
 	}
 	times := []float64{0, 0.37, 1.7, 9.13, 42.0}
 	const eps = 1e-4
@@ -127,4 +133,23 @@ func fireCullLegacy(peak, rng float64) (cullR2, invR2 float64) {
 
 func vecDist(a, b vec.V) float64 {
 	return math.Hypot(a.X-b.X, math.Hypot(a.Y-b.Y, a.Z-b.Z))
+}
+
+func TestPackCampfireParamsMaxFlickerDistance(t *testing.T) {
+	sc := &scene.Scene{
+		Campfires: []scene.Campfire{{
+			Center:             vec.New(0, 1, 0),
+			Color:              vec.New(3, 1, 0.5),
+			MaxFlickerDistance: 0.25,
+		}},
+	}
+	cf := PackCampfireParams(sc)[0]
+	if cf.FlameEmber[3] != 0.25 {
+		t.Fatalf("max flicker distance = %v, want 0.25", cf.FlameEmber[3])
+	}
+	// The cap rides in the spare w of the ember color; the color must survive.
+	ember, _, _, _ := sc.Campfires[0].FlamePalette()
+	if cf.FlameEmber[0] != float32(ember.X) {
+		t.Fatalf("flame ember rgb = %v, want %v", cf.FlameEmber, ember)
+	}
 }

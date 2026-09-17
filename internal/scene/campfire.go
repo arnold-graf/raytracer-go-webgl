@@ -21,15 +21,21 @@ type Campfire struct {
 	Brightness float64 // overall intensity multiplier on Color (1 = as authored)
 	Range      float64 // cull / falloff distance (0 = automatic reach)
 	Jitter     float64 // position wobble radius in world units
-	Flicker    float64 // intensity wobble amount in [0,1]
-	Speed      float64 // flicker speed multiplier (1 = default)
-	Seed       float64 // phase offset so multiple fires look different
+	// MaxFlickerDistance caps how far a sub-light may travel from its rest
+	// position while it animates, in world units. Jitter shapes the wobble;
+	// this bounds it, so shadows stop swimming without damping the motion's
+	// character. 0 means uncapped -- a fire asked for zero travel arrives here
+	// as Jitter = 0 instead, which is the same thing said directly.
+	MaxFlickerDistance float64
+	Flicker            float64 // intensity wobble amount in [0,1]
+	Speed              float64 // flicker speed multiplier (1 = default)
+	Seed               float64 // phase offset so multiple fires look different
 	// Radius is the emitter size each sub-light is treated as having for soft
 	// shadows, in world units. 0 uses the shader default. A fire is a broad
 	// source, so this is usually larger than a bulb's.
 	Radius float64
-	Lights     int     // sub-light count (1..CampfireLights; 0 = default)
-	Flame      bool    // procedural volumetric flame at the core
+	Lights int  // sub-light count (1..CampfireLights; 0 = default)
+	Flame  bool // procedural volumetric flame at the core
 	// FlameEmber/Mid/Tip/Ash are linear HDR colors for particle life stages.
 	// Unset in TOML defaults to DefaultFlameEmber etc.
 	FlameEmber vec.V
@@ -85,6 +91,11 @@ var campfireBase = [CampfireLights]vec.V{
 	{X: 0.03, Y: 0.52, Z: 0.16},
 }
 
+// LightCount is how many sub-lights this campfire emits, after the clamp. It is
+// exported for callers that enumerate the sub-lights through LightAt rather than
+// re-deriving the count (internal/vpl).
+func (f *Campfire) LightCount() int { return f.lightCount() }
+
 func (f *Campfire) lightCount() int {
 	n := f.Lights
 	if n == 0 {
@@ -120,18 +131,32 @@ func (f *Campfire) LightAt(j int, t float64) (pos, color vec.V) {
 		intensity = 0.15 * bright
 	}
 
-	jx := f.Jitter * (0.7*math.Sin(ts*9.0+ph*1.3) + 0.3*math.Sin(ts*17.0+ph*2.7))
-	jz := f.Jitter * (0.7*math.Sin(ts*11.0+ph*1.9) + 0.3*math.Sin(ts*19.0+ph*0.7))
-	jy := f.Jitter * (0.4 + 0.4*math.Sin(ts*15.0+ph)) // mostly upward bob
+	off := vec.V{
+		X: f.Jitter * (0.7*math.Sin(ts*9.0+ph*1.3) + 0.3*math.Sin(ts*17.0+ph*2.7)),
+		Y: f.Jitter * (0.4 + 0.4*math.Sin(ts*15.0+ph)), // mostly upward bob
+		Z: f.Jitter * (0.7*math.Sin(ts*11.0+ph*1.9) + 0.3*math.Sin(ts*19.0+ph*0.7)),
+	}
+	off = ClampFlickerTravel(off, f.MaxFlickerDistance)
 
 	base := campfireBase[j]
-	pos = vec.V{
-		X: f.Center.X + base.X + jx,
-		Y: f.Center.Y + base.Y + jy,
-		Z: f.Center.Z + base.Z + jz,
-	}
+	pos = f.Center.Add(base).Add(off)
 	color = f.Color.Mul(campfireTint[j]).Scale(intensity)
 	return pos, color
+}
+
+// ClampFlickerTravel shortens a flicker offset to at most maxDist world units,
+// keeping its direction so the motion only flattens at the bound instead of
+// being scaled down everywhere. maxDist <= 0 means uncapped. Mirrored by
+// clamp_flicker_travel() in shade.wesl.
+func ClampFlickerTravel(off vec.V, maxDist float64) vec.V {
+	if maxDist <= 0 {
+		return off
+	}
+	d2 := off.LenSq()
+	if d2 <= maxDist*maxDist {
+		return off
+	}
+	return off.Scale(maxDist / math.Sqrt(d2))
 }
 
 // PeakChannel returns an upper bound on any sub-light's per-channel intensity,

@@ -139,6 +139,14 @@ tried and reverted because any mismatch shows up as bright fringes exactly on
 edges (especially through glass). See
 [Rejected: cheaper AA tap rays](megakernel-optimization.md#rejected-cheaper-aa-tap-rays).
 
+One exception, and it runs the other way: where the tap landed on the *same*
+reflecting surface as the center, its glossy lobe is dropped in favour of the
+center's, because that one has been through the screen-space blur `reflect_blur`
+asks for and the tap's is a single point sample of it. Keeping the tap's own
+there drew the sharp reflection back over the blurred one at `AA_TAP_WEIGHT`. A
+tap on *different* geometry still keeps what it traced. See
+[the AA tap in lobe-blur.md](lobe-blur.md#the-aa-tap-has-to-trace-its-own-lobes-and-then-may-throw-them-away).
+
 ---
 
 ## Why split classify and resolve?

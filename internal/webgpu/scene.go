@@ -728,7 +728,7 @@ type CampfireParams struct {
 	Color      [4]float32 // r, g, b, sub-light count (0 = default 3)
 	Param      [4]float32 // brightness, jitter, flicker, speed
 	Phase      [4]float32 // seed, flame_enabled (1 or 0), flame_scale, emitter radius
-	FlameEmber [4]float32
+	FlameEmber [4]float32 // rgb, max flicker travel distance (0 = uncapped)
 	FlameMid   [4]float32
 	FlameTip   [4]float32
 	FlameAsh   [4]float32
@@ -784,6 +784,7 @@ func PackCampfireParams(s *scene.Scene) []CampfireParams {
 		p.Color[3] = float32(lights)
 		ember, mid, tip, ash := fr.FlamePalette()
 		p.FlameEmber = albedo(ember)
+		p.FlameEmber[3] = f(fr.MaxFlickerDistance)
 		p.FlameMid = albedo(mid)
 		p.FlameTip = albedo(tip)
 		p.FlameAsh = albedo(ash)

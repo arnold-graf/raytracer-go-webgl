@@ -240,6 +240,7 @@ type PathTracer struct {
 
 	clearPipe    *wgpu.ComputePipeline
 	bakePipe     *wgpu.ComputePipeline
+	probePipe    *wgpu.ComputePipeline
 	mainPipe     *wgpu.ComputePipeline
 	temporalPipe *wgpu.ComputePipeline
 	atrousPipe   *wgpu.ComputePipeline
@@ -384,6 +385,7 @@ func NewPathTracer(r *Renderer, opts PTOptions) (*PathTracer, error) {
 	}{
 		{"pt_clear", &pt.clearPipe},
 		{"pt_bake_probes", &pt.bakePipe},
+		{"pt_probe_update", &pt.probePipe},
 		{"pt_main", &pt.mainPipe},
 		{"pt_temporal", &pt.temporalPipe},
 		{"pt_atrous", &pt.atrousPipe},

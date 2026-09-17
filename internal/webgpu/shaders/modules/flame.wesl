@@ -28,6 +28,14 @@ fn campfire_flame_scale(cf: CampfireParams) -> f32 {
     return s;
 }
 
+// The flame's flicker signal, in [-0.9, 0.9], driving its emission gain. ts is
+// raw animation time; the fire's speed is applied here.
+fn flame_flicker(cf: CampfireParams, ts: f32) -> f32 {
+    let anim = ts * cf.param.w;
+    let ph = cf.phase.x;
+    return 0.6 * sin(anim * 7.0 + ph) + 0.3 * sin(anim * 13.0 + ph * 2.1);
+}
+
 fn flame_density_at(p: vec3<f32>, cf: CampfireParams, ts: f32) -> f32 {
     let scale = campfire_flame_scale(cf);
     let base = cf.core.xyz;
@@ -119,9 +127,7 @@ fn accumulate_flame(ro: vec3<f32>, rd: vec3<f32>, max_t: f32, ts: f32) -> vec3<f
         let span = bounds.y - bounds.x;
         let step_len = span / f32(FLAME_MARCH_STEPS);
         var pos = ro + rd * (bounds.x + step_len * 0.5);
-        let ph = cf.phase.x;
-        let flick = 0.6 * sin(ts * 7.0 * cf.param.w + ph) + 0.3 * sin(ts * 13.0 * cf.param.w + ph * 2.1);
-        let flick_gain = 0.85 + 0.25 * flick * cf.param.z;
+        let flick_gain = 0.85 + 0.25 * flame_flicker(cf, ts) * cf.param.z;
         for (var s = 0u; s < FLAME_MARCH_STEPS; s = s + 1u) {
             let d = flame_density_at(pos, cf, ts);
             if (d > 0.002) {

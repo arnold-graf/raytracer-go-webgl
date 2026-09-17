@@ -107,3 +107,60 @@ func TestCampfireFlamePaletteDefaults(t *testing.T) {
 		t.Fatalf("custom mid = %v", m)
 	}
 }
+
+func TestCampfireMaxFlickerDistanceBoundsTravel(t *testing.T) {
+	const maxDist = 0.1
+	loose := testFire()
+	loose.Jitter = 0.5
+	capped := *loose
+	capped.MaxFlickerDistance = maxDist
+
+	var sawClamp bool
+	for j := range capped.LightCount() {
+		rest := restPos(t, capped, j)
+		for step := range 400 {
+			tm := float64(step) * 0.01
+			pos, _ := capped.LightAt(j, tm)
+			if d := pos.Sub(rest).Len(); d > maxDist+1e-9 {
+				t.Fatalf("j=%d t=%v travelled %v, want <= %v", j, tm, d, maxDist)
+			}
+			uncapped, _ := loose.LightAt(j, tm)
+			if uncapped.Sub(rest).Len() > maxDist {
+				sawClamp = true
+			}
+		}
+	}
+	if !sawClamp {
+		t.Fatal("uncapped fire never exceeded the cap; the test proves nothing")
+	}
+}
+
+func TestCampfireMaxFlickerDistanceKeepsDirection(t *testing.T) {
+	const maxDist = 0.05
+	loose := testFire()
+	loose.Jitter = 0.5
+	capped := *loose
+	capped.MaxFlickerDistance = maxDist
+
+	rest := restPos(t, capped, 0)
+	const tm = 0.37
+	want, _ := loose.LightAt(0, tm)
+	got, _ := capped.LightAt(0, tm)
+	if want.Sub(rest).Len() <= maxDist {
+		t.Fatalf("sample was inside the cap already; pick another time")
+	}
+	wantDir := want.Sub(rest).Normalize()
+	gotDir := got.Sub(rest).Normalize()
+	if d := wantDir.Dot(gotDir); d < 1-1e-9 {
+		t.Fatalf("clamped offset changed direction: dot = %v", d)
+	}
+}
+
+// restPos is where sub-light j sits with its flicker travel pinned to zero.
+func restPos(t *testing.T, f Campfire, j int) vec.V {
+	t.Helper()
+	f.Jitter = 0
+	f.MaxFlickerDistance = 0
+	pos, _ := f.LightAt(j, 0)
+	return pos
+}

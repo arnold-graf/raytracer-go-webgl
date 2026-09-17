@@ -51,6 +51,8 @@ func main() {
 	rays := flag.Int("rays", 512, "rays per probe, spent as rays/32 iterations")
 	radius := flag.Float64("radius", 0, "keep probes within this distance of geometry, in metres (0 = two cells)")
 	maxProbes := flag.Int("max-probes", 400_000, "refuse to bake more probes than this")
+	transport := flag.String("transport", "pt", "pt = path traced, multi-bounce; mega = the megakernel's one-bounce probe pass")
+	depth := flag.Uint("depth", 8, "path length, for -transport pt")
 	flag.Parse()
 
 	sc, err := sceneio.Load(*scenePath)
@@ -142,19 +144,52 @@ func main() {
 	}
 	buf := make([]byte, w*h*4)
 
-	fmt.Printf("  baking")
+	var pt *webgpu.PathTracer
+	if *transport == "pt" {
+		// Real multi-bounce. The megakernel's probe pass traces one bounce and
+		// takes the rest from the previous frame's field — a hit shaded with
+		// the irradiance stored for a point some way off. That converges to
+		// roughly the right answer for diffuse, but offline there is no reason
+		// to settle for it.
+		pt, err = webgpu.NewPathTracer(r, webgpu.PTOptions{
+			MaxDepth: uint32(*depth),
+			RRDepth:  3,
+			// pi reproduces the megakernel's direct term. Without it the bake
+			// is a consistent multiple of the lighting it sits on top of,
+			// which is the sort of mismatch that reads as a tuning problem.
+			LightScale:    math.Pi,
+			ClampIndirect: 12,
+			LightSamples:  1,
+			RISCandidates: 8,
+		})
+		if err != nil {
+			log.Fatalf("path tracer: %v", err)
+		}
+		defer pt.Release()
+	} else if *transport != "mega" {
+		log.Fatalf("-transport must be pt or mega, got %q", *transport)
+	}
+
+	fmt.Printf("  baking (%s)", *transport)
 	start := time.Now()
 	for i := 0; i < iterations; i++ {
 		// 1/(i+1) makes the blend an exact running mean, so the result is the
 		// average of every ray cast rather than an exponential trail over the
 		// last few iterations.
-		r.DriveBake(float32(1.0 / float64(i+1)))
-		r.Render(buf, cam, view, 1)
+		blend := float32(1.0 / float64(i+1))
+		if pt != nil {
+			if err := pt.UpdateProbeFieldSync(cam, view, blend, 0); err != nil {
+				log.Fatalf("\nprobe update: %v", err)
+			}
+		} else {
+			r.DriveBake(blend)
+			r.Render(buf, cam, view, 1)
+			if buf[0] == 255 && buf[1] == 0 && buf[2] == 255 {
+				log.Fatalf("\nthe renderer failed this frame (it paints magenta on error)")
+			}
+		}
 		if i%16 == 0 || i == iterations-1 {
 			fmt.Printf(".")
-		}
-		if buf[0] == 255 && buf[1] == 0 && buf[2] == 255 {
-			log.Fatalf("\nthe renderer failed this frame (it paints magenta on error)")
 		}
 	}
 	r.StopBake()

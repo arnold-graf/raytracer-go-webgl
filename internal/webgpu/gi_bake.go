@@ -34,7 +34,6 @@ func (r *Renderer) uploadBakedGI() error {
 	return nil
 }
 
-
 // BakedVolume is the loaded volume, or nil. The baker needs its layout to know
 // how many probes to drive and where to read them back from.
 func (r *Renderer) BakedVolume() *gibake.Volume { return r.baked }

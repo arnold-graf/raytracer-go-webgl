@@ -33,10 +33,11 @@ const (
 	GIProbeFloats = 8*8*3 + 16*16*2
 	// GIProbeMaxCells is what the two live cascades share: the fine one's
 	// GI_C0_MAX reservation and the coarse one's cap.
-	GIProbeMaxCells = 2048 + 2048
-	// GIVolumeTotalFloats sizes ao_volume when no bake is loaded. A bake sizes
-	// the buffer from its own header instead, because it is the scene that
-	// decides how many probes it needs.
+	GIProbeMaxCells = 16384 + 2048
+	// GIVolumeTotalFloats sizes ao_volume when the live cascades are on. With
+	// GI off the buffer is cut to AOVolumeFloats alone, and with a bake it is
+	// sized from that file's header — it is the scene that decides how many
+	// probes it needs.
 	GIVolumeTotalFloats = AOVolumeFloats + GIProbeMaxCells*GIProbeFloats
 
 	// GammaLUTSize is the CPU gamma lookup resolution. The GPU path can either

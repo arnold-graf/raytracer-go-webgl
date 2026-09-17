@@ -17,7 +17,7 @@ pitch = 0.04
 [environment]
 sky = "night_stars"
 # ambient_sky = [0.060, 0.075, 0.100]
-ambient_ground = [0.018, 0.020, 0.026]
+# ambient_ground = [0.001, 0.001, 0.001]
 sun_dir = [1, -1.2, 0.90]
 sun_color = [0.16, 0.19, 0.27]
 
@@ -39,7 +39,7 @@ albedo = [30.0, 30.0, 35.0]
 # rays match the visible moon. range = 0 keeps it global across the valley.
 [[light]]
 pos = [-111.0, 133.0, -100.0]
-color = [1.4, 1.6, 2.4]
+color = [1, 1, 2.4]
 brightness = 100.0
 range = 0
 

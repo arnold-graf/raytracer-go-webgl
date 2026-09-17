@@ -22,6 +22,7 @@ import (
 	"raytracer/internal/sceneparam"
 	"raytracer/internal/texture"
 	"raytracer/internal/vec"
+	"raytracer/internal/vpl"
 )
 
 // defaultIOR is applied when a surface omits "ior", matching scene.surf.
@@ -418,22 +419,23 @@ func lightHint(interactive bool, hint string) string {
 }
 
 type lightFlickeringDTO struct {
-	Center     vec3    `toml:"center"`
-	Color      vec3    `toml:"color"`
-	Brightness float64 `toml:"brightness"`
-	Range      float64 `toml:"range"`
-	Jitter     float64 `toml:"jitter"`
-	Flicker    float64 `toml:"flicker"`
-	Speed      float64 `toml:"speed"`
-	Seed       float64 `toml:"seed"`
-	Radius     float64 `toml:"radius"`
-	Lights     int     `toml:"lights"`
-	Flame      *bool   `toml:"flame"`
-	FlameEmber *vec3   `toml:"flame_ember"`
-	FlameMid   *vec3   `toml:"flame_mid"`
-	FlameTip   *vec3   `toml:"flame_tip"`
-	FlameAsh   *vec3   `toml:"flame_ash"`
-	FlameScale float64 `toml:"flame_scale"`
+	Center             vec3     `toml:"center"`
+	Color              vec3     `toml:"color"`
+	Brightness         float64  `toml:"brightness"`
+	Range              float64  `toml:"range"`
+	Jitter             float64  `toml:"jitter"`
+	MaxFlickerDistance *float64 `toml:"max_flicker_distance"`
+	Flicker            float64  `toml:"flicker"`
+	Speed              float64  `toml:"speed"`
+	Seed               float64  `toml:"seed"`
+	Radius             float64  `toml:"radius"`
+	Lights             int      `toml:"lights"`
+	Flame              *bool    `toml:"flame"`
+	FlameEmber         *vec3    `toml:"flame_ember"`
+	FlameMid           *vec3    `toml:"flame_mid"`
+	FlameTip           *vec3    `toml:"flame_tip"`
+	FlameAsh           *vec3    `toml:"flame_ash"`
+	FlameScale         float64  `toml:"flame_scale"`
 }
 
 type soundDTO struct {
@@ -513,6 +515,17 @@ func (d lightFlickeringDTO) build() scene.Campfire {
 	}
 	if c.Lights == 0 {
 		c.Lights = scene.CampfireLights
+	}
+	// Applied after the jitter default, because a cap of 0 is expressed as zero
+	// jitter: "travel no further than 0" and "do not wobble" are the same fire,
+	// and canonicalizing here keeps a zero-valued Campfire meaning "uncapped".
+	// An omitted key leaves the wobble uncapped, as every scene had it before.
+	if d.MaxFlickerDistance != nil {
+		if *d.MaxFlickerDistance <= 0 {
+			c.Jitter = 0
+		} else {
+			c.MaxFlickerDistance = *d.MaxFlickerDistance
+		}
 	}
 	return c
 }
@@ -877,6 +890,11 @@ func LoadDeps(path string) (*scene.Scene, []string, error) {
 	s.ApplyTerrainFollow(followPlacements)
 	s.ApplyInstanceTerrainFollow()
 	s.FinalizeInstancing()
+	// Virtual point lights standing in for the first bounce, when RAYTRACER_VPL
+	// asks for them. Last, so the photon tracer sees the finished scene, and
+	// here rather than in a renderer so the app, gpuprof and the path tracer all
+	// get the same lights to compare.
+	vpl.Inject(s)
 	return s, deps, nil
 }
 

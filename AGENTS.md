@@ -41,15 +41,20 @@ NULL, Self , abstract, active, alignas, alignof, as, asm, asm_fragment, async, a
 
 ### Scratch files and scripts
 
-Use the local tmp folder inside this repo, not a root folder like /tmp. We’re
-using zsh, and it doesn't word-split unquoted variables, so keep that in mind
-when writing shell scripts or commands.
+Use the local tmp folder inside this repo, not a root folder like /tmp or
+/private/tmp. We’re using zsh, and it doesn't word-split unquoted variables, so
+keep that in mind when writing shell scripts or commands.
 
 ### Tests
 
 Tests should never assert on properties of authored art (especially tomls). If
 models are needed in a test, they should be created specifically for the
 purpose. Tests should not fail because authored art changes.
+
+### Performance Measurements
+
+The machine’s performance can vary based on thermals. Always do interleaved
+tests when comparing performance for a GPU code change.
 
 ### Recommended commands
 

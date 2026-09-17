@@ -20,9 +20,10 @@
 // only. The two populations are disjoint, so no MIS is needed and nothing is
 // double counted.
 
-import package::types::{CampfireParams, campfires, Hit, HIT_NO_INSTANCE, idx_tables, Light, lights, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, params, pixels, Prim, PRIM_BOX, PRIM_CONE, PRIM_FLAG_TRANSFORMED, PRIM_SPHERE, prims, T_MISS, waters};
+import package::types::{CampfireParams, GI_OCT_DEPTH, GI_OCT_IRR, GI_PROBES_PER_WG, GI_PROBE_FLOATS, GI_PROBE_MOMENTS, GI_PROBE_RAYS, ao_volume, campfires, Hit, HIT_NO_INSTANCE, idx_tables, Light, lights, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, params, pixels, Prim, PRIM_BOX, PRIM_CONE, PRIM_FLAG_TRANSFORMED, PRIM_SPHERE, prims, T_MISS, waters};
 import package::math::{surface_grazing_weight, smoothstepf, tonemap};
 import package::bvh::{nearest_hit};
+import package::gi::{GI_CLAMP, gi_fine_rate, GI_DEPTH_MAX_CELLS, gi_bake_cascade, gi_bake_cell_of, gi_bake_on, gi_cas_local, gi_cas_pos, gi_cascade_coarse, gi_cascade_fine, gi_probe_dir_fixed, gi_probe_rot, oct_texel_dir};
 import package::shade::{campfire_cull, scene_ambient, campfire_light_count, campfire_light_radius, campfire_sublight, cone_cap_normal_world, light_atten, light_span, normal_at, shadowed, spot_dir, terrain_albedo, wide_span};
 import package::flame::{accumulate_flame};
 import package::texture::{plane_albedo, prim_texture_bump_normal, texture_eval, texture_eval_box, texture_eval_surface};
@@ -829,7 +830,7 @@ fn pt_campfire_light(pick_in: u32) -> Light {
                 vec4<f32>(sl.pos, 0.0),
                 vec4<f32>(sl.col, 0.0),
                 vec4<f32>(cull.x, cull.y, 0.0, 0.0),
-                vec4<f32>(campfire_light_radius(cf), 0.0, 0.0, 0.0),
+                vec4<f32>(campfire_light_radius(sl), 0.0, 0.0, 0.0),
             );
         }
         pick = pick - count;
@@ -1089,6 +1090,11 @@ fn pt_clamped(c: vec3<f32>, depth: u32) -> vec3<f32> {
     return c * (ptp.clamp_indirect / peak);
 }
 
+// How far the first segment of the last pt_trace got. The probe pass needs it
+// for the visibility moments and nothing else wants it, so it rides out here
+// rather than widening pt_trace's return.
+var<private> pt_first_hit_t: f32 = 0.0;
+
 fn pt_trace(origin: vec3<f32>, dir: vec3<f32>) -> vec3<f32> {
     var radiance = vec3<f32>(0.0);
     var beta = vec3<f32>(1.0);
@@ -1103,6 +1109,9 @@ fn pt_trace(origin: vec3<f32>, dir: vec3<f32>) -> vec3<f32> {
     for (var depth = 0u; depth < ptp.max_depth; depth = depth + 1u) {
         pt_depth = depth;
         let hit = nearest_hit(ro, rd);
+        if (depth == 0u) {
+            pt_first_hit_t = hit.t;
+        }
         // Volumetric flame emission along the segment. Not a surface, so it is
         // gathered by marching rather than by hitting anything, exactly as in
         // trace.wesl; a path tracer has nothing better to offer here.
@@ -1647,4 +1656,163 @@ fn pt_resolve(@builtin(global_invocation_id) gid: vec3<u32>) {
     let g = u32(floor(rgb.y));
     let b = u32(floor(rgb.z));
     pixels[idx] = r | (g << 8u) | (b << 16u) | (255u << 24u);
+}
+
+
+// ---------------------------------------------------------------------------
+// Probe update, path traced
+//
+// The same probe field the megakernel fills, filled here instead by real
+// multi-bounce transport. It replaces one thing only — how a probe ray is
+// traced — and shares everything else with gi.wesl: the octahedral layout, the
+// cascades, the sparse baked volume, the rotating ray set. There is one
+// storage format and one set of sampling rules, which is what keeps the two
+// transports comparable rather than merely coexisting.
+//
+// The megakernel's probe pass traces one bounce and takes everything past it
+// from the previous frame's field — a hit is shaded with the irradiance stored
+// for a point some distance away. It converges to roughly the right answer for
+// diffuse and is worth about 18%, but it is not transport. This follows the
+// path.
+//
+// Driven two ways, both through the same dispatch: cmd/probebake runs it over
+// every probe of a sparse volume for as many iterations as the ray budget
+// asks, and the renderer can run it over a slice of the fine cascade each
+// frame for a live near field over a baked far one.
+// ---------------------------------------------------------------------------
+
+var<workgroup> pt_probe_col: array<vec3<f32>, GI_PROBE_RAYS>;
+var<workgroup> pt_probe_t: array<f32, GI_PROBE_RAYS>;
+var<workgroup> pt_probe_dir: array<vec3<f32>, GI_PROBE_RAYS>;
+
+@compute @workgroup_size(32, 1, 1)
+fn pt_probe_update(
+    @builtin(workgroup_id) wid: vec3<u32>,
+    @builtin(local_invocation_index) lane: u32,
+) {
+    // Which field this pass is filling.
+    //
+    // A loaded bake does not by itself mean "refresh the bake": with a live
+    // near field the bake is the far half and the fine cascade is what needs
+    // tracing. Getting this wrong is silent and total — the pass rewrote the
+    // first probes of the bake instead, the fine cascade stayed zero, and the
+    // read blended the two into black.
+    //
+    // Filling only the fine cascade when there is no bake is the opposite
+    // mistake: the far field is then empty, and an empty far field is not
+    // neutral, it is darkness past the 32 m box.
+    let near_live = params.gi_probe2.z != 0u;
+    let do_bake = gi_bake_on() && !near_live;
+    var n_fine = params.gi_probe.y;
+    var n_coarse = params.gi_probe2.x;
+    if (do_bake) {
+        n_fine = params.gi_bake.z;
+        n_coarse = 0u;
+    }
+    let sub = lane / GI_PROBE_RAYS;
+    let ray = lane % GI_PROBE_RAYS;
+    // 2D, because a bake can want more probes than the 65,535 workgroups one
+    // dispatch dimension allows.
+    let flat = wid.y * params.gi_probe2.y + wid.x;
+    let pi = flat * GI_PROBES_PER_WG + sub;
+    if (pi >= n_fine + n_coarse) {
+        return;
+    }
+    var c = gi_cascade_fine();
+    var slot = pi;
+    var cell = vec3<u32>(0u);
+    if (do_bake) {
+        c = gi_bake_cascade();
+        cell = gi_bake_cell_of(slot);
+    } else if (pi < n_fine) {
+        let total = c.dim.x * c.dim.y * c.dim.z;
+        slot = (params.gi_probe.x + pi) % total;
+        cell = gi_cas_local(c, slot);
+    } else {
+        c = gi_cascade_coarse();
+        let total = c.dim.x * c.dim.y * c.dim.z;
+        slot = (params.gi_probe.w + (pi - n_fine)) % max(total, 1u);
+        cell = gi_cas_local(c, slot);
+    }
+    let origin = gi_cas_pos(c, cell);
+
+    let rot = gi_probe_rot(params.gi_probe.z);
+    let dir = rot * gi_probe_dir_fixed(ray);
+    // Seeded per probe, per ray, per iteration: successive iterations of the
+    // same probe must be independent samples or the average converges to one
+    // path rather than to the integral.
+    pt_seed(slot, ray, params.gi_probe.z);
+    pt_first_hit_t = T_MISS;
+    pt_probe_col[lane] = pt_trace(origin, dir);
+    // Capped to a few cells, as gi.wesl caps the megakernel's. A ray that
+    // leaves through a window comes back with T_MISS, and one of those blended
+    // into a depth texel drags its mean into the hundreds of metres, which
+    // means "nothing is ever in the way" and the visibility test stops
+    // rejecting anything at all.
+    let cell_m = 1.0 / c.inv;
+    pt_probe_t[lane] = min(pt_first_hit_t, cell_m * GI_DEPTH_MAX_CELLS);
+    pt_probe_dir[lane] = dir;
+    workgroupBarrier();
+
+    let base = c.base + slot * GI_PROBE_FLOATS;
+    let ray0 = sub * GI_PROBE_RAYS;
+    var rate = bitcast<f32>(params.gi_bake.w);
+    // A scrolled-in slot of the fine cascade takes the new estimate whole
+    // rather than blending up from the cell it used to stand for.
+    if (!do_bake && pi < n_fine) {
+        rate = gi_fine_rate(slot, cell, rate);
+    }
+
+    let irr_per = (GI_OCT_IRR * GI_OCT_IRR) / GI_PROBE_RAYS;
+    for (var q = 0u; q < irr_per; q = q + 1u) {
+        let texel = ray * irr_per + q;
+        let td = oct_texel_dir(vec2<u32>(texel % GI_OCT_IRR, texel / GI_OCT_IRR), GI_OCT_IRR);
+        var sum = vec3<f32>(0.0);
+        var wsum = 0.0;
+        for (var i = 0u; i < GI_PROBE_RAYS; i = i + 1u) {
+            let a = max(dot(td, pt_probe_dir[ray0 + i]), 0.0);
+            if (a <= 0.0) {
+                continue;
+            }
+            sum = sum + pt_probe_col[ray0 + i] * a;
+            wsum = wsum + a;
+        }
+        let v = clamp(sum / max(wsum, 1e-6), vec3<f32>(0.0), vec3<f32>(GI_CLAMP));
+        let o = base + texel * 3u;
+        ao_volume[o] = mix(ao_volume[o], v.x, rate);
+        ao_volume[o + 1u] = mix(ao_volume[o + 1u], v.y, rate);
+        ao_volume[o + 2u] = mix(ao_volume[o + 2u], v.z, rate);
+    }
+
+    let dep_per = (GI_OCT_DEPTH * GI_OCT_DEPTH) / GI_PROBE_RAYS;
+    for (var q = 0u; q < dep_per; q = q + 1u) {
+        let texel = ray * dep_per + q;
+        let td = oct_texel_dir(vec2<u32>(texel % GI_OCT_DEPTH, texel / GI_OCT_DEPTH), GI_OCT_DEPTH);
+        var d1 = 0.0;
+        var d2 = 0.0;
+        var dsum = 0.0;
+        for (var i = 0u; i < GI_PROBE_RAYS; i = i + 1u) {
+            let a = dot(td, pt_probe_dir[ray0 + i]);
+            if (a <= 0.0) {
+                continue;
+            }
+            // The sharp lobe, as gi.wesl uses: a texel must record how far its
+            // own direction got, not an average over the hemisphere.
+            let a2 = a * a;
+            let a4 = a2 * a2;
+            let w = a4 * a4 * a4 * a4;
+            if (w <= 1e-8) {
+                continue;
+            }
+            let t = pt_probe_t[ray0 + i];
+            d1 = d1 + t * w;
+            d2 = d2 + t * t * w;
+            dsum = dsum + w;
+        }
+        if (dsum > 1e-8) {
+            let mo = base + GI_PROBE_MOMENTS + texel * 2u;
+            ao_volume[mo] = mix(ao_volume[mo], d1 / dsum, rate);
+            ao_volume[mo + 1u] = mix(ao_volume[mo + 1u], d2 / dsum, rate);
+        }
+    }
 }

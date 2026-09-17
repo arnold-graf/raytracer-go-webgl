@@ -27,7 +27,7 @@ import (
 const (
 	fovScale = 0.5773502691896257 // tan(60deg / 2)
 	// WGSL Params size; must match trace_linked.wgsl (struct is padded to 16-byte alignment).
-	paramsSize   = 560
+	paramsSize   = 592
 	aaHitStride  = 4  // packed u32 fingerprint per pixel
 	hdrPixStride = 16 // vec4<f32> per pixel
 	// aa_dispatch: [workgroup_count_x, 1, 1, task_count].
@@ -73,22 +73,22 @@ type Renderer struct {
 	device   *wgpu.Device
 	queue    *wgpu.Queue
 
-	params             *wgpu.Buffer
-	prims              *wgpu.Buffer
-	blockers           *wgpu.Buffer
-	lights             *wgpu.Buffer
-	bvhNodes           *wgpu.Buffer
-	terrains           *wgpu.Buffer
-	samples            *wgpu.Buffer
-	terrFeat           *wgpu.Buffer
-	terrPads           *wgpu.Buffer
-	terrZones          *wgpu.Buffer
-	terrZVerts         *wgpu.Buffer
-	terrMips           *wgpu.Buffer
-	waters             *wgpu.Buffer
-	perm               *wgpu.Buffer
-	aoVolume           *wgpu.Buffer
-	giVolumeFloats     uint64
+	params         *wgpu.Buffer
+	prims          *wgpu.Buffer
+	blockers       *wgpu.Buffer
+	lights         *wgpu.Buffer
+	bvhNodes       *wgpu.Buffer
+	terrains       *wgpu.Buffer
+	samples        *wgpu.Buffer
+	terrFeat       *wgpu.Buffer
+	terrPads       *wgpu.Buffer
+	terrZones      *wgpu.Buffer
+	terrZVerts     *wgpu.Buffer
+	terrMips       *wgpu.Buffer
+	waters         *wgpu.Buffer
+	perm           *wgpu.Buffer
+	aoVolume       *wgpu.Buffer
+	giVolumeFloats uint64
 	// The probe field. Everything about it is inert when GI is off.
 	giVolume
 	campfires          *wgpu.Buffer
@@ -362,22 +362,40 @@ func (r *Renderer) init() error {
 	// A baked volume is sized by the scene it was baked for, so the buffer
 	// has to be too. Read the header before allocating; without a bake this
 	// is exactly the size it always was.
-	r.giVolumeFloats = uint64(gpuscene.GIVolumeTotalFloats)
+	// Only as large as what is actually in use. With GI off the probe regions
+	// are never read or written, and reserving 76 MB for them on every scene
+	// that will not touch them is a cost the feature has no business imposing.
+	r.giVolumeFloats = uint64(gpuscene.AOVolumeFloats)
+	if liveGIEnabled() {
+		r.giVolumeFloats = uint64(gpuscene.GIVolumeTotalFloats)
+	}
+	// One u32 per fine-cascade slot, for the cell each currently stands for.
+	if liveGIEnabled() {
+		r.giFineKeyBase = r.giVolumeFloats
+		r.giVolumeFloats += uint64(giFineMaxProbes)
+	}
 	if path := bakedGIPath(); path != "" {
 		vol, err := gibake.Read(path)
 		if err != nil {
 			return fmt.Errorf("load baked GI volume: %w", err)
 		}
 		need := (uint64(gpuscene.AOVolumeFloats) + uint64(len(vol.Probes)) +
+			uint64(giFineMaxProbes)*uint64(gpuscene.GIProbeFloats) +
 			uint64(len(vol.Index)) + uint64(len(vol.Cells))) * 4
 		if cap := uint64(r.adapter.GetLimits().Limits.MaxStorageBufferBindingSize); need > cap {
 			return fmt.Errorf("baked GI volume %s needs a %.0f MB storage buffer but this device caps one at %.0f MB; "+
 				"rebake with a larger -spacing or a smaller -radius", path, float64(need)/1e6, float64(cap)/1e6)
 		}
 		r.baked = vol
-		r.bakedIndexBase = uint64(gpuscene.AOVolumeFloats) + uint64(len(vol.Probes))
+		// The live fine cascade needs a region of its own after the bake's, so
+		// a near field can be traced on top of a baked far one without the two
+		// writing over each other.
+		r.bakedFineBase = uint64(gpuscene.AOVolumeFloats) + uint64(len(vol.Probes))
+		r.bakedIndexBase = r.bakedFineBase + uint64(giFineMaxProbes)*uint64(gpuscene.GIProbeFloats)
 		r.bakedCellBase = r.bakedIndexBase + uint64(len(vol.Index))
 		r.giVolumeFloats = r.bakedCellBase + uint64(len(vol.Cells))
+		r.giFineKeyBase = r.giVolumeFloats
+		r.giVolumeFloats += uint64(giFineMaxProbes)
 	}
 	r.aoVolume, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "ao volume",
@@ -703,6 +721,9 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 	if cam == nil {
 		return
 	}
+	// Refresh a slice of the near field before the frame that samples it.
+	// A no-op unless RAYTRACER_LIVE_GI_PT is set.
+	r.driveLiveGI(cam, v)
 	packStart := time.Now()
 	rp := r.buildRenderParams(v)
 	r.timing = FrameTiming{
@@ -1384,6 +1405,14 @@ type renderParams struct {
 	// Baked volume (mode 4): its grid, where its index grid and slot->cell
 	// list sit inside ao_volume, how many probes it has, and the blend rate
 	// the baker drives while it converges.
+	// giNearLive marks that something is filling the fine cascade on top of a
+	// loaded bake, so the read blends the two instead of taking the bake whole.
+	giNearLive uint32
+	// giFineBase is where the fine cascade's probes start in ao_volume. Its
+	// own region when a bake is loaded, GI_PROBE_BASE otherwise.
+	giFineBase uint32
+	// giFineKeyBase locates the fine cascade's per-slot cell keys.
+	giFineKeyBase uint32
 	bake          giGrid
 	bakeIndexBase uint32
 	bakeCellBase  uint32
@@ -1881,8 +1910,6 @@ func (r *Renderer) discardPending() {
 // portal captures keep exact synchronous, same-frame semantics.
 func (r *Renderer) SetPipelined(on bool) { r.pipelined = on }
 
-
-
 func max32(a, b uint32) uint32 {
 	if a > b {
 		return a
@@ -2172,6 +2199,10 @@ func (r *Renderer) Release() {
 	}
 	if r.campfires != nil {
 		r.campfires.Release()
+	}
+	if r.livePT != nil {
+		r.livePT.Release()
+		r.livePT = nil
 	}
 	if r.aoVolume != nil {
 		r.aoVolume.Release()

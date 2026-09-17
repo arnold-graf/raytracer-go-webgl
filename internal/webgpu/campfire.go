@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"raytracer/internal/gpuscene"
+	"raytracer/internal/scene"
 	"raytracer/internal/vec"
 )
 
@@ -71,17 +72,16 @@ func resolveCampfireSublight(cf CampfireParams, j int, t float64) (pos, color ve
 		intensity = 0.15 * bright
 	}
 
-	jx := jitter * (0.7*math.Sin(ts*9.0+ph*1.3) + 0.3*math.Sin(ts*17.0+ph*2.7))
-	jz := jitter * (0.7*math.Sin(ts*11.0+ph*1.9) + 0.3*math.Sin(ts*19.0+ph*0.7))
-	jy := jitter * (0.4 + 0.4*math.Sin(ts*15.0+ph))
+	off := vec.V{
+		X: jitter * (0.7*math.Sin(ts*9.0+ph*1.3) + 0.3*math.Sin(ts*17.0+ph*2.7)),
+		Y: jitter * (0.4 + 0.4*math.Sin(ts*15.0+ph)),
+		Z: jitter * (0.7*math.Sin(ts*11.0+ph*1.9) + 0.3*math.Sin(ts*19.0+ph*0.7)),
+	}
+	off = scene.ClampFlickerTravel(off, float64(cf.FlameEmber[3]))
 
 	b := campfireBase[j]
 	tint := campfireTint[j]
-	pos = vec.V{
-		X: core.X + b.X + jx,
-		Y: core.Y + b.Y + jy,
-		Z: core.Z + b.Z + jz,
-	}
+	pos = core.Add(b).Add(off)
 	color = vec.V{
 		X: baseColor.X * intensity * tint.X,
 		Y: baseColor.Y * intensity * tint.Y,

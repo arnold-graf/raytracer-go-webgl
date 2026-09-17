@@ -354,9 +354,10 @@ fn campfire_steady_scale(cf: CampfireParams, sl: CampfireSample) -> f32 {
 }
 
 // 0 means the scene declared no size, which shadow_aux_note resolves from
-// distance rather than substituting a fixed one.
-fn campfire_light_radius(cf: CampfireParams) -> f32 {
-    return cf.phase.w;
+// distance rather than substituting a fixed one. The size breathes with the
+// flicker, so it comes from the sub-light sample, not the static parameters.
+fn campfire_light_radius(sl: CampfireSample) -> f32 {
+    return sl.radius;
 }
 
 fn campfire_light_count(cf: CampfireParams) -> u32 {
@@ -376,6 +377,23 @@ fn shadow_aux_reset() {
     sh_ao_direct = 1.0;
 }
 
+// A declared radius is a world size and is used as given. An undeclared one
+// becomes an angle: the same assumed angular size at any range. Every consumer
+// of a light's size resolves it through here, so the width formula and the tests
+// in front of it can never disagree about how big a light is.
+fn resolved_light_radius(declared_r: f32, ldist: f32) -> f32 {
+    if (declared_r > 0.0) {
+        return declared_r;
+    }
+    return min(PENUMBRA_LIGHT_RADIUS * ldist / PENUMBRA_LIGHT_REF_DIST, PENUMBRA_LIGHT_MAX_RADIUS);
+}
+
+// World size of one pixel at this depth, so the penumbra width is expressed in
+// the units the screen-space filter will gather in.
+fn pixel_world_size(hp: vec3<f32>) -> f32 {
+    return 2.0 * params.fov_scale * length(hp - params.cam_pos.xyz) / f32(params.height);
+}
+
 // shadow_aux_note records the light one blocked source is withholding from this
 // point, and how wide its penumbra should be.
 //
@@ -392,13 +410,7 @@ fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, de
     if (t_block < 0.0) {
         return;
     }
-    // A declared radius is a world size and is used as given. An undeclared one
-    // becomes an angle: the same assumed angular size at any range.
-    var light_r = declared_r;
-    if (light_r <= 0.0) {
-        light_r = min(PENUMBRA_LIGHT_RADIUS * ldist / PENUMBRA_LIGHT_REF_DIST,
-                      PENUMBRA_LIGHT_MAX_RADIUS);
-    }
+    let light_r = resolved_light_radius(declared_r, ldist);
     sh_deficit = sh_deficit + total;
     // A blocker closer to the light than the light's own radius is *inside* the
     // source, and r*t/(ldist-t) diverges there. Clamping the gap to the source's
@@ -419,9 +431,7 @@ fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, de
     // ~0, and every log drew a pitch-black razor-edged shadow — the one case
     // where the answer should obviously have been "very soft indeed".
     let gap = max(ldist - t_block, light_r);
-    // World size of one pixel at this depth, so the filter works in the units it
-    // will gather in.
-    let px = 2.0 * params.fov_scale * length(hp - params.cam_pos.xyz) / f32(params.height);
+    let px = pixel_world_size(hp);
     let pen = (light_r * t_block / gap) / max(px, PENUMBRA_EPS);
     // Weighted by how much light this source represents, so the brightest shadow
     // sets the width without the result jumping when two lights trade places.
@@ -749,7 +759,7 @@ fn gi_probe_shade(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw
         let nlights = campfire_light_count(cf);
         for (var j = 0u; j < nlights; j = j + 1u) {
             let sl = campfire_sublight(cf, j, ts);
-            lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, 0.0, 0.0, true, campfire_light_radius(cf), campfire_steady_scale(cf, sl));
+            lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, 0.0, 0.0, true, campfire_light_radius(sl), campfire_steady_scale(cf, sl));
         }
     }
     return lit;
@@ -896,6 +906,9 @@ struct CampfireSample {
     // width arbitration uses it, to divide the flicker back out; see
     // shadow_aux_note.
     intensity: f32,
+    // The emitter size this instant, after the flicker's width pulse. 0 keeps
+    // the "scene declared no size" meaning; see campfire_light_radius.
+    radius: f32,
 };
 
 fn campfire_cull(cf: CampfireParams) -> vec2<f32> {
@@ -911,6 +924,29 @@ fn campfire_cull(cf: CampfireParams) -> vec2<f32> {
     }
     return vec2<f32>(0.0, 0.0);
 }
+
+// Shortens a flicker offset to at most max_dist world units, keeping its
+// direction so the wander only flattens at the bound instead of being scaled
+// down everywhere. max_dist <= 0 means uncapped. Mirrors ClampFlickerTravel()
+// in scene/campfire.go.
+fn clamp_flicker_travel(off: vec3<f32>, max_dist: f32) -> vec3<f32> {
+    if (max_dist <= 0.0) {
+        return off;
+    }
+    let d2 = dot(off, off);
+    if (d2 <= max_dist * max_dist) {
+        return off;
+    }
+    return off * (max_dist / sqrt(d2));
+}
+
+// How much of the flicker signal swells and shrinks the emitter. A fire that
+// flares is physically a bigger source, so its penumbras widen with it; as it
+// settles the source narrows and the shadow edges tighten again.
+const CAMPFIRE_RADIUS_PULSE: f32 = 0.5;
+// Floor on that multiplier, so a fire authored with flicker > 1 cannot invert
+// the emitter or collapse it to a point.
+const CAMPFIRE_RADIUS_PULSE_MIN: f32 = 0.3;
 
 fn campfire_sublight(cf: CampfireParams, j: u32, ts: f32) -> CampfireSample {
     var fs = cf.phase.z;
@@ -933,14 +969,18 @@ fn campfire_sublight(cf: CampfireParams, j: u32, ts: f32) -> CampfireSample {
     let ph = cf.phase.x + f32(j) * 1.7;
     let fl = 0.6 * sin(ts * 7.0 + ph) + 0.3 * sin(ts * 13.0 + ph * 2.1) + 0.1 * sin(ts * 23.0 + ph * 3.7);
     let intensity = cf.param.x * (1.0 + cf.param.z * fl);
-    let pos = cf.core.xyz + base + vec3<f32>(
+    let travel = clamp_flicker_travel(vec3<f32>(
         cf.param.y * (0.7 * sin(ts * 9.0 + ph * 1.3) + 0.3 * sin(ts * 17.0 + ph * 2.7)),
         cf.param.y * (0.4 + 0.4 * sin(ts * 15.0 + ph)),
         cf.param.y * (0.7 * sin(ts * 11.0 + ph * 1.9) + 0.3 * sin(ts * 19.0 + ph * 0.7)),
-    );
+    ), cf.flame_ember.w);
+    let pos = cf.core.xyz + base + travel;
     let used = max(intensity, 0.15 * cf.param.x);
     let col = cf.color.xyz * used * tint;
-    return CampfireSample(pos, col, used);
+    // Same fl as the intensity, so each sub-light swells on its own beat and in
+    // step with its own brightness. An undeclared radius (0) stays 0.
+    let pulse = max(1.0 + CAMPFIRE_RADIUS_PULSE * cf.param.z * fl, CAMPFIRE_RADIUS_PULSE_MIN);
+    return CampfireSample(pos, col, used, cf.phase.w * pulse);
 }
 
 // Direct diffuse lighting: ambient + point lights + campfires + baked AO.
@@ -1131,7 +1171,7 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
         let nlights = campfire_light_count(cf);
         for (var j = 0u; j < nlights; j = j + 1u) {
             let sl = campfire_sublight(cf, j, ts);
-            lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true, campfire_light_radius(cf), campfire_steady_scale(cf, sl));
+            lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true, campfire_light_radius(sl), campfire_steady_scale(cf, sl));
         }
     }
     if ((params.ao_enabled & AO_ENABLED) != 0u) {
@@ -1184,7 +1224,7 @@ fn shade_specular(hp: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd:
         let nlights = campfire_light_count(cf);
         for (var j = 0u; j < nlights; j = j + 1u) {
             let sl = campfire_sublight(cf, j, ts);
-            lit = add_point_light_raw(lit, hp, no_diffuse, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true, campfire_light_radius(cf), campfire_steady_scale(cf, sl));
+            lit = add_point_light_raw(lit, hp, no_diffuse, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true, campfire_light_radius(sl), campfire_steady_scale(cf, sl));
         }
     }
     return lit;

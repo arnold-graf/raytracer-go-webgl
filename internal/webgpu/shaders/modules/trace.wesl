@@ -14,7 +14,7 @@ import package::terrain_zone::{terrain_zone_shade_normal, terrain_zone_surface};
 import package::flame::{accumulate_flame, heat_shimmer_dir};
 import package::instance::{inst_local_point, inst_world_normal};
 import package::bvh::{nearest_hit};
-import package::gi::{GI_CLAMP, GI_DEPTH_HYSTERESIS, GI_DEPTH_MAX_CELLS, GI_PROBE_BOUNCES, GI_PROBE_FAR, GI_PROBE_HYSTERESIS, gi_bake_cascade, gi_bake_cell_of, gi_bake_on, gi_cas_local, gi_cas_pos, gi_cascade_coarse, gi_cascade_fine, gi_in_probe, gi_probe_hit_t, gi_probe_on, gi_probe_rand, oct_texel_dir};
+import package::gi::{GI_CLAMP, GI_DEPTH_HYSTERESIS, GI_DEPTH_MAX_CELLS, GI_PROBE_BOUNCES, GI_PROBE_FAR, GI_PROBE_HYSTERESIS, gi_bake_cascade, gi_bake_cell_of, gi_bake_on, gi_cas_local, gi_cas_pos, gi_cascade_coarse, gi_cascade_fine, gi_in_probe, gi_probe_dir_fixed, gi_probe_hit_t, gi_probe_on, gi_probe_rand, gi_probe_rot, oct_texel_dir};
 import package::shade::{cone_cap_normal_world, gi_probe_next, gi_probe_shade, jitter_dir, normal_at, shade_diffuse, shade_ghost, shade_specular, shadow_aux_snapshot, terrain_albedo, tw_peak};
 
 // RaySeg is one pending ray in the bounded work stack: a ray plus the
@@ -58,13 +58,14 @@ fn refr_chan_on() -> bool {
 
 // How a ray_color call should treat the primary glossy lobe.
 //
-// GLOSS_ALWAYS traces it, which is what the filter-off path and a lead pixel
-// want. GLOSS_IF_SHARP traces it only when the surface is too near-mirror to
-// survive being sampled at half rate — a non-lead pixel, in other words, whose
-// lobe will otherwise be filled from its block's lead. GLOSS_NEVER skips it
-// outright, which is what an adaptive-AA tap wants: the tap's own lobe is
-// discarded in favour of the centre's filtered one, so tracing it was pure
-// waste even before half-res existed.
+// GLOSS_ALWAYS traces it, which is what the filter-off path, a lead pixel and an
+// adaptive-AA tap want. GLOSS_IF_SHARP traces it only when the surface is too
+// near-mirror to survive being sampled at half rate — a non-lead pixel, in other
+// words, whose lobe will otherwise be filled from its block's lead. GLOSS_NEVER
+// skips it outright and is currently unused: a tap has to trace its lobe because
+// it cannot know until it has hit something whether it landed on the centre's
+// surface, and only a tap that did not gets to keep what it traced. See
+// supersample_edge.
 const GLOSS_ALWAYS: u32 = 0u;
 const GLOSS_IF_SHARP: u32 = 1u;
 const GLOSS_NEVER: u32 = 2u;
@@ -1093,6 +1094,30 @@ fn aa_tap_offset(i: u32, aimed: vec2<f32>) -> vec2<f32> {
     return vec2<f32>((f32(i) + 0.5) / f32(AA_TAPS), aa_radical_inverse(i));
 }
 
+// True when an AA tap's glossy lobe left from the same surface as the centre's,
+// so the filtered lobe refl_blur_v parked in the centre's record describes the
+// tap as well.
+//
+// This is lobe_compatible's test with the tap's sub-pixel offset taken into
+// account, which is to say without it: the tap shares the centre's pixel, so its
+// view ray is the centre's to well within REFL_DEPTH_REL and the depth
+// prediction collapses to the centre's own depth. The constants are the filter's
+// on purpose — if the filter would have let these two lobes mix, the tap may
+// take the result of mixing them.
+//
+// Both lobes are held out of colour only when the surface asked for a blur
+// (`blur.x > 0.0` at the hit), so on a mirror both sides of the branch add zero
+// and this changes nothing.
+fn aa_tap_same_lobe(aux: ShadowAux, res: TraceResult) -> bool {
+    if aux.lobe_depth <= 0.0 || res.lobe_d <= 0.0 {
+        return false;
+    }
+    if dot(aux.lobe_normal, res.lobe_n) < REFL_MIN_DOT {
+        return false;
+    }
+    return abs(res.lobe_d - aux.lobe_depth) <= aux.lobe_depth * REFL_DEPTH_REL;
+}
+
 fn supersample_edge(gx: f32, gy: f32, center: vec3<f32>, tap: vec2<f32>, idx: u32) -> vec3<f32> {
     let ro = params.cam_pos.xyz;
     let aux = shadow_aux[idx];
@@ -1101,17 +1126,35 @@ fn supersample_edge(gx: f32, gy: f32, center: vec3<f32>, tap: vec2<f32>, idx: u3
         let off = aa_tap_offset(i, tap);
         let res = ray_color(ro, pixel_ray_dir(gx, gy, off.x, off.y), GLOSS_ALWAYS);
         var e = aa_tap_correct(res, aux);
-        // The tap adds its *own* lobes, unfiltered.
+        // Whose lobes the tap adds depends on where the tap landed.
         //
-        // Handing it the centre's filtered lobes is cheaper — the tap need not
-        // trace them at all — and it is what the penumbra correction does with
-        // its target visibility. It is not safe here. AA fires precisely where
-        // the tap lands on different geometry, a glass pixel's transmitted lobe
-        // can be most of its radiance, and pushing the centre's through a tap
-        // that is looking at something else put 236 isolated pixels up to 190
-        // levels out on office-sunset's glass silhouettes. A shadow fraction
-        // transfers one sub-pixel over; a lobe's radiance does not.
-        e = e + res.refl + res.refr;
+        // Handing it the centre's filtered lobes unconditionally is cheaper —
+        // the tap need not trace them at all — and it is what the penumbra
+        // correction does with its target visibility. It is not safe in
+        // general. AA fires precisely where the tap lands on different
+        // geometry, a glass pixel's transmitted lobe can be most of its
+        // radiance, and pushing the centre's through a tap that is looking at
+        // something else put 236 isolated pixels up to 190 levels out on
+        // office-sunset's glass silhouettes.
+        //
+        // Always taking the tap's own lobes is not safe either, and a blurred
+        // surface is where that shows. The centre's lobe has been through
+        // refl_blur_h/v; the tap's is a single point sample of the same lobe,
+        // and on a curved surface a sub-pixel shift swings the reflected ray
+        // far enough to land somewhere much brighter. Blending that in at
+        // AA_TAP_WEIGHT draws the unfiltered reflection back over the filtered
+        // one at 30% — sharp streaks down the metal posts of the front office's
+        // bookshelf (reflect_blur 0.3), where AA fires all along the highlight.
+        //
+        // So the tap is asked the question the filter already asks of a
+        // neighbour: same reflecting surface or not. Same surface and the
+        // filtered lobe describes the tap too; different geometry and only the
+        // tap's own lobe does.
+        if aa_tap_same_lobe(aux, res) {
+            e = e + aux.refl_color + aux.refr_color;
+        } else {
+            e = e + res.refl + res.refr;
+        }
         sum = sum + e;
     }
     if AA_TAPS == 1u {
@@ -2025,56 +2068,6 @@ fn aa_resolve(@builtin(global_invocation_id) gid: vec3<u32>) {
     let idx = pixel_index(px.x, px.y);
     let col = supersample_edge(f32(px.x), f32(px.y), hdr_pixels[idx].xyz, aa_task_tap(task), idx);
     write_pixel(px, col);
-}
-
-
-// ---------------------------------------------------------------------------
-// Probe update (mode 3)
-// ---------------------------------------------------------------------------
-
-// Spherical Fibonacci: GI_PROBE_RAYS directions spread evenly over the sphere,
-// with no clustering at the poles that a latitude/longitude split would give.
-//
-// Rotated every frame. A fixed set would sample the same 32 directions
-// forever, so anything falling between them is invisible to the probe no
-// matter how long it runs; rotating turns the fixed set into a stratified
-// estimator whose error the hysteresis blend averages away.
-// A uniform random rotation for the frame, by Shoemake's method.
-//
-// The first version offset the Fibonacci spiral's azimuth by the frame seed,
-// which is a rotation about Z and nothing else. The six-face projection then
-// saw a set that swept steadily around one axis: the +-Z faces resampled
-// almost the same directions every frame while +-X and +-Y swung, so the error
-// was periodic instead of random and the hysteresis had nothing to average
-// away. On a wall that reads as soft ovals fading in and out on a cycle, which
-// is exactly what it looked like.
-fn gi_probe_rot(seed: u32) -> mat3x3<f32> {
-    let h1 = gi_probe_next(seed * 747796405u + 2891336453u);
-    let h2 = gi_probe_next(h1);
-    let h3 = gi_probe_next(h2);
-    let u1 = f32(h1) * 2.3283064e-10;
-    let u2 = f32(h2) * 2.3283064e-10;
-    let u3 = f32(h3) * 2.3283064e-10;
-    let s1 = sqrt(1.0 - u1);
-    let s2 = sqrt(u1);
-    let q = vec4<f32>(s1 * sin(6.28318531 * u2), s1 * cos(6.28318531 * u2),
-                      s2 * sin(6.28318531 * u3), s2 * cos(6.28318531 * u3));
-    let x = q.x; let y = q.y; let z = q.z; let w = q.w;
-    return mat3x3<f32>(
-        vec3<f32>(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + z * w), 2.0 * (x * z - y * w)),
-        vec3<f32>(2.0 * (x * y - z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + x * w)),
-        vec3<f32>(2.0 * (x * z + y * w), 2.0 * (y * z - x * w), 1.0 - 2.0 * (x * x + y * y)));
-}
-
-// The fixed spherical Fibonacci set, before rotation: GI_PROBE_RAYS directions
-// spread evenly over the sphere with no clustering at the poles.
-fn gi_probe_dir_fixed(i: u32) -> vec3<f32> {
-    let n = f32(GI_PROBE_RAYS);
-    let fi = f32(i) + 0.5;
-    let phi = fi * 2.39996323;
-    let z = 1.0 - 2.0 * fi / n;
-    let r = sqrt(max(1.0 - z * z, 0.0));
-    return vec3<f32>(r * cos(phi), r * sin(phi), z);
 }
 
 // Trace one probe ray.

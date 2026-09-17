@@ -7,6 +7,8 @@
 #   range       cull / falloff distance             (default 50.0)
 #   flicker     intensity wobble in [0, 1]          (default 0.45)
 #   speed       flicker speed multiplier            (default 1.0)
+#   max_flicker_distance
+#               how far a light may travel, 0 pins (default 0)
 #   flame       procedural volumetric flame             (default false)
 #   flame_ember flame HDR color at birth [r,g,b]      (default warm red)
 #   flame_mid   flame HDR color mid-life              (default orange)
@@ -18,15 +20,22 @@
 #   at = [8.0, 0.0, 58.0]
 #   follow_terrain = true
 #   props = { brightness = 1.0, range = 25.0, flicker = 0.45, speed = 1.0 }
+#
+# max_flicker_distance caps the wander of the sub-lights, in world units. The
+# default 0 pins them, so the cast shadows hold still and only their brightness
+# and edge softness breathe. Raise it to let the lights roam: 0.65 is as far as
+# the jitter below reaches on its own, so anything past that is no cap at all.
 
 [props]
 brightness = 10.0
 range = 50.0
 flicker = 0.45
 speed = 1.0
+max_flicker_distance = 0.2
 albedo = [0.34, 0.22, 0.14]
 specular = 0
 shininess = 0
+lights = 1
 flame_ember = [2.2, 0.32, 0.04]
 flame_mid = [2.0, 0.85, 0.08]
 flame_tip = [1.6, 1.2, 0.14]
@@ -43,9 +52,10 @@ color = [3.6, 1.7, 0.55]
 brightness = 'brightness'
 range = 'range'
 jitter = 0.4
+max_flicker_distance = 'max_flicker_distance'
 flicker = 'flicker'
 speed = 'speed'
-lights = 2
+lights = 'lights'
 radius = 1
 flame = true
 flame_ember = 'flame_ember'

@@ -115,6 +115,12 @@ struct Params {
     // x: index grid base, y: slot->cell list base, z: active probe count,
     // w: blend rate for the bake's running average, bitcast from f32.
     gi_bake: vec4<u32>,
+    // x: base of the fine cascade's cell-key table, one u32 per slot. The
+    // cascade is toroidal, so a slot stands for a different world cell once
+    // the viewer has walked far enough; the key is how a pass notices, and
+    // noticing is what stops a scrolled-in probe blending up from whatever the
+    // last cell left behind.
+    gi_probe3: vec4<u32>,
 };
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).
@@ -149,7 +155,7 @@ struct CampfireParams {
     color: vec4<f32>, // base color (r, g, b, sub-light count; 0 = default 3)
     param: vec4<f32>, // brightness, jitter, flicker, speed
     phase: vec4<f32>, // seed, flame_enabled (1/0), flame_scale, emitter radius (0 = default)
-    flame_ember: vec4<f32>,
+    flame_ember: vec4<f32>, // rgb, max flicker travel distance (0 = uncapped)
     flame_mid: vec4<f32>,
     flame_tip: vec4<f32>,
     flame_ash: vec4<f32>,
@@ -655,8 +661,9 @@ const GI_PROBES_PER_WG: u32 = 1u;
 
 // Storage reserved for the fine cascade, which the coarse one starts after.
 // Fixed rather than derived so the coarse base does not move when the fine
-// grid is resized.
-const GI_C0_MAX: u32 = 2048u;
+// grid is resized — and it is resizable at runtime, by
+// RAYTRACER_LIVE_GI_PT_DIM, so this is a ceiling rather than a size.
+const GI_C0_MAX: u32 = 16384u;
 
 // Marks a cell of the baked volume's index grid that holds no probe.
 const GI_PROBE_EMPTY: u32 = 0xffffffffu;

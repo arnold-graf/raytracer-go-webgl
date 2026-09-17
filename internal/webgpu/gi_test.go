@@ -46,8 +46,12 @@ func TestGIProbeStorage(t *testing.T) {
 	octIrr := lit("GI_OCT_IRR")
 	octDepth := lit("GI_OCT_DEPTH")
 
-	if giFineProbes > c0Max {
-		t.Errorf("fine cascade is %d probes, GI_C0_MAX reserves %d", giFineProbes, c0Max)
+	if giFineMaxProbes != c0Max {
+		t.Errorf("giFineMaxProbes is %d, GI_C0_MAX is %d; the coarse cascade starts at the shader's value", giFineMaxProbes, c0Max)
+	}
+	// The default has to fit, and so does anything the env var will accept.
+	if n := giFine().probes(); n > giFineMaxProbes {
+		t.Errorf("default fine cascade is %d probes, %d reserved", n, giFineMaxProbes)
 	}
 	// An octahedral irradiance map of RGB, then an octahedral depth map of
 	// (mean, mean squared).
@@ -96,5 +100,39 @@ func TestGIProbeStorage(t *testing.T) {
 	end := probeBase + (c0Max+giMaxProbes)*probeFloats
 	if end > gpuscene.GIVolumeTotalFloats {
 		t.Errorf("the cascades end at %d, past ao_volume's %d floats", end, gpuscene.GIVolumeTotalFloats)
+	}
+}
+
+// TestFineDimParsing pins the launch parameter's shapes.
+//
+// It is the only knob a user types by hand, and a silently misread one would
+// change how much of the world gets live indirect light without saying so.
+func TestFineDimParsing(t *testing.T) {
+	cases := []struct {
+		in   string
+		want [3]uint32
+		ok   bool
+	}{
+		{"24", [3]uint32{24, 12, 24}, true},
+		{"32x16x32", [3]uint32{32, 16, 32}, true},
+		{"8X4X8", [3]uint32{8, 4, 8}, true},
+		{" 12 x 6 x 12 ", [3]uint32{12, 6, 12}, true},
+		{"4", [3]uint32{4, 2, 4}, true},
+		{"2", [3]uint32{2, 2, 2}, true},
+		{"1", [3]uint32{}, false},
+		{"", [3]uint32{}, false},
+		{"16x16", [3]uint32{}, false},
+		{"lots", [3]uint32{}, false},
+		{"16x0x16", [3]uint32{}, false},
+	}
+	for _, c := range cases {
+		got, ok := parseFineDim(c.in)
+		if ok != c.ok {
+			t.Errorf("parseFineDim(%q) ok = %v, want %v", c.in, ok, c.ok)
+			continue
+		}
+		if ok && got != c.want {
+			t.Errorf("parseFineDim(%q) = %v, want %v", c.in, got, c.want)
+		}
 	}
 }

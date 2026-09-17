@@ -11,8 +11,9 @@
 // Off unless RAYTRACER_LIVE_GI or RAYTRACER_GI_BAKE is set. See
 // docs/live-gi.md for what it measures and what it still gets wrong.
 
-import package::types::{GI_C0_MAX, GI_OCT_DEPTH, GI_OCT_IRR, GI_PROBE_BASE, GI_PROBE_EMPTY, GI_PROBE_FLOATS, GI_PROBE_MOMENTS, ao_volume, params};
+import package::types::{GI_C0_MAX, GI_OCT_DEPTH, GI_OCT_IRR, GI_PROBE_BASE, GI_PROBE_EMPTY, GI_PROBE_FLOATS, GI_PROBE_MOMENTS, GI_PROBE_RAYS, ao_volume, params};
 import package::math::{smoothstepf};
+import package::shade::{gi_probe_next};
 
 const GI_CLAMP: f32 = 8.0;
 
@@ -251,7 +252,12 @@ struct GICascade {
 }
 
 fn gi_cascade_fine() -> GICascade {
-    return GICascade(params.gi_min.xyz, params.gi_min.w, params.gi_dim.xyz, GI_PROBE_BASE, true, false);
+    // Its storage base is not fixed: with a bake loaded the fine cascade lives
+    // after the baked probes, because both would otherwise start at
+    // GI_PROBE_BASE and the live cascade would write straight over the bake it
+    // is supposed to be refining.
+    return GICascade(params.gi_min.xyz, params.gi_min.w, params.gi_dim.xyz,
+        params.gi_probe2.w, true, false);
 }
 
 fn gi_cascade_coarse() -> GICascade {
@@ -489,8 +495,25 @@ fn gi_probe_irradiance(p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     // they fall back to the normal.
     let v = select(normalize(params.cam_pos.xyz - p), n, gi_in_probe);
     if (gi_bake_on()) {
-        // One volume, no cascades, no coverage ramp: it spans the scene.
-        return gi_cascade_sample(gi_bake_cascade(), p, n, v).xyz;
+        let baked = gi_cascade_sample(gi_bake_cascade(), p, n, v).xyz;
+        if (params.gi_probe2.z == 0u) {
+            // One volume, no cascades, no coverage ramp: it spans the scene.
+            return baked;
+        }
+        // A live near field over the baked far one.
+        //
+        // This is the composition the cascades were reaching for and could not
+        // reach: the fine cascade resolves the room the viewer is in and
+        // follows the light, and what it hands over to is not a coarse live
+        // grid — ten metres between probes cannot resolve a room, and filling
+        // one indoors leaks more than it adds — but a volume solved offline at
+        // the same spacing everywhere.
+        let fc = gi_cascade_fine();
+        let cov = gi_fine_coverage(fc, p);
+        if (cov <= 0.0) {
+            return baked;
+        }
+        return mix(baked, gi_cascade_sample(fc, p, n, v).xyz, cov);
     }
     let coarse = gi_cascade_sample(gi_cascade_coarse(), p, n, v);
     let fc = gi_cascade_fine();
@@ -511,4 +534,92 @@ fn gi_probe_irradiance(p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     // With coverage alone, a fully rejected point returns zero from the fine
     // cascade and that zero is what it gets.
     return mix(coarse.xyz, fine.xyz, cov);
+}
+
+
+
+// ---------------------------------------------------------------------------
+// Probe update (mode 3)
+// ---------------------------------------------------------------------------
+
+// Spherical Fibonacci: GI_PROBE_RAYS directions spread evenly over the sphere,
+// with no clustering at the poles that a latitude/longitude split would give.
+//
+// Rotated every frame. A fixed set would sample the same 32 directions
+// forever, so anything falling between them is invisible to the probe no
+// matter how long it runs; rotating turns the fixed set into a stratified
+// estimator whose error the hysteresis blend averages away.
+// A uniform random rotation for the frame, by Shoemake's method.
+//
+// The first version offset the Fibonacci spiral's azimuth by the frame seed,
+// which is a rotation about Z and nothing else. The six-face projection then
+// saw a set that swept steadily around one axis: the +-Z faces resampled
+// almost the same directions every frame while +-X and +-Y swung, so the error
+// was periodic instead of random and the hysteresis had nothing to average
+// away. On a wall that reads as soft ovals fading in and out on a cycle, which
+// is exactly what it looked like.
+// The key a fine-cascade slot currently holds, and the key a cell should have.
+//
+// Packed the same way the baked volume packs cells, and 0xffffffff means "no
+// probe has been traced into this slot yet".
+fn gi_fine_key_of(cell: vec3<u32>) -> u32 {
+    return (cell.x & 0x3ffu) | ((cell.y & 0x3ffu) << 10u) | ((cell.z & 0x3ffu) << 20u);
+}
+
+fn gi_fine_key_load(slot: u32) -> u32 {
+    return bitcast<u32>(ao_volume[params.gi_probe3.x + slot]);
+}
+
+fn gi_fine_key_store(slot: u32, key: u32) {
+    ao_volume[params.gi_probe3.x + slot] = bitcast<f32>(key);
+}
+
+// How much of this update a probe should take.
+//
+// Normally the blend rate. But a slot whose world cell has changed is holding
+// the last cell's light, and blending up from that is the pop you see walking:
+// measured, a 40 m round trip left the frame 77% too bright at a blend of
+// 0.05, and worse at lower rates because the wrong value decays more slowly.
+// Such a slot takes the new estimate whole.
+//
+// The signal is the cell, not the sample. An earlier attempt keyed this on how
+// much the value had moved, which cannot work: at 32 rays the sampling noise
+// is larger than most real changes, so it fired constantly and the field
+// shimmered four times worse.
+fn gi_fine_rate(slot: u32, cell: vec3<u32>, rate: f32) -> f32 {
+    let key = gi_fine_key_of(cell);
+    if (gi_fine_key_load(slot) == key) {
+        return rate;
+    }
+    gi_fine_key_store(slot, key);
+    return 1.0;
+}
+
+fn gi_probe_rot(seed: u32) -> mat3x3<f32> {
+    let h1 = gi_probe_next(seed * 747796405u + 2891336453u);
+    let h2 = gi_probe_next(h1);
+    let h3 = gi_probe_next(h2);
+    let u1 = f32(h1) * 2.3283064e-10;
+    let u2 = f32(h2) * 2.3283064e-10;
+    let u3 = f32(h3) * 2.3283064e-10;
+    let s1 = sqrt(1.0 - u1);
+    let s2 = sqrt(u1);
+    let q = vec4<f32>(s1 * sin(6.28318531 * u2), s1 * cos(6.28318531 * u2),
+                      s2 * sin(6.28318531 * u3), s2 * cos(6.28318531 * u3));
+    let x = q.x; let y = q.y; let z = q.z; let w = q.w;
+    return mat3x3<f32>(
+        vec3<f32>(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + z * w), 2.0 * (x * z - y * w)),
+        vec3<f32>(2.0 * (x * y - z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + x * w)),
+        vec3<f32>(2.0 * (x * z + y * w), 2.0 * (y * z - x * w), 1.0 - 2.0 * (x * x + y * y)));
+}
+
+// The fixed spherical Fibonacci set, before rotation: GI_PROBE_RAYS directions
+// spread evenly over the sphere with no clustering at the poles.
+fn gi_probe_dir_fixed(i: u32) -> vec3<f32> {
+    let n = f32(GI_PROBE_RAYS);
+    let fi = f32(i) + 0.5;
+    let phi = fi * 2.39996323;
+    let z = 1.0 - 2.0 * fi / n;
+    let r = sqrt(max(1.0 - z * z, 0.0));
+    return vec3<f32>(r * cos(phi), r * sin(phi), z);
 }

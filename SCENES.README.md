@@ -297,6 +297,7 @@ brightness = 0.25         # default 1
 range = 20.0
 flicker = 0.75            # flicker depth (default 0.45)
 jitter = 0.16             # positional jitter of sub-lights / "dancing shadows" (default 0.16)
+max_flicker_distance = 0.2  # cap on how far a sub-light may wander from rest (0 = pinned; omit for uncapped)
 speed = 1.0               # flicker speed (default 1)
 seed = 0.0                # optional, for deterministic variation
 lights = 3                # sub-light count (default 3)

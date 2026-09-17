@@ -1447,6 +1447,10 @@
           "$ref": "#/definitions/number_or_expr",
           "description": "Positional jitter amplitude. Defaults to 0.16."
         },
+        "max_flicker_distance": {
+          "$ref": "#/definitions/number_or_expr",
+          "description": "Hard cap, in world units, on how far a sub-light may travel from its rest position while it flickers. Jitter shapes the wobble; this bounds it. 0 pins the sub-lights so the shadows hold still; omit for uncapped."
+        },
         "flicker": {
           "$ref": "#/definitions/number_or_expr",
           "description": "Brightness flicker amount. Defaults to 0.45."
