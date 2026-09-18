@@ -328,10 +328,11 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
     var got_primary = false;
     var max_sp = 1u;
     var sh_out = ShadowAux(vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 1.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
+        vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), 0.0);
-    // sh_out.soft_applied stays 0 here; only shadow_soften_v sets it.
+    // sh_out.soft_applied / soft_applied_m stay 0 here; only shadow_soften_v sets them.
 
     loop {
         // Sampled before the pop, so this is the stack's high-water mark.
@@ -652,6 +653,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
                 // the rest is the reflected lobe. The record has to match, or
                 // the filter adds back light this pixel never had.
                 sh_out.full = sh_out.full * (1.0 - refl);
+                sh_out.full_m = sh_out.full_m * (1.0 - refl);
             }
             // The filter wants a *mirror* ray: the blur is applied afterwards,
             // from the roughness and the reflected distance, so perturbing the
@@ -1165,7 +1167,7 @@ fn supersample_edge(gx: f32, gy: f32, center: vec3<f32>, tap: vec2<f32>, idx: u3
 
 fn aa_tap_correct(res: TraceResult, aux: ShadowAux) -> vec3<f32> {
     var extra = res.color;
-    if params.soft_shadows != 0u && aux.soft_applied > 0.0 {
+    if params.soft_shadows != 0u {
         // Scaled by the *lesser* of the two unoccluded lights, not the tap's own.
         //
         // The target fraction is a statement about the centre's neighbourhood, so
@@ -1181,8 +1183,14 @@ fn aa_tap_correct(res: TraceResult, aux: ShadowAux) -> vec3<f32> {
         // the 41 the previous correction produced, while keeping most of the
         // stair-shadow improvement this correction exists for (deviation from the
         // no-AA reference 0.57 -> 0.78, against 0.93 before).
-        let lit_bound = min(res.sh.full, aux.full);
-        extra = max(extra + (res.sh.frac - aux.frac) * lit_bound, vec3<f32>(0.0, 0.0, 0.0));
+        if aux.soft_applied > 0.0 {
+            let lit_bound = min(res.sh.full, aux.full);
+            extra = max(extra + (res.sh.frac - aux.frac) * lit_bound, vec3<f32>(0.0, 0.0, 0.0));
+        }
+        if aux.soft_applied_m > 0.0 {
+            let lit_bound_m = min(res.sh.full_m, aux.full_m);
+            extra = max(extra + (res.sh.frac_m - aux.frac_m) * lit_bound_m, vec3<f32>(0.0, 0.0, 0.0));
+        }
     }
     return extra;
 }
@@ -1748,10 +1756,11 @@ fn shadow_ndv0(me: ShadowAux, gid: vec2<u32>) -> f32 {
 // fixes a smaller inconsistency in the old two-pass form, where the row gather
 // used a row-only radius while the column gather used the full 2D one.
 //
-// Field reuse keeps ShadowAux at 64 bytes: pen_px is dead once radius_h has read
-// it, so radius_v parks the 2D maximum there; r_h is dead once radius_v has read
-// it, so soften_h parks the smoothed radius there for soften_v. Each pass only
-// ever writes a field no *other* invocation of that same pass reads.
+// Field reuse is per channel: pen_px / pen_m are dead once radius_h has read
+// them, so radius_v parks the 2D maxima there; r_h / r_h_m are dead once
+// radius_v has read them, so soften_h parks the smoothed radii there for
+// soften_v. Each pass only ever writes a field no *other* invocation of that
+// same pass reads.
 
 // radius_h: row maximum of the penumbra width, over the neighbours that can
 // actually reach this pixel.
@@ -1786,26 +1795,44 @@ fn shadow_radius_h(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // A pixel with nothing blocked has an exactly zero fraction — no epsilon,
     // and nothing that depends on how bright the scene happens to be.
-    let lit = tw_peak(me.frac) <= 0.0;
+    // Both channels share one tap grid (offsets scale with MAX_PX, not with
+    // either width), so one neighbour load serves both. A channel that is
+    // already shadowed keeps its own width and skips the max; one whose
+    // geometric width is sub-pixel still writes that width and does not
+    // start a second loop.
+    // Dilation is only for pixels that still have unoccluded light in that
+    // channel to lose. A channel with full = 0 cannot apply a correction, and
+    // searching for a neighbour's width would only spend bandwidth.
+    let lit = tw_peak(me.frac) <= 0.0 && tw_peak(me.full) > 0.0;
+    let lit_m = tw_peak(me.frac_m) <= 0.0 && tw_peak(me.full_m) > 0.0;
     var r = shadow_radius(me.pen_px);
-    for (var i = 0u; i < SHADOW_RADIUS_TAPS && lit; i = i + 1u) {
+    var r_m = shadow_radius(me.pen_m);
+    for (var i = 0u; i < SHADOW_RADIUS_TAPS && (lit || lit_m); i = i + 1u) {
         let o = (f32(i) / f32(SHADOW_RADIUS_TAPS - 1u) * 2.0 - 1.0) * SHADOW_SOFTEN_MAX_PX;
         let tx = shadow_clamp_x(ix + i32(round(o)));
         let t = shadow_tap(tx, iy);
-        if shadow_same_surface(me, t, tx, iy, ndv0) {
-            // Compressed *before* the reach test. pen_px is stored raw and can
-            // run to hundreds of pixels when an occluder sits near the light, so
-            // an untamed value reaches everywhere and wins the maximum over the
-            // whole row. Compressing first lets distance actually decide.
+        if !shadow_same_surface(me, t, tx, iy, ndv0) {
+            continue;
+        }
+        // Compressed *before* the reach test. pen_px is stored raw and can
+        // run to hundreds of pixels when an occluder sits near the light, so
+        // an untamed value reaches everywhere and wins the maximum over the
+        // whole row. Compressing first lets distance actually decide.
+        if lit {
             let tp = shadow_radius(t.pen_px);
             r = max(r, tp * shadow_dilate_weight(abs(o), tp));
         }
+        if lit_m {
+            let tp_m = shadow_radius(t.pen_m);
+            r_m = max(r_m, tp_m * shadow_dilate_weight(abs(o), tp_m));
+        }
     }
     shadow_aux[idx].r_h = min(r, SHADOW_SOFTEN_MAX_PX);
+    shadow_aux[idx].r_h_m = min(r_m, SHADOW_SOFTEN_MAX_PX);
 }
 
 // radius_v completes the separable maximum down each column and parks the result
-// in pen_px, which nothing reads from here on.
+// in pen_px / pen_m, which nothing reads from here on.
 @compute @workgroup_size(8, 8, 1)
 fn shadow_radius_v(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.width || gid.y >= params.height {
@@ -1817,24 +1844,41 @@ fn shadow_radius_v(@builtin(global_invocation_id) gid: vec3<u32>) {
     let iy = i32(gid.y);
     let ndv0 = shadow_ndv0(me, gid.xy);
 
-    let lit = tw_peak(me.frac) <= 0.0;
+    // Dilation is only for pixels that still have unoccluded light in that
+    // channel to lose. A channel with full = 0 cannot apply a correction, and
+    // searching for a neighbour's width would only spend bandwidth.
+    let lit = tw_peak(me.frac) <= 0.0 && tw_peak(me.full) > 0.0;
+    let lit_m = tw_peak(me.frac_m) <= 0.0 && tw_peak(me.full_m) > 0.0;
     var r = me.r_h;
-    for (var i = 0u; i < SHADOW_RADIUS_TAPS && lit; i = i + 1u) {
+    var r_m = me.r_h_m;
+    for (var i = 0u; i < SHADOW_RADIUS_TAPS && (lit || lit_m); i = i + 1u) {
         let o = (f32(i) / f32(SHADOW_RADIUS_TAPS - 1u) * 2.0 - 1.0) * SHADOW_SOFTEN_MAX_PX;
         let ty = shadow_clamp_y(iy + i32(round(o)));
         let t = shadow_tap(ix, ty);
-        if shadow_same_surface(me, t, ix, ty, ndv0) {
+        if !shadow_same_surface(me, t, ix, ty, ndv0) {
+            continue;
+        }
+        if lit {
             let tp = t.r_h;
             r = max(r, tp * shadow_dilate_weight(abs(o), tp));
         }
+        if lit_m {
+            let tp_m = t.r_h_m;
+            r_m = max(r_m, tp_m * shadow_dilate_weight(abs(o), tp_m));
+        }
     }
     shadow_aux[idx].pen_px = min(r, SHADOW_SOFTEN_MAX_PX);
+    shadow_aux[idx].pen_m = min(r_m, SHADOW_SOFTEN_MAX_PX);
 }
 
 // shadow_radius_blur averages the dilated radius over a small reach. Same-surface
 // only, so the field does not bleed across a silhouette and reintroduce the leak
 // the plane test exists to prevent.
-fn shadow_radius_blur(me: ShadowAux, ix: i32, iy: i32, ndv0: f32, own: f32, vertical: bool) -> f32 {
+//
+// Reach is proportional to this channel's own width, so the two channels cannot
+// share tap positions the way radius_h/v can. Nine taps; cheap next to the
+// 61-tap fraction gather.
+fn shadow_radius_blur(me: ShadowAux, ix: i32, iy: i32, ndv0: f32, own: f32, vertical: bool, muted: bool) -> f32 {
     let reach = clamp(own * SHADOW_RADIUS_SMOOTH_FRAC, 1.0, SHADOW_RADIUS_SMOOTH_MAX_PX);
     var acc = own;
     var wsum = 1.0;
@@ -1854,8 +1898,14 @@ fn shadow_radius_blur(me: ShadowAux, ix: i32, iy: i32, ndv0: f32, own: f32, vert
         let u = abs(o) / reach;
         let w = 1.0 - u * u;
         var tv = t.pen_px;
+        if muted {
+            tv = t.pen_m;
+        }
         if vertical {
             tv = t.r_h;
+            if muted {
+                tv = t.r_h_m;
+            }
         }
         acc = acc + tv * w;
         wsum = wsum + w;
@@ -1875,18 +1925,34 @@ fn shadow_soften_h(@builtin(global_invocation_id) gid: vec3<u32>) {
     let ndv0 = shadow_ndv0(me, gid.xy);
 
     // Smooth the dilated radius across the row, and park it in r_h for soften_v.
-    let r = shadow_radius_blur(me, ix, iy, ndv0, me.pen_px, false);
+    // Each channel keeps its own kernel: tap offsets scale with that channel's
+    // radius, so sharing a gather would undersample the narrower shadow.
+    // A sub-pixel channel copies frac through and does not start the 61-tap loop.
+    let r = shadow_radius_blur(me, ix, iy, ndv0, me.pen_px, false, false);
+    let r_m = shadow_radius_blur(me, ix, iy, ndv0, me.pen_m, false, true);
     shadow_aux[idx].r_h = r;
+    shadow_aux[idx].r_h_m = r_m;
     if r < 1.0 {
         shadow_aux[idx].frac_h = me.frac;
-        return;
+    } else {
+        shadow_aux[idx].frac_h = shadow_soften_gather_h(me, ix, iy, ndv0, r, false);
     }
+    if r_m < 1.0 {
+        shadow_aux[idx].frac_h_m = me.frac_m;
+    } else {
+        shadow_aux[idx].frac_h_m = shadow_soften_gather_h(me, ix, iy, ndv0, r_m, true);
+    }
+}
 
+fn shadow_soften_gather_h(me: ShadowAux, ix: i32, iy: i32, ndv0: f32, r: f32, muted: bool) -> vec3<f32> {
     // Every same-surface neighbour counts, lit ones included. Giving each tap a
     // reach of its own silently drops lit taps (their width is zero), and a lit
     // pixel then averages nothing but shadow, whose 1/(1+k) steps draw bands
     // parallel to every shadow.
     var acc = me.frac;
+    if muted {
+        acc = me.frac_m;
+    }
     var wsum = 1.0;
     for (var i = 0u; i < SHADOW_SOFTEN_TAPS; i = i + 1u) {
         let o = (f32(i) / f32(SHADOW_SOFTEN_TAPS - 1u) * 2.0 - 1.0) * r;
@@ -1897,10 +1963,14 @@ fn shadow_soften_h(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
         let u = abs(o) / r;
         let w = 1.0 - u * u;
-        acc = acc + t.frac * w;
+        var tf = t.frac;
+        if muted {
+            tf = t.frac_m;
+        }
+        acc = acc + tf * w;
         wsum = wsum + w;
     }
-    shadow_aux[idx].frac_h = acc / max(wsum, PENUMBRA_FILTER_EPS);
+    return acc / max(wsum, PENUMBRA_FILTER_EPS);
 }
 
 @compute @workgroup_size(8, 8, 1)
@@ -1913,6 +1983,7 @@ fn shadow_soften_v(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Cleared on every path that leaves the pixel alone, so supersample_edge
     // never applies a correction to a pixel this pass did not touch.
     shadow_aux[idx].soft_applied = 0.0;
+    shadow_aux[idx].soft_applied_m = 0.0;
     // depth is zero only where the primary ray found no diffuse surface — sky,
     // or a mirror seen head-on. There is no shadow there to widen.
     if me.depth <= 0.0 {
@@ -1921,13 +1992,33 @@ fn shadow_soften_v(@builtin(global_invocation_id) gid: vec3<u32>) {
     let ix = i32(gid.x);
     let iy = i32(gid.y);
     let ndv0 = shadow_ndv0(me, gid.xy);
-
-    let r = shadow_radius_blur(me, ix, iy, ndv0, me.r_h, true);
-    if r < SHADOW_SOFTEN_FADE_LO {
+    let r = shadow_radius_blur(me, ix, iy, ndv0, me.r_h, true, false);
+    let r_m = shadow_radius_blur(me, ix, iy, ndv0, me.r_h_m, true, true);
+    var delta = vec3<f32>(0.0, 0.0, 0.0);
+    if r >= SHADOW_SOFTEN_FADE_LO {
+        delta = delta + shadow_soften_apply_v(idx, me, ix, iy, ndv0, r, false);
+    }
+    if r_m >= SHADOW_SOFTEN_FADE_LO {
+        delta = delta + shadow_soften_apply_v(idx, me, ix, iy, ndv0, r_m, true);
+    }
+    if shadow_aux[idx].soft_applied <= 0.0 && shadow_aux[idx].soft_applied_m <= 0.0 {
         return;
     }
+    let col = max(hdr_pixels[idx].xyz + delta, vec3<f32>(0.0, 0.0, 0.0));
+    hdr_pixels[idx] = vec4<f32>(col, display_luma(col));
+    write_pixel(vec2<u32>(gid.xy), col);
+}
 
-    var acc = me.frac_h;
+fn shadow_soften_apply_v(idx: u32, me: ShadowAux, ix: i32, iy: i32, ndv0: f32, r: f32, muted: bool) -> vec3<f32> {
+    var own_frac = me.frac;
+    var own_frac_h = me.frac_h;
+    var own_full = me.full;
+    if muted {
+        own_frac = me.frac_m;
+        own_frac_h = me.frac_h_m;
+        own_full = me.full_m;
+    }
+    var acc = own_frac_h;
     var wsum = 1.0;
     for (var i = 0u; i < SHADOW_SOFTEN_TAPS; i = i + 1u) {
         let o = (f32(i) / f32(SHADOW_SOFTEN_TAPS - 1u) * 2.0 - 1.0) * r;
@@ -1938,7 +2029,11 @@ fn shadow_soften_v(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
         let u = abs(o) / r;
         let w = 1.0 - u * u;
-        acc = acc + t.frac_h * w;
+        var tf = t.frac_h;
+        if muted {
+            tf = t.frac_h_m;
+        }
+        acc = acc + tf * w;
         wsum = wsum + w;
     }
     let frac_soft = acc / max(wsum, PENUMBRA_FILTER_EPS);
@@ -1964,14 +2059,16 @@ fn shadow_soften_v(@builtin(global_invocation_id) gid: vec3<u32>) {
     // albedo underneath it.
     //
     // Expressed as a target fraction so supersample_edge can reproduce it for a
-    // different sub-pixel. Identical to (me.frac - frac_soft) * me.full * fade.
-    let frac_target = mix(me.frac, frac_soft, fade);
-    let delta = (me.frac - frac_target) * me.full;
-    let col = max(hdr_pixels[idx].xyz + delta, vec3<f32>(0.0, 0.0, 0.0));
-    shadow_aux[idx].frac = frac_target;
-    shadow_aux[idx].soft_applied = 1.0;
-    hdr_pixels[idx] = vec4<f32>(col, display_luma(col));
-    write_pixel(vec2<u32>(gid.xy), col);
+    // different sub-pixel. Identical to (own_frac - frac_soft) * own_full * fade.
+    let frac_target = mix(own_frac, frac_soft, fade);
+    if muted {
+        shadow_aux[idx].frac_m = frac_target;
+        shadow_aux[idx].soft_applied_m = 1.0;
+    } else {
+        shadow_aux[idx].frac = frac_target;
+        shadow_aux[idx].soft_applied = 1.0;
+    }
+    return (own_frac - frac_target) * own_full;
 }
 
 // aa_pack_task encodes a supersample task: pixel coordinate plus which of the

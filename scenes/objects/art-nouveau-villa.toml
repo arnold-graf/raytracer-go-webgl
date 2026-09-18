@@ -741,21 +741,22 @@ specular = 0.4
 file = 'campfire.toml'
 at = [-6.1, 1.5, 2.35]
 [include.props]
-brightness = 0.4
+brightness = 0.6
 speed = 0.5
 range = 15
+radius = 0.5
 flicker = 0.1
 lights = 1
 albedo = [0.6, 0.22, 0.14]
 
 # Hand-placed fake bounce: the red wash the fire throws onto the room in front
 # of it. Commented out to compare against generated VPLs (RAYTRACER_VPL).
-# [[light]]
-# pos = [-5, 1.5, 2.35]
-# brightness = 0.4
-# radius = 4
-# range = 30
-# color = [1.2, 0, 0]
+[[light]]
+pos = [-5, 1.5, 2.35]
+brightness = 0.4
+radius = 4
+range = 30
+color = [1.2, 0.1, 0]
 
 # [[light_flickering]] # open fire in the hearth
 # brightness = 0.35

@@ -387,6 +387,10 @@ type lightDTO struct {
 	Interactive bool     `toml:"interactive"`
 	Hint        string   `toml:"hint"`
 	OnUse       string   `toml:"on_use"`
+	// PenumbraBlurVote, when false, puts this light on the muted screen-space
+	// penumbra channel (softens at its own width, never mixed with lamps).
+	// Nil (omitted) means true.
+	PenumbraBlurVote *bool `toml:"penumbra_blur_vote"`
 }
 
 // build resolves a light, applying the brightness multiplier (default 1) to the
@@ -400,11 +404,16 @@ func (d lightDTO) build() scene.Light {
 	if dir.LenSq() > 0 {
 		dir = dir.Normalize()
 	}
+	skipVote := false
+	if d.PenumbraBlurVote != nil {
+		skipVote = !*d.PenumbraBlurVote
+	}
 	return scene.Light{
 		Pos: d.Pos.toV(), Color: d.Color.toV().Scale(b), Radius: d.Radius, Range: d.Range,
 		Dir: dir, ConeDeg: d.ConeAngle,
-		Interactive: d.Interactive,
-		Hint:        lightHint(d.Interactive, d.Hint),
+		Interactive:          d.Interactive,
+		Hint:                 lightHint(d.Interactive, d.Hint),
+		SkipPenumbraBlurVote: skipVote,
 	}
 }
 

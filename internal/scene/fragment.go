@@ -38,7 +38,8 @@ func FragmentTouchLevel(dst *Scene, span ReactiveSpan, local *Scene) (needGen, n
 			}
 			if old[i].Interactive != n.Interactive || old[i].Hint != n.Hint ||
 				old[i].Pos != n.Pos || old[i].Dir != n.Dir ||
-				old[i].ConeDeg != n.ConeDeg || old[i].Range != n.Range || old[i].Radius != n.Radius {
+				old[i].ConeDeg != n.ConeDeg || old[i].Range != n.Range || old[i].Radius != n.Radius ||
+				old[i].SkipPenumbraBlurVote != n.SkipPenumbraBlurVote {
 				needGen = true
 			}
 		}

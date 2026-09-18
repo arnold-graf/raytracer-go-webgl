@@ -167,7 +167,7 @@ struct Light {
     pos: vec4<f32>,
     color: vec4<f32>,
     falloff: vec4<f32>, // cullR2, invR2, spotYaw, spotPitch
-    shape: vec4<f32>,   // source radius (0 = use PENUMBRA_LIGHT_RADIUS), _, _, _
+    shape: vec4<f32>,   // source radius (0 = use PENUMBRA_LIGHT_RADIUS), skip_penumbra_vote (1/0), _, _
 };
 
 // BVHNode mirrors GPUBVHNode in bvh.go (std430, 48-byte stride).
@@ -334,57 +334,24 @@ var<storage, read_write> aa_dispatch: array<atomic<u32>>;
 // must match its @workgroup_size and the host's indirect header arithmetic.
 const AA_RESOLVE_WG: u32 = 64u;
 
-// ShadowAux is what one pixel knows about its own shadowing, summed over every
-// light rather than picked from one of them: `contrib` is the direct light that
-// would arrive unoccluded, `vis` the fraction of it that actually did, and
-// `pen_px` the penumbra half-width in pixels implied by the blocker distances.
-// std430, 32-byte stride.
+// Two filter channels, partitioned by which lights write them — not a split of
+// one occlusion field. `penumbra_blur_vote = false` (moon, distant sun) goes in
+// the muted channel and is blurred at *its* width; everything else stays in the
+// local channel. That is a partition of the lighting, so a uniform moon umbra
+// cannot dictate a campfire's radius, and a sun shaft is not gathered at lamp
+// width.
 //
-// The point of writing it out rather than folding it straight into radiance is
-// that a penumbra is a *neighbourhood* property — a pixel cannot know how far it
-// sits from the shadow's edge without looking around it. Separating the
-// visibility signal is what lets shadow_soften widen an exact hard shadow to any
-// width without tracing a single extra ray.
-// One occlusion channel, deliberately.
-//
-// A two-channel split by penumbra width was tried, so that two shadows of
-// different softness crossing could each be filtered with their own radius. It
-// introduced two worse artifacts and was reverted:
-//
-//   - It is not a partition of unity. `occ_a = occ*(1-u)`, `occ_b = occ*u` with
-//     `u` varying per pixel by blocker distance, then filtered with *different*
-//     radii, does not recombine to `occ`. On a wall whose light is fully
-//     occluded, `occ` is a constant 1 while `u` still varies, so the
-//     reconstruction invented a signal out of a uniform field — a shadow drawn
-//     on a wall by a light that wall completely blocks.
-//   - Normalising by filtered weights fixes that and breaks the penumbra: a lit
-//     pixel has no wide-channel light, so its weight there is zero and it is
-//     invisible to that channel. The wide channel then averages only shadowed
-//     pixels, where occlusion and weight are the same field, so the ratio is
-//     identically 1 and no gradient forms.
-//
-// With one channel `occ` is filtered directly, a uniform field stays uniform,
-// and the failure mode is only that two crossing shadows share one radius.
+// Splitting *one* frac by a per-pixel mix factor (width, angle, distance) is
+// still wrong: it is not a partition of unity and invents signal out of a
+// uniform umbra. Do not go back to that.
 struct ShadowAux {
-    // Per channel, the fraction of this point's direct light that something is
-    // blocking. Albedo cancels out of the ratio, which is the whole reason it is
-    // stored as a ratio: filtering the blocked *radiance* directly turns the
-    // filter into an unsharp mask on the texture, because a bright texel in
-    // shadow is missing more light than the dark texel beside it. Contrast
-    // inside every shadowed region blew out.
-    //
-    // Per channel rather than one scalar, so the quantity means the same thing
-    // no matter which lights are involved. A lit pixel beside a shadow cast by a
-    // warm light has to lose warm light, not grey; and a scalar occlusion is not
-    // a partition of unity across several lights, which is what made a shadow
-    // from a fully-occluded light darken its neighbours the wrong way.
+    // Local lights (vote = true). Per channel, the fraction of this point's
+    // direct light that something is blocking. Albedo cancels out of the ratio,
+    // which is the whole reason it is stored as a ratio: filtering the blocked
+    // *radiance* directly turns the filter into an unsharp mask on the texture.
     //
     // The vertical pass overwrites this slot with the *target* fraction it
-    // filtered to — the neighbourhood average, faded in. supersample_edge then
-    // reproduces the same correction for its own tap. Storing the target rather
-    // than the radiance delta is what lets the tap use its own occlusion and its
-    // own light; see soft_applied. Safe to reuse: no invocation reads a
-    // *neighbour's* frac, only its frac_h.
+    // filtered to, so supersample_edge can reproduce the same correction.
     frac: vec3<f32>,
     pen_px: f32,
     // Shading normal and camera distance, so the filter can tell whether a
@@ -400,17 +367,19 @@ struct ShadowAux {
     // vertical half: the row-blurred fraction and the row maximum of pen_px.
     frac_h: vec3<f32>,
     r_h: f32,
-    // The direct light this point would receive if nothing blocked anything,
-    // already scaled by throughput, AO and any glossy (1 - refl) split. This is
-    // what converts a filtered fraction back into radiance, and using the
-    // pixel's *own* value is what keeps the correction textured like the surface
-    // it lands on instead of like its neighbours.
+    // Unoccluded local-channel light, already scaled by throughput, AO and any
+    // glossy (1 - refl) split.
     full: vec3<f32>,
-    // 1 once the vertical pass has written a target into frac, 0 where it left
-    // the pixel alone. Without it an untouched pixel's frac still looks like a
-    // target, and supersample_edge would "correct" a tap the filter never
-    // touched.
+    // 1 once the vertical pass has written a target into frac.
     soft_applied: f32,
+    // Muted channel: lights with penumbra_blur_vote = false. Same layout as
+    // the local channel, gathered only against the same channel's neighbours.
+    frac_m: vec3<f32>,
+    pen_m: f32,
+    frac_h_m: vec3<f32>,
+    r_h_m: f32,
+    full_m: vec3<f32>,
+    soft_applied_m: f32,
 
     // --- reflection filter ---
     //

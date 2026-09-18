@@ -327,6 +327,13 @@ var<private> sh_deficit: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
 var<private> sh_full: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
 var<private> sh_pen_sum: f32 = 0.0;
 var<private> sh_pen_w: f32 = 0.0;
+// Muted channel: lights with penumbra_blur_vote = false. Same sums, never mixed
+// into the local fraction, so a blocked moon cannot flatten a campfire edge and
+// a sun shaft still has a width of its own to filter at.
+var<private> sh_deficit_m: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+var<private> sh_full_m: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+var<private> sh_pen_sum_m: f32 = 0.0;
+var<private> sh_pen_w_m: f32 = 0.0;
 // Ambient occlusion is applied to `lit` *after* the light loop, so the deficit
 // above is the direct light before it. The snapshot scales by this so the
 // recorded value matches the light the frame actually deposited; without it the
@@ -373,6 +380,10 @@ fn shadow_aux_reset() {
     sh_full = vec3<f32>(0.0, 0.0, 0.0);
     sh_pen_sum = 0.0;
     sh_pen_w = 0.0;
+    sh_deficit_m = vec3<f32>(0.0, 0.0, 0.0);
+    sh_full_m = vec3<f32>(0.0, 0.0, 0.0);
+    sh_pen_sum_m = 0.0;
+    sh_pen_w_m = 0.0;
     sh_ao = 1.0;
     sh_ao_direct = 1.0;
 }
@@ -406,12 +417,27 @@ fn pixel_world_size(hp: vec3<f32>) -> f32 {
 // Several blocked lights are averaged by contribution, so the brightest shadow
 // dominates the width without the result jumping when they trade places.
 fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, declared_r: f32, weight_scale: f32) {
-    sh_full = sh_full + total;
+    // penumbra_blur_vote = false (weight_scale 0) writes the muted channel, not
+    // the local one. Dropping those lights from the filter entirely left their
+    // shadows as point samples — hard sun/moon umbrae. Mixing them into frac
+    // was the original bug: a blocked moon is brighter than the campfire, so
+    // every indoor pixel's frac sat near 1 and the campfire edge had no
+    // contrast left to blur.
+    let muted = weight_scale <= 0.0;
+    if muted {
+        sh_full_m = sh_full_m + total;
+    } else {
+        sh_full = sh_full + total;
+    }
     if (t_block < 0.0) {
         return;
     }
+    if muted {
+        sh_deficit_m = sh_deficit_m + total;
+    } else {
+        sh_deficit = sh_deficit + total;
+    }
     let light_r = resolved_light_radius(declared_r, ldist);
-    sh_deficit = sh_deficit + total;
     // A blocker closer to the light than the light's own radius is *inside* the
     // source, and r*t/(ldist-t) diverges there. Clamping the gap to the source's
     // own radius bounds the width at r*t/r = t: a penumbra can be as wide as the
@@ -445,7 +471,13 @@ fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, de
     // light really is missing), and its vote on the width then throbbed at the
     // flame's rate. Measured on the server-room frame, that alone moved the
     // radius on 26.6% of filtered pixels, by up to 5.7 px.
-    let weight = shadow_luma(total) * weight_scale;
+    var scale = weight_scale;
+    if muted {
+        // Muted lights still vote among themselves; the flag only keeps them
+        // off the local channel.
+        scale = 1.0;
+    }
+    let weight = shadow_luma(total) * scale;
     // Combined as a contribution-weighted *power* mean with a negative exponent,
     // not an arithmetic one.
     //
@@ -468,18 +500,32 @@ fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, de
     // It is also structurally incapable of inventing edges, unlike every banded
     // scheme: there is one signal filtered at one radius, so there is no
     // partition whose parts can fail to recombine.
-    sh_pen_sum = sh_pen_sum + weight / pow(max(pen, SHADOW_WIDTH_FLOOR), SHADOW_WIDTH_MEAN_POWER);
-    sh_pen_w = sh_pen_w + weight;
+    let term = weight / pow(max(pen, SHADOW_WIDTH_FLOOR), SHADOW_WIDTH_MEAN_POWER);
+    if muted {
+        sh_pen_sum_m = sh_pen_sum_m + term;
+        sh_pen_w_m = sh_pen_w_m + weight;
+    } else {
+        sh_pen_sum = sh_pen_sum + term;
+        sh_pen_w = sh_pen_w + weight;
+    }
+}
+
+fn shadow_chan_pen(sum: f32, w: f32) -> f32 {
+    if (w > 0.0 && sum > 0.0) {
+        return pow(w / sum, 1.0 / SHADOW_WIDTH_MEAN_POWER);
+    }
+    return 0.0;
 }
 
 fn shadow_aux_snapshot(tw: vec3<f32>, n: vec3<f32>, depth: f32) -> ShadowAux {
-    var pen = 0.0;
-    if (sh_pen_w > 0.0 && sh_pen_sum > 0.0) {
-        pen = pow(sh_pen_w / sh_pen_sum, 1.0 / SHADOW_WIDTH_MEAN_POWER);
-    }
+    let pen = shadow_chan_pen(sh_pen_sum, sh_pen_w);
+    let pen_m = shadow_chan_pen(sh_pen_sum_m, sh_pen_w_m);
     // The fraction needs no scaling at all — tw and AO are in both sums.
-    let frac = sh_deficit / max(sh_full, vec3<f32>(PENUMBRA_EPS, PENUMBRA_EPS, PENUMBRA_EPS));
+    let eps = vec3<f32>(PENUMBRA_EPS, PENUMBRA_EPS, PENUMBRA_EPS);
+    let frac = sh_deficit / max(sh_full, eps);
+    let frac_m = sh_deficit_m / max(sh_full_m, eps);
     return ShadowAux(frac, pen, n, depth, frac, 0.0, tw * sh_full * sh_ao_direct, 0.0,
+        frac_m, pen_m, frac_m, 0.0, tw * sh_full_m * sh_ao_direct, 0.0,
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), 0.0);
@@ -678,7 +724,12 @@ fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32
     // 0 stays 0: an undeclared size is resolved from distance in shadow_aux_note,
     // where ldist is in scope.
     let lr = light.shape.x;
-    return add_point_light_raw(lit, hp, albedo, n, ep, light.pos.xyz, light.color.xyz, light.falloff.x, light.falloff.y, tw, axis, cos_outer, rd, spec, shine, shadow, lr, 1.0);
+    // shape.y is 1 when the author set penumbra_blur_vote = false.
+    var vote = 1.0;
+    if (light.shape.y > 0.5) {
+        vote = 0.0;
+    }
+    return add_point_light_raw(lit, hp, albedo, n, ep, light.pos.xyz, light.color.xyz, light.falloff.x, light.falloff.y, tw, axis, cos_outer, rd, spec, shine, shadow, lr, vote);
 }
 
 

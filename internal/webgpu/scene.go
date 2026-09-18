@@ -136,9 +136,11 @@ type GPULight struct {
 	Color   [4]float32
 	Falloff [4]float32
 	// Shape holds the source's physical size: x is the radius the soft-shadow
-	// pass uses as the penumbra's driving term. All twelve lanes above are
-	// spoken for (Pos.w is the spot flag, Color.w the cone cosine, Falloff.zw
-	// the spot axis), so this costs a fourth vec4 rather than a spare slot.
+	// pass uses as the penumbra's driving term. y is 1 when penumbra_blur_vote
+	// is false (muted filter channel, not the local width vote). All twelve lanes above
+	// are spoken for (Pos.w is the spot flag, Color.w the cone cosine,
+	// Falloff.zw the spot axis), so this costs a fourth vec4 rather than a
+	// spare slot.
 	Shape [4]float32
 }
 
@@ -515,13 +517,17 @@ func packLight(l *scene.Light) GPULight {
 	cullR2, invR2 := lightCull(l.Color, l.Range)
 	// Shape.x is the emitter radius the soft-shadow pass sizes penumbrae from.
 	// 0 means the scene did not say, and the shader substitutes its own
-	// PENUMBRA_LIGHT_RADIUS. The interaction pick target is a separate field
-	// picking only uses it as a floor, so it is free to mean physical size.
+	// PENUMBRA_LIGHT_RADIUS. Shape.y is 1 when this light writes the muted
+	// screen-space channel (authored penumbra_blur_vote = false).
+	voteSkip := float32(0)
+	if l.SkipPenumbraBlurVote {
+		voteSkip = 1
+	}
 	gl := GPULight{
 		Pos:     [4]float32{f(l.Pos.X), f(l.Pos.Y), f(l.Pos.Z), 0},
 		Color:   albedo(l.Color),
 		Falloff: [4]float32{f(cullR2), f(invR2), 0, 0},
-		Shape:   [4]float32{f(l.Radius), 0, 0, 0},
+		Shape:   [4]float32{f(l.Radius), voteSkip, 0, 0},
 	}
 	if l.IsSpot() {
 		d := l.Dir.Normalize()

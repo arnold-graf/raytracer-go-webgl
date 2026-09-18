@@ -37,7 +37,10 @@ edge by looking only at itself. So shading writes what it knows into a per-pixel
 `ShadowAux` record — `full`, what the lights would contribute unoccluded; `frac`,
 the share of it something is blocking; and the penumbra width in pixels — and a
 `shadow_soften` pass widens the shadow by averaging the *exact* visibilities
-around each pixel.
+around each pixel. Lights authored `penumbra_blur_vote = false` (moon, distant
+sun) write a second channel so a blocked global source cannot flatten a local
+edge; see
+[a fully occluded light can still kill another light's penumbra](#a-fully-occluded-light-can-still-kill-another-lights-penumbra).
 
 The key property: **there is nothing stochastic anywhere.** Every value the
 filter gathers was resolved by a real shadow ray. Widening is a filter, not a
@@ -237,6 +240,128 @@ approximation reappears as a different artifact.
 With one channel `frac` is filtered directly, a uniform field stays uniform, and
 the only cost is that two crossing shadows of different softness share one
 radius — a seam where they overlap, which is milder than either failure above.
+
+That is still the right picture **within** a channel. It is not the whole
+picture across lights. A second channel *partitioned by which lights write it*
+is a different thing from splitting one `frac` by a mix factor, and it is what
+the next section is about.
+
+## A fully occluded light can still kill another light's penumbra
+
+The filter does not store "the campfire's shadow." It stores one mixed
+occlusion number and one width, and it uses that number to decide **who is
+lit**. A light that is blocked on the entire surface — moonlight on every indoor
+floor, a sun behind the roof — is not a spectator. It is the majority of both
+sums.
+
+### What is actually stored
+
+Each pixel accumulates, over every light that ran a shadow ray:
+
+- `full` — what would arrive unoccluded
+- `deficit` — what is actually blocked
+- a brightness-weighted mean of every *blocked* light's geometric penumbra
+
+The filter field is the ratio `frac = deficit / full`. There is no per-light
+visibility, and no test for "does this light's shadow have an edge here."
+
+"Fully occluded" is the opposite of "not involved." 100% of that light goes
+into `deficit`. Indoors the roof blocks the moon at *every* pixel, including
+the bright side of the fireplace rail. The moon is the brightest source in
+those sums, so it dominates `frac` and the width vote everywhere, not only at
+an edge.
+
+### Why a uniform umbra does not stay out of the way
+
+The edge intuition is right for a *linear* blur of a uniform field. A roof-blocked
+moon does not invent a fake shadow by smearing a flat umbra. If `frac` is
+
+```
+(L_moon * 1 + L_fire * (1 - v_fire)) / (L_moon + L_fire)
+```
+
+the moon term is spatially constant, so `frac - blur(frac)` cancels it and the
+leftover *is* the fire's edge. Mixing radii is not what draws a ghost on the
+wall.
+
+What it does do is rewrite the only bits the pass uses to *find* that edge.
+
+**The lit test.** Outward penumbra exists only if a pixel with `frac == 0`
+borrows width from a neighbour in shadow. After the moon, no indoor pixel has
+`frac == 0`. The fire-lit side of the rail is classified as already shadowed.
+It keeps the moon's hard width and never dilates. Both sides of the real edge
+then gather at well under a pixel, and the soften pass refuses to run
+(`SHADOW_SOFTEN_FADE_LO = 1`).
+
+**The width vote.** Any blocked light votes, in proportion to how bright it
+*would* have been. The moon is blocked on the rail, so it votes, even though
+its own umbra edge is metres away on the roof. On the fire-shadowed side the
+mean is moon-weighted and hard.
+
+Numbers, if the moon would contribute 100 and the fire 5:
+
+| | `frac` | width |
+|---|---|---|
+| fire-lit side of the rail | 100/105 ≈ 0.95 | moon (~0.3 px) |
+| fire-shadowed side | 105/105 = 1 | moon again |
+
+The campfire edge still exists in `frac`, as a 5% step on a field that is
+already almost fully "in shadow." The filter never gets to blur it.
+
+### What was tried and is not the fix
+
+- **Mute the moon from the width vote only** (`penumbra_blur_vote = false`
+  leaving `frac` alone). `frac` stays ≈ 0.95 on both sides of the rail, so the
+  lit test still never fires, dilation still does not run, and there is no
+  contrast left to gather. The flag appeared to do nothing.
+- **Drop the moon from `frac`, `full`, and the width entirely.** The rail
+  softens. Sun and moon shadows become point samples — hard — because they no
+  longer have a filter channel.
+- **Split one `frac` with a per-pixel mix factor** (width, angle, distance).
+  Not a partition of unity; invents signal out of a uniform umbra. Recorded
+  above under "why two failed."
+- **Top-K per-light layers** (K=10). Correct. About 2× the frame inside the
+  villa (~70 fps → ~35). The general screen-space sum; too expensive to keep.
+
+### Two channels, partitioned by which lights write them
+
+`penumbra_blur_vote = false` (moon, distant sun) writes a **muted** channel:
+its own `frac_m`, `full_m`, and width, gathered only against the same
+channel's neighbours, at that channel's mean width. Everything else stays on
+the local channel.
+
+That is a partition of the lighting, not a split of one occlusion field. A
+uniform moon umbra cannot dictate a campfire's radius, and a sun shaft is not
+gathered at lamp width. Each channel still has the one-radius-for-overlapping-
+shadows limitation among the lights that share it; that is the same limitation
+the power-mean average is for, and it is not this bug.
+
+Authored on the villa moon and the office-sunset / atrium suns. Pendants and
+campfires stay on the local channel.
+
+### Cost
+
+No extra shadow rays. The four filter dispatches stay four. `ShadowAux` grows
+from 144 to 192 bytes (two channels plus the glossy lobes that already lived
+there). Top-K was ten layers and ~2× the frame; this is two.
+
+The filter is memory-bound, and the two channels do **not** each run a full
+second gather on every pixel:
+
+- **Radius dilation** uses one tap grid for both channels (offsets scale with
+  `SHADOW_SOFTEN_MAX_PX`, not with either width). One neighbour load, then a
+  per-channel max. A channel that is already shadowed (`frac > 0`), or that
+  has no unoccluded light to lose (`full = 0`), does not search. Indoor
+  moonlight is blocked everywhere, so its dilation loop is skipped.
+- **Fraction gather** cannot share taps: offsets scale with that channel's
+  own radius, and sharing the wider grid would undersample the narrower
+  shadow. Each channel runs the 61-tap loop only when its radius is at least
+  1 px. Indoor moonlight's geometric penumbra is sub-pixel
+  (`SHADOW_SOFTEN_FADE_LO = 1`), so its soften is skipped and the rail pays
+  the original one-channel gather. Outdoor sun / moon shafts, where the muted
+  width is real, pay a second gather — still one extra 1D filter, not K.
+
+Do not go back to a mix-factor split, and do not raise K without a new budget.
 
 ## Sum over lights, never pick one
 
@@ -504,14 +629,13 @@ soft  226   223   217   203 | 172   130    80    44    29
   **Raise `SHADOW_SOFTEN_TAPS` with it** — see the comb note above.
 - **A residual step at that radius.** Beyond it a pixel is left alone, so the
   outward spread ends. Small, since only a tap or two out there is shadowed.
-- **One visibility channel for all lights.** Two lights casting crossing shadows
-  are blurred with a single radius — the contribution-weighted average of theirs
-  — so the wider penumbra is drawn slightly too tight and the narrower slightly
-  too wide. Smooth and stable, but not per-light correct.
-- **The fraction is per colour, not per light.** Two lights of the same colour
-  casting crossing shadows are indistinguishable in the record, so they share a
-  radius. Differently coloured ones separate for free, which is a happy accident
-  of the representation rather than a design.
+- **One visibility channel per *group* of lights, not per light.** Crossing
+  shadows from two lamps still share one radius — the contribution-weighted
+  power mean of theirs. Moon and distant sun are authored onto a second
+  channel (`penumbra_blur_vote = false`) so a blocked global source cannot
+  flatten a local edge; see
+  [a fully occluded light can still kill another light's penumbra](#a-fully-occluded-light-can-still-kill-another-lights-penumbra).
+  Two local lights of the same colour remain indistinguishable in the record.
 
 ## Tuning softness
 
@@ -622,11 +746,14 @@ reference. The contact-hardening scene moves by 1.7% of pixels; a fixed reach
 moved 3.2% and looked worse. Cost is **+0.5 ms of 9.0** on the server room, and
 nothing measurable on the villa.
 
-**What this does not fix.** Two shadows of different softness still share one
-radius wherever their footprints overlap — the seam is now a gradient rather than
-a step, not a per-source result. Getting that right needs per-source filtering,
-which "One occlusion channel, and why two failed" above records as tried and
-reverted for an unrelated reason.
+**What this does not fix.** Two *local* shadows of different softness still
+share one radius wherever their footprints overlap — the seam is a gradient
+rather than a step, not a per-source result. Splitting one `frac` by a mix
+factor is the wrong fix for that, and is recorded under
+[one occlusion channel, and why two failed](#one-occlusion-channel-and-why-two-failed).
+A blocked *global* source flattening a local edge is a different bug, and is
+fixed by partitioning the lights into two channels — see
+[a fully occluded light can still kill another light's penumbra](#a-fully-occluded-light-can-still-kill-another-lights-penumbra).
 
 ## Tried and reverted: a per-band radius
 

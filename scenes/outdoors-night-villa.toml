@@ -37,11 +37,13 @@ albedo = [30.0, 30.0, 35.0]
 # Moonlight as a distant point light (shadows only come from [[light]]/campfire;
 # sun_dir and [environment.sun] are sky-only). Placed along -sun_dir so shadow
 # rays match the visible moon. range = 0 keeps it global across the valley.
+# penumbra_blur_vote = false: softens on its own channel, not the indoor lamp/fire one.
 [[light]]
 pos = [-111.0, 133.0, -100.0]
 color = [1, 1, 2.4]
 brightness = 100.0
 range = 0
+penumbra_blur_vote = false
 
 [player.movement]
 gravity = 0.1

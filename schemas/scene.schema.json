@@ -1411,6 +1411,11 @@
         "on_use": {
           "type": "string",
           "description": "State mutation when the player uses this light, e.g. toggle(lamp_on) or lamp_on = true. Requires [state] in a parameterized object file; uses handler state instead of light_toggle."
+        },
+        "penumbra_blur_vote": {
+          "type": "boolean",
+          "default": true,
+          "description": "When false, this light softens on a separate screen-space penumbra channel at its own width, instead of mixing into the local (lamp/campfire) filter. Use for global sources (moon, distant sun) whose umbra would otherwise dominate nearby soft shadows. Omit or true to share the local channel."
         }
       },
       "required": [

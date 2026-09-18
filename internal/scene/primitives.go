@@ -1444,6 +1444,12 @@ type Light struct {
 	// the player aims at the light (default "lamp" when Interactive is true).
 	Interactive bool
 	Hint        string
+	// SkipPenumbraBlurVote puts this light on the muted screen-space penumbra
+	// channel instead of the local one. It still occludes and still softens, but
+	// at its own width — a blocked moon cannot flatten a campfire edge. Set from
+	// TOML penumbra_blur_vote = false. Use for global sources (moon, distant
+	// sun). Zero value means vote, so existing Light{} stay unchanged.
+	SkipPenumbraBlurVote bool
 }
 
 // IsSpot reports whether the light casts a directional cone.

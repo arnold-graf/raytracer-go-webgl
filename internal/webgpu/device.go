@@ -34,11 +34,11 @@ const (
 	aaDispatchBytes = 16
 	// Must match AA_RESOLVE_WG in types.wesl.
 	aaResolveWG = 64
-	// struct ShadowAux in types.wesl (std430, 64-byte stride), one per pixel.
+	// struct ShadowAux in types.wesl (std430, 192-byte stride), one per pixel.
 	// shadowAuxStride is the byte stride of one ShadowAux in types.wesl. It
 	// carries the reflection filter's per-pixel record too; there is no spare
-	// buffer binding for a second one.
-	shadowAuxStride = 144
+	// buffer binding for a second one. Two shadow channels (112) plus lobes (80).
+	shadowAuxStride = 192
 	workgroupXY     = 8
 	// Six square portal captures (see texture.MaxCaptureDim).
 	maxCaptureDim = texture.MaxCaptureDim
