@@ -239,8 +239,6 @@ type PathTracer struct {
 	emitTables ptEmitterTables
 
 	clearPipe    *wgpu.ComputePipeline
-	bakePipe     *wgpu.ComputePipeline
-	probePipe    *wgpu.ComputePipeline
 	mainPipe     *wgpu.ComputePipeline
 	temporalPipe *wgpu.ComputePipeline
 	atrousPipe   *wgpu.ComputePipeline
@@ -384,8 +382,6 @@ func NewPathTracer(r *Renderer, opts PTOptions) (*PathTracer, error) {
 		dst  **wgpu.ComputePipeline
 	}{
 		{"pt_clear", &pt.clearPipe},
-		{"pt_bake_probes", &pt.bakePipe},
-		{"pt_probe_update", &pt.probePipe},
 		{"pt_main", &pt.mainPipe},
 		{"pt_temporal", &pt.temporalPipe},
 		{"pt_atrous", &pt.atrousPipe},
@@ -430,7 +426,7 @@ func (pt *PathTracer) bindings() map[uint32]ptBinding {
 		7:  {buf: r.samples, size: maxTerrainVals * 16, min: 16},
 		8:  {buf: r.waters, size: maxWaters * waterStride, min: waterStride},
 		9:  {buf: r.perm, size: permCount * 4, min: 4},
-		10: {buf: r.aoVolume, size: r.giVolumeFloats * 4, min: 4, writable: true},
+		10: {buf: r.aoVolume, size: r.aoVolumeFloats * 4, min: 4, writable: true},
 		11: {buf: r.campfires, size: maxCampfires * campfireStride, min: campfireStride},
 		12: {buf: r.holes, size: maxHoles * holeStride, min: holeStride},
 		13: {buf: r.captures, size: r.captureBytes, min: 4},
@@ -743,91 +739,6 @@ func (pt *PathTracer) Release() {
 	if pt.ptParams != nil {
 		pt.ptParams.Release()
 	}
-}
-
-// BakeAmbientProbes computes an ambient cube at each point: six RGB values in
-// +X, -X, +Y, -Y, +Z, -Z order, ready to drop into a scene's [[ambient_zone]].
-//
-// The values are what shade.wesl's ambient term wants — the cosine-weighted
-// mean of incoming radiance, which is irradiance over pi — so a baked cube can
-// replace the scene-wide constants without any rescaling.
-func (pt *PathTracer) BakeAmbientProbes(cam *camera.Camera, v *render.View, points []vec.V, samples int) ([][6]vec.V, error) {
-	if len(points) == 0 {
-		return nil, nil
-	}
-	maxProbes := (pt.r.maxDim * pt.r.maxDim) / 6
-	if len(points) > maxProbes {
-		return nil, fmt.Errorf("bake: %d probes exceeds the %d the scratch arena holds", len(points), maxProbes)
-	}
-	p := pt.r.buildRenderParams(v)
-	if err := pt.r.uploadFrame(cam, p, pt.r.w, pt.r.h); err != nil {
-		return nil, err
-	}
-	if err := pt.syncEmitters(p); err != nil {
-		return nil, err
-	}
-
-	// Probe positions go into scratch region 0.
-	pos := make([]byte, len(points)*ptAccumStride)
-	for i, q := range points {
-		putF32(pos[i*16+0:], float32(q.X))
-		putF32(pos[i*16+4:], float32(q.Y))
-		putF32(pos[i*16+8:], float32(q.Z))
-	}
-	if err := pt.r.queue.WriteBuffer(pt.scratch, 0, pos); err != nil {
-		return nil, err
-	}
-
-	pt.probeCount = uint32(len(points))
-	pt.probeSamples = uint32(samples)
-	if err := pt.writeSlots(1); err != nil {
-		return nil, err
-	}
-
-	enc, err := pt.r.device.CreateCommandEncoder(&wgpu.CommandEncoderDescriptor{Label: "pt bake encoder"})
-	if err != nil {
-		return nil, err
-	}
-	defer enc.Release()
-	pass := enc.BeginComputePass(&wgpu.ComputePassDescriptor{Label: "pt bake pass"})
-	pass.SetPipeline(pt.bakePipe)
-	pass.SetBindGroup(0, pt.bind, []uint32{slotOffset(0)})
-	pass.DispatchWorkgroups(uint32((len(points)+63)/64), 1, 1)
-	if err := pass.End(); err != nil {
-		pass.Release()
-		return nil, err
-	}
-	pass.Release()
-
-	// Results start at region 1, six vec4s per probe.
-	base := uint64(pt.r.w*pt.r.h) * ptAccumStride
-	size := uint64(len(points)*6) * ptAccumStride
-	if err := enc.CopyBufferToBuffer(pt.scratch, base, pt.r.read, 0, size); err != nil {
-		return nil, err
-	}
-	cmd, err := enc.Finish(&wgpu.CommandBufferDescriptor{Label: "pt bake cmd"})
-	if err != nil {
-		return nil, err
-	}
-	defer cmd.Release()
-	pt.wait(pt.r.queue.Submit(cmd))
-
-	raw := make([]byte, size)
-	if err := pt.r.mapReadInto(pt.r.read, size, raw); err != nil {
-		return nil, err
-	}
-	out := make([][6]vec.V, len(points))
-	for i := range points {
-		for f := 0; f < 6; f++ {
-			o := (i*6 + f) * 16
-			out[i][f] = vec.V{
-				X: float64(f32From(raw[o+0:])),
-				Y: float64(f32From(raw[o+4:])),
-				Z: float64(f32From(raw[o+8:])),
-			}
-		}
-	}
-	return out, nil
 }
 
 func f32From(b []byte) float32 {

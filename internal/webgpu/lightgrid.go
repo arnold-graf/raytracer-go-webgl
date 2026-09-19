@@ -31,7 +31,7 @@ const (
 
 	idxTablesBlockerPlaneBase = maxPrims
 	idxTablesLightGridBase    = 2 * maxPrims
-	idxTablesWords            = idxTablesAmbientBase + 1 + maxAmbientZones*ambientZoneWords
+	idxTablesWords            = idxTablesLightGridBase + lightGridBufWords
 )
 
 // lightGrid is a clustered-shading index: a uniform grid over the union of the

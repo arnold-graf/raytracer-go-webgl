@@ -27,7 +27,7 @@ type Scene struct {
 	Terrains       []Terrain
 	Waters         []WaterPool
 	Lights         []Light
-	AmbientZones   []AmbientZone
+	VPLRegions     []VPLRegion
 	Campfires      []Campfire
 	Ambiences      []Ambience
 	Interactables  []Interactable

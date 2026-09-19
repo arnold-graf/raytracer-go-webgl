@@ -324,19 +324,6 @@ type lensDTO struct {
 	surfaceDTO
 }
 
-// ambientZoneDTO is one [[ambient_zone]] table: a box plus its six face
-// colours. Faces are optional individually; an omitted one is black.
-type ambientZoneDTO struct {
-	Min vec3 `toml:"min"`
-	Max vec3 `toml:"max"`
-	PX  vec3 `toml:"px"`
-	NX  vec3 `toml:"nx"`
-	PY  vec3 `toml:"py"`
-	NY  vec3 `toml:"ny"`
-	PZ  vec3 `toml:"pz"`
-	NZ  vec3 `toml:"nz"`
-}
-
 // xformBounds re-bounds an axis-aligned box after a transform by taking the
 // extent of its eight transformed corners. A rotated box is not axis aligned,
 // so the result is conservative rather than exact.
@@ -365,13 +352,6 @@ func xformBounds(xf *scene.Transform, mn, mx vec.V) (vec.V, vec.V) {
 	return lo, hi
 }
 
-func (d ambientZoneDTO) build() scene.AmbientZone {
-	return scene.AmbientZone{
-		Min: d.Min.toV(), Max: d.Max.toV(),
-		Faces: [6]vec.V{d.PX.toV(), d.NX.toV(), d.PY.toV(), d.NY.toV(), d.PZ.toV(), d.NZ.toV()},
-	}
-}
-
 type lightDTO struct {
 	Pos    vec3    `toml:"pos"`
 	Color  vec3    `toml:"color"`
@@ -391,6 +371,9 @@ type lightDTO struct {
 	// penumbra channel (softens at its own width, never mixed with lamps).
 	// Nil (omitted) means true.
 	PenumbraBlurVote *bool `toml:"penumbra_blur_vote"`
+	// Specular, when false, drops this light from specular highlights. It still
+	// lights surfaces diffusely and still casts shadows. Nil (omitted) is true.
+	Specular *bool `toml:"specular"`
 }
 
 // build resolves a light, applying the brightness multiplier (default 1) to the
@@ -408,12 +391,17 @@ func (d lightDTO) build() scene.Light {
 	if d.PenumbraBlurVote != nil {
 		skipVote = !*d.PenumbraBlurVote
 	}
+	noSpec := false
+	if d.Specular != nil {
+		noSpec = !*d.Specular
+	}
 	return scene.Light{
 		Pos: d.Pos.toV(), Color: d.Color.toV().Scale(b), Radius: d.Radius, Range: d.Range,
 		Dir: dir, ConeDeg: d.ConeAngle,
 		Interactive:          d.Interactive,
 		Hint:                 lightHint(d.Interactive, d.Hint),
 		SkipPenumbraBlurVote: skipVote,
+		NoSpecular:           noSpec,
 	}
 }
 
@@ -843,7 +831,6 @@ type sceneDTO struct {
 	Terrain         []terrainDTO         `toml:"terrain"`
 	Water           []waterDTO           `toml:"water"`
 	Light           []lightDTO           `toml:"light"`
-	AmbientZone     []ambientZoneDTO     `toml:"ambient_zone"`
 	LightFlickering []lightFlickeringDTO `toml:"light_flickering"`
 	Sound           []soundDTO           `toml:"sound"`
 	Point           []pointDTO           `toml:"point"`
@@ -852,6 +839,9 @@ type sceneDTO struct {
 	Document        []documentDTO        `toml:"document"`
 	Screen          []screenDTO          `toml:"screen"`
 	Physics         *physicsDTO          `toml:"physics"`
+	// VPL is the `[vpl]` table: a bounce-light budget scoped to this file's
+	// own volume. See internal/sceneio/vplregion.go.
+	VPL *vplDTO `toml:"vpl"`
 }
 
 // tintOrWhite returns v as a color, defaulting an omitted (all-zero) vector to
@@ -968,6 +958,7 @@ func load(path string, params map[string]any, seen map[string]bool, deps *[]stri
 		base.ApplyTerrainFollow(extendPlacements)
 		base.ApplyInstanceTerrainFollow()
 		base.FinalizeInstancing()
+		appendVPLRegion(base, dto.VPL, path)
 		return base, nil
 	}
 	return dto.buildWithIncludes(path, resolved, reactive, seen, deps, followPlacements)
@@ -1040,17 +1031,6 @@ func (dto sceneDTO) applyOverrides(s *scene.Scene) error {
 		s.Campfires = s.Campfires[:0]
 		for _, d := range dto.LightFlickering {
 			s.Campfires = append(s.Campfires, d.build())
-		}
-	}
-	// Replace rather than append, matching how this function treats every
-	// other list: an `extends` child that declares zones owns them outright.
-	if dto.AmbientZone != nil {
-		s.AmbientZones = s.AmbientZones[:0]
-		for _, d := range dto.AmbientZone {
-			z := d.build()
-			if z.Valid() {
-				s.AmbientZones = append(s.AmbientZones, z)
-			}
 		}
 	}
 	// Extends children may add [[terrain.pad]] tables (with a stub [[terrain]]
@@ -1215,12 +1195,6 @@ func (dto sceneDTO) build() (*scene.Scene, error) {
 			Ripple: d.Ripple, RippleSpeed: d.RippleSpeed, RippleDirX: dirX, RippleDirZ: dirZ, Surface: surf,
 		})
 	}
-	for _, d := range dto.AmbientZone {
-		z := d.build()
-		if z.Valid() {
-			s.AmbientZones = append(s.AmbientZones, z)
-		}
-	}
 	for _, d := range dto.Light {
 		s.Lights = append(s.Lights, d.build())
 		if d.OnUse != "" && scene.IsStateAction(d.OnUse) {
@@ -1305,6 +1279,10 @@ func (dto sceneDTO) buildWithIncludes(path string, parentResolved map[string]any
 			return nil, err
 		}
 	}
+	// After the includes, so an auto-bounded region covers the whole object —
+	// the villa's staircase and lamps are [[include]]s, and a box drawn before
+	// they land would miss them.
+	appendVPLRegion(s, dto.VPL, path)
 	return s, nil
 }
 
@@ -1481,14 +1459,14 @@ func mergeScene(dst, sub *scene.Scene, xf *scene.Transform) {
 		o.Xform = xf.Compose(o.Xform)
 		dst.Lenses = append(dst.Lenses, o)
 	}
-	for i := range sub.AmbientZones {
-		z := sub.AmbientZones[i]
+	// Each [[include]] of an object carrying [vpl] becomes its own region, so
+	// two villas get two budgets rather than sharing one.
+	for i := range sub.VPLRegions {
+		r := sub.VPLRegions[i]
 		if xf != nil {
-			// A rotated zone is no longer axis aligned, so the transformed
-			// corners are re-bounded rather than pretending otherwise.
-			z.Min, z.Max = xformBounds(xf, z.Min, z.Max)
+			r.Min, r.Max = xformBounds(xf, r.Min, r.Max)
 		}
-		dst.AmbientZones = append(dst.AmbientZones, z)
+		dst.VPLRegions = append(dst.VPLRegions, r)
 	}
 	for i := range sub.Lights {
 		l := sub.Lights[i]

@@ -42,8 +42,11 @@ NULL, Self , abstract, active, alignas, alignof, as, asm, asm_fragment, async, a
 ### Scratch files and scripts
 
 Use the local tmp folder inside this repo, not a root folder like /tmp or
-/private/tmp. We’re using zsh, and it doesn't word-split unquoted variables, so
-keep that in mind when writing shell scripts or commands.
+/private/tmp. Always put scratch files inside a folder with a date prefix, e.g.
+"./tmp/2026-09-18-vpl/scratch.png", unless you want to write and re-use small
+scripts, in which case you should put them directly in ./tmp. We’re using zsh,
+and it doesn't word-split unquoted variables, so keep that in mind when writing
+shell scripts or commands.
 
 ### Tests
 

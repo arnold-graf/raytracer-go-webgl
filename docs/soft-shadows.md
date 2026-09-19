@@ -413,6 +413,76 @@ Two accounting details that are easy to miss:
   sub-pixel that may have landed on darker geometry. That one produced isolated
   black pixels along exactly the high-contrast edges AA targets.
 
+## A skipped shadow ray is a skipped record
+
+`add_point_light_raw` asks whether a light's shadow is worth a BVH traversal:
+`display_step_levels(lit, total) < SHADOW_SKIP_LEVELS` and it takes the early
+return. That gate predates the filter, and in front of the filter it is unsound
+— not because of the ray it saves, but because of the record it does not write.
+
+A skipped light leaves **nothing** in `ShadowAux`. No term in `full`, no
+occlusion in `frac`, no penumbra width. And the gate is decided *per pixel*
+against `lit`, the radiance accumulated so far, which carries two things it must
+not: the surface texture, and **the shadows already drawn at this point**.
+
+That second one is what makes it a bug rather than a rounding error. `lit` is
+lower inside another light's umbra, so the same faint source clears the
+threshold on the dark side of an edge and fails it a pixel away on the lit side.
+**The gate's contour tracks the shadow edges the filter exists to soften.**
+Neighbouring pixels on one flat wall then disagree about which lights the record
+covers, and `frac = deficit / full` stops meaning the same thing at each of them
+— the premise everything here rests on.
+
+Measured on office-sunset, looking up at the standing lamp against the wall:
+
+| | pixels either side of the gate contour |
+|---|---|
+| lights blocked and recorded | 5 → 6 → 7 |
+| `frac` | 0.000 → 0.027 → 0.059 |
+| raw `pen_px` | 0 px → 2250 px → 330 px |
+
+Over a ~200 px stretch of the shade's shadow the gate suppressed the *only* wide
+blocked source, so that stretch reported "nothing is blocked here and there is no
+penumbra", dilated to a 1.4 px radius borrowed from a contact shadow crossing it,
+and was drawn as an unfiltered hard step — against a fully softened arc a few
+pixels away, with a cloudy, texture-shaped boundary between them. The tell in the
+debug view is a `pen_px` field banded 0 / 30 / 28 px with blobby edges that follow
+the plaster texture rather than any geometry.
+
+This is the third appearance of one failure: **a per-pixel selection upstream of a
+neighbourhood filter.** Picking a dominant light was the first, a blocked global
+source setting the width was the second. Each time the repair is the same — stop
+selecting — and each time the selection was somewhere nobody was looking.
+
+**The fix is that the gate is consulted only when the filter is off.** With
+`params.soft_shadows` set, `skip_levels` is zero and every light that reaches a
+point writes its record. Cost, at 1024x640: **+3.4%** on that office frame
+(44.5 → 46.0 ms) and **+0.9%** on the night villa (46.3 → 46.6). The rays it was
+saving are the coherent ones that cost 3 ns each. The villa image moves by more
+than two display levels on 245 pixels out of 655360, so this is close to free in
+both senses.
+
+Two things that look like fixes and are not, both measured:
+
+- **Record the skipped light as unoccluded.** Keeps `full` ranging over the same
+  lights at every pixel, which is worth having, but the light being skipped *is*
+  blocked — so `frac` and the width still step across the contour and the image
+  does not change.
+- **Gate against an unshadowed base** (`lit` plus what earlier lights are
+  withholding). This does remove the correlation with shadow edges, and the skip
+  contour goes uniform — in the wrong direction. The base is larger everywhere,
+  so the wide source is skipped on *both* sides of the edge and the whole arc
+  goes hard. Adding a blocked source's deficit back into the base also resurrects
+  exactly the global sources the muted channel exists to keep out: indoors the
+  base becomes "what this floor would get if the roof were gone", against which
+  every real lamp is negligible.
+
+The per-light `shadow_levels` override (`Light.ShadowLevels`, raised to 16 for
+VPLs) still applies, and carries the same cost: wherever it fires, that light is
+absent from the record. That is now an explicit authored trade — a bounce light
+told not to bother with a shadow — rather than a silent global one. Expect the
+same banding if it is raised on a light whose penumbra is wanted.
+
 ## Handing the correction to the AA tap
 
 `aa_resolve` runs *after* both soften passes and overwrites the softened pixel

@@ -18,7 +18,7 @@ import (
 // reload builds a new *scene.Scene, so it lands on a fresh entry here.
 type set struct {
 	lights []scene.Light
-	base   int  // len(s.Lights) before the set was appended
+	base   int // len(s.Lights) before the set was appended
 	on     bool
 }
 
@@ -48,9 +48,20 @@ func Toggle(s *scene.Scene) (on bool, n int) {
 	setsMu.Unlock()
 
 	if st == nil {
-		o, ok := FromEnv()
+		// Inject has already registered a set for any scene that had work to do,
+		// so reaching here means the scene declared no [vpl] region and no
+		// global budget was asked for — and in that case the key does nothing.
+		//
+		// It used to fall back to DefaultOptions and invent a scene-wide set, so
+		// that the key would demonstrate the bounce on a scene that had never
+		// opted in. That made it the one path that could place lights nobody
+		// asked for: on a scene with no [vpl] anywhere and no flag, pressing 9
+		// conjured twenty-four globally-ranked VPLs, which is exactly what the
+		// launch path exists to prevent. The key toggles what the scene asked
+		// for; RAYTRACER_VPL=24 at launch is how you ask for the rest.
+		o, ok := optionsFor(s)
 		if !ok {
-			o = DefaultOptions()
+			return false, 0
 		}
 		lights := Generate(s, o)
 		if len(lights) == 0 {

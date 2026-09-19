@@ -1450,6 +1450,30 @@ type Light struct {
 	// TOML penumbra_blur_vote = false. Use for global sources (moon, distant
 	// sun). Zero value means vote, so existing Light{} stay unchanged.
 	SkipPenumbraBlurVote bool
+	// NoSpecular excludes this light from specular highlights: it still lights
+	// surfaces diffusely and still casts shadows, but contributes no Blinn-Phong
+	// lobe. Set from TOML specular = false.
+	//
+	// The case for it is a light that stands in for something rather than being
+	// it — a bounce light, a fill, a broad sky or moon term. A highlight is the
+	// mirror image of the source in the surface, so a point light standing in
+	// for a wall's worth of bounce draws a small bright dot where there should
+	// be a wide dim sheen, and on anything shiny that dot is the most visible
+	// thing in the frame. Zero value means the light is specular, so every
+	// existing Light{} is unchanged.
+	NoSpecular bool
+	// ShadowLevels is how many display levels this light must be worth, against
+	// the radiance already accumulated at a hit, before its shadow is worth a
+	// BVH traversal. 0 means the shader's own SHADOW_SKIP_LEVELS.
+	//
+	// It exists for bounce light. A shadow ray is the expensive part of a light
+	// — measured on the night villa interior, 48 virtual point lights per room
+	// took shadow rays from 576k to 2.85M a frame and the frame from 19.6 ms to
+	// 27.9 ms — and 99.8% of those rays came back blocked. A bounce light is a
+	// point standing in for a lit patch, so its shadow is the least defensible
+	// detail it carries, and the first thing to give up when it is one of fifty
+	// adding a sliver each. Raising this trades that shadow for the traversal.
+	ShadowLevels float64
 }
 
 // IsSpot reports whether the light casts a directional cone.

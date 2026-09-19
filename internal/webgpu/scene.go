@@ -518,16 +518,23 @@ func packLight(l *scene.Light) GPULight {
 	// Shape.x is the emitter radius the soft-shadow pass sizes penumbrae from.
 	// 0 means the scene did not say, and the shader substitutes its own
 	// PENUMBRA_LIGHT_RADIUS. Shape.y is 1 when this light writes the muted
-	// screen-space channel (authored penumbra_blur_vote = false).
+	// screen-space channel (authored penumbra_blur_vote = false). Shape.z is the
+	// per-light shadow threshold in display levels (0 = SHADOW_SKIP_LEVELS);
+	// bounce lights raise it to buy back their shadow rays. Shape.w is 1 when
+	// the light is excluded from specular highlights (specular = false).
 	voteSkip := float32(0)
 	if l.SkipPenumbraBlurVote {
 		voteSkip = 1
+	}
+	noSpec := float32(0)
+	if l.NoSpecular {
+		noSpec = 1
 	}
 	gl := GPULight{
 		Pos:     [4]float32{f(l.Pos.X), f(l.Pos.Y), f(l.Pos.Z), 0},
 		Color:   albedo(l.Color),
 		Falloff: [4]float32{f(cullR2), f(invR2), 0, 0},
-		Shape:   [4]float32{f(l.Radius), voteSkip, 0, 0},
+		Shape:   [4]float32{f(l.Radius), voteSkip, f(l.ShadowLevels), noSpec},
 	}
 	if l.IsSpot() {
 		d := l.Dir.Normalize()

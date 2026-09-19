@@ -1,5 +1,12 @@
 # Live indirect light
 
+> **Removed from the code (2026-09-18).** The live probe field, the DDGI
+> cascades, the baked volume and their tools (`cmd/probebake`, `cmd/ptlive`,
+> `internal/gibake`, `shaders/modules/gi.wesl`) are gone. Nothing here ships any
+> more; virtual point lights are the GI that remained — see [vpl.md](vpl.md).
+> This file is kept because what it measured is why, and every reason it gives
+> still applies to anything that would replace it.
+
 **Status:** off by default. With both flags unset the megakernel renders
 byte-identically — verified pixel-exact on the villa, the office, Manhattan and
 the mountain view.

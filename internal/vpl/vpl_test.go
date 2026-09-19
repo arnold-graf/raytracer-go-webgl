@@ -123,19 +123,31 @@ func TestVPLsFaceAwayFromTheirSurface(t *testing.T) {
 	}
 }
 
-// The off switch has to be genuinely off: the renderer's whole claim is that a
-// scene with the flag unset is byte-identical.
-func TestFromEnvOffByDefault(t *testing.T) {
+// FromEnv's bool is about the GLOBAL budget, not about whether anything will be
+// generated: with the flag unset a scene's own [vpl] regions still produce
+// lights. Count must be 0 in that case, so the leftover pool places nothing.
+func TestFromEnvGlobalBudgetOffByDefault(t *testing.T) {
 	t.Setenv("RAYTRACER_VPL", "")
-	if _, ok := FromEnv(); ok {
-		t.Fatal("FromEnv reports on with RAYTRACER_VPL empty")
+	o, ok := FromEnv()
+	if ok {
+		t.Error("FromEnv claims a global budget with RAYTRACER_VPL empty")
 	}
+	if o.Count != 0 {
+		t.Errorf("global count is %d with the flag unset, want 0", o.Count)
+	}
+	// The other knobs still have to come through, or a region could not be
+	// retuned without switching a global budget on to do it.
+	if o.Rays != DefaultOptions().Rays || o.Gain != DefaultOptions().Gain {
+		t.Errorf("defaults lost with the flag unset: rays=%d gain=%.3f", o.Rays, o.Gain)
+	}
+
 	t.Setenv("RAYTRACER_VPL", "0")
 	if _, ok := FromEnv(); ok {
-		t.Fatal("FromEnv reports on with RAYTRACER_VPL=0")
+		t.Error("FromEnv claims a global budget with RAYTRACER_VPL=0")
 	}
+
 	t.Setenv("RAYTRACER_VPL", "12")
-	o, ok := FromEnv()
+	o, ok = FromEnv()
 	if !ok || o.Count != 12 {
 		t.Fatalf("FromEnv: ok=%v count=%d, want true/12", ok, o.Count)
 	}
@@ -158,7 +170,12 @@ func TestLightAttenMatchesShaderForm(t *testing.T) {
 
 // The key toggle has to leave the scene exactly as it found it, or repeated
 // presses would grow the light list.
+//
+// The flag is what opts this scene in: the key toggles what the scene asked for
+// and invents nothing, so a plain room with no [vpl] and no RAYTRACER_VPL has
+// nothing to toggle. See TestToggleDoesNothingWhenNothingOptedIn.
 func TestToggleIsReversible(t *testing.T) {
+	t.Setenv("RAYTRACER_VPL", "8")
 	s := room()
 	before := len(s.Lights)
 

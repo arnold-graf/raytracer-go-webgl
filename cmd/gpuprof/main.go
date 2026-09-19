@@ -57,8 +57,6 @@ func main() {
 	quant := flag.Uint("quant", 1, "color mode: 0 = 8-bit dither, 1 = 15-bit, 2 = crush, 3 = raw, 4 = path-tracer grain")
 	depth := flag.Uint("depth", defaultBounceDepth, "max mirror/glass bounce depth (app uses 4; 0 = shader default of 2)")
 	clock := flag.Float64("time", 0, "animation clock in seconds (campfire sub-lights, flames, water ripples)")
-	livePTProbes := flag.Int("live-gi-pt", 0, "path-trace this many probes of the live near field each frame (0 = off)")
-	livePTDepth := flag.Uint("live-gi-pt-depth", 2, "path length for -live-gi-pt")
 	flag.Parse()
 
 	renderW, renderH := *width, *height
@@ -130,24 +128,6 @@ func main() {
 	}
 
 	buf := make([]byte, renderW*renderH*4)
-
-	if *livePTProbes > 0 {
-		ptr, err := webgpu.NewPathTracer(r, webgpu.PTOptions{
-			MaxDepth: uint32(*livePTDepth), RRDepth: 3, LightScale: math.Pi,
-			ClampIndirect: 12, LightSamples: 1, RISCandidates: 8,
-		})
-		if err != nil {
-			log.Fatalf("live GI path tracer: %v", err)
-		}
-		defer ptr.Release()
-		// A small fixed rate rather than a running mean: a live field has to
-		// follow the lighting, not average all of history.
-		livePT = func(cam *camera.Camera, view *render.View) {
-			if err := ptr.UpdateProbeField(cam, view, 0.05, uint32(*livePTProbes)); err != nil {
-				log.Fatalf("live GI probe update: %v", err)
-			}
-		}
-	}
 
 	fmt.Printf("GPU profile: %s  (%dx%d)  %s\n", *scenePath, renderW, renderH, camLabel)
 	fmt.Printf("  bounce depth %d, adaptive AA %v%s\n\n", *depth, *aa, appConfigNote(renderW, renderH, *depth, *aa))
@@ -246,24 +226,13 @@ func appConfigNote(w, h int, depth uint, aa bool) string {
 		defaultRenderW, defaultRenderH, defaultBounceDepth)
 }
 
-// livePT drives the path-traced probe update once per frame when -live-gi-pt
-// is set, for a live near field over a baked or absent far one. Nil otherwise,
-// and the cost of the hook is then a nil check.
-var livePT func(cam *camera.Camera, view *render.View)
-
 func bench(r *webgpu.Renderer, buf []byte, cam *camera.Camera, view *render.View, warmup, n int, profile bool) webgpu.FrameTiming {
 	r.SetProfiling(profile)
 	for i := 0; i < warmup; i++ {
-		if livePT != nil {
-			livePT(cam, view)
-		}
 		r.Render(buf, cam, view, 1)
 	}
 	var acc webgpu.FrameTiming
 	for i := 0; i < n; i++ {
-		if livePT != nil {
-			livePT(cam, view)
-		}
 		r.Render(buf, cam, view, 1)
 		t := r.LastTiming()
 		acc.Pack += t.Pack

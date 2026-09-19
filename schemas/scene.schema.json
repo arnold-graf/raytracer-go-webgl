@@ -111,12 +111,9 @@
         "$ref": "#/definitions/light"
       }
     },
-    "ambient_zone": {
-      "type": "array",
-      "description": "TOML [[ambient_zone]]. Per-region ambient cubes; see definitions/ambient_zone.",
-      "items": {
-        "$ref": "#/definitions/ambient_zone"
-      }
+    "vpl": {
+      "$ref": "#/definitions/vpl",
+      "description": "TOML [vpl]. Per-object virtual-point-light budget; see definitions/vpl."
     },
     "light_flickering": {
       "type": "array",
@@ -1416,6 +1413,11 @@
           "type": "boolean",
           "default": true,
           "description": "When false, this light softens on a separate screen-space penumbra channel at its own width, instead of mixing into the local (lamp/campfire) filter. Use for global sources (moon, distant sun) whose umbra would otherwise dominate nearby soft shadows. Omit or true to share the local channel."
+        },
+        "specular": {
+          "type": "boolean",
+          "default": true,
+          "description": "False excludes this light from specular highlights. It still lights surfaces diffusely and still casts shadows; it just grows no Blinn-Phong lobe. Use for a light that stands in for something broader than a point \u2014 a bounce, a fill, a sky or moon term \u2014 where a highlight would draw a small bright dot in place of a wide dim sheen."
         }
       },
       "required": [
@@ -2274,15 +2276,34 @@
       ],
       "description": "Screen-space blur applied to this surface's transmitted lobe, in the same angular units as `rough` (0 = off). Glass only. Frosts what is seen through the surface while leaving its reflections as sharp as `rough` makes them."
     },
-    "ambient_zone": {
+    "vpl": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "min",
-        "max"
+        "lights"
       ],
-      "description": "An axis-aligned region with its own ambient cube, replacing [environment].ambient_sky / ambient_ground inside it. Bake the six colours with cmd/ambientbake; enable at runtime with RAYTRACER_AMBIENT_ZONES=1.",
+      "description": "TOML [vpl]. A virtual-point-light budget scoped to this file's own volume, used when VPLs are enabled with RAYTRACER_VPL. Without it the budget is ranked across the whole scene, so the strongest bounces win every slot wherever they are; a region lets a building's own bounces compete only with each other. Placed on an object file it travels with the object, so each [[include]] of it becomes its own region with its own budget. Candidates are selected by where a photon LANDED, not by where its emitter sits, so a light outside the box still lights what it shines into. See docs/vpl.md.",
       "properties": {
+        "lights": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many VPLs this region keeps, ranked against each other. 0 disables the region."
+        },
+        "gain": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Bounce brightness inside the region; absolute, like RAYTRACER_VPL_GAIN. Omitted (or 0) inherits the generator default of 2*pi."
+        },
+        "reach": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Cap in metres on how far a VPL in this region carries. Omitted (or 0) inherits RAYTRACER_VPL_REACH. This is the cost knob: render cost scales with reach more than with count."
+        },
+        "shadow_levels": {
+          "type": "number",
+          "minimum": 0,
+          "description": "How many display levels a bounce light in this region must be worth before its shadow is traced. This is the cost knob: a shadow ray is what a light actually costs, and a bounce light's shadow is the detail it is least entitled to. 0 or omitted inherits RAYTRACER_VPL_SHADOW_LEVELS (default 16); a large value turns these shadows off. See docs/vpl.md."
+        },
         "min": {
           "type": "array",
           "items": {
@@ -2290,7 +2311,7 @@
           },
           "minItems": 3,
           "maxItems": 3,
-          "description": "Lower corner of the region, in world units."
+          "description": "Lower corner of the region, in this FILE's local coordinates; transformed by the [[include]] that places it. Omit min/max to use the AABB of the file's own geometry."
         },
         "max": {
           "type": "array",
@@ -2299,61 +2320,11 @@
           },
           "minItems": 3,
           "maxItems": 3,
-          "description": "Upper corner of the region, in world units."
+          "description": "Upper corner of the region, in this FILE's local coordinates. Omit min/max to use the AABB of the file's own geometry."
         },
-        "px": {
-          "type": "array",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 3,
-          "maxItems": 3,
-          "description": "Ambient radiance for surfaces facing +X."
-        },
-        "nx": {
-          "type": "array",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 3,
-          "maxItems": 3,
-          "description": "Ambient radiance for surfaces facing -X."
-        },
-        "py": {
-          "type": "array",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 3,
-          "maxItems": 3,
-          "description": "Ambient radiance for surfaces facing +Y (up)."
-        },
-        "ny": {
-          "type": "array",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 3,
-          "maxItems": 3,
-          "description": "Ambient radiance for surfaces facing -Y (down)."
-        },
-        "pz": {
-          "type": "array",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 3,
-          "maxItems": 3,
-          "description": "Ambient radiance for surfaces facing +Z."
-        },
-        "nz": {
-          "type": "array",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 3,
-          "maxItems": 3,
-          "description": "Ambient radiance for surfaces facing -Z."
+        "expand": {
+          "type": "number",
+          "description": "Grow the box by this many metres on every side. Bounce belonging to a room often lands just outside its shell (a porch, a step), and an exact box drops it into the global pool."
         }
       }
     }

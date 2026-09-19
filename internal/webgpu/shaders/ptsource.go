@@ -102,9 +102,9 @@ func runPTLink(shaderDir string) error {
 	cmd := exec.Command("sh", "link.sh")
 	cmd.Dir = filepath.Join(shaderDir, "pt")
 	// Both streams go to stderr. The linker's progress line is informational,
-	// and a tool whose stdout is data — cmd/ambientbake emits TOML there —
-	// otherwise gets "wrote pt_linked.wgsl" spliced into its output, which
-	// then fails to parse somewhere far away from the cause.
+	// and a tool whose stdout is data otherwise gets "wrote pt_linked.wgsl"
+	// spliced into its output, which then fails to parse somewhere far away
+	// from the cause.
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

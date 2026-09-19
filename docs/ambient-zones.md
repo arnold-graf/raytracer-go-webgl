@@ -1,5 +1,10 @@
 # Per-region ambient cubes
 
+> **Removed from the code (2026-09-18).** `[[ambient_zone]]`, `cmd/ambientbake`
+> and `RAYTRACER_AMBIENT_ZONES` are gone; no scene had adopted them. Kept as the
+> record of the approach and what it measured. See [vpl.md](vpl.md) for what
+> shipped instead.
+
 **Status:** shipped behind `RAYTRACER_AMBIENT_ZONES=1`, **off by default**. With
 the flag off the megakernel renders byte-identically to before the feature
 existed, verified by A/B against the pristine shader.

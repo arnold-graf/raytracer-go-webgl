@@ -98,6 +98,7 @@ A scene file is a single TOML document. These top-level keys are recognized
 | `[[light]]` | array | Point lights |
 | `[[light_flickering]]` | array | Animated flickering light cluster |
 | `[[sound]]` | array | Spatial ambient emitters |
+| `[vpl]` | table | Bounce-light budget for this file's volume (see [docs/vpl.md](docs/vpl.md)) |
 
 `[[name]]` is TOML's "array of tables": repeat the block to add more of that
 kind.
@@ -283,10 +284,19 @@ color = [8.0, 6.0, 4.0]  # per-channel intensity (HDR, can exceed 1)
 radius = 0.35            # informational (emitter size)
 range = 16.0            # cull distance: beyond it the light + its shadow ray are skipped (0 = infinite)
 brightness = 1.0        # scales color (folded in at load; default 1)
+specular = false        # optional: no specular highlight from this light (default true)
 ```
 `range` is the key performance/locality knob: a light with `range = 16` only
 affects geometry within 16 units, so interior lights vanish (with their shadow
 rays) once you walk outside.
+
+`specular = false` drops the light from specular highlights only. It still lights
+surfaces diffusely and still casts its shadow; it just grows no Blinn-Phong lobe.
+Use it for a light that stands in for something broader than a point — a bounce,
+a fill, a sky or moon term. A highlight is the mirror image of the source in the
+surface, so a point standing in for a wall's worth of light draws a small bright
+dot where there should be a wide dim sheen, and on anything shiny that dot is the
+most visible thing in the frame.
 
 ### Light flickering (animated cluster)
 ```toml

@@ -98,6 +98,31 @@ type Options struct {
 	// Dump, when set, writes the generated lights as a TOML fragment to this
 	// path — the handoff from "generated" to "authored".
 	Dump string
+
+	// ShadowLevels is how many display levels a VPL must be worth before its
+	// shadow is traced, overriding the shader's SHADOW_SKIP_LEVELS for these
+	// lights only. It is the cost knob that does not change how many lights
+	// there are.
+	//
+	// A shadow ray is what a light actually costs. Measured on the night villa
+	// interior at 1024x640, 48 VPLs per room took shadow rays from 576k to 2.85M
+	// a frame and the frame from 19.6 ms to 27.9 ms — and 99.8% of those rays
+	// came back blocked, so nearly all of that traversal bought the answer "this
+	// bounce does not reach here". Raising the bar concentrates the rays on the
+	// VPLs bright enough for their shadow to be visible.
+	//
+	// A large value effectively turns VPL shadows off. That is a defensible end
+	// of the range rather than an abuse of it: a VPL is a point standing in for
+	// a lit patch, and a patch's shadow is soft and weak — the detail the
+	// approximation is least entitled to.
+	ShadowLevels float64
+
+	// IgnoreRegions drops the scene's [vpl] regions and ranks the whole level
+	// against one global budget, which is what this package did before regions
+	// existed. It is the A/B switch: the case for a region is a measurement
+	// against the same scene without one, and that comparison needs to be
+	// available without editing the scene files.
+	IgnoreRegions bool
 }
 
 // DefaultOptions are what RAYTRACER_VPL=<n> selects with nothing else set.
@@ -120,36 +145,73 @@ func DefaultOptions() Options {
 		Reach:     24,
 		Cone:      170,
 		MinLevels: 1.0,
-		Seed:      0x9e3779b97f4a7c15,
+		// 16 is measured, not picked. On the villa hearth room at 1024x640 with
+		// 48 VPLs each, exact shadows cost 129.9 ms; at 16 levels 72.3 ms; with
+		// VPL shadows off entirely 59.1 ms against 53.1 ms for no VPLs at all.
+		// 16 keeps the mechanism adaptive — a bounce bright enough to matter
+		// still casts — for 6.5% more light in the room, where off is 9.2%.
+		ShadowLevels: 16,
+		Seed:         0x9e3779b97f4a7c15,
 	}
 }
 
-// FromEnv reads the options from the environment. ok is false when RAYTRACER_VPL
-// is unset or zero, which is the off switch.
+// FromEnv reads the options from the environment.
+//
+// Count is the **global** budget: what candidates landing in no [vpl] region
+// compete for. With RAYTRACER_VPL unset or zero it is 0, and the returned bool
+// is false — meaning the environment asked for no scene-wide bounce. It does
+// not mean nothing will be generated: a scene whose objects declare [vpl]
+// regions still gets those, because an authored budget is scene data and not a
+// debug flag. See optionsFor.
+//
+// Every other knob is read either way, so an author can retune a region's
+// generation without switching a global budget on to do it.
 func FromEnv() (Options, bool) {
-	raw := strings.TrimSpace(os.Getenv("RAYTRACER_VPL"))
-	if raw == "" {
-		return Options{}, false
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		return Options{}, false
-	}
 	o := DefaultOptions()
-	o.Count = n
+	o.Count = 0
+	global := false
+	if raw := strings.TrimSpace(os.Getenv("RAYTRACER_VPL")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			o.Count, global = n, true
+		}
+	}
 	envInt("RAYTRACER_VPL_RAYS", &o.Rays)
 	envFloat("RAYTRACER_VPL_GAIN", &o.Gain)
 	envFloat("RAYTRACER_VPL_RADIUS", &o.Radius)
 	envFloat("RAYTRACER_VPL_REACH", &o.Reach)
 	envFloat("RAYTRACER_VPL_CONE", &o.Cone)
 	envFloat("RAYTRACER_VPL_MIN_LEVELS", &o.MinLevels)
+	envFloat("RAYTRACER_VPL_SHADOW_LEVELS", &o.ShadowLevels)
 	if s := os.Getenv("RAYTRACER_VPL_SEED"); s != "" {
 		if v, err := strconv.ParseUint(s, 10, 64); err == nil {
 			o.Seed = v
 		}
 	}
 	o.Dump = os.Getenv("RAYTRACER_VPL_DUMP")
-	return o, true
+	if v := strings.TrimSpace(os.Getenv("RAYTRACER_VPL_REGIONS")); v == "0" || v == "false" {
+		o.IgnoreRegions = true
+	}
+	return o, global
+}
+
+// optionsFor resolves what to generate for one scene: the environment's options,
+// plus whether there is any work to do at all.
+//
+// There is work when the environment asked for a global budget, or when the
+// scene's own objects declare [vpl] regions. That second clause is the whole
+// point of an authored region — a building that says it wants twenty-four bounce
+// lights is describing itself, the same way it describes its walls, and it
+// should not need a launch flag to be lit. RAYTRACER_VPL then controls only the
+// scene-wide leftover pool.
+//
+// RAYTRACER_VPL_REGIONS=0 drops the regions, so with it set and no global count
+// this reports no work: that pair is the complete off switch.
+func optionsFor(s *scene.Scene) (Options, bool) {
+	o, global := FromEnv()
+	if global {
+		return o, true
+	}
+	return o, len(validRegions(s, o)) > 0
 }
 
 func envInt(name string, dst *int) {
@@ -172,12 +234,15 @@ func envFloat(name string, dst *float64) {
 // at all otherwise. It is called once at the end of scene load, so every
 // consumer — the app, gpuprof, the path tracer — sees the same scene.
 func Inject(s *scene.Scene) {
-	o, ok := FromEnv()
-	if !ok || s == nil {
+	if s == nil {
+		return
+	}
+	o, ok := optionsFor(s)
+	if !ok {
 		return
 	}
 	start := time.Now()
-	added := Generate(s, o)
+	added, stats := generate(s, o)
 	took := time.Since(start)
 	if len(added) == 0 {
 		log.Printf("vpl: no bounce found (no emitter reaches a diffuse surface)")
@@ -197,6 +262,13 @@ func Inject(s *scene.Scene) {
 	register(s, added, base)
 	log.Printf("vpl: %d virtual lights in %s (%d rays/emitter, gain %.2f, reach %.0f m)",
 		len(added), took.Round(time.Millisecond), o.Rays, o.Gain, o.Reach)
+	// One line per region. A region whose box misses the room it meant to cover
+	// shows up here as candidates 0 — which is otherwise invisible, because the
+	// scene still renders, just without the bounce the author asked for.
+	for _, st := range stats {
+		log.Printf("vpl:   %-28s %2d/%-2d lights from %d candidates",
+			st.label, st.kept, st.budget, st.cands)
+	}
 }
 
 // emitter is one photon source: a scene light, or one of a campfire's
@@ -218,26 +290,153 @@ type emitter struct {
 // Generate traces the scene's first bounce and returns the VPLs standing in for
 // it. It does not modify s.
 func Generate(s *scene.Scene, o Options) []scene.Light {
-	if s == nil || o.Count <= 0 || o.Rays <= 0 {
-		return nil
+	lights, _ := generate(s, o)
+	return lights
+}
+
+// generate is Generate that also reports the per-region split, for logging.
+func generate(s *scene.Scene, o Options) ([]scene.Light, []regionStat) {
+	if s == nil || o.Rays <= 0 {
+		return nil, nil
+	}
+	// A global budget, a region, or both. With neither there is nothing to
+	// rank and the photon trace would be wasted work.
+	regions := validRegions(s, o)
+	if o.Count <= 0 && len(regions) == 0 {
+		return nil, nil
 	}
 	ems := collectEmitters(s)
 	if len(ems) == 0 {
-		return nil
+		return nil, nil
 	}
 	accel := bvh.New(s)
 	aim := newAimer(s, accel)
 	rng := &pcg{state: o.Seed | 1}
-
 	var cands []candidate
 	for i := range ems {
 		cands = append(cands, shoot(s, accel, &ems[i], aim, o, rng)...)
 	}
 	if len(cands) == 0 {
+		return nil, nil
+	}
+	return generateByRegion(cands, regions, o)
+}
+
+// regionStat is one line of the generator's report: what a region asked for and
+// what it got. Returned so Inject can log the split, which is the only way an
+// author can tell a region that is working from one whose box misses the room.
+type regionStat struct {
+	label  string
+	budget int
+	cands  int
+	kept   int
+}
+
+// validRegions returns the scene's usable VPL regions, smallest first.
+//
+// Smallest first is what makes overlap sane: assignment takes the first region
+// that contains the point, so a box drawn around one hall wins over the box
+// around the villa that contains it. Without an order the result would depend
+// on include order, which is not something an author should have to reason
+// about.
+func validRegions(s *scene.Scene, o Options) []scene.VPLRegion {
+	if o.IgnoreRegions {
 		return nil
 	}
-	clusters := cluster(cands, o.Count, o.Reach)
-	return toLights(clusters, o)
+	var out []scene.VPLRegion
+	for _, r := range s.VPLRegions {
+		if r.Valid() {
+			out = append(out, r)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Volume() < out[j].Volume() })
+	return out
+}
+
+// generateByRegion is the per-region budget: every candidate is assigned to the
+// region it landed in, and each region clusters and ranks only its own.
+//
+// The problem it solves is that a global power ranking is not a ranking of
+// usefulness. Measured on the night villa at Count 24, eleven slots went to a
+// mountain campfire 160 m away and 80 m up, four to the second villa, and the
+// apartment got none at any count — so getting 24 lights into the room you are
+// standing in meant paying for about 80. Ranking inside a box makes a slot cost
+// what it is worth locally.
+//
+// **Assignment is by where the photon landed, never by where its emitter was.**
+// A campfire in the garden is traced exactly as before; the bounce it leaves on
+// the hall floor is inside the hall's box, so the hall's budget pays for it and
+// the hall gets lit. A region can move a slot between pools. It cannot remove an
+// emitter from the trace, and so cannot delete light that would otherwise exist.
+func generateByRegion(cands []candidate, regions []scene.VPLRegion, o Options) ([]scene.Light, []regionStat) {
+	if len(regions) == 0 {
+		if o.Count <= 0 {
+			return nil, nil
+		}
+		return toLights(cluster(cands, o.Count, o.Reach), o), nil
+	}
+	buckets := make([][]candidate, len(regions))
+	var rest []candidate
+	for _, c := range cands {
+		if i := regionFor(regions, c.pos); i >= 0 {
+			buckets[i] = append(buckets[i], c)
+			continue
+		}
+		rest = append(rest, c)
+	}
+
+	var out []scene.Light
+	stats := make([]regionStat, 0, len(regions)+1)
+	for i := range regions {
+		ro := o.forRegion(regions[i])
+		got := toLights(cluster(buckets[i], ro.Count, ro.Reach), ro)
+		out = append(out, got...)
+		stats = append(stats, regionStat{
+			label: regions[i].Label, budget: ro.Count, cands: len(buckets[i]), kept: len(got),
+		})
+	}
+	// Everything outside every region competes for the scene-wide count, so
+	// declaring a region narrows where the global budget goes without switching
+	// the rest of the level off. With no global budget asked for, the leftovers
+	// are simply not placed: an unflagged launch gets exactly the lights the
+	// scene's objects authored, and nothing scattered across the rest of the
+	// level. Skipped rather than clustered to zero, because clustering a few
+	// thousand leftover candidates to keep none of them is pure waste.
+	if o.Count > 0 {
+		got := toLights(cluster(rest, o.Count, o.Reach), o)
+		out = append(out, got...)
+		stats = append(stats, regionStat{label: "(scene)", budget: o.Count, cands: len(rest), kept: len(got)})
+	}
+	return out, stats
+}
+
+// regionFor returns the index of the first region containing p, or -1. regions
+// must be sorted smallest-first; see validRegions.
+func regionFor(regions []scene.VPLRegion, p vec.V) int {
+	for i := range regions {
+		if regions[i].Contains(p) {
+			return i
+		}
+	}
+	return -1
+}
+
+// forRegion overlays a region's overrides on the generator's options. An unset
+// (zero) override inherits, so `[vpl] lights = 24` alone changes only the budget
+// and leaves the calibrated gain and reach exactly where they were.
+func (o Options) forRegion(r scene.VPLRegion) Options {
+	ro := o
+	ro.Count = r.Lights
+	if r.Gain > 0 {
+		ro.Gain = r.Gain
+	}
+	if r.Reach > 0 {
+		ro.Reach = r.Reach
+	}
+	if r.ShadowLevels > 0 {
+		ro.ShadowLevels = r.ShadowLevels
+	}
+	return ro
 }
 
 // collectEmitters lists every photon source, with the same falloff window the
@@ -306,7 +505,13 @@ func shoot(s *scene.Scene, accel *bvh.BVH, e *emitter, aim aimer, o Options, rng
 	// emitter contributes does not depend on how finely it was sampled. The
 	// aiming solid angle rides in the same factor: a photon fired into a narrow
 	// cone stands for proportionally less of the sphere.
-	scale := o.Gain / float64(o.Rays)
+	//
+	// Gain is deliberately *not* folded in here. It is applied in toLights, so
+	// that a region declaring its own gain scales exactly its own candidates —
+	// a candidate cannot know which region will claim it until it has landed.
+	// Ranking is unaffected either way: gain is one positive constant across a
+	// pool, and every comparison in clustering is within a pool.
+	scale := 1 / float64(o.Rays)
 	for i := 0; i < o.Rays; i++ {
 		var dir vec.V
 		w := scale
@@ -510,6 +715,10 @@ func toLights(cs []candidate, o Options) []scene.Light {
 	sort.SliceStable(cs, func(i, j int) bool { return cs[i].power > cs[j].power })
 	out := make([]scene.Light, 0, len(cs))
 	for _, c := range cs {
+		// Gain lands here rather than in shoot so that a region's own gain
+		// applies to exactly the candidates that region kept.
+		col := c.color.Scale(o.Gain)
+		pw := c.power * o.Gain
 		// What this VPL is worth against black, in display levels, judged at half
 		// its reach rather than point blank.
 		//
@@ -523,7 +732,7 @@ func toLights(cs []candidate, o Options) []scene.Light {
 		if d <= 0 {
 			d = 6
 		}
-		if displayLevels(c.power*lightAtten(d*d)) < o.MinLevels {
+		if displayLevels(pw*lightAtten(d*d)) < o.MinLevels {
 			continue
 		}
 		l := scene.Light{
@@ -531,9 +740,11 @@ func toLights(cs []candidate, o Options) []scene.Light {
 			// exactly on the geometry and every shadow ray toward it starts by
 			// hitting that geometry.
 			Pos:    c.pos.Add(c.normal.Scale(0.05)),
-			Color:  c.color,
+			Color:  col,
 			Radius: o.Radius,
 			Range:  vplReach(c.reach, o.Reach),
+			// What this bounce must be worth before it pays for a shadow ray.
+			ShadowLevels: o.ShadowLevels,
 		}
 		if o.Cone > 0 && o.Cone < 180 {
 			l.Dir = c.normal

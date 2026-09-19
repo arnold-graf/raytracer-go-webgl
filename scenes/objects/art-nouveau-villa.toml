@@ -17,6 +17,25 @@
 #
 # Plaster ~ cream, stone base, dark tile roofs, dark wood window frames.
 
+# Bounce-light budget for this building (see docs/vpl.md).
+#
+# Without it the budget is ranked scene-wide, and on the night villa that sends
+# eleven of twenty-four slots to a campfire on the mountain 160 m away. This
+# claims `lights` of them for the villa's own volume, ranked against each other,
+# so the budget lands in the rooms instead of on the skyline.
+#
+# These are generated whether or not RAYTRACER_VPL is set: an authored budget is
+# scene data, and RAYTRACER_VPL only sets the scene-wide pool for bounce landing
+# outside every region. The villa is included twice, so this is per building.
+#
+# The box is this file's geometry, grown by `expand` so bounce landing on the
+# porch and entrance steps counts as the villa's. Selection is by where a photon
+# landed, not where its emitter is: the campfire out in the garden still lights
+# the entrance hall, because the bounce it leaves on the hall floor is in here.
+# [vpl]
+# lights = 48
+# expand = 2.0
+
 # Flatten the ground under the house. Parent scenes declare [[terrain.pad]] on
 # their [[terrain]] table (absolute fixed elevation for valley sites, relative
 # level for raised sites on hills). The stub [[terrain]] header exists only so
@@ -245,13 +264,13 @@ knob_y = 1
 # Hand-placed fake bounce: red fill standing in for the hearth's light spilling
 # into the hall. Commented out to compare against generated VPLs
 # (RAYTRACER_VPL); see docs/vpl.md.
-# [[light_flickering]]
-# center = [-1.1, 3, 5]
-# brightness = 0.04
-# radius = 2
-# lights = 1
-# range = 10
-# color = [1, 0, 0]
+[[light_flickering]]
+center = [-1.1, 3, 5.5]
+brightness = 0.06
+radius = 5
+lights = 1
+range = 10
+color = [0.6, 0.22, 0.14]
 
 [[box]] # projecting bay side (left)
 albedo = [0.94, 0.93, 0.90]
@@ -749,29 +768,36 @@ flicker = 0.1
 lights = 1
 albedo = [0.6, 0.22, 0.14]
 
-# Hand-placed fake bounce: the red wash the fire throws onto the room in front
+# Hand-placed fake bounces: the red wash the fire throws onto the room in front
 # of it. Commented out to compare against generated VPLs (RAYTRACER_VPL).
-[[light]]
-pos = [-5, 1.5, 2.35]
+[[light_flickering]]
+center = [-5, 1.5, 2.35]
 brightness = 0.4
 radius = 4
+lights = 1
+speed = 0.5
+flicker = 0.15
 range = 30
 color = [1.2, 0.1, 0]
+# under stairs
+[[light]]
+pos = [-1, 1.5, -4]
+specular = false
+brightness = 0.2
+cone_angle = 180
+dir = [0, 1, 0]
+radius = 6
+range = 20
+color = [1.2, 0.1, 0]
 
-# [[light_flickering]] # open fire in the hearth
-# brightness = 0.35
-# center = [-6.35, 1.55, 2.35]
-# color = [5.0, 2.2, 0.8]
-# lights = 3
-# speed = 0.5
-# flicker = 0.6
-# range = 14.0
-
-# [[sphere]] # fire glow (visible embers)
-# albedo = [4.0, 1.6, 0.5]
-# center = [-6.35, 1.7, 2.35]
-# material = "emit"
-# radius = 0.25
+[[include]]
+file = "comfy-couch.toml"
+at = [6, 1.3, 0]
+transform_origin = [0,0,0]
+rotate_y = 90
+[include.props]
+seat_count = 4
+width = 5
 
 # ---- staircase to second floor (10 × 0.45 m rise = 4.5 m) ----
 

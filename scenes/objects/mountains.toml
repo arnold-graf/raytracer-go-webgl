@@ -67,7 +67,12 @@
 file = "campfire.toml"
 at = [50.0, 0, -55.0]
 follow_terrain = true
-props = { brightness = 2.0, range = 50.0, flicker = 0.75, speed = 1.0 }
+[include.props]
+brightness = 1.5
+lights = 3
+range = 50.0
+flicker = 0.75
+speed = 1.0
 
 [[include]]
 file = "exit-button.toml"

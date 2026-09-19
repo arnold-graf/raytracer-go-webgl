@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"raytracer/internal/camera"
-	"raytracer/internal/gibake"
 	"raytracer/internal/gpuscene"
 	"raytracer/internal/render"
 	"raytracer/internal/scene"
@@ -27,7 +26,7 @@ import (
 const (
 	fovScale = 0.5773502691896257 // tan(60deg / 2)
 	// WGSL Params size; must match trace_linked.wgsl (struct is padded to 16-byte alignment).
-	paramsSize   = 592
+	paramsSize   = 416
 	aaHitStride  = 4  // packed u32 fingerprint per pixel
 	hdrPixStride = 16 // vec4<f32> per pixel
 	// aa_dispatch: [workgroup_count_x, 1, 1, task_count].
@@ -73,24 +72,22 @@ type Renderer struct {
 	device   *wgpu.Device
 	queue    *wgpu.Queue
 
-	params         *wgpu.Buffer
-	prims          *wgpu.Buffer
-	blockers       *wgpu.Buffer
-	lights         *wgpu.Buffer
-	bvhNodes       *wgpu.Buffer
-	terrains       *wgpu.Buffer
-	samples        *wgpu.Buffer
-	terrFeat       *wgpu.Buffer
-	terrPads       *wgpu.Buffer
-	terrZones      *wgpu.Buffer
-	terrZVerts     *wgpu.Buffer
-	terrMips       *wgpu.Buffer
-	waters         *wgpu.Buffer
-	perm           *wgpu.Buffer
-	aoVolume       *wgpu.Buffer
-	giVolumeFloats uint64
-	// The probe field. Everything about it is inert when GI is off.
-	giVolume
+	params             *wgpu.Buffer
+	prims              *wgpu.Buffer
+	blockers           *wgpu.Buffer
+	lights             *wgpu.Buffer
+	bvhNodes           *wgpu.Buffer
+	terrains           *wgpu.Buffer
+	samples            *wgpu.Buffer
+	terrFeat           *wgpu.Buffer
+	terrPads           *wgpu.Buffer
+	terrZones          *wgpu.Buffer
+	terrZVerts         *wgpu.Buffer
+	terrMips           *wgpu.Buffer
+	waters             *wgpu.Buffer
+	perm               *wgpu.Buffer
+	aoVolume           *wgpu.Buffer
+	aoVolumeFloats     uint64
 	campfires          *wgpu.Buffer
 	holes              *wgpu.Buffer
 	captures           *wgpu.Buffer
@@ -117,7 +114,6 @@ type Renderer struct {
 	reflFillPipeline   *wgpu.ComputePipeline
 	reflBlurH          *wgpu.ComputePipeline
 	reflBlurV          *wgpu.ComputePipeline
-	giProbePipeline    *wgpu.ComputePipeline
 	bind               *wgpu.BindGroup
 
 	// Scene-specialized shader. The tracer is one megakernel whose register
@@ -359,48 +355,11 @@ func (r *Renderer) init() error {
 	if err != nil {
 		return fmt.Errorf("create perm buffer: %w", err)
 	}
-	// A baked volume is sized by the scene it was baked for, so the buffer
-	// has to be too. Read the header before allocating; without a bake this
-	// is exactly the size it always was.
-	// Only as large as what is actually in use. With GI off the probe regions
-	// are never read or written, and reserving 76 MB for them on every scene
-	// that will not touch them is a cost the feature has no business imposing.
-	r.giVolumeFloats = uint64(gpuscene.AOVolumeFloats)
-	if liveGIEnabled() {
-		r.giVolumeFloats = uint64(gpuscene.GIVolumeTotalFloats)
-	}
-	// One u32 per fine-cascade slot, for the cell each currently stands for.
-	if liveGIEnabled() {
-		r.giFineKeyBase = r.giVolumeFloats
-		r.giVolumeFloats += uint64(giFineMaxProbes)
-	}
-	if path := bakedGIPath(); path != "" {
-		vol, err := gibake.Read(path)
-		if err != nil {
-			return fmt.Errorf("load baked GI volume: %w", err)
-		}
-		need := (uint64(gpuscene.AOVolumeFloats) + uint64(len(vol.Probes)) +
-			uint64(giFineMaxProbes)*uint64(gpuscene.GIProbeFloats) +
-			uint64(len(vol.Index)) + uint64(len(vol.Cells))) * 4
-		if cap := uint64(r.adapter.GetLimits().Limits.MaxStorageBufferBindingSize); need > cap {
-			return fmt.Errorf("baked GI volume %s needs a %.0f MB storage buffer but this device caps one at %.0f MB; "+
-				"rebake with a larger -spacing or a smaller -radius", path, float64(need)/1e6, float64(cap)/1e6)
-		}
-		r.baked = vol
-		// The live fine cascade needs a region of its own after the bake's, so
-		// a near field can be traced on top of a baked far one without the two
-		// writing over each other.
-		r.bakedFineBase = uint64(gpuscene.AOVolumeFloats) + uint64(len(vol.Probes))
-		r.bakedIndexBase = r.bakedFineBase + uint64(giFineMaxProbes)*uint64(gpuscene.GIProbeFloats)
-		r.bakedCellBase = r.bakedIndexBase + uint64(len(vol.Index))
-		r.giVolumeFloats = r.bakedCellBase + uint64(len(vol.Cells))
-		r.giFineKeyBase = r.giVolumeFloats
-		r.giVolumeFloats += uint64(giFineMaxProbes)
-	}
+	r.aoVolumeFloats = uint64(gpuscene.AOVolumeFloats)
 	r.aoVolume, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "ao volume",
 		Usage: wgpu.BufferUsage_Storage | wgpu.BufferUsage_CopyDst | wgpu.BufferUsage_CopySrc,
-		Size:  r.giVolumeFloats * 4,
+		Size:  r.aoVolumeFloats * 4,
 	})
 	if err != nil {
 		return fmt.Errorf("create ao volume buffer: %w", err)
@@ -682,7 +641,7 @@ func (r *Renderer) init() error {
 			{Binding: 7, Buffer: r.samples, Size: maxTerrainVals * 16},
 			{Binding: 8, Buffer: r.waters, Size: maxWaters * waterStride},
 			{Binding: 9, Buffer: r.perm, Size: permCount * 4},
-			{Binding: 10, Buffer: r.aoVolume, Size: r.giVolumeFloats * 4},
+			{Binding: 10, Buffer: r.aoVolume, Size: r.aoVolumeFloats * 4},
 			{Binding: 11, Buffer: r.campfires, Size: maxCampfires * campfireStride},
 			{Binding: 12, Buffer: r.holes, Size: maxHoles * holeStride},
 			{Binding: 13, Buffer: r.captures, Size: r.captureBytes},
@@ -721,9 +680,6 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 	if cam == nil {
 		return
 	}
-	// Refresh a slice of the near field before the frame that samples it.
-	// A no-op unless RAYTRACER_LIVE_GI_PT is set.
-	r.driveLiveGI(cam, v)
 	packStart := time.Now()
 	rp := r.buildRenderParams(v)
 	r.timing = FrameTiming{
@@ -802,9 +758,6 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		bodyCosRadius float32
 		bodyGlow      float32
 		ambientSky    vec.V
-		ambientZones  []uint32
-		gi            giGrid
-		giMode        uint32
 		ambientGround vec.V
 	)
 	if v != nil && v.Scene != nil {
@@ -826,34 +779,6 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		aoEnabled = v.AO
 		sky = v.Scene.Env.Sky
 		ambientSky, ambientGround = packSceneAmbient(v.Scene.Env)
-		if ambientZonesEnabled() {
-			ambientZones = packAmbientZones(v.Scene.AmbientZones)
-		}
-		if r.baked != nil {
-			// A baked volume supersedes the cascades: one static grid over
-			// the whole scene, so nothing follows the camera and nothing is
-			// culled.
-			gi = giGrid{
-				Min:  r.baked.Min,
-				Inv:  1 / r.baked.Spacing,
-				Cell: r.baked.Spacing,
-				Dim:  r.baked.Dim,
-			}
-			giMode = 3
-		} else if liveGIEnabled() {
-			// Mode 3 spans the scene instead of following the camera. The AO
-			// volume's bounds are the right box: probe.BakeAO already sizes
-			// them to the geometry that has crevices, which excludes the one
-			// stray primitive that makes the villa's raw bounds 2,205 units
-			// tall. Without a bake there is nothing to take bounds from, so
-			// the grid falls back to following the viewer.
-			ao := aoBoundsSource{min: v.AOData.Min, cell: v.AOData.Cell,
-				nx: v.AOData.NX, ny: v.AOData.NY, nz: v.AOData.NZ, present: v.AOok}
-			if mn, mx, ok := giBounds(v.GIMin, v.GIMax, v.GIBoundsOK, ao); ok {
-				gi = buildGIProbeGrid(mn, mx)
-				giMode = 3
-			}
-		}
 		if env := v.Scene.Env; env.Sun.Visible() && env.SunDir != (vec.V{}) {
 			bodyEnabled = true
 			bodyDir = env.SunDir.Scale(-1).Normalize()
@@ -864,11 +789,6 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		}
 	}
 	c := &r.cache
-	if ambientZones == nil {
-		// One zero word still has to reach the GPU, so the shader reads a
-		// count of zero rather than whatever the last scene left behind.
-		ambientZones = []uint32{0}
-	}
 	rp := renderParams{
 		prims: c.prims, blockers: c.blockers, lights: c.lights, lightGrid: c.lightGrid,
 		planeIdx: c.planeIdx, blockerPlaneIdx: c.blockerPlaneIdx,
@@ -887,20 +807,11 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
 		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
 		ambientSky: ambientSky, ambientGround: ambientGround,
-		ambientZones: ambientZones,
-		gi:           gi,
-		giMode:       giMode,
 		uploadStatic: uploadStatic, uploadPartial: uploadPartial,
 		uploadLights:        c.lightsDirty,
 		uploadCampfires:     c.campfiresDirty,
 		partialPrimSpans:    c.partialPrimSpans,
 		partialBlockerSpans: c.partialBlockerSpans,
-	}
-	if giMode != 0 {
-		r.giSchedule(&rp, gi)
-	}
-	if groups := (giCellsOf(rp) + giProbesPerWorkgroup - 1) / giProbesPerWorkgroup; groups > 0 {
-		rp.probeDispatchW = min32(groups, probeDispatchWidth)
 	}
 	if v != nil {
 		rp.colorQuant = v.ColorQuant
@@ -1247,14 +1158,6 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 		reflFillPipeline.Release()
 		return fmt.Errorf("create reflection blur h pipeline: %w", err)
 	}
-	giProbePipeline, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
-		Label:   "gi probe update pipeline",
-		Layout:  r.pipeLayout,
-		Compute: wgpu.ProgrammableStageDescriptor{Module: shader, EntryPoint: "gi_probe_update"},
-	})
-	if err != nil {
-		return fmt.Errorf("create gi probe pipeline: %w", err)
-	}
 
 	reflBlurV, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
 		Label:   "reflection blur pipeline (vertical)",
@@ -1306,7 +1209,6 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 	}
 	r.reflFillPipeline = reflFillPipeline
 	r.reflBlurH, r.reflBlurV = reflBlurH, reflBlurV
-	r.giProbePipeline = giProbePipeline
 	r.pipeline, r.aaClassifyPipeline, r.aaPipeline = pipeline, aaClassifyPipeline, aaPipeline
 	r.shadowRadiusH, r.shadowRadiusV = shadowRadiusH, shadowRadiusV
 	r.shadowPipelineH, r.shadowPipelineV = shadowPipelineH, shadowPipelineV
@@ -1387,42 +1289,6 @@ type renderParams struct {
 	reflNoRefl     bool
 	reflNoRefr     bool
 	profileEnabled bool
-	// ambientZones is the packed per-region ambient cube table, empty when the
-	// feature is off or the scene declares none.
-	ambientZones []uint32
-	// gi is the live GI grid transform; giEnabled gates the whole feature.
-	gi giGrid
-	// Probe schedule for mode 3: the first probe to refresh this frame, how
-	// many, and the seed that rotates the ray directions.
-	// gi is the coarse, scene-anchored cascade; giFine is filled in by
-	// paramsBytes because it follows the camera.
-	giFine      giGrid
-	probeBase   uint32
-	probeCount  uint32
-	probeSeed   uint32
-	probeBase2  uint32
-	probeCount2 uint32
-	// Baked volume (mode 4): its grid, where its index grid and slot->cell
-	// list sit inside ao_volume, how many probes it has, and the blend rate
-	// the baker drives while it converges.
-	// giNearLive marks that something is filling the fine cascade on top of a
-	// loaded bake, so the read blends the two instead of taking the bake whole.
-	giNearLive uint32
-	// giFineBase is where the fine cascade's probes start in ao_volume. Its
-	// own region when a bake is loaded, GI_PROBE_BASE otherwise.
-	giFineBase uint32
-	// giFineKeyBase locates the fine cascade's per-slot cell keys.
-	giFineKeyBase uint32
-	bake          giGrid
-	bakeIndexBase uint32
-	bakeCellBase  uint32
-	bakeProbes    uint32
-	bakeBlend     float32
-	// Width of the 2D workgroup grid the probe pass is dispatched over.
-	probeDispatchW uint32
-	// giMode: 0 off, 1 the volume grid alone, 2 the grid over the bake,
-	// 3 traced probes.
-	giMode uint32
 	// uploadStatic is set when the cached scene buffers changed this frame and
 	// must be re-sent to the GPU. When false, render() uploads only the per-frame
 	// params; the static SSBOs already hold the right data.
@@ -1555,12 +1421,6 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 				return err
 			}
 		}
-		// Always written, including the single zero count word that turns the
-		// feature off: otherwise a scene loaded after one with zones would read
-		// the previous scene's table.
-		if err := r.queue.WriteBuffer(r.idxTables, idxTablesAmbientBase*4, u32Bytes(p.ambientZones)); err != nil {
-			return err
-		}
 		// Upload whenever the cache holds an AO volume, independent of the runtime
 		// AO toggle: the toggle only gates the shader's sampling (the aoOK uniform
 		// in paramsBytes), so flipping it on later needs no re-pack/re-upload.
@@ -1568,9 +1428,6 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 			if err := r.queue.WriteBuffer(r.aoVolume, 0, floatBytes(p.ao.Data)); err != nil {
 				return err
 			}
-		}
-		if err := r.uploadBakedGI(); err != nil {
-			return err
 		}
 	} else if p.uploadPartial {
 		for _, span := range p.partialPrimSpans {
@@ -1635,7 +1492,7 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 // submitTrace encodes and submits one compute dispatch, copying the rendered
 // output (and, when profiling, the atomic counters) into dst. It does not wait
 // on the GPU; the returned submission index lets the caller poll for it later.
-func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveAA, softShadows, reflFilter, reflHalf bool, giCells uint32) (wgpu.SubmissionIndex, error) {
+func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveAA, softShadows, reflFilter, reflHalf bool) (wgpu.SubmissionIndex, error) {
 	if adaptiveAA {
 		// Empty task list, and an indirect header that dispatches nothing if
 		// aa_classify finds no edges at all.
@@ -1655,25 +1512,6 @@ func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveA
 	gx := uint32((fw + workgroupXY - 1) / workgroupXY)
 	gy := uint32((fh + workgroupXY - 1) / workgroupXY)
 	pass.DispatchWorkgroups(gx, gy, 1)
-	if giCells > 0 {
-		// After main, which injected this frame's surface radiance.
-		// Consecutive dispatches in one pass see each other's stores, and the
-		// field this produces is read by the *next* frame — the solver is
-		// amortised over time by design.
-		//
-		// Mode 3 traces instead of gathering, and refreshes only a slice of
-		// the grid per frame, so giCells is a probe budget rather than the
-		// whole grid.
-		// Each workgroup carries giProbesPerWorkgroup probes, over a 2D grid:
-		// one dimension caps at 65,535 and a bake can want more.
-		pass.SetPipeline(r.giProbePipeline)
-		groups := (giCells + giProbesPerWorkgroup - 1) / giProbesPerWorkgroup
-		w := min32(groups, probeDispatchWidth)
-		if w == 0 {
-			w = 1
-		}
-		pass.DispatchWorkgroups(w, (groups+w-1)/w, 1)
-	}
 	if reflFilter {
 		// Same pass as main, before everything downstream: the glossy lobe is
 		// missing from hdr_pixels until refl_blur_v adds it back, and both the
@@ -1816,7 +1654,7 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 		return err
 	}
 	gpuStart := time.Now()
-	sub, err := r.submitTrace(r.read, fw, fh, p.profileEnabled, p.adaptiveAA, p.softShadows, p.reflFilter, p.reflHalf, giCellsOf(p))
+	sub, err := r.submitTrace(r.read, fw, fh, p.profileEnabled, p.adaptiveAA, p.softShadows, p.reflFilter, p.reflHalf)
 	if err != nil {
 		return err
 	}
@@ -1855,7 +1693,7 @@ func (r *Renderer) renderPipelined(buf []byte, cam *camera.Camera, p renderParam
 	size := uint64(r.w * r.h * 4)
 	curSlot := r.pipeParity
 
-	sub, err := r.submitTrace(r.reads[curSlot], r.w, r.h, p.profileEnabled, p.adaptiveAA, p.softShadows, p.reflFilter, p.reflHalf, giCellsOf(p))
+	sub, err := r.submitTrace(r.reads[curSlot], r.w, r.h, p.profileEnabled, p.adaptiveAA, p.softShadows, p.reflFilter, p.reflHalf)
 	if err != nil {
 		return err
 	}
@@ -2054,14 +1892,6 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	putU32(out[400:404], idxTablesBlockerPlaneBase)
 	putU32(out[404:408], idxTablesLightGridBase)
 	putU32(out[408:412], p.lightGrid.wideCount())
-	putU32(out[412:416], idxTablesAmbientBase)
-	// Live GI grid: world->cell transform, dimensions and the enable bit.
-	// The origin is recomputed here rather than in buildRenderParams because
-	// it tracks the camera, which that function does not see.
-	// The probe field's share of the block, including the grid that follows
-	// the camera — recomputed here because it is the first place the camera
-	// is known.
-	giParams(out[:], p, buildGIFineGrid(cam.Pos, fwd))
 	return out
 }
 
@@ -2199,10 +2029,6 @@ func (r *Renderer) Release() {
 	}
 	if r.campfires != nil {
 		r.campfires.Release()
-	}
-	if r.livePT != nil {
-		r.livePT.Release()
-		r.livePT = nil
 	}
 	if r.aoVolume != nil {
 		r.aoVolume.Release()

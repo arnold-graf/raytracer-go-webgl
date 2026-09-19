@@ -1,5 +1,12 @@
 # Splitting Reflection Transport Out of the Megakernel
 
+> **Removed from the code (2026-09-18).** The live probe field, the DDGI
+> cascades, the baked volume and their tools (`cmd/probebake`, `cmd/ptlive`,
+> `internal/gibake`, `shaders/modules/gi.wesl`) are gone. Nothing here ships any
+> more; virtual point lights are the GI that remained — see [vpl.md](vpl.md).
+> This file is kept because what it measured is why, and every reason it gives
+> still applies to anything that would replace it.
+
 **Status:** closed. Both halves built, measured and reverted — glossy first,
 then glass. Neither pays, and the two results together explain why no lobe can.
 **Audience:** whoever picks up the remaining reflection cost on office-sunset.
