@@ -517,6 +517,16 @@ If register occupancy is ever the target, the traversal loop is the only place t
 look. If frame time is the target, scratch is still the richer seam, and it is
 still measured the old way.
 
+**And the traversal is a plateau, not a hot spot.** Bisecting it further — by
+stripping and adding back, because single ablation cannot find the argmax of a
+maximum — puts a hand-written traversal loop at 1024, the real `nearest_hit`
+stripped to its static loop at 384, and that same loop with `hit_prim` stubbed at
+512. So the inlined primitive intersectors are one real contributor, but no
+single prim kind is responsible, and instancing, planes, terrain and water each
+hold 384 on their own. Several independent paths sit at the same pressure and
+moving the number means lowering all of them together. Two restructurings were
+tried and neither moved it; see [tools/occupancy/](../tools/occupancy/README.md).
+
 ---
 
 ## Harness

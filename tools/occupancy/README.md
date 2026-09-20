@@ -85,3 +85,42 @@ Three consequences worth carrying around:
 
 So the lever for occupancy is the traversal loop, and nothing else in the kernel
 is worth looking at for it.
+
+## The peak is a plateau, not a hotspot
+
+Going one level further found something that changes how to read the table above.
+**Single ablation is the wrong instrument for a maximum.** Stub one contributor
+and another sitting at the same height takes over, so the number does not move
+and the thing you removed looks innocent. Every 384 above is subject to that.
+
+Stripping instead, and adding back, separates them:
+
+| Variant | main_ |
+|---|---|
+| hand-written stack walk, 24-entry array, no node loads | 1024 |
+| hand-written traversal: node loads + `slab_hit` + child pushes | 1024 |
+| real `nearest_hit`, instancing/planes/terrain/water removed | 384 |
+| the same, with `hit_prim` stubbed to `T_MISS` | **512** |
+| the same, with any *single* prim kind stripped | 384 |
+
+Three things fall out. The traversal *skeleton* is not the cost — a hand-written
+one with the same stack, loads and slab tests compiles at 1024. `hit_prim`, the
+inlined primitive intersectors, is a genuine contributor: removing all of them
+lifts 384 to 512. But no single primitive kind is responsible, and neither is
+instancing, planes, terrain or water on its own — each is enough to hold 384 by
+itself.
+
+**There is no single thing to fix.** Several independent paths sit at the same
+pressure, so moving the number means lowering several at once. That is a much
+worse prospect than one hot spot, and it is worth knowing before anyone spends a
+week on it.
+
+Restructuring attempts that did not move it, both bit-identical:
+
+- Vectorizing `slab_hit` / `slab_near` / `slab_range` — six scalar temporaries
+  and three compare-and-swap branches become two `vec3`s and no branches. Kept
+  anyway: consistently ~0.7% faster across interleaved pairs and about fifty
+  fewer lines. Occupancy unchanged.
+- Scoping the node loads in `bvh_child_push` so one child's bounds dies before
+  the other is read, instead of holding 24 words at once. Exactly neutral; the
+  compiler was already doing it. Reverted.

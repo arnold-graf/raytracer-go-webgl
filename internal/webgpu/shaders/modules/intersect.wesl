@@ -63,6 +63,14 @@ fn hit_plane(p: Prim, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
 // slab_interval returns the parametric span [tmin, tmax] over which the ray is
 // inside the AABB [bmin, bmax]; ok is false on a miss. tmax may be negative.
 // Mirrors scene.slabInterval (used by the box CSG difference).
+fn slab_lohi(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, inv: vec3<f32>) -> vec2<f32> {
+    let ta = (bmin - ro) * inv;
+    let tb = (bmax - ro) * inv;
+    let lo = min(ta, tb);
+    let hi = max(ta, tb);
+    return vec2<f32>(max(max(lo.x, lo.y), lo.z), min(min(hi.x, hi.y), hi.z));
+}
+
 fn slab_interval(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
     let inv = vec3<f32>(1.0) / rd;
     let ta = (bmin - ro) * inv;
@@ -559,29 +567,9 @@ fn intersect_blocker(idx: u32, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
 }
 
 fn slab_hit(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, inv: vec3<f32>, t_max: f32) -> bool {
-    var t1 = (bmin.x - ro.x) * inv.x;
-    var t2 = (bmax.x - ro.x) * inv.x;
-    if (t1 > t2) {
-        let tmp = t1;
-        t1 = t2;
-        t2 = tmp;
-    }
-    var t3 = (bmin.y - ro.y) * inv.y;
-    var t4 = (bmax.y - ro.y) * inv.y;
-    if (t3 > t4) {
-        let tmp = t3;
-        t3 = t4;
-        t4 = tmp;
-    }
-    var t5 = (bmin.z - ro.z) * inv.z;
-    var t6 = (bmax.z - ro.z) * inv.z;
-    if (t5 > t6) {
-        let tmp = t5;
-        t5 = t6;
-        t6 = tmp;
-    }
-    let tn = max(max(t1, t3), t5);
-    let tf = min(min(t2, t4), t6);
+    let r = slab_lohi(bmin, bmax, ro, inv);
+    let tn = r.x;
+    let tf = r.y;
     return !(tf < tn || tf < RAY_EPSILON || tn > t_max);
 }
 
@@ -591,29 +579,9 @@ fn slab_hit(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, inv: vec3<f32>, t_m
 // one that ends nearer than the best blocker so far -- and calling slab_near and
 // slab_far separately repeated all six divisions and the min/max chain.
 fn slab_range(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, inv: vec3<f32>) -> vec2<f32> {
-    var t1 = (bmin.x - ro.x) * inv.x;
-    var t2 = (bmax.x - ro.x) * inv.x;
-    if (t1 > t2) {
-        let tmp = t1;
-        t1 = t2;
-        t2 = tmp;
-    }
-    var t3 = (bmin.y - ro.y) * inv.y;
-    var t4 = (bmax.y - ro.y) * inv.y;
-    if (t3 > t4) {
-        let tmp = t3;
-        t3 = t4;
-        t4 = tmp;
-    }
-    var t5 = (bmin.z - ro.z) * inv.z;
-    var t6 = (bmax.z - ro.z) * inv.z;
-    if (t5 > t6) {
-        let tmp = t5;
-        t5 = t6;
-        t6 = tmp;
-    }
-    let tn = max(max(t1, t3), t5);
-    let tf = min(min(t2, t4), t6);
+    let r = slab_lohi(bmin, bmax, ro, inv);
+    let tn = r.x;
+    let tf = r.y;
     if (tf < tn || tf < RAY_EPSILON) {
         return vec2<f32>(T_MISS, -1.0);
     }
@@ -623,29 +591,9 @@ fn slab_range(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, inv: vec3<f32>) -
 
 // slab_near returns the ray entry parameter into the AABB, or T_MISS when absent.
 fn slab_near(bmin: vec3<f32>, bmax: vec3<f32>, ro: vec3<f32>, inv: vec3<f32>) -> f32 {
-    var t1 = (bmin.x - ro.x) * inv.x;
-    var t2 = (bmax.x - ro.x) * inv.x;
-    if (t1 > t2) {
-        let tmp = t1;
-        t1 = t2;
-        t2 = tmp;
-    }
-    var t3 = (bmin.y - ro.y) * inv.y;
-    var t4 = (bmax.y - ro.y) * inv.y;
-    if (t3 > t4) {
-        let tmp = t3;
-        t3 = t4;
-        t4 = tmp;
-    }
-    var t5 = (bmin.z - ro.z) * inv.z;
-    var t6 = (bmax.z - ro.z) * inv.z;
-    if (t5 > t6) {
-        let tmp = t5;
-        t5 = t6;
-        t6 = tmp;
-    }
-    let tn = max(max(t1, t3), t5);
-    let tf = min(min(t2, t4), t6);
+    let r = slab_lohi(bmin, bmax, ro, inv);
+    let tn = r.x;
+    let tf = r.y;
     if (tf < tn || tf < RAY_EPSILON) {
         return T_MISS;
     }
