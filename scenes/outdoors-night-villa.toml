@@ -270,11 +270,11 @@ flame_ember = [3.0, 0.2, 0.0]
 flame_mid = [3.5, 1.6, 0.05]
 flame_tip = [2.0, 1.4, 0.2]
 
-# [[npc]]
-# rig = "data/rigs/spider.yaml"
-# pose = "idle"
-# at = [0.0, 0.0, 0.0]
-# yaw = 0
-# speed = 5
-# patrol = [[0, 0, 10], [0, 0, 30]]
+[[npc]]
+rig = "data/rigs/spider.yaml"
+pose = "idle"
+at = [0.0, 0.0, 0.0]
+yaw = 0
+speed = 5
+patrol = [[0, 0, 10], [0, 0, 30]]
 

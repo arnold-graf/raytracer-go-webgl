@@ -54,12 +54,12 @@ type Game struct {
 
 	// basePlayerCfg is the global player.toml tuning; scene [player.movement]
 	// overrides are merged on top when the scene is (re)loaded.
-	basePlayerCfg camera.Config
-	shadow        bool
-	mirror        bool
+	basePlayerCfg  camera.Config
+	shadow         bool
+	mirror         bool
 	thinGlassGhost bool
-	ao            bool
-	adaptiveAA    bool
+	ao             bool
+	adaptiveAA     bool
 	// colorQuant: 0 = 8-bit dither, 1 = 15-bit (default), 2 = crush (24 levels/ch),
 	// 4 = path-tracer grain. Key 5 cycles quantCycle; 3 (raw RGB) is reserved for
 	// portal capture and deliberately left out of the cycle.
@@ -168,23 +168,23 @@ type Game struct {
 // built-in defaults); when set, they are watched for changes and hot-reloaded.
 func New(rw, rh int, sc *scene.Scene, basePlayerCfg camera.Config, scenePath, playerPath string, ren render.Renderer) *Game {
 	g := &Game{
-		rw:            rw,
-		rh:            rh,
-		ren:           ren,
-		cam:           camera.New(),
-		basePlayerCfg: basePlayerCfg,
-		shadow:        true,
+		rw:             rw,
+		rh:             rh,
+		ren:            ren,
+		cam:            camera.New(),
+		basePlayerCfg:  basePlayerCfg,
+		shadow:         true,
 		mirror:         true,
 		thinGlassGhost: true,
 		ao:             true,
-		adaptiveAA:    true,
-		colorQuant:    1,
-		buf:           make([]byte, rw*rh*4),
-		frame:         ebiten.NewImage(rw, rh),
-		pixSize:       1,
-		fpsCap:        60, // default cap: cuts GPU power vs uncapped, still smooth
-		scenePath:     scenePath,
-		playerPath:    playerPath,
+		adaptiveAA:     true,
+		colorQuant:     1,
+		buf:            make([]byte, rw*rh*4),
+		frame:          ebiten.NewImage(rw, rh),
+		pixSize:        1,
+		fpsCap:         60, // default cap: cuts GPU power vs uncapped, still smooth
+		scenePath:      scenePath,
+		playerPath:     playerPath,
 	}
 	g.setScene(sc) // builds the probe, bakes AO, binds the camera's world
 	g.applyPlayerConfig()

@@ -136,6 +136,39 @@ Notes on the interesting failures:
 
 ---
 
+## Re-measured 2026-09-19: still paying, and how it briefly looked otherwise
+
+A profiling pass recorded specialization as **2% slower** on office-sunset, which
+would have made it a candidate for deletion. It was not.
+
+Re-measured after an unrelated fix — `BVH_STACK_SIZE` came down from 32 to 24,
+see [bvh-traversal.md](bvh-traversal.md#stack-size-is-occupancy-not-safety-margin)
+— the atrium view at 512×320 reads:
+
+| Build | Frame |
+|---|---|
+| specialized (`without terrain/water/3 prim kinds`) | **18.1 ms** |
+| `RAYTRACER_NO_SHADER_SPECIALIZE=1` | 19.5 ms |
+
+Splitting it, the feature flags carry the win and the prim-kind arms are roughly
+free on this scene:
+
+| Stripped | Frame |
+|---|---|
+| everything | 18.1 ms |
+| terrain/water/campfire only, all prim kinds kept | 18.1 ms |
+| prim kinds only, features kept | 18.4 ms |
+| nothing | 19.5 ms |
+
+The earlier reading was not noise and not a mistake in the harness — it was the
+oversized traversal stack dominating *both* arms, so the specialization delta sat
+underneath it. The lesson generalises past this constant: **an anomaly measured
+before an occupancy change is not evidence after one.** This kernel's register
+allocation moves non-monotonically, so a finding is only as good as the build it
+was taken on. Re-measure old surprises after anything that touches thread scratch.
+
+---
+
 ## Where the remaining headroom is
 
 Not in the BVH. Not in shading. Segment throughput is scene-independent at 33–67M/s, which on a 30-core M2 Max is roughly an order of magnitude below what the hardware should do — the cost is the megakernel itself, and specialization only trims its edges.

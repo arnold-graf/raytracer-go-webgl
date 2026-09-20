@@ -47,24 +47,28 @@ func (inc includeDTO) AtVec() vec.V { return inc.At.toV() }
 
 // surfaceDTO holds the shading fields shared by every primitive table.
 type surfaceDTO struct {
-	Material          string   `toml:"material"`
-	Albedo            vec3     `toml:"albedo"`
-	Albedo2           vec3     `toml:"albedo2"`
-	Rough             float64  `toml:"rough"`
-	IOR               *float64 `toml:"ior"`
-	Texture           string   `toml:"texture"`
-	Reflect           float64  `toml:"reflect"`
-	ReflectBlur       float64  `toml:"reflect_blur"`
-	TransmitBlur      float64  `toml:"transmit_blur"`
-	Specular          float64  `toml:"specular"`
-	Shininess         float64  `toml:"shininess"`
-	Transmit          float64  `toml:"transmit"`
-	Thin              *bool    `toml:"thin"`
-	TwoPane           *bool    `toml:"two_pane"`
-	Collision         *bool    `toml:"collision"`
-	TextureNormalMap  *bool    `toml:"texture_normal_map"`
-	TextureScale      float64  `toml:"texture_scale"`
-	TextureNormalBump float64  `toml:"texture_normal_bump"`
+	Material     string   `toml:"material"`
+	Albedo       vec3     `toml:"albedo"`
+	Albedo2      vec3     `toml:"albedo2"`
+	Rough        float64  `toml:"rough"`
+	IOR          *float64 `toml:"ior"`
+	Texture      string   `toml:"texture"`
+	Reflect      float64  `toml:"reflect"`
+	ReflectBlur  float64  `toml:"reflect_blur"`
+	TransmitBlur float64  `toml:"transmit_blur"`
+	Specular     float64  `toml:"specular"`
+	Shininess    float64  `toml:"shininess"`
+	Transmit     float64  `toml:"transmit"`
+	Thin         *bool    `toml:"thin"`
+	TwoPane      *bool    `toml:"two_pane"`
+	Collision    *bool    `toml:"collision"`
+	// Shadow overrides whether the primitive casts a shadow. Omitted means the
+	// material decides: glass casts none, everything else does. Set it true on
+	// glass to get a (solid) shadow; see scene.Surface.CastsShadow.
+	Shadow            *bool   `toml:"shadow"`
+	TextureNormalMap  *bool   `toml:"texture_normal_map"`
+	TextureScale      float64 `toml:"texture_scale"`
+	TextureNormalBump float64 `toml:"texture_normal_bump"`
 }
 
 func (s surfaceDTO) toSurface() (scene.Surface, error) {
@@ -96,6 +100,14 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 		thin = *s.Thin
 	}
 	twoPane := s.TwoPane != nil && *s.TwoPane
+	shadow := scene.ShadowAuto
+	if s.Shadow != nil {
+		if *s.Shadow {
+			shadow = scene.ShadowOn
+		} else {
+			shadow = scene.ShadowOff
+		}
+	}
 	texNormalMap := s.TextureNormalMap != nil && *s.TextureNormalMap
 	return scene.Surface{
 		Mat: mat, Albedo: s.Albedo.toV(), Albedo2: s.Albedo2.toV(), Rough: s.Rough, IOR: ior, Tex: tex,
@@ -103,6 +115,7 @@ func (s surfaceDTO) toSurface() (scene.Surface, error) {
 		Reflect: s.Reflect, ReflectBlur: s.ReflectBlur, TransmitBlur: s.TransmitBlur,
 		Specular: s.Specular, Shininess: s.Shininess,
 		Transmit: s.Transmit, Thin: thin, TwoPane: twoPane, NoCollision: noCollision,
+		Shadow:            shadow,
 		TextureNormalMap:  texNormalMap,
 		TextureScale:      s.TextureScale,
 		TextureNormalBump: s.TextureNormalBump,

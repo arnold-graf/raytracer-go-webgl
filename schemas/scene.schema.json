@@ -402,6 +402,10 @@
           "type": "boolean",
           "description": "When false, the primitive is ignored by player movement, ground height, and footstep queries. Ray tracing is unaffected. Defaults to true."
         },
+        "shadow": {
+          "type": "boolean",
+          "description": "Whether the primitive casts a shadow. Omitted, the material decides: glass casts none, every other material casts one. Set true on glass to make it cast, at half the darkness of a regular shadow (GLASS_SHADOW_TRANSMIT in types.wesl). That fraction is flat and ignores the pane's own transmit, tint and thickness; opaque geometry behind a pane still blocks fully. Instanced glass casts a solid shadow rather than a half one. Set false on any material to stop it casting."
+        },
         "texture_normal_map": {
           "type": "boolean",
           "description": "When true, perturbs shading normals from the procedural texture height field (flat cobble for stone_wall, tile relief for tiles, plank gaps for parquet_floor). No geometric displacement. Defaults to false."

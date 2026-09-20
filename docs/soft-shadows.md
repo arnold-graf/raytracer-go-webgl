@@ -6,7 +6,12 @@ A/B-ing against hard shadows.
 **Cost, measured at the default:** **+11.5%** on office-sunset (9.98 -> 11.12 ms,
 four views interleaved, best of three) and **+6.4%** on outdoors-night-villa
 (20.4 -> 21.7 ms).
-**Rays:** none. The shadow ray count is unchanged.
+**Rays:** the filter itself traces none — it is a filter over data a real shadow
+ray already resolved. It does add some indirectly: the display-level shadow gate
+is unsound in front of it and is disarmed at the primary diffuse hit, which is
+worth +3.4% on a lamp-heavy frame. Bounce segments keep the gate, so the number
+is bounded by one hit per pixel. See
+[a skipped shadow ray is a skipped record](#a-skipped-shadow-ray-is-a-skipped-record).
 
 ```
 RAYTRACER_SOFT_SHADOWS=0 go run .   # back to hard shadows
@@ -454,13 +459,33 @@ neighbourhood filter.** Picking a dominant light was the first, a blocked global
 source setting the width was the second. Each time the repair is the same — stop
 selecting — and each time the selection was somewhere nobody was looking.
 
-**The fix is that the gate is consulted only when the filter is off.** With
-`params.soft_shadows` set, `skip_levels` is zero and every light that reaches a
-point writes its record. Cost, at 1024x640: **+3.4%** on that office frame
-(44.5 → 46.0 ms) and **+0.9%** on the night villa (46.3 → 46.6). The rays it was
-saving are the coherent ones that cost 3 ns each. The villa image moves by more
-than two display levels on 245 pixels out of 655360, so this is close to free in
-both senses.
+**The fix is that the gate is disarmed exactly where the record is read**, and
+nowhere else. That is one hit per pixel: the primary diffuse hit, with soft
+shadows on. `shade_diffuse` takes a `record` argument, `ray_color` passes
+`depth == 0`, and `sh_record` also short-circuits `shadow_aux_note` itself so a
+discarded record costs no `pow()` either. Every bounce segment, the specular pass
+and the ghost pass reset the accumulators and never snapshot them, so there the
+gate is free and stays armed.
+
+Getting that boundary wrong is expensive in the other direction. Disarming the
+gate for the *whole frame*, which is what this did first, nearly doubled the
+frame's shadow rays for nothing: the frame traces six segments per pixel and
+records one of them.
+
+| office-sunset atrium, 512x320 | shadow rays | frame |
+|---|---|---|
+| disarmed everywhere, stack 32 | 1.06M | 22.4 ms |
+| disarmed at the primary hit only, stack 32 | 605k | 19.7 ms |
+| disarmed at the primary hit only, stack 24 | 605k | 18.0 ms |
+
+Against a gate left armed even at the primary hit — which is the buggy
+configuration — the fix as shipped is inside measurement noise on that view
+(18.3 → 18.0 ms, both at stack 24), because an atrium pixel sees few lights. It
+costs **+3.4%** on the wall frame at 1024x640 (44.5 → 46.0 ms), where the lamp
+cluster is dense, and **+0.9%** on the night villa. The rays it gives up are the
+coherent ones that cost 3 ns each. Images move by one display level on a few
+percent of pixels and by more than two on a few hundred, which is the threshold
+the gate is defined by.
 
 Two things that look like fixes and are not, both measured:
 
@@ -737,8 +762,11 @@ There is a second knob with a related effect and a different mechanism.
 **`SHADOW_WIDTH_MEAN_POWER` in `types.wesl`** sets how *several* blocked lights
 agree on a width where their shadows overlap, which is what decides whether a
 contact shadow survives crossing a broad one. Lowering the first softens
-everything; raising the second lets the sharpest survive. See
-[the average, not the partition](#the-fix-was-the-average-not-the-partition).
+everything; raising the second lets the sharpest survive — and raising it too far
+lets a negligible tight shadow harden a broad one it happens to cross, which is
+what took it back down to 0.25. See
+[the average, not the partition](#the-fix-was-the-average-not-the-partition) and
+[the plateau had two ends](#the-plateau-had-two-ends).
 
 ## Width is compressed, never clipped
 
@@ -934,15 +962,18 @@ The exponent sweep, on that same edge:
 | -1.0 (arithmetic) | 0.01404 | 1.00x |
 | 0.25 | 0.02751 | 1.96x |
 | 0.5 | 0.02821 | 2.01x |
-| **1.0 (harmonic, shipped)** | **0.02973** | **2.12x** |
+| 1.0 (harmonic) | 0.02973 | 2.12x |
 | 2.0 | 0.03078 | 2.19x |
 | 4.0 | 0.02991 | 2.13x |
 | 8.0 | 0.02968 | 2.11x |
 
 Nearly all of the gain is in leaving the arithmetic mean at all, and the curve is
-flat from 0.25 upward. 1.0 is chosen for sitting mid-plateau, not for topping the
-table: the far end trades toward "sharpest wins outright", which is the setting
-most likely to under-filter a broad shadow where a tight one crosses it.
+flat from 0.25 upward, so the setting wants to sit mid-plateau rather than top
+the table: the far end trades toward "sharpest wins outright", which is the
+setting most likely to under-filter a broad shadow where a tight one crosses it.
+
+**1.0 was too far up that plateau, and the setting shipped at 0.25** — see
+[the plateau had two ends](#the-plateau-had-two-ends).
 
 Cost is below the measurement floor — interleaved best-of-5 on the seam frame at
 640x400, machine quiet: **14.9 ms harmonic against 15.1 ms arithmetic**, means
@@ -965,6 +996,68 @@ Regressions checked and clean: the AA/stairs frame (2.9% of pixels touched, no
 speckle), the fireplace (log contact shadows gained definition, no isolated
 bright pixels), and flicker stability across `-time 0.0/0.7/1.4`, where the
 frame-to-frame Dirichlet energy varies by 0.007% — the same as before.
+
+### The plateau had two ends
+
+The under-filtering the paragraph above predicts is what 1.0 went on to do, on
+the courtyard uplight in office-sunset — the one whose shade throws a broad arc
+onto the wall behind it.
+
+Along the far half of that arc one light is blocked, the width is its own 5-8 px
+and the filter draws it properly. Approaching the lamp three more lights fall
+into the same silhouette. The tightest of them asks for 1.4 px, and at P = 1 the
+mean collapses onto it: sampling one row inside the shadow, the combined width
+runs **7.8 px at x=374 down to 2.1 px at x=518**, on one continuous shadow cast
+by one occluder. The blocked-light count over that same run is 1, then 2, then 4.
+
+So the arc is soft at one end and nearly hard at the other, and the lit wall
+inside the bend keeps a crisp border against an otherwise smooth gradient. It was
+reported as *a bright patch in the penumbra*, which is what a hard edge looks
+like when its surroundings are soft — the patch is not brightened, it is the
+gradient around it that is missing.
+
+Edge steepness across that arc, as the maximum vertical gradient of a five-column
+average in linear radiance. The hard render is the ceiling; lower is softer:
+
+| build | x=370 | 410 | 430 | 450 | 470 | 485 |
+|---|---|---|---|---|---|---|
+| hard shadows | 0.0542 | 0.0622 | 0.0673 | 0.0765 | 0.0737 | 0.0977 |
+| P = 1.0 | 0.0219 | 0.0218 | 0.0249 | 0.0376 | 0.0360 | **0.0736** |
+| **P = 0.25 (shipped)** | 0.0219 | 0.0218 | 0.0249 | 0.0376 | 0.0303 | **0.0535** |
+| P = -1 (arithmetic) | 0.0219 | 0.0218 | 0.0211 | 0.0376 | 0.0276 | 0.0442 |
+
+At the worst point the filter was removing a quarter of the hard edge's
+steepness; at 0.25 it removes nearly half. The arithmetic mean recovers a little
+more and is not worth having — that is the setting whose failure the power mean
+was built to fix, and the sweep above is what it costs.
+
+**Scope, P = 1 against P = 0.25 at 1024x640.** Every moved pixel moves by at
+least one 15-bit quantisation step, so the counts below are steps, not rounding:
+
+| frame | pixels moved | ≥ 2 steps | max | mean linear radiance |
+|---|---|---|---|---|
+| the reported uplight frame | 10,854 (1.66%) | 1,261 | 57 | +0.030% |
+| office (server room) | 400 (0.06%) | 0 | 9 | -0.003% |
+| outdoors-night-villa | 463 (0.07%) | 16 | 25 | +0.003% |
+| campfire-shadow | **0** | — | — | 0 |
+| penumbra-test | **0** | — | — | 0 |
+| office atrium | **0** | — | — | 0 |
+
+The three zeros are structural, not luck: those frames have one blocked light per
+pixel, so the mean never arbitrates and **no exponent can change them**. That
+also means `penumbra-test` cannot validate this constant in either direction —
+checking it there and finding zero bytes differing proves nothing, which is worth
+remembering before reaching for it as a regression gate.
+
+Cost is a wash: interleaved best-of-3 on the reported frame, machine quiet,
+**35.9 ms at 0.25 against 36.2 ms at 1.0**, with 0.25 marginally ahead in all
+three pairs — smaller gather radii in the places that changed.
+
+**This is a move along the trade-off, not a repair.** One radius per group of
+lights cannot draw a sharp core and a broad shoulder at the same edge, whatever
+the exponent, and the arc near that lamp is genuinely both. Per-light radii can,
+and were built and reverted for introducing one seam per band — see
+[tried and reverted: a per-band radius](#tried-and-reverted-a-per-band-radius).
 
 ### A metric that lied, again
 
@@ -1142,6 +1235,47 @@ penumbra test showed `range` dropping 6%, which is the contrast-loss flag. On th
 whole frame the range is identical to four decimals, and the umbra floor is
 unchanged pixel for pixel. The mask was 3.6% of the frame, and min/max over a
 small scattered mask is not a stable statistic.
+
+### The feather stopped applying at exactly the widths that needed it
+
+The taper above has to fit inside the tap grid, and nothing made it. The grid
+spans `±SHADOW_SOFTEN_MAX_PX`; a tap contributes its full width out to `tp` and
+reaches zero at `tp * (1 + FEATHER)`. At `FEATHER = 1` that zero lands inside the
+grid only while `tp < 15 px`. Above it the taper runs off the end: every tap
+still in range sits inside the plateau, so the borrowed radius is the full width
+out to exactly `MAX_PX` and nothing one pixel further — a cliff `2*tp - MAX_PX`
+tall, which for a saturated width is nearly the whole cap.
+
+So the feather worked everywhere except at the widest shadows, where the cliff it
+was added to remove is at its worst. It draws a soft-edged blob with a visible
+rim, 30 px around any patch whose width saturates the cap, and the gather inside
+that blob pulls neighbouring shadow up into lit wall.
+
+The case that found it is an uplight in office-sunset. Its shade sits inside the
+lamp's authored 2 m emitter radius, so `gap` clamps to that radius,
+`pen = r*t/gap` collapses to the whole throw distance — 1500 to 3000 px — and the
+compressed width pins at 29.7 across a patch of wall. Measured across the rim,
+the radius field read 0 px, 0 px, then 28 px in the space of two taps.
+
+**The fix caps what a shadow *offers*, not what it gathers at.** A pixel still
+uses its own full compressed width for its own gather; what it hands to a lit
+neighbour is clamped to `SHADOW_SOFTEN_MAX_PX / (1 + SHADOW_DILATE_FEATHER)`,
+which is the widest plateau whose taper still fits the grid. Below that nothing
+changes — the shadows that already looked right are untouched, bit for bit — and
+above it the taper is whole again.
+
+| | changed pixels | ≥4 levels | max |
+|---|---|---|---|
+| office-sunset atrium | 910 of 655360 | 1 | 4 |
+| outdoors-night-villa | 7603 (1.2%) | 185 | 20 |
+
+Villa moves most, because it is the scene with genuinely wide penumbrae, and the
+change there is the outward half of those reaching 15 px instead of 30. Nothing
+in it reads differently; the moved pixels sit on high-contrast edges.
+
+A penumbra this wide has no edge the filter can draw in any case — 3000 px
+against a 30 px reach — so the 15 px it still hands out is a token. The
+requirement is only that it not invent a boundary of its own.
 
 ## Which blocker sets the width, when several block the same light
 

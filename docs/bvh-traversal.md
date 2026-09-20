@@ -154,6 +154,43 @@ and adds a dispatch. This removed work and added nothing.
   result above says the loop that stays uniform is the one that wins — so
   neither looks promising, but neither has been measured.
 
+## Stack size is occupancy, not safety margin
+
+`BVH_STACK_SIZE` was 32. The deepest tree anything in `scenes/` packs is **18
+levels** — office-sunset's static tree — and a DFS that pushes both children then
+pops one holds at most `depth + 1`, so the requirement is 19. The other thirteen
+entries were headroom against nothing.
+
+They were not free. `stack[sp]` is a dynamically indexed local array, which on
+Metal is backed by thread scratch and pins the kernel's per-thread allocation —
+the same mechanism that made taking one `array<f32, 8>` out of
+`box_holed_nearest` worth 14%. It is charged to every ray in every scene,
+including the ones whose trees are ten levels deep.
+
+32 → 24 measured **19.8 ms → 18.4** on the office-sunset atrium view at 512×320,
+with the output identical byte for byte.
+
+24, not 20, for two reasons. The knee is sharp — 24 → 20 bought a further 0.2 ms,
+an eighth of what the first step did — and 20 leaves exactly one entry spare
+against a tree that one bad split could deepen. Five levels of headroom for 0.2 ms
+is the right side of that trade.
+
+`TestBVHTraversalStackDepth` measures every packed tree in `scenes/` against the
+constant and now prints the worst, so the margin is a measurement rather than a
+guess. `cmd/gpuprof -profile` also reports the ray-tree stack high-water mark,
+which is the same question asked of `MAX_SEGS`.
+
+Two things that look like the same idea and are not:
+
+- **A separate, smaller stack for nested BLAS traversals.** Template trees are 6
+  levels deep and were getting the full 24, and a TLAS traversal is still holding
+  its own pending nodes when it descends into one — so the entries looked like
+  they stacked. Measured: nothing. The compiler already reuses that scratch
+  across the call boundary. The win is the *top-level* trees.
+- **`MAX_SEGS`, the ray-tree work stack.** 4 / 6 / 8 / 12 measured 19.7 / 19.9 /
+  19.9 / 20.1 ms. Six `RaySeg` is eleven words each and it does not register.
+  Not every dynamically indexed array is the `box_holed_nearest` case.
+
 ## Measuring this
 
 `tmp/bvhwork/ab.sh` runs the arms interleaved within each round, which matters:

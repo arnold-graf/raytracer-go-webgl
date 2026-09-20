@@ -97,7 +97,7 @@ func appendDynamicBodyBlockers(s *scene.Scene, blockers []GPUPrimitive) ([]GPUPr
 			continue
 		}
 		sp := &s.Spheres[i]
-		if sp.Mat == scene.MatEmit || sp.Mat == scene.MatGlass {
+		if sp.Mat == scene.MatEmit || !sp.CastsShadow() {
 			continue
 		}
 		m.sphere[i] = len(blockers)
@@ -108,7 +108,7 @@ func appendDynamicBodyBlockers(s *scene.Scene, blockers []GPUPrimitive) ([]GPUPr
 			continue
 		}
 		bx := &s.Boxes[i]
-		if bx.Mat == scene.MatGlass {
+		if !bx.CastsShadow() {
 			continue
 		}
 		m.box[i] = len(blockers)
@@ -119,7 +119,7 @@ func appendDynamicBodyBlockers(s *scene.Scene, blockers []GPUPrimitive) ([]GPUPr
 			continue
 		}
 		cy := &s.Cylinders[i]
-		if cy.Mat == scene.MatGlass {
+		if !cy.CastsShadow() {
 			continue
 		}
 		m.cylinder[i] = len(blockers)
@@ -236,7 +236,7 @@ func packBlockersOmitDynamic(s *scene.Scene, skipFrom *scene.Scene) []GPUPrimiti
 			continue
 		}
 		sp := &s.Spheres[i]
-		if sp.Mat == scene.MatEmit || sp.Mat == scene.MatGlass {
+		if sp.Mat == scene.MatEmit || !sp.CastsShadow() {
 			continue
 		}
 		out = append(out, spherePrim(sp))
@@ -259,7 +259,7 @@ func packBlockersOmitDynamic(s *scene.Scene, skipFrom *scene.Scene) []GPUPrimiti
 			continue
 		}
 		bx := &s.Boxes[i]
-		if bx.Mat != scene.MatGlass {
+		if bx.CastsShadow() {
 			out = append(out, boxPrim(bx, holeStart))
 		}
 		holeStart += uint32(len(bx.Holes))
@@ -269,14 +269,14 @@ func packBlockersOmitDynamic(s *scene.Scene, skipFrom *scene.Scene) []GPUPrimiti
 			continue
 		}
 		cy := &s.Cylinders[i]
-		if cy.Mat == scene.MatGlass {
+		if !cy.CastsShadow() {
 			continue
 		}
 		out = append(out, cylinderPrim(cy))
 	}
 	for i := range s.Cones {
 		co := &s.Cones[i]
-		if co.Mat == scene.MatGlass {
+		if !co.CastsShadow() {
 			continue
 		}
 		out = append(out, conePrim(co))
@@ -286,7 +286,7 @@ func packBlockersOmitDynamic(s *scene.Scene, skipFrom *scene.Scene) []GPUPrimiti
 			continue
 		}
 		ln := &s.Lenses[i]
-		if ln.Mat == scene.MatGlass {
+		if !ln.CastsShadow() {
 			continue
 		}
 		out = append(out, lensPrim(ln))

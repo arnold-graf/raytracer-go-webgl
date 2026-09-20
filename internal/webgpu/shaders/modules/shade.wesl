@@ -338,6 +338,12 @@ var<private> sh_pen_w_m: f32 = 0.0;
 // recorded value matches the light the frame actually deposited; without it the
 // filter restores un-attenuated light, too bright by 1/ao exactly where AO
 // darkens, which is corners and creases — where shadow fringes are.
+// True only while shading the hit whose ShadowAux the penumbra filter will
+// actually read — the primary diffuse hit, with soft shadows on. Everything
+// else (bounce segments, the specular and ghost passes) resets these
+// accumulators and throws them away, so it neither needs the record nor has to
+// pay the gate's correctness price for it. See the gate in add_point_light_raw.
+var<private> sh_record: bool = false;
 var<private> sh_ao: f32 = 1.0;
 // The occlusion actually applied to *direct* light. One when AO is restricted
 // to the ambient term, because then the penumbra filter must restore direct
@@ -415,7 +421,18 @@ fn pixel_world_size(hp: vec3<f32>) -> f32 {
 //
 // Several blocked lights are averaged by contribution, so the brightest shadow
 // dominates the width without the result jumping when they trade places.
-fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, declared_r: f32, weight_scale: f32) {
+// `occl` is the share of this light the blocker is actually withholding: 1 for
+// anything opaque, 1 - GLASS_SHADOW_TRANSMIT for a glass pane that casts. It
+// scales the deficit and the width vote but never `full`, which has to keep
+// meaning "what would arrive unoccluded" at every pixel or the filter's
+// deficit/full ratio stops comparing like with like across neighbours.
+fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, declared_r: f32, weight_scale: f32, occl: f32) {
+    // Every caller but the primary diffuse hit resets these on the next shade
+    // and never snapshots them. The power mean below costs a pow() per blocked
+    // light, so it is worth not doing for a record that is discarded.
+    if (!sh_record) {
+        return;
+    }
     // penumbra_blur_vote = false (weight_scale 0) writes the muted channel, not
     // the local one. Dropping those lights from the filter entirely left their
     // shadows as point samples — hard sun/moon umbrae. Mixing them into frac
@@ -428,13 +445,14 @@ fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, de
     } else {
         sh_full = sh_full + total;
     }
-    if (t_block < 0.0) {
+    if (t_block < 0.0 || occl <= 0.0) {
         return;
     }
+    let blocked = total * occl;
     if muted {
-        sh_deficit_m = sh_deficit_m + total;
+        sh_deficit_m = sh_deficit_m + blocked;
     } else {
-        sh_deficit = sh_deficit + total;
+        sh_deficit = sh_deficit + blocked;
     }
     let light_r = resolved_light_radius(declared_r, ldist);
     // A blocker closer to the light than the light's own radius is *inside* the
@@ -476,7 +494,9 @@ fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, de
         // off the local channel.
         scale = 1.0;
     }
-    let weight = shadow_luma(total) * scale;
+    // Weighted by the light this source is *withholding*, so a pane letting half
+    // of it through votes at half strength on the width its neighbours share.
+    let weight = shadow_luma(total) * scale * occl;
     // Combined as a contribution-weighted *power* mean with a negative exponent,
     // not an arithmetic one.
     //
@@ -530,11 +550,16 @@ fn shadow_aux_snapshot(tw: vec3<f32>, n: vec3<f32>, depth: f32) -> ShadowAux {
         vec3<f32>(0.0, 0.0, 0.0), 0.0);
 }
 
-fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> f32 {
+// Returns (t_block, transmittance); see blocker_bvh_any_hit. Planes and terrain
+// are always opaque, so only the BVH can come back partly transparent.
+fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> vec2<f32> {
     prof_inc(PROF_SHADOW_RAYS, 1u);
     var best = -1.0;
-    let tb = blocker_bvh_any_hit(origin, dir, max_t);
+    var trans = 1.0;
+    let blk = blocker_bvh_any_hit(origin, dir, max_t);
+    let tb = blk.x;
     if (tb >= 0.0) {
+        trans = blk.y;
         // The approximate widest pick stops here, exactly as the plain any-hit
         // did. Falling through to the plane list and the terrain march to ask
         // whether either is *farther* is what a widest search would want, and it
@@ -543,9 +568,13 @@ fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> f32 {
         // are already found in the BVH. Precedence between the BVH and terrain
         // was arbitrary before and stays arbitrary; only the choice *within* the
         // blocker tree drove the artifact this exists to fix.
-        if (!SHADOW_NEAREST_BLOCKER && (!SHADOW_WIDEST_BLOCKER || !SHADOW_WIDEST_EXACT)) {
+        //
+        // Only an *opaque* hit may take that early return. A glass-only hit has
+        // to go on and ask the plane list and the terrain, or a wall standing
+        // behind a pane would stop casting its own shadow.
+        if (trans <= 0.0 && !SHADOW_NEAREST_BLOCKER && (!SHADOW_WIDEST_BLOCKER || !SHADOW_WIDEST_EXACT)) {
             prof_inc(PROF_SHADOW_BLOCK, 1u);
-            return tb;
+            return vec2<f32>(tb, 0.0);
         }
         best = tb;
     }
@@ -556,12 +585,13 @@ fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> f32 {
         if (t > RAY_EPSILON && t < limit) {
             if (!SHADOW_NEAREST_BLOCKER && !SHADOW_WIDEST_BLOCKER) {
                 prof_inc(PROF_SHADOW_BLOCK, 1u);
-                return t;
+                return vec2<f32>(t, 0.0);
             }
             if (SHADOW_WIDEST_BLOCKER && !SHADOW_WIDEST_EXACT) {
                 prof_inc(PROF_SHADOW_BLOCK, 1u);
-                return t;
+                return vec2<f32>(t, 0.0);
             }
+            trans = 0.0;
             if (SHADOW_WIDEST_BLOCKER) {
                 best = max(best, t);
             } else if (best < 0.0 || t < best) {
@@ -577,12 +607,13 @@ fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> f32 {
         if (t > RAY_EPSILON && t < limit) {
             if (!SHADOW_NEAREST_BLOCKER && !SHADOW_WIDEST_BLOCKER) {
                 prof_inc(PROF_SHADOW_BLOCK, 1u);
-                return t;
+                return vec2<f32>(t, 0.0);
             }
             if (SHADOW_WIDEST_BLOCKER && !SHADOW_WIDEST_EXACT) {
                 prof_inc(PROF_SHADOW_BLOCK, 1u);
-                return t;
+                return vec2<f32>(t, 0.0);
             }
+            trans = 0.0;
             if (SHADOW_WIDEST_BLOCKER) {
                 best = max(best, t);
             } else if (best < 0.0 || t < best) {
@@ -593,11 +624,13 @@ fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> f32 {
     if (best >= 0.0) {
         prof_inc(PROF_SHADOW_BLOCK, 1u);
     }
-    return best;
+    return vec2<f32>(best, trans);
 }
 
+// Blocked at all, whatever the transmittance. Callers of this want a yes/no and
+// have no way to spend a fraction.
 fn shadowed(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> bool {
-    return shadow_blocker_t(origin, dir, max_t) >= 0.0;
+    return shadow_blocker_t(origin, dir, max_t).x >= 0.0;
 }
 
 fn tw_peak(tw: vec3<f32>) -> f32 {
@@ -700,7 +733,14 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
     // it, while the same light against near-black is the only thing there.
     let step_levels = display_step_levels(twm * tw_peak(lit), twm * peak);
     // The display-level gate is only sound while nothing downstream reads the
-    // shadow record, so it is off whenever the penumbra filter is on.
+    // shadow record, so it is off exactly where something does: `sh_record`, the
+    // primary diffuse hit with soft shadows on. Every other caller — every
+    // bounce segment, the specular pass, the ghost pass — resets these
+    // accumulators and never snapshots them, so there the gate is free and
+    // stays armed. That is not a detail: the record is one hit per pixel and the
+    // frame traces six segments per pixel, so arming it again below depth 0 took
+    // shadow rays on the office-sunset atrium view from 1.06M to 605k and the
+    // frame from 22.4 ms to 19.7 at 512x320, for no change a pixel can show.
     //
     // A skipped light leaves *nothing* in ShadowAux: no term in `full`, no
     // occlusion in `frac`, and no penumbra width. The gate decides that per
@@ -721,12 +761,14 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
     // dominant light and as letting a blocked global source set the width: a
     // per-pixel *selection* upstream of a neighbourhood filter.
     //
-    // Retiring it costs 3.4% on that frame (44.5 -> 46.0 ms at 1024x640) and
-    // 0.9% on the night villa (46.3 -> 46.6) — the rays it saves are the cheap
-    // coherent ones, at ~3 ns each.
-    var skip_levels = 0.0;
-    if (params.soft_shadows == 0u) {
-        skip_levels = SHADOW_SKIP_LEVELS;
+    // Retiring it *at the primary hit* costs 3.4% on the wall frame (44.5 ->
+    // 46.0 ms at 1024x640) and 0.9% on the night villa — the rays it saves there
+    // are the cheap coherent ones, at ~3 ns each. Retiring it everywhere, which
+    // is what this first did, cost four times that for nothing: no pixel of the
+    // record below depth 0 is ever read.
+    var skip_levels = SHADOW_SKIP_LEVELS;
+    if (sh_record) {
+        skip_levels = 0.0;
     }
     // A per-light threshold still overrides it. Bounce lights raise it: a shadow
     // ray is the expensive part of a light, and a virtual point light is already
@@ -744,16 +786,19 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
     if (params.shadows == 0u) {
         return lit + total;
     }
-    let t_block = shadow_blocker_t(ep, ln, ldist);
+    let blk = shadow_blocker_t(ep, ln, ldist);
+    let t_block = blk.x;
+    // 0 behind anything opaque, GLASS_SHADOW_TRANSMIT behind a casting pane.
+    let trans = blk.y;
     if (t_block < 0.0) {
         // Recorded even though nothing is occluded: the filter widens a penumbra
         // outward as well as inward, so a lit pixel beside a shadow has to know
         // which light it would be losing.
-        shadow_aux_note(hp, total, ldist, -1.0, light_r, pen_weight_scale);
+        shadow_aux_note(hp, total, ldist, -1.0, light_r, pen_weight_scale, 0.0);
         return lit + total;
     }
-    shadow_aux_note(hp, total, ldist, t_block, light_r, pen_weight_scale);
-    return lit;
+    shadow_aux_note(hp, total, ldist, t_block, light_r, pen_weight_scale, 1.0 - trans);
+    return lit + total * trans;
 }
 
 fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, light: Light, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32, shadow: bool) -> vec3<f32> {
@@ -976,6 +1021,7 @@ fn wide_span() -> vec2<u32> {
 }
 
 fn shade_ghost(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> vec3<f32> {
+    sh_record = false;
     // Faint second-pane lobe: ambient + direct light, no shadow/AO/campfire rays.
     let tw_skip = vec3<f32>(GHOST_SHADOW_TW);
     var lit = alb * scene_ambient_at(hp, n);
@@ -991,8 +1037,9 @@ fn shade_ghost(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> ve
     return lit;
 }
 
-fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32) -> vec3<f32> {
+fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32, record: bool) -> vec3<f32> {
     shadow_aux_reset();
+    sh_record = record && params.soft_shadows != 0u;
     let ambient = alb * scene_ambient_at(hp, n);
     var lit = ambient;
     let wide = wide_span();
@@ -1052,6 +1099,7 @@ fn shade_specular(hp: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd:
     if (spec <= 0.0 || shine <= 0.0) {
         return vec3<f32>(0.0);
     }
+    sh_record = false;
     let no_diffuse = vec3<f32>(0.0);
     var lit = vec3<f32>(0.0);
     let wide = wide_span();

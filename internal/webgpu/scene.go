@@ -423,10 +423,15 @@ func PackHoles(s *scene.Scene) []GPUHole {
 }
 
 // PackBlockers flattens the primitives that should cast shadows. It mirrors the
-// CPU blocker BVH's material filtering for the primitives currently ported to
-// WGSL: emissive/glass spheres do not cast shadows, glass boxes do not cast
-// shadows, and planes are tested separately by the CPU shadow path so they are
-// included here as blocker primitives.
+// CPU blocker BVH's filtering for the primitives currently ported to WGSL:
+// emissive spheres do not cast shadows, Surface.CastsShadow decides the rest
+// (glass out by default, `shadow = true` opts it back in), and planes are tested
+// separately by the CPU shadow path so they are included here as blocker
+// primitives.
+//
+// scene.ForEachTemplateBlockerBounds has to agree with this predicate exactly:
+// it sizes each instanced template's BLAS, and bounds that do not enclose the
+// prims packed here would cull a blocker the traversal expects to find.
 func PackBlockers(s *scene.Scene) []GPUPrimitive {
 	if s == nil {
 		return nil
@@ -434,7 +439,7 @@ func PackBlockers(s *scene.Scene) []GPUPrimitive {
 	out := make([]GPUPrimitive, 0, len(s.Spheres)+len(s.Planes)+len(s.Boxes))
 	for i := range s.Spheres {
 		sp := &s.Spheres[i]
-		if sp.Mat == scene.MatEmit || sp.Mat == scene.MatGlass {
+		if sp.Mat == scene.MatEmit || !sp.CastsShadow() {
 			continue
 		}
 		out = append(out, spherePrim(sp))
@@ -450,40 +455,40 @@ func PackBlockers(s *scene.Scene) []GPUPrimitive {
 			Meta:    [4]uint32{primPlane, uint32(pl.Mat), uint32(pl.Tex), surfaceFlags(pl.Surface)},
 		})
 	}
-	// holeStart accumulates over every box (even skipped glass ones) so the
-	// ranges baked here index the same PackHoles buffer as PackPrimitives.
+	// holeStart accumulates over every box (even skipped ones) so the ranges
+	// baked here index the same PackHoles buffer as PackPrimitives.
 	holeStart := uint32(0)
 	for i := range s.Boxes {
 		bx := &s.Boxes[i]
-		if bx.Mat != scene.MatGlass {
+		if bx.CastsShadow() {
 			out = append(out, boxPrim(bx, holeStart))
 		}
 		holeStart += uint32(len(bx.Holes))
 	}
 	for i := range s.Cylinders {
 		cy := &s.Cylinders[i]
-		if cy.Mat == scene.MatGlass {
+		if !cy.CastsShadow() {
 			continue
 		}
 		out = append(out, cylinderPrim(cy))
 	}
 	for i := range s.Cones {
 		co := &s.Cones[i]
-		if co.Mat == scene.MatGlass {
+		if !co.CastsShadow() {
 			continue
 		}
 		out = append(out, conePrim(co))
 	}
 	for i := range s.Rings {
 		rg := &s.Rings[i]
-		if rg.Mat == scene.MatGlass {
+		if !rg.CastsShadow() {
 			continue
 		}
 		out = append(out, ringPrim(rg))
 	}
 	for i := range s.Lenses {
 		ln := &s.Lenses[i]
-		if ln.Mat == scene.MatGlass {
+		if !ln.CastsShadow() {
 			continue
 		}
 		out = append(out, lensPrim(ln))

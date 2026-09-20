@@ -618,7 +618,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
 
         // Diffuse / checker, plus mirror/metal/glass falling through here at the
         // depth cap (or when reflections are disabled): shaded as diffuse.
-        var lit = shade_diffuse(hp, alb, n, ep, tw, rd, spec_strength, shininess);
+        var lit = shade_diffuse(hp, alb, n, ep, tw, rd, spec_strength, shininess, depth == 0u);
         if depth == 0u {
             // Snapshot before any deeper segment shades and resets these.
             // Weighted by tw so a shadow seen through glass is softened by the
@@ -1623,6 +1623,43 @@ const SHADOW_RADIUS_TAPS: u32 = 31u;
 // from eroding -- is untouched.
 const SHADOW_DILATE_FEATHER: f32 = 1.0;
 
+// The widest radius a shadow will hand to a *lit* neighbour, as opposed to the
+// widest it will gather at itself.
+//
+// The dilation's taper is the thing that has to fit: a tap contributes its full
+// width out to `tp` and tapers to nothing at tp*(1+FEATHER), but the tap grid
+// only reaches SHADOW_SOFTEN_MAX_PX. Above tp = MAX/(1+FEATHER) the taper lands
+// off the end of the grid, so every tap in range sits inside the plateau and the
+// borrowed radius is full width out to exactly MAX_PX and zero one pixel
+// further. The feather exists to stop precisely that cliff; it had simply stopped
+// applying to the widest shadows, where the drop is nearly the whole cap.
+//
+// What it drew: a soft-edged blob with a visible rim, 30 px around any patch
+// whose width saturates the cap. The uplight on the office-sunset wall is the
+// case that found it — the shade sits inside the lamp's authored 2 m emitter
+// radius, so `gap` clamps to that radius, `pen` becomes the entire throw
+// distance (1500-3000 px), and the compressed width pins at 29.7 across a patch
+// of wall. Dilation then painted a 30 px halo of cap-width gather around the
+// patch, ending in a cliff, and the gather pulled the shadow arc up into the lit
+// wall inside it. That is a closed contour drawn on a flat wall by nothing in
+// the scene, which is exactly the class of artifact the radius field is supposed
+// not to have.
+//
+// Capping the *offer* rather than the taper keeps the fix in one place: a pixel
+// still gathers at its own full width, and every borrowed width now has room for
+// its whole taper inside the grid. Below the cap nothing changes at all, so the
+// shadows that already looked right are untouched.
+//
+// A penumbra this wide has no edge the filter can draw in any case — 3000 px
+// against a 30 px reach — so the 15 px it still hands out is already a token.
+// The requirement is only that it not invent a boundary of its own.
+//
+// Written out rather than derived, because naga will not fold a const built from
+// two other consts across the linked file. It is
+// SHADOW_SOFTEN_MAX_PX / (1 + SHADOW_DILATE_FEATHER) = 30 / 2, and moves with
+// either of them.
+const SHADOW_DILATE_OFFER_PX: f32 = 15.0;
+
 const SHADOW_RADIUS_SMOOTH_FRAC: f32 = 0.5;
 const SHADOW_RADIUS_SMOOTH_MAX_PX: f32 = 9.0;
 const SHADOW_RADIUS_SMOOTH_TAPS: u32 = 9u;
@@ -1810,11 +1847,11 @@ fn shadow_radius_h(@builtin(global_invocation_id) gid: vec3<u32>) {
         // an untamed value reaches everywhere and wins the maximum over the
         // whole row. Compressing first lets distance actually decide.
         if lit {
-            let tp = shadow_radius(t.pen_px);
+            let tp = min(shadow_radius(t.pen_px), SHADOW_DILATE_OFFER_PX);
             r = max(r, tp * shadow_dilate_weight(abs(o), tp));
         }
         if lit_m {
-            let tp_m = shadow_radius(t.pen_m);
+            let tp_m = min(shadow_radius(t.pen_m), SHADOW_DILATE_OFFER_PX);
             r_m = max(r_m, tp_m * shadow_dilate_weight(abs(o), tp_m));
         }
     }
@@ -1850,11 +1887,11 @@ fn shadow_radius_v(@builtin(global_invocation_id) gid: vec3<u32>) {
             continue;
         }
         if lit {
-            let tp = t.r_h;
+            let tp = min(t.r_h, SHADOW_DILATE_OFFER_PX);
             r = max(r, tp * shadow_dilate_weight(abs(o), tp));
         }
         if lit_m {
-            let tp_m = t.r_h_m;
+            let tp_m = min(t.r_h_m, SHADOW_DILATE_OFFER_PX);
             r_m = max(r_m, tp_m * shadow_dilate_weight(abs(o), tp_m));
         }
     }

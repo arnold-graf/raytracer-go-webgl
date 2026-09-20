@@ -196,6 +196,15 @@ disagreement into a visible line. Don't retry this by tweaking thresholds.
 
 ## Shadow gating in display space
 
+> **Scope changed 2026-09-19.** The gate below is sound only where nothing reads
+> the per-pixel shadow record, so it no longer applies at the primary diffuse hit
+> when the penumbra filter is on — a skipped light leaves no entry in
+> `ShadowAux`, and the filter's whole premise is that the record means the same
+> thing at neighbouring pixels. Everything else here still stands, and the gate
+> still governs every bounce segment, the specular pass and the ghost pass, which
+> is five rays in six. See
+> [soft-shadows.md](soft-shadows.md#a-skipped-shadow-ray-is-a-skipped-record).
+
 Shadow rays are the largest ray population in an interior view: 499k of 819k total
 rays at yaw 270, 87% of them blocked.
 
@@ -365,6 +374,103 @@ proportion to its *sparsity*, and no lobe here is both. That doc also carries th
 argument against a general wavefront refactor and the fifteen-minute
 resolution-scaling test that would say when it stops applying — see
 [bounce-kernel.md](bounce-kernel.md).
+
+---
+
+## Second pass (2026-09-19): occupancy, and a record that cost more than the shadows
+
+Measured on `scenes/office-sunset/index.toml` at the atrium view — `-cam-x 44.9
+-cam-y 201.3 -cam-z 33.1 -yaw-deg 91.3 -pitch-deg -0.52` — 512×320, depth 4, AA
+on. **Absolute numbers here are not comparable to the four-view mean at the top
+of this document**: the scene has grown a glass wall, a skyway and a good deal of
+furniture since, and this is one view rather than four. Read the deltas.
+
+**18.4 ms → 15.4 ms is available; 18.4 → 18.0 is what preserves the image.**
+
+### Landed: the shadow record is one hit per pixel, not six
+
+The penumbra filter reads `ShadowAux` at the primary diffuse hit and nowhere
+else. Every bounce segment, the specular pass and the ghost pass reset those
+accumulators and never snapshot them. A fix for a penumbra artifact had disarmed
+the display-level shadow gate for the whole frame to keep the record consistent —
+but the frame traces 6.2 segments per pixel and records one of them, so five in
+six of the extra shadow rays bought nothing a pixel could show.
+
+Scoping it with a `record` argument on `shade_diffuse` took shadow rays from
+1.06M to 605k and the frame from 22.4 ms to 19.7. `sh_record` also short-circuits
+`shadow_aux_note`, so a discarded record costs no `pow()` either. Full reasoning
+in [soft-shadows.md](soft-shadows.md#a-skipped-shadow-ray-is-a-skipped-record).
+
+### Landed: BVH traversal stacks were sized 32 for an 18-level tree
+
+19.7 ms → 18.4, **frame-for-frame identical output**. The deepest tree in all of
+`scenes/` is 18 levels, so a DFS that pushes both children needs 19 entries. The
+constant was 32 for no recorded reason. See
+[bvh-traversal.md](bvh-traversal.md#stack-size-is-occupancy-not-safety-margin).
+
+This is the same mechanism as the `box_holed_nearest` rewrite at the top of this
+document: a dynamically indexed local array is thread scratch on Metal and pins
+the kernel's per-thread allocation, charged to every ray in every scene. It is
+worth going looking for others — but note that the knee is sharp. 32 → 24 bought
+1.4 ms; 24 → 20 bought a further 0.2. Past the knee there is nothing there.
+
+### Rejected, with numbers
+
+Everything below was implemented and measured. None of it landed.
+
+| Candidate | Result |
+|---|---|
+| Narrow the penumbra filter's tap loads — `shadow_tap` returns a 192-byte `ShadowAux` and a gather uses ~24 bytes of it, 61 taps per pixel | **Worse**: 18.6 atrium, 18.3 villa. The compiler was already batching the struct load; per-field reads broke coalescing |
+| A separate, smaller stack for nested BLAS traversals (template trees are 6 levels deep and were getting 24) | Neutral — the compiler already reuses that scratch across the call boundary |
+| `MAX_SEGS` 4 / 6 / 8 / 12 | 19.7 / 19.9 / 19.9 / 20.1 ms. The ray-tree stack is not a factor; high-water is 5 |
+| Remove every profile counter from the hot loop | **Worse**: villa 17.0 → 18.1 ms |
+| Light grid `cellsPerLight` 8 → 16 → 32 | 18.3 / 18.3 / 18.3 atrium; villa *worse* at 32. Already tuned |
+| Terrain mip stack (12 parallel arrays × 12 entries) | Correctly sized: the deepest terrain in `scenes/` is 11 levels (island) |
+| Fold `albedo + spec` into `LIGHT_CULL_EPS` | −2% villa, consistent — but moved **10.8% of the night villa by up to 49 levels**. On a dark surface the threshold is absolute and the pixel is dark too, so scaling it by a small albedo culls light the eye still sees |
+| The same, restricted to the albedo-zero specular pass where it is provably safe | Neutral. The 0.9 ms it was chasing is the `shade_specular` *loop*, not the per-light work |
+| Thin-glass ghost off | 0.1 ms |
+| AA taps declining to trace a glossy lobe they will discard (`aa_tap_same_lobe` is decidable at the hit) | Correct, and neutral: too few taps land on a held-out lobe |
+
+### Still on the table, priced
+
+These work. They cost pixels, so they are a judgement call rather than an
+optimization:
+
+| Change | Frame | What it costs |
+|---|---|---|
+| glass specular at depth 0 only | 18.3 → **17.4** (−5%) | highlights on glass seen through glass |
+| `AA_SHADE_MIN_CURVE` 10 → 20 | 18.4 → **16.2** (−12%) | 0.6–1.6% of pixels, *all* ≥8 levels, max 132: aliasing returns on shadow terminators |
+| `AA_SHADE_MIN_CURVE` 10 → 40 | 18.4 → **15.4** (−16%) | more of the same |
+| bounce depth 4 → 3 | 18.4 → **15.7** (−15%) | one less glass/reflection bounce |
+
+Adaptive AA is still the largest single block — 4.9 ms of 18.2 for the 16.4% of
+pixels it supersamples, 15.1% of them flagged by the curvature detector rather
+than by silhouettes. Nothing that cuts the task count survived a pixel diff.
+
+### Two traps this pass fell into
+
+Both produced a confident wrong answer, and both are cheap to repeat.
+
+**A workgroup size lives in three places.** `AA_RESOLVE_WG` appeared to take the
+frame from 18.2 ms to 15.3 at 128. It had only been raised in two of the three:
+the shader still declared `@workgroup_size(32)` while the host dispatched
+`ceil(N/128)` groups, so three quarters of the AA tasks were never run. The frame
+was faster because it was doing less. Correctly matched, 128 is neutral. Any
+constant duplicated between WGSL and Go — this one, `BVHStackSize` — can fail
+this way, and it fails *fast*, which is exactly what a speedup looks like.
+
+**A finding is only as good as the build it was measured on.** Specialization was
+recorded last round as 2% *slower* on office-sunset, which would have been worth
+chasing. Re-measured after the BVH stack fix it is 18.1 ms specialized against
+19.5 unspecialized — it helps, substantially, and the earlier reading was the
+oversized stack dominating both arms. Re-measure old anomalies after any change
+that moves occupancy.
+
+The general lesson, which this document already states and which this pass
+confirmed four more times: **register allocation in a megakernel this size
+responds non-monotonically to local changes.** Removing dead code made it slower
+twice. Single samples are worthless; so are A/B comparisons across different
+builds.
 
 ---
 

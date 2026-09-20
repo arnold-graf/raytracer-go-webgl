@@ -485,10 +485,47 @@ const SHADOW_WIDEST_EXACT: bool = false;
 // shaft's near (contact) edge, which is 1.00x at -1: 1.96x at 0.25, 2.01x at
 // 0.5, 2.12x at 1, 2.19x at 2, 2.13x at 4, 2.11x at 8. Nearly all of the gain is
 // in leaving the arithmetic mean at all, and the curve is flat from 0.25 up, so
-// 1 is chosen for sitting in the middle of that plateau rather than for being
-// its maximum -- the far end trades toward "sharpest wins", which is the setting
+// the setting wants to sit in the middle of that plateau rather than at its
+// maximum -- the far end trades toward "sharpest wins", which is the setting
 // most likely to under-filter a broad shadow where a tight one crosses it.
-const SHADOW_WIDTH_MEAN_POWER: f32 = 1.0;
+//
+// **1 was too far up that plateau, and the predicted failure is what it did.**
+// The courtyard uplight in office-sunset throws a broad arc onto the wall behind
+// it. Along the far half of that arc one light is blocked and the width is its
+// own 5-8 px, which the filter draws properly. Approaching the lamp, three more
+// lights fall into the same silhouette; the tightest asks for 1.4 px, and at
+// P = 1 the mean collapses onto it -- 7.8 px at x=374 down to 2.1 px at x=518,
+// on one continuous shadow cast by one occluder. So the arc is softened at the
+// far end and left nearly hard at the near one, and the bright wall inside the
+// bend keeps a crisp border against an otherwise smooth gradient. Reported as a
+// bright patch in a softened penumbra, which is what a hard edge looks like when
+// its surroundings are soft.
+//
+// Edge steepness across that arc (max vertical gradient in linear radiance;
+// the hard render is the ceiling, lower is softer):
+//
+//   x         370     410     430     450     470     485
+//   hard   0.0542  0.0622  0.0673  0.0765  0.0737  0.0977
+//   P = 1  0.0219  0.0218  0.0249  0.0376  0.0360  0.0736   <- 25% softened
+//   P=0.25 0.0219  0.0218  0.0249  0.0376  0.0303  0.0535   <- 45%
+//   P = -1 0.0219  0.0218  0.0211  0.0376  0.0276  0.0442   <- 55%
+//
+// 0.25 is the other end of the same flat plateau: it keeps 1.96x of the 2.12x
+// contact-hardening gain the power mean exists for, and gives back most of the
+// arc. The arithmetic mean recovers a little more and is not worth it -- that is
+// the setting whose failure the whole power mean was built to fix.
+//
+// Scope, against P = 1 at 1024x640: the reported frame moves 1.66% of pixels,
+// office 0.06%, night villa 0.07%, and campfire-shadow, penumbra-test and the
+// atrium are bit-identical -- those have one blocked light per pixel, so the
+// mean never arbitrates and no exponent can change them. Mean linear radiance
+// moves by at most 0.03% on any of them.
+//
+// This is a move along a trade-off, not a repair. One radius per group of lights
+// cannot draw a sharp core and a broad shoulder at the same edge, and no
+// exponent makes it. Per-light radii can, and were built and reverted: see
+// "tried and reverted: a per-band radius" in docs/soft-shadows.md.
+const SHADOW_WIDTH_MEAN_POWER: f32 = 0.25;
 
 // Widths below this count as zero, so a true contact shadow lands on a hard edge
 // instead of dividing by something near zero.
@@ -513,6 +550,17 @@ const MAT_DIFFUSE: u32 = 0u;
 const MAT_MIRROR: u32 = 1u;
 const MAT_METAL: u32 = 3u;
 const MAT_GLASS: u32 = 4u;
+
+// How much of a light a glass blocker lets past, for glass that opts into
+// casting a shadow with `shadow = true`. 1 is no shadow at all (the default for
+// glass, which simply is not packed as a blocker); 0 is as dark as a wall.
+//
+// 0.5 is "half as dark as a regular shadow", which is what this is for: a pane
+// packed as a blocker is otherwise binary, and a solid shadow under clear glass
+// reads as a hole in the floor. It is a flat fraction, not a transmission model
+// -- it ignores the pane's own `transmit`, its tint and its thickness, so two
+// panes in a row land on 0.25 by multiplication rather than by absorption.
+const GLASS_SHADOW_TRANSMIT: f32 = 0.5;
 const MAT_EMIT: u32 = 5u; // scene.MatEmit
 const MAT_CHECKER: u32 = 6u;
 

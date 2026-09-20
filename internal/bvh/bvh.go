@@ -78,22 +78,22 @@ func build(s *scene.Scene, blockersOnly bool) *BVH {
 
 	for i := range s.Spheres {
 		o := &s.Spheres[i]
-		if blockersOnly && (o.Mat == scene.MatEmit || o.Mat == scene.MatGlass) {
-			continue // emissive spheres and glass cast no shadow
+		if blockersOnly && (o.Mat == scene.MatEmit || !o.CastsShadow()) {
+			continue // emissive spheres, and anything Surface.CastsShadow excludes
 		}
 		lmin, lmax := o.LocalBounds()
 		b.addBounded(KindSphere, i, o.Xform, lmin, lmax)
 	}
 	for i := range s.Boxes {
 		o := &s.Boxes[i]
-		if blockersOnly && o.Mat == scene.MatGlass {
+		if blockersOnly && !o.CastsShadow() {
 			continue
 		}
 		b.addBounded(KindBox, i, o.Xform, o.Min, o.Max)
 	}
 	for i := range s.Cylinders {
 		o := &s.Cylinders[i]
-		if blockersOnly && o.Mat == scene.MatGlass {
+		if blockersOnly && !o.CastsShadow() {
 			continue
 		}
 		r := o.MaxRadius()
@@ -103,7 +103,7 @@ func build(s *scene.Scene, blockersOnly bool) *BVH {
 	}
 	for i := range s.Cones {
 		o := &s.Cones[i]
-		if blockersOnly && o.Mat == scene.MatGlass {
+		if blockersOnly && !o.CastsShadow() {
 			continue
 		}
 		b.addBounded(KindCone, i, o.Xform,
@@ -121,7 +121,7 @@ func build(s *scene.Scene, blockersOnly bool) *BVH {
 	}
 	for i := range s.Rings {
 		o := &s.Rings[i]
-		if blockersOnly && o.Mat == scene.MatGlass {
+		if blockersOnly && !o.CastsShadow() {
 			continue
 		}
 		sh := o.Shell()
@@ -132,7 +132,7 @@ func build(s *scene.Scene, blockersOnly bool) *BVH {
 	}
 	for i := range s.Lenses {
 		o := &s.Lenses[i]
-		if blockersOnly && o.Mat == scene.MatGlass {
+		if blockersOnly && !o.CastsShadow() {
 			continue
 		}
 		lmin, lmax := o.WorldBounds()

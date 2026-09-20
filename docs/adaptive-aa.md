@@ -166,6 +166,51 @@ for the curvature test at the shipped threshold).
 
 ---
 
+## What it costs now
+
+Measured 2026-09-19 on `scenes/office-sunset/index.toml` at the atrium view,
+512×320, depth 4: **4.9 ms of an 18.2 ms frame — 27%**, for the 16.4% of pixels
+it supersamples. Of those, 1.4% were claimed by the silhouette test and 15.1% by
+the curvature test.
+
+A tap costs about 2.4× an ordinary pixel (182 ns against 92 ns at `AA_TAPS = 1`).
+That is not the tap doing anything extra: AA fires on the most expensive pixels
+in the frame — glass silhouettes and column edges — so it is sampling the tail of
+the cost distribution twice.
+
+The curvature threshold is the only large lever left, and it is a quality
+decision rather than an optimization:
+
+| `AA_SHADE_MIN_CURVE` | Frame | Pixels changed vs 10.0 |
+|---|---|---|
+| 10.0 (shipped) | 18.4 ms | — |
+| 20.0 | 16.2 ms (−12%) | 0.6–1.6%, **all ≥8 levels**, max 132 |
+| 40.0 | 15.4 ms (−16%) | more of the same |
+
+Note the shape of that diff. A dropped tap does not shift a pixel slightly; it
+un-blends it entirely, so every changed pixel moves by a full tap's worth. It
+reads as aliasing returning to shadow terminators, not as a subtle softening.
+
+Ways of cutting the *task count* that were tried and did not survive a pixel diff
+are in [megakernel-optimization.md](megakernel-optimization.md#rejected-with-numbers),
+along with the earlier rejection of cheaper tap rays.
+
+### `AA_RESOLVE_WG` lives in three places
+
+`types.wesl` declares it, `trace.wesl` spells it again in
+`@compute @workgroup_size(N, 1, 1)` on `aa_resolve`, and `device.go` mirrors it as
+`aaResolveWG`. The shader's `atomicMax(&aa_dispatch[0], (g + AA_RESOLVE_WG) /
+AA_RESOLVE_WG)` computes the group count from the constant, so if the three
+disagree the dispatch covers the wrong number of tasks — and it fails *silently*
+and *fast*.
+
+Raising it to 128 in two of the three made the frame look 16% faster (18.2 →
+15.3 ms) while quietly skipping three quarters of the AA work. Correctly matched,
+128 is neutral. Change all three, and verify the output is unchanged before
+believing the clock.
+
+---
+
 ## Configuration
 
 | Knob | Where | Effect |

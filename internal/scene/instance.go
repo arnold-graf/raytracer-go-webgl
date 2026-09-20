@@ -191,7 +191,7 @@ func ForEachTemplateBlockerBounds(tmpl *Scene, fn func(lmin, lmax vec.V)) {
 func forEachTemplateBounds(tmpl *Scene, blockersOnly bool, fn func(lmin, lmax vec.V)) {
 	for i := range tmpl.Spheres {
 		sp := &tmpl.Spheres[i]
-		if blockersOnly && (sp.Mat == MatEmit || sp.Mat == MatGlass) {
+		if blockersOnly && (sp.Mat == MatEmit || !sp.CastsShadow()) {
 			continue
 		}
 		r := sp.Radius
@@ -204,7 +204,7 @@ func forEachTemplateBounds(tmpl *Scene, blockersOnly bool, fn func(lmin, lmax ve
 	}
 	for i := range tmpl.Boxes {
 		bx := &tmpl.Boxes[i]
-		if blockersOnly && bx.Mat == MatGlass {
+		if blockersOnly && !bx.CastsShadow() {
 			continue
 		}
 		lmin, lmax := bx.Min, bx.Max
@@ -215,7 +215,7 @@ func forEachTemplateBounds(tmpl *Scene, blockersOnly bool, fn func(lmin, lmax ve
 	}
 	for i := range tmpl.Cylinders {
 		cy := &tmpl.Cylinders[i]
-		if blockersOnly && cy.Mat == MatGlass {
+		if blockersOnly && !cy.CastsShadow() {
 			continue
 		}
 		r := cy.MaxRadius()
@@ -228,7 +228,7 @@ func forEachTemplateBounds(tmpl *Scene, blockersOnly bool, fn func(lmin, lmax ve
 	}
 	for i := range tmpl.Cones {
 		co := &tmpl.Cones[i]
-		if blockersOnly && co.Mat == MatGlass {
+		if blockersOnly && !co.CastsShadow() {
 			continue
 		}
 		lmin := vec.V{X: co.CX - co.RBase, Y: co.YBase, Z: co.CZ - co.RBase}
@@ -252,7 +252,7 @@ func forEachTemplateBounds(tmpl *Scene, blockersOnly bool, fn func(lmin, lmax ve
 	}
 	for i := range tmpl.Rings {
 		rg := &tmpl.Rings[i]
-		if blockersOnly && rg.Mat == MatGlass {
+		if blockersOnly && !rg.CastsShadow() {
 			continue
 		}
 		sh := rg.Shell()
@@ -266,7 +266,7 @@ func forEachTemplateBounds(tmpl *Scene, blockersOnly bool, fn func(lmin, lmax ve
 	}
 	for i := range tmpl.Lenses {
 		ln := &tmpl.Lenses[i]
-		if blockersOnly && ln.Mat == MatGlass {
+		if blockersOnly && !ln.CastsShadow() {
 			continue
 		}
 		lmin, lmax := ln.WorldBounds()

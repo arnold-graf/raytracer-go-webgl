@@ -120,6 +120,7 @@ same shading fields:
 | `reflect` | float | `0.0` | `0..1` mirror reflection blended on top of a diffuse/textured surface |
 | `transmit` | float | `0.0` | `0..1` glass transparency (tint from `albedo`) |
 | `thin` | bool | `false` | On `glass` only: single-sheet transmission (one pass through the slab) |
+| `shadow` | bool | material | Whether the primitive casts a shadow: off for `glass`, on for everything else |
 
 Notes:
 - `reflect` adds a mirror layer to an otherwise diffuse surface; it's ignored by
@@ -127,6 +128,20 @@ Notes:
   `emit`).
 - On `glass`, `thin = true` skips the second refraction at the back face — use
   for window panes and other single-sheet geometry.
+- `shadow` defaults to *off* for `glass` and *on* for every other material.
+  `shadow = true` makes a glass primitive cast, at **half the darkness of a
+  regular shadow** (`GLASS_SHADOW_TRANSMIT` in `types.wesl`, 0.5 — it lets half
+  the light past instead of all of it). That fraction is flat: it ignores the
+  pane's own `transmit`, its tint and its thickness, so two panes in a row land
+  on a quarter by multiplication rather than by absorption. Opaque geometry
+  always wins — a wall behind a pane still blocks the light completely.
+  `shadow = false` works on any material if you need opaque geometry to stop
+  casting.
+- **Instanced glass casts a solid shadow, not a half one.** An `instance = true`
+  include is traced through a template BLAS that reports a distance and not a
+  material, so the transmittance never reaches it. Nothing in `scenes/` does
+  this today; if you instance a glass object with `shadow = true` and its
+  shadow looks too dark, that is why.
 - `texture` multiplies/tints by `albedo`; if `albedo` is omitted the texture
   shows its natural colors.
 

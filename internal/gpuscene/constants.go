@@ -72,7 +72,12 @@ const (
 	// that pushes both children and pops one holds at most depth+1 entries;
 	// TestBVHTraversalStackDepth measures every packed tree in scenes/ against
 	// this bound.
-	BVHStackSize = 32
+	//
+	// 24 because the deepest tree in scenes/ is 18 levels, so 19 is the
+	// requirement. It was 32, which cost 1.4 ms a frame on the office-sunset
+	// atrium view for headroom nothing uses; see the longer note on
+	// BVH_STACK_SIZE in shaders/modules/bvh.wesl.
+	BVHStackSize = 24
 )
 
 // WGSLConstants emits the shader-side constants that must stay synchronized with

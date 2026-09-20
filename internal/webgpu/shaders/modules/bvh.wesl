@@ -3,7 +3,7 @@
 // ray (nearest_hit) or any blocker along a shadow ray (shadowed). Also walks
 // infinite plane index lists that sit outside the BVH.
 
-import package::types::{BVH_TAG_TLAS, HIT_NO_INSTANCE, Hit, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_WIDEST_BLOCKER, SHADOW_WIDEST_EXACT, T_MISS, blockers, bvh_nodes, idx_tables, inst_records, inst_templates, params};
+import package::types::{BVH_TAG_TLAS, GLASS_SHADOW_TRANSMIT, HIT_NO_INSTANCE, Hit, MAT_GLASS, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_WIDEST_BLOCKER, SHADOW_WIDEST_EXACT, T_MISS, blockers, bvh_nodes, idx_tables, inst_records, inst_templates, params};
 import package::profile::{prof_step, prof_tests};
 import package::intersect::{intersect, intersect_blocker, slab_hit, slab_near, slab_range};
 import package::terrain::{hit_terrain, hit_water};
@@ -15,7 +15,23 @@ import package::instance::{inst_local_dir, inst_local_origin};
 // children then pops one holds at most depth+1 entries; the deepest tree any
 // scene packs is far shallower. Keep in sync with gpuscene.BVHStackSize, which
 // TestBVHTraversalStackDepth checks against every packed scene.
-const BVH_STACK_SIZE: u32 = 32u;
+//
+// **Sized from that measurement, not from a round number.** `stack[sp]` is a
+// dynamically indexed local array, and on Metal that is backed by thread scratch
+// and pins the kernel's per-thread allocation — the same mechanism
+// box_holed_nearest in intersect.wesl documents, charged here to every ray in
+// every scene. This was 32 for no reason anyone recorded. The deepest tree
+// across all of scenes/ is 18 levels (office-sunset's static tree), so 19 is the
+// requirement and 24 leaves five levels of headroom; going to 20 bought a
+// further 0.2 ms and is not worth being one bad split away from dropped
+// geometry. 32 -> 24 measured 19.8 ms -> 18.4 on the office-sunset atrium view
+// at 512x320, frame-for-frame identical output.
+//
+// A separate, smaller stack for the nested BLAS traversals was tried and
+// measured nothing: template trees are 6 levels deep, but the compiler is
+// evidently already reusing the scratch across that call boundary. The win here
+// is the top-level trees, which are the ones that were oversized.
+const BVH_STACK_SIZE: u32 = 24u;
 
 // Push near child on top (popped first), skipping either child whose AABB entry
 // is already past `bound`.
@@ -391,11 +407,33 @@ fn blocker_child_push_widest(left: u32, right: u32, ro: vec3<f32>, inv: vec3<f32
     }
 }
 
-fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> f32 {
+// Returns (t_block, transmittance). t_block is the blocker distance the penumbra
+// width is built from, negative when nothing is in the way; transmittance is the
+// share of the light that still gets through, 1 when clear and 0 behind anything
+// opaque.
+//
+// Transmittance exists for glass that opts into casting (`shadow = true`). A
+// blocker is otherwise binary, so such a pane threw the same solid shadow a wall
+// would; GLASS_SHADOW_TRANSMIT lets it through at a fraction instead.
+//
+// **A glass hit does not end the search.** Any-hit may stop at the first blocker
+// because one blocker is as opaque as ten, and that stops being true the moment
+// a blocker is partly transparent: returning at a pane would report "half lit"
+// for a point that also has a wall in the way. So glass accumulates and the loop
+// carries on looking for something opaque, and only an opaque hit takes the
+// early exit. Rays that meet no glass — every ray in a scene that never sets the
+// key — traverse and cost exactly what they did before.
+fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> vec2<f32> {
     if (params.blocker_bvh_node_count == 0u && params.blocker_inst_count == 0u) {
-        return -1.0;
+        return vec2<f32>(-1.0, 1.0);
     }
     var best = -1.0;
+    var trans = 1.0;
+    // The far-side pruning bound for the widest search, which only an *opaque*
+    // hit may advance. Pruning drops any node ending nearer than the farthest
+    // blocker found, so letting a glass pane set it would discard the opaque
+    // wall standing in front of that pane and leak light straight through it.
+    var prune = -1.0;
     let inv = vec3<f32>(1.0) / rd;
     let limit = max_t - 0.05;
     let blocker_off = select(params.bvh_node_count, params.blocker_section_start, params.inst_count > 0u);
@@ -426,21 +464,27 @@ fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> f32 {
                     let prim_idx = select(n.info.x, n.info.y, k == 1u);
                     let t = intersect_blocker(prim_idx, ro, rd);
                     if (t > RAY_EPSILON && t < limit) {
+                        best = blocker_keep(best, t);
+                        if (blockers[prim_idx].info.y == MAT_GLASS) {
+                            trans = trans * GLASS_SHADOW_TRANSMIT;
+                            continue;
+                        }
                         if (!SHADOW_NEAREST_BLOCKER && !SHADOW_WIDEST_BLOCKER) {
-                            return t;
+                            return vec2<f32>(t, 0.0);
                         }
                         // Far-first ordering means this is already the farthest
                         // blocker in all but a sliver of cases, so the
                         // approximate mode stops here and keeps any-hit's cost.
                         if (SHADOW_WIDEST_BLOCKER && !SHADOW_WIDEST_EXACT) {
-                            return t;
+                            return vec2<f32>(t, 0.0);
                         }
-                        best = blocker_keep(best, t);
+                        trans = 0.0;
+                        prune = blocker_keep(prune, t);
                     }
                 }
             } else if (n.info.z != BVH_TAG_TLAS) {
                 if (SHADOW_WIDEST_BLOCKER) {
-                    blocker_child_push_widest(blocker_off + n.info.x, blocker_off + n.info.y, ro, inv, max_t, best, &stack, &sp);
+                    blocker_child_push_widest(blocker_off + n.info.x, blocker_off + n.info.y, ro, inv, max_t, prune, &stack, &sp);
                 } else {
                     bvh_child_push(blocker_off + n.info.x, blocker_off + n.info.y, ro, inv, max_t, &stack, &sp);
                 }
@@ -448,11 +492,19 @@ fn blocker_bvh_any_hit(ro: vec3<f32>, rd: vec3<f32>, max_t: f32) -> f32 {
         }
     }
 
+    // Instanced blockers are opaque whatever their material. The template BLAS
+    // reports a distance and not a material, and carrying one out through
+    // bvh_nearest_subtree costs more than the case is worth today: nothing
+    // instanced sets `shadow = true`. An instanced glass object that does will
+    // cast a solid shadow rather than a half one -- noted in SCENES.README.
     if (params.inst_count > 0u && params.blocker_inst_count > 0u) {
         let ti = inst_bvh_any_hit(params.blocker_inst_base, ro, rd, max_t);
-        if (ti >= 0.0 && (best < 0.0 || ti < best)) {
-            best = ti;
+        if (ti >= 0.0) {
+            trans = 0.0;
+            if (best < 0.0 || ti < best) {
+                best = ti;
+            }
         }
     }
-    return best;
+    return vec2<f32>(best, trans);
 }

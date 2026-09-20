@@ -129,6 +129,9 @@ func FormatGPUProfile(c GPUProfileCounters, gpuMS float64) string {
 	fmt.Fprintf(&b, "    water             %8d  (%5.1f%%)\n", c.PriHitWater, 100*float64(c.PriHitWater)/pix)
 	fmt.Fprintf(&b, "  all hits: prim %d (inst %d) terrain %d water %d sky %d\n",
 		c.HitPrim, c.HitInst, c.HitTerrain, c.HitWater, c.Sky)
+	if c.MaxSegs > 0 {
+		fmt.Fprintf(&b, "  ray stack high-water: %d segments (MAX_SEGS in trace.wesl)\n", c.MaxSegs)
+	}
 	if c.ShadowRays > 0 {
 		fmt.Fprintf(&b, "  shadow rays:       %8d  (%d blocked, %.1f%%)\n",
 			c.ShadowRays, c.ShadowBlock, 100*float64(c.ShadowBlock)/float64(c.ShadowRays))

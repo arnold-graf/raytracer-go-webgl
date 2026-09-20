@@ -70,6 +70,10 @@ type Surface struct {
 	// NoCollision opts the primitive out of player capsule tests (walking,
 	// ground height, footsteps). Ray tracing is unaffected. Defaults to false.
 	NoCollision bool
+	// Shadow overrides whether this primitive is a shadow blocker. The zero
+	// value is ShadowAuto, which is what every material did before this field
+	// existed — see CastsShadow.
+	Shadow ShadowMode
 	// Xform, when non-nil, maps the primitive from local space into world space.
 	// Intersection and normals are evaluated in local space and transformed back.
 	Xform *Transform
@@ -77,6 +81,44 @@ type Surface struct {
 
 // Collides reports whether the primitive participates in player capsule tests.
 func (s Surface) Collides() bool { return !s.NoCollision }
+
+// ShadowMode selects whether a primitive is packed into the shadow-blocker set.
+// It is a tri-state rather than a bool so the zero value means "unset": scenes
+// built in Go rather than loaded from TOML keep the material-derived behaviour
+// they had before the field existed, without having to set it everywhere.
+type ShadowMode uint8
+
+const (
+	// ShadowAuto blocks unless the material is glass.
+	ShadowAuto ShadowMode = iota
+	// ShadowOn forces the primitive into the blocker set.
+	ShadowOn
+	// ShadowOff keeps it out.
+	ShadowOff
+)
+
+// CastsShadow reports whether this surface belongs in the shadow-blocker set.
+//
+// Glass is excluded by default because a shadow ray has no transmission model:
+// a blocker is opaque, so a pane packed as one throws the same solid shadow a
+// wall would, and a window would read as bricked up. The cost of that default is
+// that glass is invisible to every light, which is wrong in the other direction
+// for anything thick or tinted — a stained pane, a bottle, a frosted panel. The
+// `shadow` key is the opt-in, and what it buys is a *solid* shadow, not a tinted
+// one; it is an authoring choice about which error looks better on a given
+// object, not a physical model.
+//
+// Emissive primitives are filtered separately at the call sites that do it
+// today, so this deliberately says nothing about MatEmit.
+func (s Surface) CastsShadow() bool {
+	switch s.Shadow {
+	case ShadowOn:
+		return true
+	case ShadowOff:
+		return false
+	}
+	return s.Mat != MatGlass
+}
 
 // Sphere is a simple analytic sphere. CutOff (0..1) removes the bottom
 // portion: cut_off = 0.5 keeps the top hemisphere with an open bottom.
