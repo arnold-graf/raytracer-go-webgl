@@ -474,6 +474,51 @@ builds.
 
 ---
 
+## The peak is the BVH traversal, and nothing else
+
+`maxTotalThreadsPerThreadgroup` — Metal's verdict on how many threads of a
+compiled kernel stay resident — is now measurable, by translating the linked
+WGSL with `naga` and compiling it through a small Metal probe. See
+[tools/occupancy/](../tools/occupancy/README.md) for how to run it, and for why
+it cannot be read through wgpu.
+
+On an M2 Max the megakernel reports **384 against a 1024 ceiling**; `aa_resolve`
+matches it, because it calls the same `ray_color`. Every screen-space filter pass
+is unconstrained at 1024.
+
+Ablating and re-measuring localizes it, and the answer is narrow. Stripping every
+`FEAT_*` flag: 384. Each primitive kind individually: 384. `BVH_STACK_SIZE` from
+8 to 128: 384. `MAX_SEGS` 1 to 6: 384. Glass off, glossy lobe off, shadow record
+off, `shade_diffuse` gutted to `return alb`, instancing off, `hit_prim` stubbed:
+384 every time. Gut `main` so it traces nothing: **1024**. Call `nearest_hit` and
+nothing else: **384**.
+
+**The entire register peak is the bare BVH traversal loop** — the stack,
+`slab_hit`, `bvh_child_push` holding two nodes' bounds at once, the `Hit` state.
+Everything else in the kernel fits underneath it for free.
+
+That reframes several things this document says:
+
+- **Shading is not worth optimizing for occupancy.** Narrowing the carried
+  `ShadowAux` from 192 bytes to 72 measured exactly neutral, and now we know why
+  rather than guessing: it was never on the peak path.
+- **Specialization does not pay by reducing register pressure.**
+  [shader-specialization.md](shader-specialization.md) assumes it does — "code a
+  scene never executes still costs occupancy on every ray". Stripping everything
+  leaves the number where it was. Its 12% is real but comes from elsewhere:
+  fewer instructions and branches, better scheduling, instruction cache.
+- **Thread scratch is a different resource, and this probe cannot see it.**
+  `BVH_STACK_SIZE` 32 → 24 was worth 7% of frame time and moves this number not
+  at all. The wins recorded in this document under "occupancy" — the
+  `box_holed_nearest` array, the traversal stacks — were *spill memory* wins.
+  Two taxes, two instruments, and only one of them now has a number.
+
+If register occupancy is ever the target, the traversal loop is the only place to
+look. If frame time is the target, scratch is still the richer seam, and it is
+still measured the old way.
+
+---
+
 ## Harness
 
 Throwaway tooling in `tmp/perf/`, useful if you pick this up:

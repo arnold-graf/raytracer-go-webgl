@@ -167,6 +167,15 @@ before an occupancy change is not evidence after one.** This kernel's register
 allocation moves non-monotonically, so a finding is only as good as the build it
 was taken on. Re-measure old surprises after anything that touches thread scratch.
 
+> **Corrected 2026-09-20: the mechanism above is wrong.** Register pressure is
+> now measurable (see [tools/occupancy/](../tools/occupancy/README.md)), and
+> stripping *every* feature leaves the megakernel's
+> `maxTotalThreadsPerThreadgroup` exactly where it was, at 384 of 1024. The peak
+> is the BVH traversal loop, which no flag touches. Specialization's 12% is real
+> and reproducible — it is simply not bought by occupancy. Fewer instructions,
+> fewer branches and better scheduling are the remaining candidates, and none of
+> them has been isolated.
+
 ---
 
 ## Where the remaining headroom is
