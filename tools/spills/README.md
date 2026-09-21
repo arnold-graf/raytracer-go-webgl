@@ -73,8 +73,16 @@ bookkeeping, the reflect/refract parameters. Many small values, not one big one
 — the same "broad plateau" the occupancy probe found, but now with a size and an
 address.
 
-## Caveat
+## Reading the columns
 
-The remarks describe the *compile*, not the run: they are static counts from the
-allocator, with no dynamic weighting by how often a line executes. Treat them as
-"where pressure is", then confirm with frame time and a pixel diff as usual.
+`spills`/`reloads` are static counts. `cost` is LLVM's spill weight, which is
+scaled by the compiler's *estimated* block frequency — so it is loop-depth
+weighted, but from static heuristics, not a profile. The two disagree usefully:
+`main_` has more spills than `aa_resolve` (503 vs 454) and one eighth the cost
+(290 vs 2347), because `main_`'s are at function scope and `aa_resolve`'s are
+inside the segment loop. Rank by `cost`; read `spills` as the size of the
+resident set.
+
+Neither is a scratch byte count. The capture carries no scratch or stack-size
+field (only the embedded MSL), so these remain a proxy: they say where pressure
+is, not what it costs. Confirm with frame time and a pixel diff as always.

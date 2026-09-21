@@ -581,10 +581,14 @@ The obvious structural move is to stop paying for the loop three times. Having
 inlining a second and third copy does not reduce the loop's pressure, but it
 would stop multiplying it. That is untried and unpriced.
 
-One caveat on the instrument: the remarks describe the compile, not the run.
-They are static allocator counts with no weighting by how often a line executes.
-Read them as "where the pressure is", then confirm with frame time and a pixel
-diff, as always.
+On reading the columns: the spill and reload counts are static, but `cost` is
+LLVM's spill weight, scaled by the compiler's estimated block frequency — loop
+depth weighted, from heuristics rather than a profile. The two disagree usefully.
+`main_` has *more* spills than `aa_resolve`, 503 against 454, and one eighth the
+cost, because `main_`'s sit at function scope while `aa_resolve`'s are inside the
+loop. Rank by cost; read spills as the size of the resident set. Neither is a
+byte count — the capture carries no scratch field — so confirm with frame time
+and a pixel diff, as always.
 
 ---
 
