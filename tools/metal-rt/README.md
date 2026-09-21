@@ -47,8 +47,44 @@ measured as *not* being the peak — gutting `shade_diffuse` to `return alb` lef
 and would add hardware traversal underneath the same API. So this is a floor for
 Apple silicon, not a ceiling.
 
-**Registers are not throughput.** 1.5-2.7x the resident threads is a reason to
-expect a win, not a measurement of one. Nothing here traces a real scene. The
-next experiment, if this is pursued, is throughput: build a
-`primitive_acceleration_structure` over the office-sunset prims and compare
-rays/second against the 84M/s the megakernel currently achieves.
+**Registers are not throughput**, and the table above does not survive contact
+with the real shader. Both follow-ups were run:
+
+## Throughput: 9.2x, in a lean kernel
+
+`bench.swift` builds a `primitive_acceleration_structure` over office-sunset's
+1,522 primitive AABBs and traces the atrium view's 163,840 primary rays,
+generated exactly as `pixel_ray_dir` does.
+
+    go run ./tmp/aabb scenes/office-sunset/index.toml /tmp/scene.bin   # see docs
+    swiftc -O tools/metal-rt/bench.swift -o /tmp/mtlbench
+    /tmp/mtlbench /tmp/scene.bin tools/metal-rt/bench.metal 200
+
+| | |
+|---|---|
+| ours, `main` gutted to `nearest_hit`, `-aa=false` | 2.5 ms — 65.5M rays/s |
+| Metal intersector, same rays | 0.272 ms — **601.9M rays/s** |
+
+Confounds, all favouring Metal: the benchmark's scene is flat where ours runs a
+TLAS/BLAS split, its intersection function is a slab test rather than our full
+`hit_prim`, and its kernel compiles at 1024 threads per threadgroup against our
+384. Back the occupancy out and roughly 3x residual remains.
+
+## Registers: the claim is wrong for our shader
+
+`mslpatch/` generates the patched MSL from the linked WGSL. Measured on it:
+
+| Patched kernel | main_ |
+|---|---|
+| `nearest_hit` replaced by Metal's intersector | 384 |
+| both `nearest_hit` and `blocker_bvh_any_hit` replaced | 384 |
+| both replaced **and** `shade_diffuse` gutted | **384** |
+
+The 704-1024 numbers above are synthetic kernels containing nothing but an
+intersector and a shading-shaped tail. Our real shader has other things at the
+same height — the plateau in [tools/occupancy/](../occupancy/README.md) — so
+removing traversal only reveals the next contributor. Neither traversal nor
+shading is the peak, and what is has not been found.
+
+See [docs/metal-backend.md](../../docs/metal-backend.md) for what that does to
+the proposal.
