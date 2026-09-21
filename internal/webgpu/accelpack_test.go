@@ -23,7 +23,7 @@ func TestAccelPackCoversEveryPrimitive(t *testing.T) {
 		// 4: ordinary leaf under the TLAS internal node
 		{Min: [4]float32{2, 2, 2}, Max: [4]float32{3, 3, 3}, Info: [4]uint32{12, 0, 0, 1}},
 	}
-	got := collectLeaves(nodes, 0)
+	got := collectLeaves(nodes, 0, 0)
 	want := map[uint32][2][3]float32{
 		10: {{-1, -1, -1}, {1, 1, 1}},
 		11: {{-1, -1, -1}, {1, 1, 1}},
@@ -104,5 +104,34 @@ func TestAccelPackInstanceNumbering(t *testing.T) {
 	}
 	if p.Instances[2].Xf[3] != 9 {
 		t.Errorf("instance 2 translation = %v, want 9", p.Instances[2].Xf[3])
+	}
+}
+
+// TestBlockerSectionUsesRelativeChildren pins the numbering the blocker tree
+// actually uses. Its internal nodes hold section-relative child indices while
+// its leaves hold absolute primitive indices, mirroring blocker_bvh_any_hit's
+// `blocker_off + n.info.x` push against untouched leaf slots. Reading them as
+// absolute silently walks into the main tree and returns geometry leaves for
+// the blocker structure, which shadows every ray against the wrong set.
+func TestBlockerSectionUsesRelativeChildren(t *testing.T) {
+	// nodes 0..1 are a decoy "main tree"; the blocker section starts at 2.
+	nodes := []GPUBVHNode{
+		{Info: [4]uint32{999, 0, 0, 1}}, // main-tree leaf, must not be collected
+		{Info: [4]uint32{998, 0, 0, 1}},
+		{Info: [4]uint32{1, 2, 0, 0}}, // 2: blocker root, children RELATIVE -> 3, 4
+		{Min: [4]float32{0, 0, 0}, Max: [4]float32{1, 1, 1}, Info: [4]uint32{7, 0, 0, 1}}, // 3
+		{Min: [4]float32{1, 1, 1}, Max: [4]float32{2, 2, 2}, Info: [4]uint32{8, 0, 0, 1}}, // 4
+	}
+	got := collectLeaves(nodes, 2, 2)
+	if len(got) != 2 {
+		t.Fatalf("collected %d leaves, want 2: %+v", len(got), got)
+	}
+	for _, l := range got {
+		if l.Prim == 999 || l.Prim == 998 {
+			t.Fatalf("walked into the main tree and collected prim %d", l.Prim)
+		}
+		if l.Prim != 7 && l.Prim != 8 {
+			t.Errorf("unexpected prim %d", l.Prim)
+		}
 	}
 }

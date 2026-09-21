@@ -71,43 +71,57 @@ reported nothing.
 
 ## Status
 
-All ten kernels dispatch, in the order `internal/webgpu/device.go` submits them:
-`main_`, the reflection filter, the separable penumbra filter and
-`aa_classify` in one encoder so each sees the last one's writes, then
-`aa_resolve` indirectly from the task list `aa_classify` built. **11.0 ms at
-512x320.**
+All ten kernels dispatch, in the order `internal/webgpu/device.go` submits them.
+Two scenes, both at the in-game 512x320:
 
-That number is still not comparable, because 29.8% of pixels differ from the
-WGSL backend by >=8. What the difference is *not*:
+| scene | wgpu | metal |
+|---|---|---|
+| office-sunset atrium | 20.0 ms | 10.8 ms |
+| outdoors-night-villa | 16.8 ms | 9.8 ms |
 
-- **Not the screen-space passes.** Running them moved the gap by 0.6 points
-  (30.4% -> 29.8%). Measured from the other side, turning AA off in the WGSL
-  backend changes only 2.3% of pixels at this resolution.
-- **Not shader specialization.** `RAYTRACER_NO_SHADER_SPECIALIZE=1` renders
-  bit-identically to the specialized pipeline, so the all-features shader that
-  `mslpatch` compiles is the right reference.
-- **Not missing instance data.** Forcing `inst_idx` to `HIT_NO_INSTANCE` moves
-  45% of pixels, so instanced shading is live and doing work.
+**Neither number is a result yet**, for two reasons that both have to go away
+first. The images still differ (27.2% and 32.2% of pixels by >=8), and the two
+timers measure different things: gpuprof reports wall-clock until the device is
+idle, including readback, while the harness reports `GPUEndTime - GPUStartTime`.
+Closing both is what turns this into a measurement.
 
-What it looks like: the difference concentrates on the columns and the glass
-rather than spreading evenly, and the Metal frame is slightly *brighter*
-(mean 163.7 against 160.8). Brighter, on the repeated instanced geometry,
-points at shadow rays missing occluders they should find -- the blocker TLAS
-rather than the geometry one. That is the next thing to bisect, and `-probe`
-already traces the geometry structure; it needs the blocker equivalent.
+Textures are correct. The villa renders its cobblestone base, tree bark, wood
+grain and grass identically to the WGSL backend, which is the clearest evidence
+so far that material and texture lookups are getting the right primitive index.
 
-Reflection and refraction needed no work: both live in `ray_color`'s segment
-loop, which calls `nearest_hit` and so the spliced traversal.
+What still differs, by scene: office-sunset loses the surface detail on the
+nearest column; the villa's water reflection is flat where the WGSL backend's
+is wavy. Both are surface-normal-shaped rather than geometry-shaped.
 
-Shadow transmission did. Glass does not end a blocker walk in the WGSL -- it
-multiplies transmission and continues -- which a flat `accept_any_intersection`
-cannot express, so the accumulation lives in the intersection function in a
-`ray_data` payload. Verified by forcing every blocker to transmit, which moves
-16.7% of pixels. Glass-only is a no-op on this view: 54 glass blockers exist,
-but no shadow ray in this frame crosses one.
+### Ruled out
+
+- **The screen-space passes.** Adding all nine moved office-sunset by 0.6
+  points. Turning AA off in the WGSL backend changes 2.3% of pixels.
+- **Shader specialization.** `RAYTRACER_NO_SHADER_SPECIALIZE=1` renders
+  bit-identically, so the all-features shader `mslpatch` compiles is right.
+- **Missing instance data.** Forcing `inst_idx` to `HIT_NO_INSTANCE` moves 45%
+  of pixels, so instanced shading is live.
+
+### Fixed along the way
+
+The blocker structures were built from the *geometry* tree. `PackBVH` numbers a
+section's children from zero and `instance.go` appends the blocker tree
+verbatim, so its internal nodes hold section-relative child indices while its
+leaves hold absolute primitive ones -- which `blocker_bvh_any_hit` handles by
+pushing `blocker_off + n.info.x` against untouched leaf slots. Reading them as
+absolute walks straight back into the main tree.
+
+It never crashed. office-sunset's static geometry indices happen to fall below
+its blocker count, so the range check passed and the structure was quietly full
+of the wrong primitives -- every shadow ray testing the wrong set. The villa
+exposed it because its indices do not line up that way. This is also where the
+"12 benign duplicates" noted earlier came from; they were never benign, and the
+counts are now exact on both scenes.
 
 ### Still missing
 
 - Refit. `refitAccelerationStructure:` is the analogue of `bvh_refit.go`;
   instance transforms only need the TLAS rebuilt, deforming poses need a real
-  BLAS refit. Nothing here blocks it; the harness just builds once.
+  BLAS refit.
+- A blocker-side `-probe`. The existing one only traces the geometry structure,
+  which is why the blocker bug survived as long as it did.

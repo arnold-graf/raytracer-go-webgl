@@ -20,15 +20,6 @@ import "raytracer/internal/scene"
 //	Instances[0] identity, referencing Geom[0]/Blockers[0]
 //	Instances[k] placement k-1's transform, referencing its template
 //
-// Measured on office-sunset: 15 geometry structures (1 static + 14 templates)
-// holding exactly 966 leaves for 966 packed primitives, and 15 blocker
-// structures holding 957 leaves for 945 packed blockers -- 945 unique, with 12
-// appearing in both the static structure and a template. The overlap mirrors
-// the WGSL, whose static blocker tree and instanced blocker search are separate
-// walks that can reach the same primitive; on an any-hit shadow query a second
-// test cannot change the answer, so it costs work and not correctness. The
-// geometry side, which is a nearest query and would care, has no duplicates.
-//
 // Leaf.Prim is absolute on purpose. Metal reports primitive_id local to its
 // geometry and a bounding box intersection function cannot read instance_id, so
 // the harness writes these indices into the structure as per-primitive data and
@@ -61,7 +52,19 @@ type AccelPack struct {
 // collectLeaves walks one tree and returns its geometry leaves. TLAS nodes are
 // descended but never collected: the primitives under them belong to a
 // template's own structure, and Metal reaches them through an instance.
-func collectLeaves(nodes []GPUBVHNode, root uint32) []AccelLeaf {
+//
+// childOff exists because the static blocker tree is numbered differently from
+// everything else. PackBVH numbers a section's children from zero and
+// instance.go appends the blocker tree verbatim, so its *internal* nodes hold
+// section-relative child indices while its leaves hold absolute primitive
+// indices -- which is exactly what blocker_bvh_any_hit does when it pushes
+// `blocker_off + n.info.x` but reads leaf slots untouched. Template subtrees
+// are absolute throughout (see bvh_nearest_subtree), so they pass 0.
+//
+// Getting this wrong does not crash: the walk lands in the main tree and
+// returns *geometry* leaves for the blocker structure, so shadow rays test the
+// wrong primitive set and the image is subtly and everywhere wrong.
+func collectLeaves(nodes []GPUBVHNode, root, childOff uint32) []AccelLeaf {
 	if int(root) >= len(nodes) {
 		return nil
 	}
@@ -77,12 +80,12 @@ func collectLeaves(nodes []GPUBVHNode, root uint32) []AccelLeaf {
 		count := n.Info[3]
 		if n.Info[2] == bvhTagTLAS {
 			if count == 0 {
-				stack = append(stack, n.Info[0], n.Info[1])
+				stack = append(stack, childOff+n.Info[0], childOff+n.Info[1])
 			}
 			continue // an instance leaf: its geometry lives in a template
 		}
 		if count == 0 {
-			stack = append(stack, n.Info[0], n.Info[1])
+			stack = append(stack, childOff+n.Info[0], childOff+n.Info[1])
 			continue
 		}
 		for k := uint32(0); k < count; k++ {
@@ -143,11 +146,11 @@ func invertXf(r GPUInstanceRecord) ([12]float32, bool) {
 // the harness and the tests reach it without re-running the scene loader.
 func AccelPackFrom(nodes []GPUBVHNode, templates []GPUTemplateRecord, instances []GPUInstanceRecord, blockerSectionStart uint32) *AccelPack {
 	p := &AccelPack{}
-	p.Geom = append(p.Geom, AccelBLAS{Leaves: collectLeaves(nodes, 0)})
-	p.Blockers = append(p.Blockers, AccelBLAS{Leaves: collectLeaves(nodes, blockerSectionStart)})
+	p.Geom = append(p.Geom, AccelBLAS{Leaves: collectLeaves(nodes, 0, 0)})
+	p.Blockers = append(p.Blockers, AccelBLAS{Leaves: collectLeaves(nodes, blockerSectionStart, blockerSectionStart)})
 	for _, t := range templates {
-		p.Geom = append(p.Geom, AccelBLAS{Leaves: collectLeaves(nodes, t.BlasRoot)})
-		p.Blockers = append(p.Blockers, AccelBLAS{Leaves: collectLeaves(nodes, t.BlockerBlasRoot)})
+		p.Geom = append(p.Geom, AccelBLAS{Leaves: collectLeaves(nodes, t.BlasRoot, 0)})
+		p.Blockers = append(p.Blockers, AccelBLAS{Leaves: collectLeaves(nodes, t.BlockerBlasRoot, 0)})
 	}
 	// Instance 0 is the static set at identity; mslpatch's generated code maps
 	// instance_id 0 to HIT_NO_INSTANCE and k to the WGSL's instance k-1.
@@ -175,4 +178,14 @@ func AccelPackForScene(s *scene.Scene) (*AccelPack, []GPUPrimitive, []GPUPrimiti
 		return nil, nil, nil, false
 	}
 	return AccelPackFrom(nodes, isp.templates, isp.instances, isp.blockerSectionStart), prims, blockers, true
+}
+
+// AccelDebug exposes the packed pieces for tools that need to reason about the
+// node numbering, which differs between the main tree and the blocker section.
+func AccelDebug(s *scene.Scene) ([]GPUBVHNode, []GPUTemplateRecord, []GPUInstanceRecord, uint32, int, int, bool) {
+	prims, blockers, nodes, _, _, isp, _, ok := packInstancedScene(s)
+	if !ok {
+		return nil, nil, nil, 0, 0, 0, false
+	}
+	return nodes, isp.templates, isp.instances, isp.blockerSectionStart, len(prims), len(blockers), true
 }

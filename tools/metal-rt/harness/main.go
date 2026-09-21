@@ -36,10 +36,15 @@ import (
 )
 
 // bufferSizesFields is how many uints naga's runtime-array size table holds.
-// The harness cannot map each field back to a buffer -- the numbering is
-// naga-internal, running past our binding count -- so every field is set
-// permissively and every allocation is padded. If the rendered image matches
-// the WGSL backend's, the bounds checks provably never fired.
+// Most fields only back bounds checks that never fire for a valid index, so
+// they are set permissively and every allocation is padded to match.
+//
+// One field is different. The shader calls arrayLength() exactly once, in
+// aa_resolve's guard `if g >= arrayLength(&aa_list)`, and that is *semantic*:
+// left permissive the guard never fires, so threads past the task list read
+// uninitialised entries and write them to the frame. It shows up as dashed
+// lines through the image. sizeFieldFor finds which field that guard reads and
+// fixSizeField sets it to the real byte length.
 const bufferSizesFields = 64
 
 const allocPad = 1 << 16
@@ -49,6 +54,7 @@ const allocPad = 1 << 16
 const (
 	sizesBinding      = 31
 	aaDispatchBinding = 29
+	aaListBinding     = 28
 )
 
 type bindingEntry struct {
@@ -108,6 +114,18 @@ func main() {
 	sz := make([]byte, bufferSizesFields*4)
 	for i := 0; i < bufferSizesFields; i++ {
 		binary.LittleEndian.PutUint32(sz[i*4:], ^uint32(0)/4)
+	}
+	if slot, ok := aaListSizeSlot(filepath.Join(*dir, "bound.metal")); ok {
+		var aaLen uint32
+		for _, e := range bindings {
+			if e.Binding == aaListBinding {
+				aaLen = uint32(e.Size)
+			}
+		}
+		binary.LittleEndian.PutUint32(sz[slot*4:], aaLen)
+		fmt.Printf("aa_list length: field %d = %d bytes\n", slot, aaLen)
+	} else {
+		fmt.Fprintln(os.Stderr, "warning: could not locate aa_list's size field; AA will read past its task list")
 	}
 	setBuffer(m, sizesBinding, sz)
 
@@ -416,4 +434,44 @@ func hitStr(v uint32) string {
 		return "HIT"
 	}
 	return "miss"
+}
+
+var (
+	reSizesStruct = regexp.MustCompile(`(?s)struct _mslBufferSizes \{(.*?)\};`)
+	reSizeField   = regexp.MustCompile(`uint (size\d+);`)
+	// naga lowers arrayLength(&arr) on an array<u32> to exactly this shape.
+	// The shader calls arrayLength once, so a single match is both the guard
+	// we want and a check that the assumption still holds.
+	reAAGuard = regexp.MustCompile(`1 \+ \(_buffer_sizes\.(size\d+) - 0 - 4\) / 4`)
+)
+
+// aaListSizeSlot returns the position of aa_list's length within naga's size
+// struct. The field names are handle indices, not binding numbers, so the only
+// reliable way to find the right one is to read the guard that uses it inside
+// aa_resolve and then look up that name's position in the struct.
+func aaListSizeSlot(mslPath string) (int, bool) {
+	b, err := os.ReadFile(mslPath)
+	if err != nil {
+		return 0, false
+	}
+	src := string(b)
+	sm := reSizesStruct.FindStringSubmatch(src)
+	if sm == nil {
+		return 0, false
+	}
+	var order []string
+	for _, f := range reSizeField.FindAllStringSubmatch(sm[1], -1) {
+		order = append(order, f[1])
+	}
+	all := reAAGuard.FindAllStringSubmatch(src, -1)
+	if len(all) != 1 {
+		return 0, false // more than one arrayLength: this heuristic no longer identifies aa_list
+	}
+	g := all[0]
+	for pos, name := range order {
+		if name == g[1] {
+			return pos, true
+		}
+	}
+	return 0, false
 }
