@@ -2,13 +2,13 @@
 # Runs every part of the Metal integration that exists today and reports what
 # passes. Nothing here needs Xcode, a GPU capture, or the unfinished harness.
 #
-#   ./tools/metal-rt/verify.sh [workdir]     (default /tmp/metal-rt-verify)
+#   ./tools/metal-rt/verify.sh [workdir]     (default tmp/metal-rt-verify)
 #
 # Each check prints PASS or FAIL and the number it checked, so a regression
 # shows up as a changed number rather than a silent skip.
 set -u
 cd "$(dirname "$0")/../.."
-OUT=${1:-/tmp/metal-rt-verify}
+OUT=${1:-tmp/metal-rt-verify}
 NAGA=${NAGA:-$(command -v naga || echo "$HOME/.cargo/bin/naga")}
 SCENE=${SCENE:-scenes/office-sunset/index.toml}
 mkdir -p "$OUT"

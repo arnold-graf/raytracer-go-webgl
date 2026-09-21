@@ -227,7 +227,15 @@ struct PrimIsect {
 // Buffer indices are table-local: an intersection function table has its own
 // argument space, independent of the kernel's, which is what keeps these off
 // the megakernel's 31-buffer ceiling.
-[[intersection(bounding_box)]] PrimIsect prim_isect(
+//
+// The instancing tag is load-bearing and silent when wrong. An intersection
+// function's tags must match the intersector that calls it: tagged functions
+// are invoked only through an instance acceleration structure, untagged ones
+// only through a primitive one. A mismatch is not a compile error and not a
+// validation error -- Metal simply never calls the function, every ray misses,
+// and the frame gets faster. Ours are reached through instance structures, so
+// they are tagged.
+[[intersection(bounding_box, metal::raytracing::instancing)]] PrimIsect prim_isect(
     float3 origin              [[origin]],
     float3 direction           [[direction]],
     float  tmin                [[min_distance]],
@@ -247,7 +255,7 @@ struct PrimIsect {
 // The blocker set is a separate array with a separate tree, so it gets its own
 // function and its own table; sharing one would test view geometry against
 // shadow rays.
-[[intersection(bounding_box)]] PrimIsect blocker_isect(
+[[intersection(bounding_box, metal::raytracing::instancing)]] PrimIsect blocker_isect(
     float3 origin              [[origin]],
     float3 direction           [[direction]],
     float  tmin                [[min_distance]],
@@ -286,6 +294,7 @@ func nearestBody(ro, rd, hIn string) string {
     r.min_distance = 1e-4f;
     r.max_distance = out.t;
     metal::raytracing::intersector<metal::raytracing::instancing> isect;
+    isect.assume_geometry_type(metal::raytracing::geometry_type::bounding_box);
     auto res = isect.intersect(r, rt_handle.geom, rt_handle.table);
     if (res.type != metal::raytracing::intersection_type::none && res.distance < out.t) {
         out.t = res.distance;
@@ -341,6 +350,7 @@ func blockerBody(ro, rd, maxT string) string {
     r.min_distance = 1e-4f;
     r.max_distance = %s - 0.05f;
     metal::raytracing::intersector<metal::raytracing::instancing> isect;
+    isect.assume_geometry_type(metal::raytracing::geometry_type::bounding_box);
     isect.accept_any_intersection(true);
     auto res = isect.intersect(r, rt_handle.blockers, rt_handle.blocker_table);
     if (res.type == metal::raytracing::intersection_type::none) {

@@ -4,7 +4,7 @@ The backend is not finished -- the Swift harness that builds the structures and
 dispatches is still missing, so there is no frame time yet. Everything up to
 that point runs and checks itself:
 
-    ./tools/metal-rt/verify.sh            # artifacts land in /tmp/metal-rt-verify
+    ./tools/metal-rt/verify.sh            # artifacts land in tmp/metal-rt-verify
 
 Seven checks, none of which need Xcode, a GPU capture, or a GPU at all beyond
 rendering two frames:
@@ -28,7 +28,7 @@ rendering two frames:
 To read the result rather than trust it, the spliced function is the clearest
 single artifact:
 
-    awk '/^Hit rt_nearest\(/{f=1} f{print} f&&/^}/{exit}' /tmp/metal-rt-verify/rt.metal
+    awk '/^Hit rt_nearest\(/{f=1} f{print} f&&/^}/{exit}' tmp/metal-rt-verify/rt.metal
 
 Everything around it in that file is naga's output from the same WGSL the wgpu
 backend runs, unmodified.
