@@ -71,17 +71,31 @@ reported nothing.
 
 ## Status
 
-The Metal path renders **the same image as the WGSL backend**, on both scenes,
-at the in-game 512x320:
+The Metal path renders **the same image as the WGSL backend** on both scenes at
+the in-game 512x320, and is measurably faster.
 
-| scene | pixels differing by >=8 | mean level |
-|---|---|---|
-| office-sunset atrium | 45 of 163840 (0.0%) | 160.8 vs 160.8 |
-| outdoors-night-villa | 61 of 163840 (0.0%) | 40.9 vs 40.9 |
+| scene | wgpu | metal | pixels differing by >=8 |
+|---|---|---|---|
+| office-sunset atrium | 19.6-20.1 ms | 15.3-15.5 ms | 45 of 163840 (0.0%) |
+| outdoors-night-villa | 16.6-16.8 ms | 13.0-13.4 ms | 61 of 163840 (0.0%) |
 
-Local-contrast ratios against the reference are 1.00 whole frame, 1.00 on the
-villa's stairs and 1.00 on its grass. Traversal, instancing, textures, shadows,
-reflections, refraction, both filters and adaptive AA all agree.
+**1.28x and 1.27x**, interleaved over three rounds each, both sides measuring
+the same window. Local-contrast ratios against the reference are 1.00 on the
+frame, the villa's stairs and its grass.
+
+### The timer
+
+Comparing the harness's `GPUEndTime - GPUStartTime` against gpuprof's "gpu"
+line would have been wrong: gpuprof measures wall clock from before encoding to
+after the device goes idle, and includes the copy of the output buffer.
+`mrt_run` now reports both, and encodes the same output copy, so
+`submit-to-idle` is the number that lines up. On office-sunset the two differ
+by about 0.35 ms, which is what the mismatch would have quietly handed this
+backend.
+
+The earlier "1.7-1.85x" was not that gap. It was mostly `aa_resolve` missing
+all geometry and returning sky, which is cheap. Fixing it moved execution from
+10.9 ms to 15.0 ms.
 
 ### The washed-out textures were a zeroed permutation table
 

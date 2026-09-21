@@ -37,7 +37,7 @@ int mrt_add_kernel(MRT *m, const char *name, const int *map, int nmap,
 // Runs every kernel added, in order, and returns the best frame time in ms.
 double mrt_run(MRT *m, int gx, int gy, int iters,
                int reset_binding, const void *reset_data, size_t reset_len,
-               char *err, int errn);
+               int copy_binding, double *wall_ms, char *err, int errn);
 
 int mrt_read_buffer(MRT *m, int index, void *dst, size_t len);
 

@@ -260,13 +260,17 @@ func main() {
 	reset := make([]byte, 16)
 	binary.LittleEndian.PutUint32(reset[4:], 1)
 	binary.LittleEndian.PutUint32(reset[8:], 1)
+	var wall C.double
 	ms := C.mrt_run(m, C.int(gx), C.int(gy), C.int(*iters),
 		C.int(aaDispatchBinding), unsafe.Pointer(&reset[0]), C.size_t(len(reset)),
-		errp, C.int(len(cerr)))
+		1, &wall, errp, C.int(len(cerr)))
 	if ms < 0 {
 		die(fmt.Errorf("run: %s", gostr(cerr)))
 	}
-	fmt.Printf("frame: %.3f ms (best of %d) at %dx%d\n", float64(ms), *iters, *w, *h)
+	// Two numbers: device execution, and the submit-to-idle window that
+	// gpuprof's "gpu" line measures. Only the second is comparable to it.
+	fmt.Printf("frame: %.3f ms gpu-exec, %.3f ms submit-to-idle (best of %d) at %dx%d\n",
+		float64(ms), float64(wall), *iters, *w, *h)
 
 	// Intermediate buffers the screen-space passes depend on. If ShadowAux is
 	// empty, main_ recorded no penumbra and every filter downstream is a no-op

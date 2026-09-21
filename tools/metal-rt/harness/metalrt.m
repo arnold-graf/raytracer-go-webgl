@@ -10,6 +10,7 @@
 #import <Metal/Metal.h>
 #import <Foundation/Foundation.h>
 #include "metalrt.h"
+#include <mach/mach_time.h>
 
 #define MAX_BUFFERS 40
 #define MAX_BLAS 64
@@ -387,15 +388,30 @@ static void make_resident(MRT *m, id<MTLComputeCommandEncoder> enc) {
 // in one encoder so each sees the previous one's writes, except any kernel
 // dispatched indirectly -- those get their own encoder, because the buffer
 // holding the dispatch arguments was written by the encoder before it.
+// mrt_run reports two numbers, because they answer different questions.
+//
+// gpu_ms is GPUEndTime - GPUStartTime: what the device spent executing. wall_ms
+// is measured from before encoding to after the command buffer completes, and
+// includes the copy of the output buffer, which is the same window
+// internal/webgpu/device.go times as "gpu ... wall until idle". Comparing the
+// harness's execution time against gpuprof's submit-to-idle would flatter this
+// backend by whatever encode and submit cost.
 double mrt_run(MRT *m, int gx, int gy, int iters,
                int reset_binding, const void *reset_data, size_t reset_len,
-               char *err, int errn) {
+               int copy_binding, double *wall_ms, char *err, int errn) {
     @autoreleasepool {
-        double best = 1e30;
+        double best = 1e30, best_wall = 1e30;
+        mach_timebase_info_data_t tb; mach_timebase_info(&tb);
+        id<MTLBuffer> readback = nil;
+        if (copy_binding >= 0 && m->buffers[copy_binding]) {
+            readback = [m->dev newBufferWithLength:[m->buffers[copy_binding] length]
+                                           options:MTLResourceStorageModeShared];
+        }
         for (int it = 0; it < iters; it++) {
             if (reset_binding >= 0 && m->buffers[reset_binding] && reset_data)
                 memcpy([m->buffers[reset_binding] contents], reset_data, reset_len);
 
+            uint64_t t0 = mach_absolute_time();
             id<MTLCommandBuffer> cb = [m->queue commandBuffer];
             id<MTLComputeCommandEncoder> enc = nil;
             for (int i = 0; i < m->n_kernels; i++) {
@@ -422,8 +438,19 @@ double mrt_run(MRT *m, int gx, int gy, int iters,
                 [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
             }
             if (enc) [enc endEncoding];
+            // The same output copy the WGSL backend encodes before submitting.
+            if (readback) {
+                id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+                [blit copyFromBuffer:m->buffers[copy_binding] sourceOffset:0
+                            toBuffer:readback destinationOffset:0
+                                size:[readback length]];
+                [blit endEncoding];
+            }
             [cb commit];
             [cb waitUntilCompleted];
+            uint64_t t1 = mach_absolute_time();
+            double wall = (double)(t1 - t0) * tb.numer / tb.denom / 1.0e6;
+            if (wall < best_wall) best_wall = wall;
             if ([cb error]) {
                 set_err(err, errn, [NSString stringWithFormat:@"dispatch: %@", [cb error]]);
                 return -1;
@@ -431,6 +458,7 @@ double mrt_run(MRT *m, int gx, int gy, int iters,
             double ms = ([cb GPUEndTime] - [cb GPUStartTime]) * 1000.0;
             if (ms < best) best = ms;
         }
+        if (wall_ms) *wall_ms = best_wall;
         return best;
     }
 }
