@@ -528,10 +528,10 @@ func (pt *PathTracer) syncEmitters(p renderParams) error {
 	if t.sig == pt.emitTables.sig && pt.emitTables.count > 0 {
 		return nil
 	}
-	if err := pt.r.queue.WriteBuffer(pt.emitTable, 0, t.records); err != nil {
+	if err := pt.r.wb(pt.emitTable, 0, t.records); err != nil {
 		return err
 	}
-	if err := pt.r.queue.WriteBuffer(pt.emitTable, uint64(len(t.records)), t.index); err != nil {
+	if err := pt.r.wb(pt.emitTable, uint64(len(t.records)), t.index); err != nil {
 		return err
 	}
 	pt.emitTables = t
@@ -546,7 +546,7 @@ func (pt *PathTracer) writeSlots(spp uint32) error {
 		copy(buf[ptUniformAlign*(1+i):], pt.slotBytes(spp, uint32(i%2), uint32(1)<<uint(i)))
 	}
 	copy(buf[ptUniformAlign*(1+n):], pt.slotBytes(spp, pt.finalSlot(), 0))
-	return pt.r.queue.WriteBuffer(pt.ptParams, 0, buf)
+	return pt.r.wb(pt.ptParams, 0, buf)
 }
 
 func slotOffset(i int) uint32 { return uint32(ptUniformAlign * i) }

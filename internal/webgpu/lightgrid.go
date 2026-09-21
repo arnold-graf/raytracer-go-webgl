@@ -102,7 +102,7 @@ func (r *Renderer) uploadLightGrid(g *lightGrid) error {
 	if len(flat) == 0 {
 		return nil
 	}
-	if err := r.queue.WriteBuffer(r.idxTables, idxTablesLightGridBase*4, u32Bytes(flat)); err != nil {
+	if err := r.wb(r.idxTables, idxTablesLightGridBase*4, u32Bytes(flat)); err != nil {
 		return fmt.Errorf("upload light grid: %w", err)
 	}
 	return nil

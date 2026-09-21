@@ -127,7 +127,12 @@ var (
 	// argument buffer.
 	reHandleEntry = regexp.MustCompile(`device type_\d+ const& rt_handle \[\[user\(fake\d+\)\]\]`)
 	reNearestHit  = regexp.MustCompile(`(?s)\nHit nearest_hit\(\n    metal::float3 (\w+),\n    metal::float3 (\w+),`)
-	reBlocker     = regexp.MustCompile(`(?s)\nmetal::float2 blocker_bvh_any_hit\(\n    metal::float3 (\w+),\n    metal::float3 (\w+),\n    float (\w+),`)
+	// intersect() is the per-primitive test the BVH leaf calls. Its generated
+	// signature names the prims and holes buffer types, which vary by naga
+	// version, so the intersection function is built from what is actually
+	// there rather than from constants that would silently rot.
+	reIntersect = regexp.MustCompile(`(?s)\nfloat intersect\(\n    uint (\w+),\n    metal::float3 (\w+),\n    metal::float3 (\w+),\n    device (\w+) const& prims,\n    device (\w+) const& holes,`)
+	reBlocker   = regexp.MustCompile(`(?s)\nmetal::float2 blocker_bvh_any_hit\(\n    metal::float3 (\w+),\n    metal::float3 (\w+),\n    float (\w+),`)
 )
 
 const rtStruct = `
@@ -177,7 +182,51 @@ func patch(s string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return s, nil
+	isect, err := intersectionFn(s)
+	if err != nil {
+		return "", err
+	}
+	return s + isect, nil
+}
+
+// intersectionFn emits the [[intersection(bounding_box)]] function the table
+// dispatches to. It does not reimplement anything: it calls naga's generated
+// intersect(), which is the same code the WGSL backend runs at a BVH leaf, so
+// the two backends test primitives identically by construction. This is what
+// removes "port intersect.wesl" from the plan, the same way threading the
+// handle through naga removed "port the shading".
+func intersectionFn(s string) (string, error) {
+	m := reIntersect.FindStringSubmatch(s)
+	if m == nil {
+		return "", fmt.Errorf("could not locate intersect()'s generated signature")
+	}
+	primsT, holesT := m[4], m[5]
+	return fmt.Sprintf(`
+struct PrimIsect {
+    bool  accept   [[accept_intersection]];
+    float distance [[distance]];
+};
+
+// prims and holes take the same buffer indices the WGSL backend binds them at
+// (see the bind group in internal/webgpu/device.go); _buffer_sizes is naga's
+// runtime-array length table.
+[[intersection(bounding_box)]] PrimIsect prim_isect(
+    float3 origin           [[origin]],
+    float3 direction        [[direction]],
+    float  tmin             [[min_distance]],
+    float  tmax             [[max_distance]],
+    uint   prim_id          [[primitive_id]],
+    device %s const& prims  [[buffer(2)]],
+    device %s const& holes  [[buffer(12)]],
+    constant _mslBufferSizes& _buffer_sizes [[buffer(31)]]
+) {
+    float t = intersect(prim_id, origin, direction, prims, holes, _buffer_sizes);
+    PrimIsect r;
+    r.accept   = t > tmin && t < tmax;
+    r.distance = t;
+    return r;
+}
+`, primsT, holesT), nil
 }
 
 func nearestBody(ro, rd string) string {

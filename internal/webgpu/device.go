@@ -71,6 +71,7 @@ type Renderer struct {
 	adapter  *wgpu.Adapter
 	device   *wgpu.Device
 	queue    *wgpu.Queue
+	dump     *bufDump
 
 	params             *wgpu.Buffer
 	prims              *wgpu.Buffer
@@ -193,7 +194,7 @@ func (r *Renderer) uploadDocumentTextures() {
 	if !ok || len(px)*4 > int(r.documentBytes) {
 		return
 	}
-	if err := r.queue.WriteBuffer(r.documents, 0, u32Bytes(px)); err != nil {
+	if err := r.wb(r.documents, 0, u32Bytes(px)); err != nil {
 		return
 	}
 	r.documentLoaded = true
@@ -240,6 +241,7 @@ func (r *Renderer) init() error {
 		return fmt.Errorf("request device: %w", err)
 	}
 	r.queue = r.device.GetQueue()
+	r.dump = newBufDump()
 
 	size := uint64(r.maxDim * r.maxDim * 4)
 	hdrSize := uint64(r.maxDim * r.maxDim * hdrPixStride)
@@ -448,7 +450,7 @@ func (r *Renderer) init() error {
 		return fmt.Errorf("create box face textures buffer: %w", err)
 	}
 	// The permutation table is constant, so upload it once up front.
-	if err := r.queue.WriteBuffer(r.perm, 0, u32Bytes(PackPerm())); err != nil {
+	if err := r.wb(r.perm, 0, u32Bytes(PackPerm())); err != nil {
 		return fmt.Errorf("upload perm table: %w", err)
 	}
 	r.output, err = r.device.CreateBuffer(&wgpu.BufferDescriptor{
@@ -627,41 +629,48 @@ func (r *Renderer) init() error {
 		return err
 	}
 
+	traceEntries := []wgpu.BindGroupEntry{
+		{Binding: 0, Buffer: r.params, Size: paramsSize},
+		{Binding: 1, Buffer: r.output, Size: size},
+		{Binding: 2, Buffer: r.prims, Size: maxPrims * primStride},
+		{Binding: 3, Buffer: r.lights, Size: maxLights * lightStride},
+		{Binding: 4, Buffer: r.blockers, Size: maxPrims * primStride},
+		{Binding: 5, Buffer: r.bvhNodes, Size: maxBVHNodes * 4 * nodeStride},
+		{Binding: 6, Buffer: r.terrains, Size: maxTerrains * terrainStride},
+		{Binding: 7, Buffer: r.samples, Size: maxTerrainVals * 16},
+		{Binding: 8, Buffer: r.waters, Size: maxWaters * waterStride},
+		{Binding: 9, Buffer: r.perm, Size: permCount * 4},
+		{Binding: 10, Buffer: r.aoVolume, Size: r.aoVolumeFloats * 4},
+		{Binding: 11, Buffer: r.campfires, Size: maxCampfires * campfireStride},
+		{Binding: 12, Buffer: r.holes, Size: maxHoles * holeStride},
+		{Binding: 13, Buffer: r.captures, Size: r.captureBytes},
+		{Binding: 14, Buffer: r.instTmpl, Size: maxInstTemplates * instTemplateStride},
+		{Binding: 15, Buffer: r.instRecs, Size: maxInstances * instanceStride},
+		{Binding: 16, Buffer: r.profile, Size: profileCounterBytes},
+		{Binding: 17, Buffer: r.idxTables, Size: idxTablesWords * 4},
+		{Binding: 19, Buffer: r.documents, Size: r.documentBytes},
+		{Binding: 20, Buffer: r.boxFaces, Size: maxPrims * boxFacesPerPrim * 4},
+		{Binding: 21, Buffer: r.terrFeat, Size: maxTerrainFeatures * terrainFeatureStride},
+		{Binding: 22, Buffer: r.terrPads, Size: maxTerrainPads * terrainPadStride},
+		{Binding: 23, Buffer: r.terrMips, Size: maxTerrainMipVals * 8},
+		{Binding: 24, Buffer: r.hdrPixels, Size: hdrSize},
+		{Binding: 25, Buffer: r.aaHits, Size: uint64(r.maxDim * r.maxDim * aaHitStride)},
+		{Binding: 26, Buffer: r.terrZones, Size: maxTerrainZones * terrainZoneStride},
+		{Binding: 27, Buffer: r.terrZVerts, Size: maxTerrainZoneVerts * terrainZoneVertStride},
+		{Binding: 28, Buffer: r.aaList, Size: uint64(r.maxDim * r.maxDim * 4)},
+		{Binding: 29, Buffer: r.aaDispatch, Size: aaDispatchBytes},
+		{Binding: 18, Buffer: r.shadowAux, Size: uint64(r.maxDim * r.maxDim * shadowAuxStride)},
+	}
+	// The dump needs each binding's allocated size, which only this table knows.
+	// See bufdump.go for why the Metal harness reuses these bytes rather than
+	// packing its own.
+	for _, e := range traceEntries {
+		r.dump.register(e.Binding, e.Buffer, e.Size)
+	}
 	r.bind, err = r.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
-		Label:  "trace bind group",
-		Layout: layout,
-		Entries: []wgpu.BindGroupEntry{
-			{Binding: 0, Buffer: r.params, Size: paramsSize},
-			{Binding: 1, Buffer: r.output, Size: size},
-			{Binding: 2, Buffer: r.prims, Size: maxPrims * primStride},
-			{Binding: 3, Buffer: r.lights, Size: maxLights * lightStride},
-			{Binding: 4, Buffer: r.blockers, Size: maxPrims * primStride},
-			{Binding: 5, Buffer: r.bvhNodes, Size: maxBVHNodes * 4 * nodeStride},
-			{Binding: 6, Buffer: r.terrains, Size: maxTerrains * terrainStride},
-			{Binding: 7, Buffer: r.samples, Size: maxTerrainVals * 16},
-			{Binding: 8, Buffer: r.waters, Size: maxWaters * waterStride},
-			{Binding: 9, Buffer: r.perm, Size: permCount * 4},
-			{Binding: 10, Buffer: r.aoVolume, Size: r.aoVolumeFloats * 4},
-			{Binding: 11, Buffer: r.campfires, Size: maxCampfires * campfireStride},
-			{Binding: 12, Buffer: r.holes, Size: maxHoles * holeStride},
-			{Binding: 13, Buffer: r.captures, Size: r.captureBytes},
-			{Binding: 14, Buffer: r.instTmpl, Size: maxInstTemplates * instTemplateStride},
-			{Binding: 15, Buffer: r.instRecs, Size: maxInstances * instanceStride},
-			{Binding: 16, Buffer: r.profile, Size: profileCounterBytes},
-			{Binding: 17, Buffer: r.idxTables, Size: idxTablesWords * 4},
-			{Binding: 19, Buffer: r.documents, Size: r.documentBytes},
-			{Binding: 20, Buffer: r.boxFaces, Size: maxPrims * boxFacesPerPrim * 4},
-			{Binding: 21, Buffer: r.terrFeat, Size: maxTerrainFeatures * terrainFeatureStride},
-			{Binding: 22, Buffer: r.terrPads, Size: maxTerrainPads * terrainPadStride},
-			{Binding: 23, Buffer: r.terrMips, Size: maxTerrainMipVals * 8},
-			{Binding: 24, Buffer: r.hdrPixels, Size: hdrSize},
-			{Binding: 25, Buffer: r.aaHits, Size: uint64(r.maxDim * r.maxDim * aaHitStride)},
-			{Binding: 26, Buffer: r.terrZones, Size: maxTerrainZones * terrainZoneStride},
-			{Binding: 27, Buffer: r.terrZVerts, Size: maxTerrainZoneVerts * terrainZoneVertStride},
-			{Binding: 28, Buffer: r.aaList, Size: uint64(r.maxDim * r.maxDim * 4)},
-			{Binding: 29, Buffer: r.aaDispatch, Size: aaDispatchBytes},
-			{Binding: 18, Buffer: r.shadowAux, Size: uint64(r.maxDim * r.maxDim * shadowAuxStride)},
-		},
+		Label:   "trace bind group",
+		Layout:  layout,
+		Entries: traceEntries,
 	})
 	if err != nil {
 		return fmt.Errorf("create bind group: %w", err)
@@ -832,7 +841,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		r.captureLoaded = false
 		if w, h, px, ok := texture.PackCapturesGPU(); ok && len(px)*4 <= int(r.captureBytes) {
 			r.captureW, r.captureH = w, h
-			if err := r.queue.WriteBuffer(r.captures, 0, u32Bytes(px)); err == nil {
+			if err := r.wb(r.captures, 0, u32Bytes(px)); err == nil {
 				r.captureLoaded = true
 			}
 		} else {
@@ -1308,24 +1317,24 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 	uploadStart := time.Now()
 	if p.profileEnabled {
 		zeros := make([]byte, profileCounterBytes)
-		if err := r.queue.WriteBuffer(r.profile, 0, zeros); err != nil {
+		if err := r.wb(r.profile, 0, zeros); err != nil {
 			return err
 		}
 	}
 	params := r.paramsBytes(cam, p, fw, fh)
-	if err := r.queue.WriteBuffer(r.params, 0, params[:]); err != nil {
+	if err := r.wb(r.params, 0, params[:]); err != nil {
 		return err
 	}
 	// Static scene buffers are re-sent only when the cache was rebuilt this
 	// frame (scene swap or scene.Touch); otherwise the GPU already holds them.
 	if p.uploadStatic {
 		if len(p.prims) > 0 {
-			if err := r.queue.WriteBuffer(r.prims, 0, primBytes(p.prims)); err != nil {
+			if err := r.wb(r.prims, 0, primBytes(p.prims)); err != nil {
 				return err
 			}
 		}
 		if len(p.blockers) > 0 {
-			if err := r.queue.WriteBuffer(r.blockers, 0, primBytes(p.blockers)); err != nil {
+			if err := r.wb(r.blockers, 0, primBytes(p.blockers)); err != nil {
 				return err
 			}
 		}
@@ -1333,67 +1342,67 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 			return err
 		}
 		if len(p.lights) > 0 {
-			if err := r.queue.WriteBuffer(r.lights, 0, lightBytes(p.lights)); err != nil {
+			if err := r.wb(r.lights, 0, lightBytes(p.lights)); err != nil {
 				return err
 			}
 		}
 		if len(p.bvhNodes) > 0 {
-			if err := r.queue.WriteBuffer(r.bvhNodes, 0, nodeBytes(p.bvhNodes)); err != nil {
+			if err := r.wb(r.bvhNodes, 0, nodeBytes(p.bvhNodes)); err != nil {
 				return err
 			}
 		}
 		if len(p.terrains) > 0 {
-			if err := r.queue.WriteBuffer(r.terrains, 0, terrainBytes(p.terrains)); err != nil {
+			if err := r.wb(r.terrains, 0, terrainBytes(p.terrains)); err != nil {
 				return err
 			}
 		}
 		if len(p.samples) > 0 {
-			if err := r.queue.WriteBuffer(r.samples, 0, floatBytes(p.samples)); err != nil {
+			if err := r.wb(r.samples, 0, floatBytes(p.samples)); err != nil {
 				return err
 			}
 		}
 		if len(p.terrainFeatures) > 0 {
-			if err := r.queue.WriteBuffer(r.terrFeat, 0, terrainFeatureBytes(p.terrainFeatures)); err != nil {
+			if err := r.wb(r.terrFeat, 0, terrainFeatureBytes(p.terrainFeatures)); err != nil {
 				return err
 			}
 		}
 		if len(p.terrainPads) > 0 {
-			if err := r.queue.WriteBuffer(r.terrPads, 0, terrainPadBytes(p.terrainPads)); err != nil {
+			if err := r.wb(r.terrPads, 0, terrainPadBytes(p.terrainPads)); err != nil {
 				return err
 			}
 		}
 		if len(p.terrainZones) > 0 {
-			if err := r.queue.WriteBuffer(r.terrZones, 0, terrainZoneBytes(p.terrainZones)); err != nil {
+			if err := r.wb(r.terrZones, 0, terrainZoneBytes(p.terrainZones)); err != nil {
 				return err
 			}
 		}
 		if len(p.terrainZoneVerts) > 0 {
-			if err := r.queue.WriteBuffer(r.terrZVerts, 0, terrainZoneVertBytes(p.terrainZoneVerts)); err != nil {
+			if err := r.wb(r.terrZVerts, 0, terrainZoneVertBytes(p.terrainZoneVerts)); err != nil {
 				return err
 			}
 		}
 		if len(p.terrainMips) > 0 {
-			if err := r.queue.WriteBuffer(r.terrMips, 0, floatBytes(p.terrainMips)); err != nil {
+			if err := r.wb(r.terrMips, 0, floatBytes(p.terrainMips)); err != nil {
 				return err
 			}
 		}
 		if len(p.waters) > 0 {
-			if err := r.queue.WriteBuffer(r.waters, 0, waterBytes(p.waters)); err != nil {
+			if err := r.wb(r.waters, 0, waterBytes(p.waters)); err != nil {
 				return err
 			}
 		}
 		if len(p.campfireParams) > 0 {
-			if err := r.queue.WriteBuffer(r.campfires, 0, campfireBytes(p.campfireParams)); err != nil {
+			if err := r.wb(r.campfires, 0, campfireBytes(p.campfireParams)); err != nil {
 				return err
 			}
 		}
 		if len(p.holes) > 0 {
-			if err := r.queue.WriteBuffer(r.holes, 0, holeBytes(p.holes)); err != nil {
+			if err := r.wb(r.holes, 0, holeBytes(p.holes)); err != nil {
 				return err
 			}
 		}
 		if len(p.instTemplates) > 0 {
-			if err := r.queue.WriteBuffer(r.instTmpl, 0, instTemplateBytes(p.instTemplates)); err != nil {
+			if err := r.wb(r.instTmpl, 0, instTemplateBytes(p.instTemplates)); err != nil {
 				return err
 			}
 		}
@@ -1402,22 +1411,22 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 			if len(placements) > maxInstances {
 				placements = placements[:maxInstances]
 			}
-			if err := r.queue.WriteBuffer(r.instRecs, 0, instanceBytes(placements)); err != nil {
+			if err := r.wb(r.instRecs, 0, instanceBytes(placements)); err != nil {
 				return err
 			}
 		}
 		if len(p.boxFaceTex) > 0 {
-			if err := r.queue.WriteBuffer(r.boxFaces, 0, u32Bytes(p.boxFaceTex)); err != nil {
+			if err := r.wb(r.boxFaces, 0, u32Bytes(p.boxFaceTex)); err != nil {
 				return err
 			}
 		}
 		if len(p.planeIdx) > 0 {
-			if err := r.queue.WriteBuffer(r.idxTables, 0, u32Bytes(p.planeIdx)); err != nil {
+			if err := r.wb(r.idxTables, 0, u32Bytes(p.planeIdx)); err != nil {
 				return err
 			}
 		}
 		if len(p.blockerPlaneIdx) > 0 {
-			if err := r.queue.WriteBuffer(r.idxTables, idxTablesBlockerPlaneBase*4, u32Bytes(p.blockerPlaneIdx)); err != nil {
+			if err := r.wb(r.idxTables, idxTablesBlockerPlaneBase*4, u32Bytes(p.blockerPlaneIdx)); err != nil {
 				return err
 			}
 		}
@@ -1425,7 +1434,7 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 		// AO toggle: the toggle only gates the shader's sampling (the aoOK uniform
 		// in paramsBytes), so flipping it on later needs no re-pack/re-upload.
 		if len(p.ao.Data) > 0 {
-			if err := r.queue.WriteBuffer(r.aoVolume, 0, floatBytes(p.ao.Data)); err != nil {
+			if err := r.wb(r.aoVolume, 0, floatBytes(p.ao.Data)); err != nil {
 				return err
 			}
 		}
@@ -1436,7 +1445,7 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 			}
 			offset := uint64(span[0] * primStride)
 			slice := p.prims[span[0]:span[1]]
-			if err := r.queue.WriteBuffer(r.prims, offset, primBytes(slice)); err != nil {
+			if err := r.wb(r.prims, offset, primBytes(slice)); err != nil {
 				return err
 			}
 		}
@@ -1446,13 +1455,13 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 			}
 			offset := uint64(span[0] * primStride)
 			slice := p.blockers[span[0]:span[1]]
-			if err := r.queue.WriteBuffer(r.blockers, offset, primBytes(slice)); err != nil {
+			if err := r.wb(r.blockers, offset, primBytes(slice)); err != nil {
 				return err
 			}
 		}
 		if len(p.bvhNodes) > 0 && p.bvhNodeCount > 0 {
 			nodes := p.bvhNodes[:p.bvhNodeCount]
-			if err := r.queue.WriteBuffer(r.bvhNodes, 0, nodeBytes(nodes)); err != nil {
+			if err := r.wb(r.bvhNodes, 0, nodeBytes(nodes)); err != nil {
 				return err
 			}
 		}
@@ -1462,7 +1471,7 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 			if start >= 0 && end <= len(p.bvhNodes) {
 				nodes := p.bvhNodes[start:end]
 				offset := uint64(start * nodeStride)
-				if err := r.queue.WriteBuffer(r.bvhNodes, offset, nodeBytes(nodes)); err != nil {
+				if err := r.wb(r.bvhNodes, offset, nodeBytes(nodes)); err != nil {
 					return err
 				}
 			}
@@ -1473,17 +1482,20 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 			}
 		}
 		if p.uploadLights && len(p.lights) > 0 {
-			if err := r.queue.WriteBuffer(r.lights, 0, lightBytes(p.lights)); err != nil {
+			if err := r.wb(r.lights, 0, lightBytes(p.lights)); err != nil {
 				return err
 			}
 			r.cache.lightsDirty = false
 		}
 		if p.uploadCampfires && len(p.campfireParams) > 0 {
-			if err := r.queue.WriteBuffer(r.campfires, 0, campfireBytes(p.campfireParams)); err != nil {
+			if err := r.wb(r.campfires, 0, campfireBytes(p.campfireParams)); err != nil {
 				return err
 			}
 			r.cache.campfiresDirty = false
 		}
+	}
+	if err := r.dump.flush(); err != nil {
+		return err
 	}
 	r.timing.Upload = time.Since(uploadStart)
 	return nil
@@ -1496,7 +1508,7 @@ func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveA
 	if adaptiveAA {
 		// Empty task list, and an indirect header that dispatches nothing if
 		// aa_classify finds no edges at all.
-		if err := r.queue.WriteBuffer(r.aaDispatch, 0, u32Bytes([]uint32{0, 1, 1, 0})); err != nil {
+		if err := r.wb(r.aaDispatch, 0, u32Bytes([]uint32{0, 1, 1, 0})); err != nil {
 			return 0, fmt.Errorf("reset aa dispatch header: %w", err)
 		}
 	}
