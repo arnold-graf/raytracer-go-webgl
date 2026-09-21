@@ -71,9 +71,34 @@ reported nothing.
 
 ## Status
 
-Geometry and camera are correct -- the frame matches the reference's
-composition. Lighting does not: the blocker splice returns
-`float2(res.distance, 0.0)`, treating every occluder as fully opaque, and this
-scene is largely glass. **No frame time from this tool is comparable until that
-is fixed**; `main_` currently reports ~12.5 ms at 1024x640 while rendering a
-darker image than the reference, and a wrong image is not a measurement.
+Renders the atrium correctly on Metal's acceleration structures: same
+composition, lighting, columns, glass and reflections as the WGSL backend.
+Against the reference at the in-game 512x320, 30.4% of pixels differ by >=8,
+which is the three screen-space passes the harness does not dispatch yet --
+the penumbra filter, the reflection filter and adaptive AA. The reference is
+visibly softer for exactly that reason.
+
+`main_` alone reports ~9.6 ms at 512x320. That is **not** comparable to a wgpu
+frame time: it is one kernel of ten, against an image that still differs.
+
+Reflection and refraction needed no work. Both live in `ray_color`'s segment
+loop, which calls `nearest_hit` and therefore the spliced traversal, so they
+came along with it.
+
+Shadow transmission did need work. Glass does not end a blocker walk in the
+WGSL -- it multiplies transmission and carries on -- which a flat
+`accept_any_intersection` cannot express. The intersection function is the only
+place that sees every occluder along the ray, so the accumulation lives there,
+in a `ray_data` payload: glass multiplies and declines to accept, opaque zeroes
+and accepts. Verified by forcing every blocker to transmit, which moves 16.7%
+of pixels. Glass-only is a no-op on *this* view -- the scene has 54 glass
+blockers but no shadow ray in this frame crosses one -- so the A/B that matters
+is the forced one.
+
+### What is still missing
+
+- The nine screen-space kernels (penumbra, reflection filter, AA). Until they
+  run, no frame time from here is comparable.
+- Refit. `refitAccelerationStructure:` is the analogue of `bvh_refit.go`;
+  instance transforms only need the TLAS rebuilt, deforming poses need a real
+  BLAS refit. Nothing in this design blocks it; it just builds once today.

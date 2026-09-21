@@ -140,17 +140,19 @@ const rtStruct = `
 // structure and the table of per-primitive intersection functions. This replaces
 // the dummy storage binding the WGSL declared purely to make naga thread a
 // parameter down to nearest_hit.
+// ShadowPayload carries the blocker walk's running state. Metal's intersection
+// functions are the only place that sees every occluder along a shadow ray, so
+// the glass accumulation has to live there rather than at the call site.
+struct ShadowPayload {
+    float trans;
+    float nearest;
+};
+
 struct RTHandle {
     metal::raytracing::instance_acceleration_structure geom;
     metal::raytracing::instance_acceleration_structure blockers;
     metal::raytracing::intersection_function_table<metal::raytracing::instancing> table;
     metal::raytracing::intersection_function_table<metal::raytracing::instancing> blocker_table;
-    // Per-instance base into prims[]/blockers[]. Metal reports primitive_id
-    // local to its geometry; the WGSL indexes one flat array, so the harness
-    // supplies the offset that maps one to the other. Instance 0 is the static
-    // set, whose base is 0.
-    device const uint* prim_base;
-    device const uint* blocker_base;
 };
 `
 
@@ -261,14 +263,26 @@ struct PrimIsect {
     float  tmin                [[min_distance]],
     float  tmax                [[max_distance]],
     const device uint* gidx    [[primitive_data]],
+    ray_data ShadowPayload& pl [[payload]],
     device %s const& blockers  [[buffer(0)]],
     device %s const& holes     [[buffer(1)]],
     constant _mslBufferSizes& _buffer_sizes [[buffer(2)]]
 ) {
     float t = intersect_blocker(gidx[0], origin, direction, holes, blockers, _buffer_sizes);
     PrimIsect r;
-    r.accept   = t > tmin && t < tmax;
+    r.accept   = false;
     r.distance = t;
+    if (t > 1e-4f && t < tmax) {
+        if (pl.nearest < 0.0f || t < pl.nearest) { pl.nearest = t; }
+        if (blockers[gidx[0]].info.y == MAT_GLASS) {
+            // Half-transmitting: record it and let the ray carry on, so a pane
+            // dims a shadow instead of filling it in.
+            pl.trans = pl.trans * GLASS_SHADOW_TRANSMIT;
+        } else {
+            pl.trans = 0.0f;
+            r.accept = true;
+        }
+    }
     return r;
 }
 `, primsT, holesT, primsT, holesT), nil
@@ -298,7 +312,7 @@ func nearestBody(ro, rd, hIn string) string {
     auto res = isect.intersect(r, rt_handle.geom, rt_handle.table);
     if (res.type != metal::raytracing::intersection_type::none && res.distance < out.t) {
         out.t = res.distance;
-        out.idx = res.primitive_id + rt_handle.prim_base[res.instance_id];
+        out.idx = *(const device uint*)res.primitive_data;
         out.kind = 0u;
         out.inst_idx = res.instance_id == 0u ? 0xffffffffu : res.instance_id - 1u;
     }
@@ -349,13 +363,17 @@ func blockerBody(ro, rd, maxT string) string {
     r.direction = %s;
     r.min_distance = 1e-4f;
     r.max_distance = %s - 0.05f;
+    ShadowPayload pl;
+    pl.trans = 1.0f;
+    pl.nearest = -1.0f;
     metal::raytracing::intersector<metal::raytracing::instancing> isect;
     isect.assume_geometry_type(metal::raytracing::geometry_type::bounding_box);
+    // Glass does not end the walk, so the intersection function decides what
+    // terminates: it accepts only an opaque blocker. accept_any_intersection
+    // means that acceptance stops traversal immediately, which is the same
+    // early-out the WGSL takes.
     isect.accept_any_intersection(true);
-    auto res = isect.intersect(r, rt_handle.blockers, rt_handle.blocker_table);
-    if (res.type == metal::raytracing::intersection_type::none) {
-        return metal::float2(-1.0f, 1.0f);
-    }
-    return metal::float2(res.distance, 0.0f);
+    isect.intersect(r, rt_handle.blockers, rt_handle.blocker_table, pl);
+    return metal::float2(pl.nearest, pl.trans);
 `, ro, rd, maxT)
 }
