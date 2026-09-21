@@ -145,10 +145,10 @@ and adds a dispatch. This removed work and added nothing.
 
 ### What is left here
 
-- **Branch factor, not leaf width.** The leaf-width table in
-  megakernel-optimization.md answers a different question; the tree is still
-  binary and ~18 deep, so traversal is a long dependent-load chain. A 4-wide
-  node halves the depth. Untested, and the one BVH lever nobody has pulled.
+- ~~**Branch factor, not leaf width.**~~ Answered 2026-09-21: built, measured,
+  reverted. A 4-wide tree cuts node visits 16% and the frame 1%. See "Tried and
+  reverted: a 4-wide BVH" below — the useful part is *why*, which is that
+  traversal is not what the frame is waiting on.
 - **A genuinely stackless traversal** (skip pointers, or Hapala parent
   pointers). Both give up near-first ordering or pay to recompute it, and the
   result above says the loop that stays uniform is the one that wins — so
@@ -190,6 +190,57 @@ Two things that look like the same idea and are not:
 - **`MAX_SEGS`, the ray-tree work stack.** 4 / 6 / 8 / 12 measured 19.7 / 19.9 /
   19.9 / 20.1 ms. Six `RaySeg` is eleven words each and it does not register.
   Not every dynamically indexed array is the `box_holed_nearest` case.
+
+## Tried and reverted: a 4-wide BVH
+
+This was the one BVH lever nobody had pulled, and the section below used to
+recommend it. It was built, measured and reverted, and the measurement is more
+useful than the feature would have been.
+
+**The reasoning going in.** Traversal is a chain of dependent loads, and the
+kernel runs at under 1% of the GPU's ALU peak and roughly 17% of its bandwidth,
+so neither is the constraint. What binds looked like the chain itself: 17.6 node
+visits per ray on an 18-level tree, each waiting on the last. Four-wide halves
+the levels, and the four child boxes test in one `vec4` op in lanes that were
+idle anyway.
+
+**What was built.** A collapse of the existing binary tree rather than a direct
+build, so every SAH decision was preserved: start with a node's two children and
+keep splitting whichever interior child has the largest surface area until there
+are four. Three `GPUBVHNode` slots per node (144 bytes, nine vec4) laid out so
+floats land in Min/Max and indices in Info, no bitcasting. Validated against the
+binary tree for coverage — zero primitives missing, duplicated or extra on both
+office-sunset and the night villa.
+
+**What it measured.**
+
+| | |
+|---|---|
+| steps per ray | 17.6 → **14.8** (−16%) |
+| frame, office atrium 512x320 | 19.73 → **19.57 ms** (~1%, inside noise) |
+| `maxTotalThreadsPerThreadgroup` | 384 → 384, unchanged |
+| ordered push vs unordered | no difference (19.55 vs 19.45) |
+| node padded 144 B → 240 B | no difference (19.3 vs 19.45) |
+
+That last row is the one that settles it. **Making the node 1.7x bigger costs
+nothing**, so node traffic is not the constraint either — which also means
+compressed nodes, the obvious follow-on, have nothing to buy. Ordering is not the
+constraint. Chain length is not the constraint: cutting visits 16% moved the
+frame 1%.
+
+**So traversal is not the bottleneck, in any of the three ways it could have
+been.** That is worth holding onto, because it retroactively explains the shape
+of every result in this document: `BVH_STACK_SIZE` 32 → 24 was worth 7% of frame
+time while halving the traversal chain is worth 1%, and the difference between
+them is that the stack is per-thread scratch and scratch limits how many rays are
+in flight. The cost is not how efficiently one ray traverses. It is how few rays
+traverse at once.
+
+Reverted rather than kept: ~1% is inside the noise floor, it changes the image by
+3,775 pixels on office-sunset (the coincident-surface z-fighting this document
+already warns about, not a bug — the villa moved 21 pixels, max 7), and it costs
+a node format, a collapse builder, a second traversal and a second stack
+constant. The branch-factor idea is now answered, and the answer is no.
 
 ## Measuring this
 
