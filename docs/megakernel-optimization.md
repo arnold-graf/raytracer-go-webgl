@@ -527,6 +527,65 @@ hold 384 on their own. Several independent paths sit at the same pressure and
 moving the number means lowering all of them together. Two restructurings were
 tried and neither moved it; see [tools/occupancy/](../tools/occupancy/README.md).
 
+## Scratch now has an instrument too, and it points at one loop
+
+The sentence above — "scratch is still the richer seam, and it is still measured
+the old way" — is no longer true. The AGX backend emits LLVM register-allocator
+remarks, and a `.gputrace` capture carries them: a pass name, a function, a
+source line, `NumSpills`, `NumReloads`, `TotalSpillsCost`. That is a targeting
+instrument, not just a number. See [tools/spills/](../tools/spills/README.md);
+`./tools/spills/run.sh` runs the whole chain and never opens Xcode.
+
+The first reading:
+
+```
+total: 3287 spills, 9140 reloads, cost 8480
+
+ MSL line   spills  reloads       cost   share  enclosing function
+     9709      854     2199       2423   28.6%  ray_color()
+    12334      454     1124       2347   27.7%  aa_resolve()
+    10823      425     1115       2332   27.5%  supersample_edge()
+```
+
+The top three lines are the same code — `ray_color`'s segment loop — charged
+three times, because `supersample_edge` inlines it and `aa_resolve` calls it.
+**84% of the kernel's spill cost is that one loop.** This is the mechanism behind
+AA costing about a quarter of the frame, which "Where the remaining time goes"
+could only state as an observation.
+
+Note where it does *not* point. The register peak is the BVH traversal; the
+scratch cost is the segment loop that wraps it. Two taxes, two places, and the
+optimization this document has been chasing for two passes was aimed at the
+first while frame time was being set by the second.
+
+Two hypotheses died on it immediately:
+
+- **`ShadowAux` 192 B → 72 B.** 3287 → 3236 spills, cost 8480 → 8472. Neutral in
+  spills, as it was in frame time. Third instrument, same answer.
+- **`MAX_SEGS` 6 → 2.** Spill counts *byte-identical*. `array<RaySeg, MAX_SEGS>`
+  is dynamically indexed, so AGX puts it in scratch by construction — it is never
+  in a register, so it can never be a spill. It is scratch that the spill
+  counters cannot see. (Frame time does fall 27%, but two segments drop ray-tree
+  lobes and render a different image. Not a win — the third time this pass that a
+  faster frame turned out to be a smaller one.)
+
+So the spilled state is everything *else* live across the loop's calls: the
+accumulators, the masks and throughput, the primary `Hit`, the lobe bookkeeping,
+the reflect and refract parameters. Many small values, not one large one — the
+same plateau shape the occupancy probe found, which means the same warning
+applies: single ablation will read as neutral, and only strip-and-add-back can
+rank them.
+
+The obvious structural move is to stop paying for the loop three times. Having
+`supersample_edge` and `aa_resolve` share one out-of-line `ray_color` rather than
+inlining a second and third copy does not reduce the loop's pressure, but it
+would stop multiplying it. That is untried and unpriced.
+
+One caveat on the instrument: the remarks describe the compile, not the run.
+They are static allocator counts with no weighting by how often a line executes.
+Read them as "where the pressure is", then confirm with frame time and a pixel
+diff, as always.
+
 ---
 
 ## Harness
