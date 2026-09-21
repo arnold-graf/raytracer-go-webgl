@@ -34,10 +34,19 @@ type dumpSlot struct {
 	data    []byte
 }
 
+// pendingWrite is an upload that happened before the bind group existed, and so
+// before the dump knew which binding the buffer belongs to.
+type pendingWrite struct {
+	buf    *wgpu.Buffer
+	offset uint64
+	data   []byte
+}
+
 type bufDump struct {
-	dir   string
-	slots map[*wgpu.Buffer]*dumpSlot
-	order []*wgpu.Buffer
+	dir     string
+	slots   map[*wgpu.Buffer]*dumpSlot
+	order   []*wgpu.Buffer
+	pending []pendingWrite
 }
 
 // newBufDump returns nil unless RT_DUMP_BUFFERS names a directory, so the
@@ -66,6 +75,18 @@ func (d *bufDump) register(binding uint32, buf *wgpu.Buffer, size uint64) {
 	}
 	d.slots[buf] = &dumpSlot{binding: binding, data: make([]byte, size)}
 	d.order = append(d.order, buf)
+	// Replay anything uploaded before this buffer had a binding. Several
+	// buffers are filled once during device setup, long before the bind group
+	// exists -- perm (the Perlin permutation table) is the one that matters
+	// most, because a zeroed permutation makes every fbm() and perlin() return
+	// a constant and every procedural texture in the scene renders as flat
+	// colour. Dropping those writes silently was a bug that looked exactly like
+	// a shading bug in whatever consumed the dump.
+	for _, w := range d.pending {
+		if w.buf == buf {
+			d.record(w.buf, w.offset, w.data)
+		}
+	}
 }
 
 func (d *bufDump) record(buf *wgpu.Buffer, offset uint64, data []byte) {
@@ -74,7 +95,14 @@ func (d *bufDump) record(buf *wgpu.Buffer, offset uint64, data []byte) {
 	}
 	s, ok := d.slots[buf]
 	if !ok {
-		return // not a bind-group buffer: staging, readback, indirect scratch
+		// Either a buffer that is not in the bind group at all -- staging,
+		// readback, indirect scratch -- or one written before registration.
+		// Keeping a copy costs a little memory during setup and is the only
+		// way to tell the two apart later.
+		cp := make([]byte, len(data))
+		copy(cp, data)
+		d.pending = append(d.pending, pendingWrite{buf: buf, offset: offset, data: cp})
+		return
 	}
 	if offset > uint64(len(s.data)) {
 		return
@@ -102,6 +130,10 @@ func (d *bufDump) flush() error {
 		}
 		man = append(man, entry{Binding: s.binding, File: name, Size: len(s.data)})
 	}
+	// Once every binding has been registered the journal has served its purpose,
+	// and keeping it would pin megabytes of setup uploads for the process's life.
+	d.pending = nil
+
 	b, err := json.MarshalIndent(man, "", "  ")
 	if err != nil {
 		return err

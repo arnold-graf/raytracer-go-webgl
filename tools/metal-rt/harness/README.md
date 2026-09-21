@@ -93,22 +93,34 @@ What still differs, by scene: office-sunset loses the surface detail on the
 nearest column; the villa's water reflection is flat where the WGSL backend's
 is wavy. Both are surface-normal-shaped rather than geometry-shaped.
 
-### The detail gap was anti-aliasing, in the other direction
+### The washed-out textures were a zeroed permutation table
 
-The Metal frame looked like it had lost texture detail on the atrium column,
-the villa stairs and the grass. It had not. Measuring local contrast (mean
-deviation from a 3x3 neighbourhood) puts Metal at *more* high-frequency energy
-than the WGSL backend, not less, and almost exactly at where the WGSL backend
-sits with AA switched off:
+Procedural textures -- marble, mottle, grain, stain -- are all `fbm()` and
+`perlin()`, which index the permutation table at binding 9. In the dump that
+table was **2048 bytes of zeros**, so every noise call returned a constant and
+every procedural surface rendered as flat colour. Soft and washed out, exactly.
 
-| | whole frame | column | floor |
-|---|---|---|---|
-| wgpu, AA on | 1.69 | 2.32 | 1.34 |
-| wgpu, AA off | 2.04 | 2.81 | 1.65 |
-| metal | 1.93 | 2.44 | 1.60 |
+The bug was in the dump, not the shader. `perm` is uploaded once during device
+setup, hundreds of lines before the bind group exists -- and the bind group is
+where the dumper learns which binding a buffer belongs to. Writes that arrived
+first were silently dropped. `bufdump.go` now journals pre-registration uploads
+and replays them, which is the only way to tell "written before we were
+looking" apart from "not a bind-group buffer at all".
 
-Aliased edges read as coarse, which is easy to mistake for lost detail. The
-cause was threadgroup memory: see below.
+Effect, both scenes, pixels differing by >=8:
+
+| scene | before | after |
+|---|---|---|
+| office-sunset | 36.6% | 15.8% |
+| villa | 32.2% | 7.6% |
+
+And the villa's local-contrast ratios against the WGSL backend land at 1.04
+whole frame, 1.02 on the cobblestone, 1.00 on the grass -- textures now match.
+
+Worth noting how this was found, because two measurements pointed the wrong way
+first. A local-contrast metric said Metal had *more* detail, not less, which is
+true and irrelevant: it was dominated by aliased edges and blind to flat
+interiors going smooth. A crop at 8x showed it immediately.
 
 ### Ruled out
 
