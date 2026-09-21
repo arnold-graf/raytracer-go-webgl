@@ -1,3 +1,40 @@
+# Verifying what exists today
+
+The backend is not finished -- the Swift harness that builds the structures and
+dispatches is still missing, so there is no frame time yet. Everything up to
+that point runs and checks itself:
+
+    ./tools/metal-rt/verify.sh            # artifacts land in /tmp/metal-rt-verify
+
+Seven checks, none of which need Xcode, a GPU capture, or a GPU at all beyond
+rendering two frames:
+
+1. Unit tests for the acceleration-structure extraction: leaf coverage, the
+   instance numbering the generated MSL decodes, and the world->local /
+   object->world transform round trip.
+2. `accelgen` over office-sunset, asserting every packed primitive lands in a
+   structure -- 966 of 966. A missing leaf is geometry that stops existing on
+   the Metal path.
+3. The upload dump is render-neutral: the same frame with and without
+   `RT_DUMP_BUFFERS` must be bit-identical.
+4. `mslpatch` turns the linked WGSL into MSL with the traversal spliced.
+5. That MSL compiles at `-std=metal3.0` and links into a metallib carrying
+   `main_`, `prim_isect` and `blocker_isect`.
+6. The splice is surgical -- terrain and water are still called after it. This
+   one exists because an earlier version replaced all of `nearest_hit` and
+   silently dropped planes, terrain and water, which made the shader both
+   faster and wrong.
+
+To read the result rather than trust it, the spliced function is the clearest
+single artifact:
+
+    awk '/^Hit rt_nearest\(/{f=1} f{print} f&&/^}/{exit}' /tmp/metal-rt-verify/rt.metal
+
+Everything around it in that file is naga's output from the same WGSL the wgpu
+backend runs, unmodified.
+
+---
+
 # Would Metal's own intersector give us the registers back?
 
 The megakernel is pinned at **384 of 1024** threads per threadgroup, and
