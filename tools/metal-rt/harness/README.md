@@ -93,14 +93,24 @@ What still differs, by scene: office-sunset loses the surface detail on the
 nearest column; the villa's water reflection is flat where the WGSL backend's
 is wavy. Both are surface-normal-shaped rather than geometry-shaped.
 
-### Ruled out
+### The detail gap was anti-aliasing, in the other direction
 
-- **The screen-space passes.** Adding all nine moved office-sunset by 0.6
-  points. Turning AA off in the WGSL backend changes 2.3% of pixels.
-- **Shader specialization.** `RAYTRACER_NO_SHADER_SPECIALIZE=1` renders
-  bit-identically, so the all-features shader `mslpatch` compiles is right.
-- **Missing instance data.** Forcing `inst_idx` to `HIT_NO_INSTANCE` moves 45%
-  of pixels, so instanced shading is live.
+The Metal frame looked like it had lost texture detail on the atrium column,
+the villa stairs and the grass. It had not. Measuring local contrast (mean
+deviation from a 3x3 neighbourhood) puts Metal at *more* high-frequency energy
+than the WGSL backend, not less, and almost exactly at where the WGSL backend
+sits with AA switched off:
+
+| | whole frame | column | floor |
+|---|---|---|---|
+| wgpu, AA on | 1.69 | 2.32 | 1.34 |
+| wgpu, AA off | 2.04 | 2.81 | 1.65 |
+| metal | 1.93 | 2.44 | 1.60 |
+
+Aliased edges read as coarse, which is easy to mistake for lost detail. The
+cause was threadgroup memory: see below.
+
+### Ruled out
 
 ### Fixed along the way
 
@@ -117,6 +127,35 @@ of the wrong primitives -- every shadow ray testing the wrong set. The villa
 exposed it because its indices do not line up that way. This is also where the
 "12 benign duplicates" noted earlier came from; they were never benign, and the
 counts are now exact on both scenes.
+
+### Threadgroup memory is bound by the host, or it is zero
+
+naga emits threadgroup memory as an *unindexed* kernel argument, exactly as it
+does buffers:
+
+    , threadgroup metal::atomic_uint& aa_wg_count
+
+With no `[[threadgroup(n)]]` index the host never calls
+`setThreadgroupMemoryLength:atIndex:`, and every shared read returns zero. In
+`aa_classify` that turns the per-tile counter into a constant 0, so
+`atomicAdd(&aa_dispatch[3], atomicLoad(&aa_wg_count))` adds nothing and the task
+list stays empty -- while `atomicMax(&aa_dispatch[0], ...)` still runs, leaving
+the tell-tale `groups=1 tasks=0`. Anti-aliasing was silently off.
+
+`mslbind` now assigns the indices and records the sizes in its manifest, and the
+harness sets them. `aa_classify` goes from 0 tasks to 27921.
+
+This is the same shape as the instancing tag: not a compile error, not a
+validation error, and it makes the frame faster.
+
+### Known bad: the AA resolve path
+
+Turning AA on makes the image *worse*, not better -- 27.2% of pixels differing
+becomes 36.6%, with a bright halo on every silhouette. `aa_resolve` blends new
+samples against `hdr_pixels[idx]`, and in this chain the penumbra filter is
+still a no-op, so that base colour is not what the WGSL backend supersamples
+against. That is the next thing to chase, and until it is fixed the AA-off
+comparison is the honest one.
 
 ### Still missing
 

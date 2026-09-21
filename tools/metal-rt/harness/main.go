@@ -68,6 +68,16 @@ type argBinding struct {
 	Name  string `json:"name"`
 }
 
+// tgBinding is one threadgroup allocation. naga emits threadgroup memory as an
+// unindexed kernel argument, so without sizing it here every shared read comes
+// back zero -- which turned aa_classify's per-tile counter into a constant 0
+// and left the AA task list empty.
+type tgBinding struct {
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+	Bytes int    `json:"bytes"`
+}
+
 func main() {
 	dir := flag.String("dir", "", "directory holding accel.bin, bufs/, bound.metallib, bound.metal.json")
 	wgsl := flag.String("wgsl", "internal/webgpu/shaders/trace_linked.wgsl", "linked WGSL, for the binding names")
@@ -87,8 +97,12 @@ func main() {
 	// Metal index -> resource name, and name -> WGSL binding. naga orders
 	// arguments by signature position, so this is the only link between the
 	// dumped bindings and what the kernel expects.
-	var manifest map[string][]argBinding
-	readJSON(filepath.Join(*dir, "bound.metal.json"), &manifest)
+	var mf struct {
+		Buffers      map[string][]argBinding `json:"buffers"`
+		Threadgroups map[string][]tgBinding  `json:"threadgroups"`
+	}
+	readJSON(filepath.Join(*dir, "bound.metal.json"), &mf)
+	manifest := mf.Buffers
 	nameToBinding := parseWGSLBindings(*wgsl)
 
 	var bindings []bindingEntry
@@ -190,8 +204,19 @@ func main() {
 			}
 			kmap[i] = C.int(b)
 		}
+		tg := make([]C.int, 0, 4)
+		for _, t := range mf.Threadgroups[k.name] {
+			for len(tg) <= t.Index {
+				tg = append(tg, 0)
+			}
+			tg[t.Index] = C.int(t.Bytes)
+		}
+		var tgp *C.int
+		if len(tg) > 0 {
+			tgp = &tg[0]
+		}
 		if C.mrt_add_kernel(m, cstr(k.name), &kmap[0], C.int(len(kmap)),
-			C.int(k.tx), C.int(k.ty), C.int(k.indirect),
+			C.int(k.tx), C.int(k.ty), C.int(k.indirect), tgp, C.int(len(tg)),
 			2, 4, 12, C.int(sizesBinding), 30, errp, C.int(len(cerr))) == 0 {
 			die(fmt.Errorf("add_kernel %s: %s", k.name, gostr(cerr)))
 		}
@@ -210,6 +235,27 @@ func main() {
 		die(fmt.Errorf("run: %s", gostr(cerr)))
 	}
 	fmt.Printf("frame: %.3f ms (best of %d) at %dx%d\n", float64(ms), *iters, *w, *h)
+
+	// Intermediate buffers the screen-space passes depend on. If ShadowAux is
+	// empty, main_ recorded no penumbra and every filter downstream is a no-op
+	// however faithfully it is dispatched.
+	for _, b := range []struct {
+		name string
+		bind int
+	}{{"shadow_aux", 18}, {"hdr_pixels", 24}, {"aa_hits", 25}} {
+		probe := make([]byte, 1<<20)
+		if C.mrt_read_buffer(m, C.int(b.bind), unsafe.Pointer(&probe[0]), C.size_t(len(probe))) == 0 {
+			continue
+		}
+		nz := 0
+		for _, v := range probe {
+			if v != 0 {
+				nz++
+			}
+		}
+		fmt.Printf("%-12s (binding %2d): %d/%d non-zero bytes in the first MiB\n",
+			b.name, b.bind, nz, len(probe))
+	}
 
 	// The indirect header aa_classify fills: [groups_x, 1, 1, task_count].
 	// If the count is zero, nothing was classified and aa_resolve dispatched

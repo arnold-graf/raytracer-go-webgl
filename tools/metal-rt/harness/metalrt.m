@@ -25,6 +25,8 @@ typedef struct {
     int nmap;
     int tx, ty;             // threads per threadgroup
     int indirect;           // WGSL binding holding dispatch args, or -1
+    int tg_bytes[8];        // threadgroup allocations, by index
+    int n_tg;
 } Kernel;
 
 struct MRT {
@@ -262,9 +264,9 @@ int mrt_build_accel(MRT *m, char *err, int errn) {
 // kernel added also builds the intersection function tables, which every
 // traversal-using kernel shares.
 int mrt_add_kernel(MRT *m, const char *name, const int *map, int nmap,
-                   int tx, int ty, int indirect, int prims_b, int blockers_b,
-                   int holes_b, int sizes_b, int rt_handle_idx,
-                   char *err, int errn) {
+                   int tx, int ty, int indirect, const int *tg_bytes, int n_tg,
+                   int prims_b, int blockers_b, int holes_b, int sizes_b,
+                   int rt_handle_idx, char *err, int errn) {
     @autoreleasepool {
         if (m->n_kernels >= MAX_KERNELS) { set_err(err, errn, @"too many kernels"); return 0; }
         NSError *e = nil;
@@ -292,6 +294,8 @@ int mrt_add_kernel(MRT *m, const char *name, const int *map, int nmap,
         k->pipe = ps; k->nmap = nmap; k->tx = tx; k->ty = ty; k->indirect = indirect;
         for (int i = 0; i < MAX_BUFFERS; i++) k->map[i] = -2;
         for (int i = 0; i < nmap && i < MAX_BUFFERS; i++) k->map[i] = map[i];
+        k->n_tg = n_tg > 8 ? 8 : n_tg;
+        for (int i = 0; i < k->n_tg; i++) k->tg_bytes[i] = tg_bytes[i];
 
         // Tables are built once, from the first pipeline that links them.
         if (!m->geom_table && pf && bf) {
@@ -341,6 +345,10 @@ static void bind_kernel(MRT *m, id<MTLComputeCommandEncoder> enc, Kernel *k) {
             [enc setBuffer:m->buffers[b] offset:0 atIndex:i];
     }
     if (m->handle) [enc setBuffer:m->handle offset:0 atIndex:m->rt_handle_idx];
+    // Threadgroup memory is not allocated by declaring it; unsized, every
+    // shared read returns zero and the kernel fails silently.
+    for (int i = 0; i < k->n_tg; i++)
+        [enc setThreadgroupMemoryLength:(k->tg_bytes[i] < 16 ? 16 : k->tg_bytes[i]) atIndex:i];
 }
 
 static void make_resident(MRT *m, id<MTLComputeCommandEncoder> enc) {

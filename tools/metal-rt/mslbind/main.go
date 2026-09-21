@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -27,6 +28,14 @@ var (
 	// from a Metal buffer index to a @group(0) @binding(n), because naga
 	// numbers arguments in signature order and not by binding.
 	reFakeNamed = regexp.MustCompile(`(\w+)(\s*)\[\[user\(fake\d+\)\]\]`)
+	// Threadgroup memory arrives the same way buffers do: as an argument with
+	// no index, because the CLI has no binding map. Unlike a buffer, leaving it
+	// unindexed is silent -- the kernel compiles, the host never calls
+	// setThreadgroupMemoryLength, and every shared read returns zero. In
+	// aa_classify that turns the per-tile counter into a constant 0, so the
+	// task list stays empty and anti-aliasing quietly does nothing.
+	reThreadgroup = regexp.MustCompile(`(?m)^, threadgroup ([\w:]+(?:\s*\(&\s*\w+\)\[\d+\]|&\s*\w+))`)
+	reTGName      = regexp.MustCompile(`(\w+)\s*$|\(&\s*(\w+)\)`)
 )
 
 func main() {
@@ -71,7 +80,29 @@ func main() {
 		if left := reFake.FindString(sig); left != "" {
 			die(fmt.Errorf("%s: unnamed resource argument %s", name, left))
 		}
-		fmt.Printf("%-20s %d buffer arguments\n", name, n)
+		tg := 0
+		sig = reThreadgroup.ReplaceAllStringFunc(sig, func(m string) string {
+			decl := strings.TrimPrefix(m, ", threadgroup ")
+			size := 4
+			if i := strings.Index(decl, ")["); i >= 0 {
+				if cnt, err := strconv.Atoi(strings.TrimSuffix(decl[i+2:], "]")); err == nil {
+					size = 4 * cnt
+				}
+			}
+			nm := strings.TrimLeft(decl[strings.LastIndexAny(decl, "& ")+1:], " ")
+			if j := strings.Index(nm, ")"); j >= 0 {
+				nm = nm[:j]
+			}
+			threadgroups[name] = append(threadgroups[name], tgBinding{Index: tg, Name: nm, Bytes: size})
+			r := fmt.Sprintf(", threadgroup %s [[threadgroup(%d)]]", decl, tg)
+			tg++
+			return r
+		})
+		if tg > 0 {
+			fmt.Printf("%-20s %d buffer arguments, %d threadgroup\n", name, n, tg)
+		} else {
+			fmt.Printf("%-20s %d buffer arguments\n", name, n)
+		}
 		out.WriteString(sig)
 		out.WriteString(rest)
 	}
@@ -81,7 +112,10 @@ func main() {
 	// The manifest is what lets a harness bind dumped buffers to the right
 	// Metal indices; see tools/metal-rt/harness.
 	mf := os.Args[2] + ".json"
-	j, err := json.MarshalIndent(manifest, "", "  ")
+	j, err := json.MarshalIndent(struct {
+		Buffers      map[string][]argBinding `json:"buffers"`
+		Threadgroups map[string][]tgBinding  `json:"threadgroups"`
+	}{manifest, threadgroups}, "", "  ")
 	if err != nil {
 		die(err)
 	}
@@ -96,7 +130,18 @@ type argBinding struct {
 	Name  string `json:"name"`
 }
 
-var manifest = map[string][]argBinding{}
+// tgBinding is one threadgroup allocation the host must size with
+// setThreadgroupMemoryLength:atIndex:.
+type tgBinding struct {
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+	Bytes int    `json:"bytes"`
+}
+
+var (
+	manifest     = map[string][]argBinding{}
+	threadgroups = map[string][]tgBinding{}
+)
 
 func die(err error) {
 	fmt.Fprintln(os.Stderr, "mslbind:", err)
