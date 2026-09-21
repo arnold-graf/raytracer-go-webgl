@@ -193,3 +193,23 @@ Restructuring attempts that did not move it, both bit-identical:
 - Scoping the node loads in `bvh_child_push` so one child's bounds dies before
   the other is read, instead of holding 24 words at once. Exactly neutral; the
   compiler was already doing it. Reverted.
+
+---
+
+## Where this line of inquiry ended
+
+The register premise is closed. 384 is structural, it is a plateau, and no
+combination of removals lifts it -- including replacing both BVH traversals
+with Apple's intersector, which was the whole reason this probe was built.
+
+That conclusion held. The *prediction* built on it did not. "A Metal backend
+would inherit 384, so it is a single-digit frame win" named the wrong
+mechanism: what a Metal backend removes is **scratch**, not registers -- six
+traversal stacks at 96 bytes each -- and scratch is precisely what this probe
+cannot see. Measured end to end, the backend renders an identical image 1.27-1.28x
+faster. See [docs/metal-backend.md](../../docs/metal-backend.md) and
+[tools/spills/](../spills/README.md), which is the instrument that can see the
+other tax.
+
+Keep this tool for what it is good for: telling you that registers are *not*
+the problem, quickly. That is a real answer and it is cheap to get.

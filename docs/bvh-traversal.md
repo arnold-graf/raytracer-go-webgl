@@ -277,3 +277,23 @@ the widest occluder rather than the nearest. See
 [which blocker sets the width](soft-shadows.md#which-blocker-sets-the-width-when-several-block-the-same-light)
 for why widest is the right pick when several occluders share a light, and
 [nearest-hit search](#) for why the nearest traversals keep their near-first order.
+
+## Postscript: the traversal moved, but not by being faster
+
+This document's two strongest results are that traversal *work* barely matters
+(a 4-wide BVH cut node visits 16% and bought 1%) and that traversal *stack size*
+matters a lot (32 -> 24 was worth 7% of frame time). Those look contradictory
+until you separate the two resources: node visits are work, stacks are thread
+scratch, and only the second governs how many rays are in flight.
+
+Handing traversal to `MTLAccelerationStructure` pulls the second lever all the
+way. All six `array<u32, BVH_STACK_SIZE>` stacks disappear, and the resulting
+backend renders an identical image 1.27-1.28x faster at 512x320. The win is not
+that Apple's traversal is quicker -- an isolated benchmark said 9.2x and that
+did not survive contact with a whole frame, for exactly the reason the 4-wide
+BVH did not. It is that the stacks stop existing.
+
+If you are tuning traversal here, that is the ordering to keep in mind: shrink
+what it holds before trying to shorten what it does. See
+[metal-backend.md](metal-backend.md) and
+[megakernel-optimization.md](megakernel-optimization.md).

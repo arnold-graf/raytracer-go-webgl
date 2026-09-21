@@ -590,6 +590,48 @@ loop. Rank by cost; read spills as the size of the resident set. Neither is a
 byte count — the capture carries no scratch field — so confirm with frame time
 and a pixel diff, as always.
 
+## Scratch was the lever, and a second backend measured how big
+
+The two instruments in this document disagreed about where the frame goes, and
+the disagreement turned out to be the finding. Register occupancy is pinned at
+384 by a plateau and nothing lifts it. Thread scratch is invisible to that probe
+and is the only thing that has ever moved frame time here: an array out of
+`box_holed_nearest` was 14%, sizing the traversal stacks 32 -> 24 was 7%.
+
+Metal's ray-tracing API settles it, because it removes scratch structurally
+rather than by tuning. `bvh.wesl` declares six `array<u32, BVH_STACK_SIZE>`
+stacks, 96 bytes each; an `MTLAccelerationStructure` deletes all of them, and
+the generated MSL confirms they are dead-code eliminated. A backend built on it
+renders **the same image** as this one and is **1.28x faster on office-sunset,
+1.27x on the villa**, timed like for like at 512x320. See
+[metal-backend.md](metal-backend.md).
+
+That is the largest single result in this document, and it did not come from
+any of the levers this document spent two passes on. It is worth being precise
+about why the earlier estimate missed:
+
+- The register probe said the backend would inherit 384, and it does. That
+  measurement was correct.
+- The conclusion drawn from it -- "a single-digit frame win" -- was wrong,
+  because registers were never the mechanism. The probe answered its question
+  accurately and the question was not the governing one.
+- An isolated traversal benchmark said 9.2x, which was also correct and also
+  not predictive: traversal is a minority of the frame, exactly as the 4-wide
+  BVH showed when it cut node visits 16% and bought 1%.
+
+Three sound measurements, three wrong predictions, because each measured a
+component rather than the frame. The only number that held was the one taken
+end to end, against a matching image, with both sides timing the same window --
+and getting *that* comparison honest was itself a correction: gpuprof measures
+submit-to-idle including the output copy, while the obvious Metal number is
+device execution alone, a gap worth ~0.35 ms that would have flattered the new
+backend for free.
+
+What remains true for the WGSL path: the spill profile above still says 84% of
+spill cost is `ray_color`'s segment loop, charged three times. Nothing in this
+section fixes that, and it is still the richest seam for anyone optimizing the
+portable backend rather than replacing it.
+
 ---
 
 ## Harness
