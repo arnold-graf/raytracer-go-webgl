@@ -13,6 +13,19 @@
 
 #define MAX_BUFFERS 40
 #define MAX_BLAS 64
+#define MAX_KERNELS 12
+
+// A kernel's arguments are numbered by naga in signature order, so the same
+// buffer sits at a different index in main_ than in aa_resolve. Buffers are
+// therefore keyed by WGSL binding and each kernel carries its own map.
+typedef struct {
+    id<MTLComputePipelineState> pipe;
+    int map[MAX_BUFFERS];   // metal index -> WGSL binding, or -1 for the
+                            // runtime-array size table, -2 for unused
+    int nmap;
+    int tx, ty;             // threads per threadgroup
+    int indirect;           // WGSL binding holding dispatch args, or -1
+} Kernel;
 
 struct MRT {
     id<MTLDevice> dev;
@@ -20,7 +33,9 @@ struct MRT {
     id<MTLLibrary> lib;
     id<MTLComputePipelineState> pipe;
 
-    id<MTLBuffer> buffers[MAX_BUFFERS];
+    id<MTLBuffer> buffers[MAX_BUFFERS];   // by WGSL binding; SIZES_BINDING last
+    Kernel kernels[MAX_KERNELS];
+    int n_kernels;
 
     // Bottom-level structures, and the boxes/indices they are built from.
     int n_geom, n_blocker, n_inst;
@@ -243,115 +258,148 @@ int mrt_build_accel(MRT *m, char *err, int errn) {
     }
 }
 
-int mrt_build_pipeline(MRT *m, const char *kernel, int prims_idx, int blockers_idx,
-                       int holes_idx, int sizes_idx, int rt_handle_idx,
-                       char *err, int errn) {
+// mrt_add_kernel builds one pipeline and records how to bind it. The first
+// kernel added also builds the intersection function tables, which every
+// traversal-using kernel shares.
+int mrt_add_kernel(MRT *m, const char *name, const int *map, int nmap,
+                   int tx, int ty, int indirect, int prims_b, int blockers_b,
+                   int holes_b, int sizes_b, int rt_handle_idx,
+                   char *err, int errn) {
     @autoreleasepool {
+        if (m->n_kernels >= MAX_KERNELS) { set_err(err, errn, @"too many kernels"); return 0; }
         NSError *e = nil;
-        id<MTLFunction> kf = [m->lib newFunctionWithName:[NSString stringWithUTF8String:kernel]];
+        id<MTLFunction> kf = [m->lib newFunctionWithName:[NSString stringWithUTF8String:name]];
+        if (!kf) { set_err(err, errn, [NSString stringWithFormat:@"no kernel %s", name]); return 0; }
         id<MTLFunction> pf = [m->lib newFunctionWithName:@"prim_isect"];
         id<MTLFunction> bf = [m->lib newFunctionWithName:@"blocker_isect"];
-        if (!kf || !pf || !bf) { set_err(err, errn, @"missing kernel or intersection function"); return 0; }
 
-        MTLLinkedFunctions *lf = [MTLLinkedFunctions linkedFunctions];
-        lf.functions = @[pf, bf];
         MTLComputePipelineDescriptor *pd = [[MTLComputePipelineDescriptor alloc] init];
         pd.computeFunction = kf;
-        pd.linkedFunctions = lf;
-        m->pipe = [m->dev newComputePipelineStateWithDescriptor:pd
-                                                        options:MTLPipelineOptionNone
-                                                     reflection:nil
-                                                          error:&e];
-        if (!m->pipe) {
-            set_err(err, errn, [NSString stringWithFormat:@"pipeline: %@", e]);
-            return 0;
+        // Only kernels that trace need the intersection functions linked, but
+        // linking them everywhere is harmless and keeps one code path.
+        if (pf && bf) {
+            MTLLinkedFunctions *lf = [MTLLinkedFunctions linkedFunctions];
+            lf.functions = @[pf, bf];
+            pd.linkedFunctions = lf;
         }
-        CFRetain((__bridge CFTypeRef)m->pipe);
+        id<MTLComputePipelineState> ps =
+            [m->dev newComputePipelineStateWithDescriptor:pd options:MTLPipelineOptionNone
+                                               reflection:nil error:&e];
+        if (!ps) { set_err(err, errn, [NSString stringWithFormat:@"pipeline %s: %@", name, e]); return 0; }
+        CFRetain((__bridge CFTypeRef)ps);
 
-        MTLIntersectionFunctionTableDescriptor *td =
-            [MTLIntersectionFunctionTableDescriptor intersectionFunctionTableDescriptor];
-        td.functionCount = 1;
-        m->geom_table = [m->pipe newIntersectionFunctionTableWithDescriptor:td];
-        m->block_table = [m->pipe newIntersectionFunctionTableWithDescriptor:td];
-        if (!m->geom_table || !m->block_table) { set_err(err, errn, @"function table"); return 0; }
-        // A nil handle means the function was not linked into the pipeline.
-        // setFunction: accepts it silently and the table dispatches to nothing,
-        // which presents as "the intersector never finds anything".
-        id<MTLFunctionHandle> ph = [m->pipe functionHandleWithFunction:pf];
-        id<MTLFunctionHandle> bh = [m->pipe functionHandleWithFunction:bf];
-        if (!ph || !bh) {
-            set_err(err, errn, [NSString stringWithFormat:
-                @"function handle nil (prim=%d blocker=%d): not linked into the pipeline",
-                ph != nil, bh != nil]);
-            return 0;
+        Kernel *k = &m->kernels[m->n_kernels++];
+        k->pipe = ps; k->nmap = nmap; k->tx = tx; k->ty = ty; k->indirect = indirect;
+        for (int i = 0; i < MAX_BUFFERS; i++) k->map[i] = -2;
+        for (int i = 0; i < nmap && i < MAX_BUFFERS; i++) k->map[i] = map[i];
+
+        // Tables are built once, from the first pipeline that links them.
+        if (!m->geom_table && pf && bf) {
+            MTLIntersectionFunctionTableDescriptor *td =
+                [MTLIntersectionFunctionTableDescriptor intersectionFunctionTableDescriptor];
+            td.functionCount = 1;
+            m->geom_table = [ps newIntersectionFunctionTableWithDescriptor:td];
+            m->block_table = [ps newIntersectionFunctionTableWithDescriptor:td];
+            id<MTLFunctionHandle> ph = [ps functionHandleWithFunction:pf];
+            id<MTLFunctionHandle> bh = [ps functionHandleWithFunction:bf];
+            if (!ph || !bh) { set_err(err, errn, @"intersection function not linked"); return 0; }
+            [m->geom_table setFunction:ph atIndex:0];
+            [m->block_table setFunction:bh atIndex:0];
+            [m->geom_table setBuffer:m->buffers[prims_b] offset:0 atIndex:0];
+            [m->geom_table setBuffer:m->buffers[holes_b] offset:0 atIndex:1];
+            [m->geom_table setBuffer:m->buffers[sizes_b] offset:0 atIndex:2];
+            [m->block_table setBuffer:m->buffers[blockers_b] offset:0 atIndex:0];
+            [m->block_table setBuffer:m->buffers[holes_b] offset:0 atIndex:1];
+            [m->block_table setBuffer:m->buffers[sizes_b] offset:0 atIndex:2];
+            CFRetain((__bridge CFTypeRef)m->geom_table);
+            CFRetain((__bridge CFTypeRef)m->block_table);
+
+            id<MTLArgumentEncoder> ae = [kf newArgumentEncoderWithBufferIndex:rt_handle_idx];
+            if (!ae) { set_err(err, errn, @"no argument encoder for rt_handle"); return 0; }
+            m->handle = [m->dev newBufferWithLength:[ae encodedLength]
+                                            options:MTLResourceStorageModeShared];
+            [ae setArgumentBuffer:m->handle offset:0];
+            [ae setAccelerationStructure:m->geom_tlas atIndex:0];
+            [ae setAccelerationStructure:m->block_tlas atIndex:1];
+            [ae setIntersectionFunctionTable:m->geom_table atIndex:2];
+            [ae setIntersectionFunctionTable:m->block_table atIndex:3];
+            CFRetain((__bridge CFTypeRef)m->handle);
+            m->rt_handle_idx = rt_handle_idx;
         }
-        [m->geom_table setFunction:ph atIndex:0];
-        [m->block_table setFunction:bh atIndex:0];
-
-        // Table-local buffer indices, matching mslpatch's generated signatures.
-        [m->geom_table setBuffer:m->buffers[prims_idx] offset:0 atIndex:0];
-        [m->geom_table setBuffer:m->buffers[holes_idx] offset:0 atIndex:1];
-        [m->geom_table setBuffer:m->buffers[sizes_idx] offset:0 atIndex:2];
-        [m->block_table setBuffer:m->buffers[blockers_idx] offset:0 atIndex:0];
-        [m->block_table setBuffer:m->buffers[holes_idx] offset:0 atIndex:1];
-        [m->block_table setBuffer:m->buffers[sizes_idx] offset:0 atIndex:2];
-        CFRetain((__bridge CFTypeRef)m->geom_table);
-        CFRetain((__bridge CFTypeRef)m->block_table);
-
-        // RTHandle's layout is Metal's business, not ours. An argument
-        // encoder built from the function knows the real offsets and the
-        // right setter per member, which hand-writing resource IDs into a
-        // struct does not -- and a wrong layout fails silently as "no hits"
-        // rather than as an error.
-        id<MTLArgumentEncoder> ae = [kf newArgumentEncoderWithBufferIndex:rt_handle_idx];
-        if (!ae) { set_err(err, errn, @"no argument encoder for rt_handle"); return 0; }
-        m->handle = [m->dev newBufferWithLength:[ae encodedLength]
-                                        options:MTLResourceStorageModeShared];
-        [ae setArgumentBuffer:m->handle offset:0];
-        [ae setAccelerationStructure:m->geom_tlas atIndex:0];
-        [ae setAccelerationStructure:m->block_tlas atIndex:1];
-        [ae setIntersectionFunctionTable:m->geom_table atIndex:2];
-        [ae setIntersectionFunctionTable:m->block_table atIndex:3];
-        if (mrt_verbose) fprintf(stderr, "  rt_handle argument buffer: %zu bytes\n",
-                                 (size_t)[ae encodedLength]);
-        CFRetain((__bridge CFTypeRef)m->handle);
-        m->rt_handle_idx = rt_handle_idx;
         return 1;
     }
 }
 
-double mrt_dispatch(MRT *m, int gx, int gy, int tx, int ty, int iters,
-                    char *err, int errn) {
+// bind_kernel sets one kernel's buffers and makes everything it reaches
+// resident. Residency is explicit because the structures and tables arrive
+// through an argument buffer, which the encoder cannot see into.
+static void bind_kernel(MRT *m, id<MTLComputeCommandEncoder> enc, Kernel *k) {
+    [enc setComputePipelineState:k->pipe];
+    for (int i = 0; i < k->nmap; i++) {
+        int b = k->map[i];
+        if (b >= 0 && b < MAX_BUFFERS && m->buffers[b])
+            [enc setBuffer:m->buffers[b] offset:0 atIndex:i];
+    }
+    if (m->handle) [enc setBuffer:m->handle offset:0 atIndex:m->rt_handle_idx];
+}
+
+static void make_resident(MRT *m, id<MTLComputeCommandEncoder> enc) {
+    if (m->geom_tlas) [enc useResource:m->geom_tlas usage:MTLResourceUsageRead];
+    if (m->block_tlas) [enc useResource:m->block_tlas usage:MTLResourceUsageRead];
+    if (m->geom_table) [enc useResource:m->geom_table usage:MTLResourceUsageRead];
+    if (m->block_table) [enc useResource:m->block_table usage:MTLResourceUsageRead];
+    for (int i = 0; i < m->n_geom; i++) {
+        [enc useResource:m->geom_blas[i] usage:MTLResourceUsageRead];
+        [enc useResource:m->geom_data[i] usage:MTLResourceUsageRead];
+    }
+    for (int i = 0; i < m->n_blocker; i++) {
+        [enc useResource:m->block_blas[i] usage:MTLResourceUsageRead];
+        [enc useResource:m->block_data[i] usage:MTLResourceUsageRead];
+    }
+    for (int i = 0; i < MAX_BUFFERS; i++)
+        if (m->buffers[i])
+            [enc useResource:m->buffers[i] usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+}
+
+// mrt_run encodes the whole frame: every kernel in the order they were added,
+// in one encoder so each sees the previous one's writes, except any kernel
+// dispatched indirectly -- those get their own encoder, because the buffer
+// holding the dispatch arguments was written by the encoder before it.
+double mrt_run(MRT *m, int gx, int gy, int iters,
+               int reset_binding, const void *reset_data, size_t reset_len,
+               char *err, int errn) {
     @autoreleasepool {
         double best = 1e30;
         for (int it = 0; it < iters; it++) {
+            if (reset_binding >= 0 && m->buffers[reset_binding] && reset_data)
+                memcpy([m->buffers[reset_binding] contents], reset_data, reset_len);
+
             id<MTLCommandBuffer> cb = [m->queue commandBuffer];
-            id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
-            [enc setComputePipelineState:m->pipe];
-            for (int i = 0; i < MAX_BUFFERS; i++)
-                if (m->buffers[i]) [enc setBuffer:m->buffers[i] offset:0 atIndex:i];
-            [enc setBuffer:m->handle offset:0 atIndex:m->rt_handle_idx];
-
-            // Anything reached through the argument buffer needs explicit
-            // residency; the encoder cannot see it from the handle alone.
-            [enc useResource:m->geom_tlas usage:MTLResourceUsageRead];
-            [enc useResource:m->block_tlas usage:MTLResourceUsageRead];
-            for (int i = 0; i < m->n_geom; i++) {
-                [enc useResource:m->geom_blas[i] usage:MTLResourceUsageRead];
-                [enc useResource:m->geom_data[i] usage:MTLResourceUsageRead];
+            id<MTLComputeCommandEncoder> enc = nil;
+            for (int i = 0; i < m->n_kernels; i++) {
+                Kernel *k = &m->kernels[i];
+                if (k->indirect >= 0) {
+                    if (enc) { [enc endEncoding]; enc = nil; }
+                    id<MTLComputeCommandEncoder> ie = [cb computeCommandEncoder];
+                    bind_kernel(m, ie, k);
+                    make_resident(m, ie);
+                    [ie dispatchThreadgroupsWithIndirectBuffer:m->buffers[k->indirect]
+                                          indirectBufferOffset:0
+                                         threadsPerThreadgroup:MTLSizeMake(k->tx, k->ty, 1)];
+                    [ie endEncoding];
+                    continue;
+                }
+                if (!enc) {
+                    enc = [cb computeCommandEncoder];
+                    make_resident(m, enc);
+                }
+                bind_kernel(m, enc, k);
+                [enc dispatchThreadgroups:MTLSizeMake(gx, gy, 1)
+                    threadsPerThreadgroup:MTLSizeMake(k->tx, k->ty, 1)];
+                // Each pass reads what the previous wrote.
+                [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
             }
-            for (int i = 0; i < m->n_blocker; i++) {
-                [enc useResource:m->block_blas[i] usage:MTLResourceUsageRead];
-                [enc useResource:m->block_data[i] usage:MTLResourceUsageRead];
-            }
-            for (int i = 0; i < MAX_BUFFERS; i++)
-                if (m->buffers[i]) [enc useResource:m->buffers[i] usage:MTLResourceUsageRead | MTLResourceUsageWrite];
-            [enc useResource:m->geom_table usage:MTLResourceUsageRead];
-            [enc useResource:m->block_table usage:MTLResourceUsageRead];
-
-            [enc dispatchThreadgroups:MTLSizeMake(gx, gy, 1)
-                threadsPerThreadgroup:MTLSizeMake(tx, ty, 1)];
-            [enc endEncoding];
+            if (enc) [enc endEncoding];
             [cb commit];
             [cb waitUntilCompleted];
             if ([cb error]) {

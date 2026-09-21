@@ -44,6 +44,13 @@ const bufferSizesFields = 64
 
 const allocPad = 1 << 16
 
+// sizesBinding parks naga's runtime-array size table past the real bindings,
+// which run 0..29. aaDispatchBinding is the indirect header aa_classify fills.
+const (
+	sizesBinding      = 31
+	aaDispatchBinding = 29
+)
+
 type bindingEntry struct {
 	Binding uint32 `json:"binding"`
 	File    string `json:"file"`
@@ -58,13 +65,13 @@ type argBinding struct {
 func main() {
 	dir := flag.String("dir", "", "directory holding accel.bin, bufs/, bound.metallib, bound.metal.json")
 	wgsl := flag.String("wgsl", "internal/webgpu/shaders/trace_linked.wgsl", "linked WGSL, for the binding names")
-	kernel := flag.String("kernel", "main_", "kernel to dispatch")
 	w := flag.Int("w", 512, "width (matches the in-game render resolution in main.go)")
 	h := flag.Int("h", 320, "height (matches the in-game render resolution in main.go)")
 	iters := flag.Int("iters", 20, "dispatches, best is reported")
 	out := flag.String("out", "", "write the output buffer here as rgba")
 	verbose := flag.Bool("v", false, "print acceleration structure sizes")
 	maxInst := flag.Int("maxinst", 0, "cap instances (0 = all), to isolate a bad placement")
+	only := flag.String("only", "", "dispatch just this kernel instead of the whole frame")
 	probe := flag.Bool("probe", false, "trace a few rays with the structures bound directly, then exit")
 	flag.Parse()
 	if *dir == "" {
@@ -76,18 +83,10 @@ func main() {
 	// dumped bindings and what the kernel expects.
 	var manifest map[string][]argBinding
 	readJSON(filepath.Join(*dir, "bound.metal.json"), &manifest)
-	args, ok := manifest[*kernel]
-	if !ok {
-		die(fmt.Errorf("kernel %q not in the manifest", *kernel))
-	}
 	nameToBinding := parseWGSLBindings(*wgsl)
 
 	var bindings []bindingEntry
 	readJSON(filepath.Join(*dir, "bufs", "bindings.json"), &bindings)
-	byBinding := map[uint32]bindingEntry{}
-	for _, b := range bindings {
-		byBinding[b.Binding] = b
-	}
 
 	cerr := make([]byte, 1024)
 	errp := (*C.char)(unsafe.Pointer(&cerr[0]))
@@ -97,45 +96,20 @@ func main() {
 	}
 	defer C.mrt_free(m)
 
-	// Bind every argument the kernel declares.
-	var sizesIdx, primsIdx, blockersIdx, holesIdx = -1, -1, -1, -1
-	for _, a := range args {
-		if a.Name == "_buffer_sizes" {
-			sizesIdx = a.Index
-			sz := make([]byte, bufferSizesFields*4)
-			for i := 0; i < bufferSizesFields; i++ {
-				binary.LittleEndian.PutUint32(sz[i*4:], ^uint32(0)/4)
-			}
-			setBuffer(m, a.Index, sz)
-			continue
-		}
-		bind, ok := lookupBinding(nameToBinding, a.Name)
-		if !ok {
-			die(fmt.Errorf("no WGSL binding for resource %q (metal index %d)", a.Name, a.Index))
-		}
-		e, ok := byBinding[bind]
-		if !ok {
-			die(fmt.Errorf("binding %d (%s) was not dumped", bind, a.Name))
-		}
+	// One buffer per WGSL binding, shared by every kernel. naga's runtime-array
+	// size table has no binding of its own, so it takes a slot past the end.
+	for _, e := range bindings {
 		data, err := os.ReadFile(filepath.Join(*dir, "bufs", e.File))
 		if err != nil {
 			die(err)
 		}
-		setBuffer(m, a.Index, data)
-		switch baseName(a.Name) {
-		case "prims":
-			primsIdx = a.Index
-		case "blockers":
-			blockersIdx = a.Index
-		case "holes":
-			holesIdx = a.Index
-		}
+		setBuffer(m, int(e.Binding), data)
 	}
-	for name, idx := range map[string]int{"prims": primsIdx, "blockers": blockersIdx, "holes": holesIdx, "_buffer_sizes": sizesIdx} {
-		if idx < 0 {
-			die(fmt.Errorf("%s is not an argument of %s; the intersection functions need it", name, *kernel))
-		}
+	sz := make([]byte, bufferSizesFields*4)
+	for i := 0; i < bufferSizesFields; i++ {
+		binary.LittleEndian.PutUint32(sz[i*4:], ^uint32(0)/4)
 	}
+	setBuffer(m, sizesBinding, sz)
 
 	if *verbose {
 		C.mrt_set_verbose(1)
@@ -150,32 +124,87 @@ func main() {
 		runProbe(m, errp, cerr)
 		return
 	}
-	if C.mrt_build_pipeline(m, cstr(*kernel), C.int(primsIdx), C.int(blockersIdx),
-		C.int(holesIdx), C.int(sizesIdx), 30, errp, C.int(len(cerr))) == 0 {
-		die(fmt.Errorf("build_pipeline: %s", gostr(cerr)))
-	}
-	fmt.Println("pipeline linked with prim_isect and blocker_isect")
 
-	gx, gy := (*w+7)/8, (*h+7)/8
-	ms := C.mrt_dispatch(m, C.int(gx), C.int(gy), 8, 8, C.int(*iters), errp, C.int(len(cerr)))
-	if ms < 0 {
-		die(fmt.Errorf("dispatch: %s", gostr(cerr)))
+	// The same order internal/webgpu/device.go submits: main, then the
+	// reflection filter (which puts the glossy lobe back into hdr_pixels before
+	// anything gathers over it), then the separable penumbra filter, then AA
+	// classification -- all in one encoder so each sees the last one's writes.
+	// aa_resolve runs indirectly from the task list aa_classify built.
+	chain := []struct {
+		name     string
+		tx, ty   int
+		indirect int
+	}{
+		{"main_", 8, 8, -1},
+		{"refl_fill", 8, 8, -1},
+		{"refl_blur_h", 8, 8, -1},
+		{"refl_blur_v", 8, 8, -1},
+		{"shadow_radius_h", 8, 8, -1},
+		{"shadow_radius_v", 8, 8, -1},
+		{"shadow_soften_h", 8, 8, -1},
+		{"shadow_soften_v", 8, 8, -1},
+		{"aa_classify", 8, 8, -1},
+		{"aa_resolve", 64, 1, aaDispatchBinding},
 	}
-	fmt.Printf("%s: %.3f ms (best of %d) at %dx%d\n", *kernel, float64(ms), *iters, *w, *h)
-
-	if *out != "" {
-		// Binding 1 is the output image.
-		idx := -1
-		for _, a := range args {
-			if b, ok := lookupBinding(nameToBinding, a.Name); ok && b == 1 {
-				idx = a.Index
+	if *only != "" {
+		for _, k := range chain {
+			if k.name == *only {
+				chain = chain[:0]
+				chain = append(chain, k)
+				break
 			}
 		}
-		if idx < 0 {
-			die(fmt.Errorf("output binding 1 is not an argument of %s", *kernel))
+	}
+	for _, k := range chain {
+		kargs, ok := manifest[k.name]
+		if !ok {
+			die(fmt.Errorf("kernel %q not in the manifest", k.name))
 		}
+		kmap := make([]C.int, len(kargs))
+		for i, a := range kargs {
+			if a.Name == "_buffer_sizes" {
+				kmap[i] = C.int(sizesBinding)
+				continue
+			}
+			b, ok := lookupBinding(nameToBinding, a.Name)
+			if !ok {
+				die(fmt.Errorf("%s: no WGSL binding for %q", k.name, a.Name))
+			}
+			kmap[i] = C.int(b)
+		}
+		if C.mrt_add_kernel(m, cstr(k.name), &kmap[0], C.int(len(kmap)),
+			C.int(k.tx), C.int(k.ty), C.int(k.indirect),
+			2, 4, 12, C.int(sizesBinding), 30, errp, C.int(len(cerr))) == 0 {
+			die(fmt.Errorf("add_kernel %s: %s", k.name, gostr(cerr)))
+		}
+	}
+	fmt.Printf("%d kernels linked\n", len(chain))
+	gx, gy := (*w+7)/8, (*h+7)/8
+	// aa_classify appends to a task list with an indirect header; it has to
+	// start empty each frame or the previous frame's work is redispatched.
+	reset := make([]byte, 16)
+	binary.LittleEndian.PutUint32(reset[4:], 1)
+	binary.LittleEndian.PutUint32(reset[8:], 1)
+	ms := C.mrt_run(m, C.int(gx), C.int(gy), C.int(*iters),
+		C.int(aaDispatchBinding), unsafe.Pointer(&reset[0]), C.size_t(len(reset)),
+		errp, C.int(len(cerr)))
+	if ms < 0 {
+		die(fmt.Errorf("run: %s", gostr(cerr)))
+	}
+	fmt.Printf("frame: %.3f ms (best of %d) at %dx%d\n", float64(ms), *iters, *w, *h)
+
+	// The indirect header aa_classify fills: [groups_x, 1, 1, task_count].
+	// If the count is zero, nothing was classified and aa_resolve dispatched
+	// nothing, which is the difference between a filter running and a filter
+	// silently not running.
+	var hdr [4]uint32
+	if C.mrt_read_buffer(m, C.int(aaDispatchBinding), unsafe.Pointer(&hdr[0]), 16) != 0 {
+		fmt.Printf("aa dispatch header: groups=%d tasks=%d\n", hdr[0], hdr[3])
+	}
+
+	if *out != "" {
 		buf := make([]byte, *w**h*4)
-		if C.mrt_read_buffer(m, C.int(idx), unsafe.Pointer(&buf[0]), C.size_t(len(buf))) == 0 {
+		if C.mrt_read_buffer(m, 1, unsafe.Pointer(&buf[0]), C.size_t(len(buf))) == 0 {
 			die(fmt.Errorf("read output"))
 		}
 		if err := os.WriteFile(*out, buf, 0o644); err != nil {

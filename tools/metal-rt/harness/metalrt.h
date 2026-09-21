@@ -26,15 +26,18 @@ int mrt_add_blas(MRT *m, int blocker, int slot, const float *bounds,
 int mrt_add_instance(MRT *m, const float *xf12, uint32_t blas);
 int mrt_build_accel(MRT *m, char *err, int errn);
 
-// The pipeline links the two intersection functions and builds their tables.
-// prims/blockers/holes are Metal indices into the buffers already set.
-int mrt_build_pipeline(MRT *m, const char *kernel, int prims_idx,
-                       int blockers_idx, int holes_idx, int sizes_idx,
-                       int rt_handle_idx, char *err, int errn);
+// Adds one kernel: its pipeline and how to bind it. map[i] is the WGSL binding
+// for Metal argument i, -1 for naga's runtime-array size table, -2 unused.
+// indirect is the WGSL binding holding dispatch arguments, or -1.
+int mrt_add_kernel(MRT *m, const char *name, const int *map, int nmap,
+                   int tx, int ty, int indirect, int prims_b, int blockers_b,
+                   int holes_b, int sizes_b, int rt_handle_idx,
+                   char *err, int errn);
 
-// Returns the best GPU time in milliseconds over iters runs.
-double mrt_dispatch(MRT *m, int gx, int gy, int tx, int ty, int iters,
-                    char *err, int errn);
+// Runs every kernel added, in order, and returns the best frame time in ms.
+double mrt_run(MRT *m, int gx, int gy, int iters,
+               int reset_binding, const void *reset_data, size_t reset_len,
+               char *err, int errn);
 
 int mrt_read_buffer(MRT *m, int index, void *dst, size_t len);
 

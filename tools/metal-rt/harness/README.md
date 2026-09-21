@@ -71,34 +71,43 @@ reported nothing.
 
 ## Status
 
-Renders the atrium correctly on Metal's acceleration structures: same
-composition, lighting, columns, glass and reflections as the WGSL backend.
-Against the reference at the in-game 512x320, 30.4% of pixels differ by >=8,
-which is the three screen-space passes the harness does not dispatch yet --
-the penumbra filter, the reflection filter and adaptive AA. The reference is
-visibly softer for exactly that reason.
+All ten kernels dispatch, in the order `internal/webgpu/device.go` submits them:
+`main_`, the reflection filter, the separable penumbra filter and
+`aa_classify` in one encoder so each sees the last one's writes, then
+`aa_resolve` indirectly from the task list `aa_classify` built. **11.0 ms at
+512x320.**
 
-`main_` alone reports ~9.6 ms at 512x320. That is **not** comparable to a wgpu
-frame time: it is one kernel of ten, against an image that still differs.
+That number is still not comparable, because 29.8% of pixels differ from the
+WGSL backend by >=8. What the difference is *not*:
 
-Reflection and refraction needed no work. Both live in `ray_color`'s segment
-loop, which calls `nearest_hit` and therefore the spliced traversal, so they
-came along with it.
+- **Not the screen-space passes.** Running them moved the gap by 0.6 points
+  (30.4% -> 29.8%). Measured from the other side, turning AA off in the WGSL
+  backend changes only 2.3% of pixels at this resolution.
+- **Not shader specialization.** `RAYTRACER_NO_SHADER_SPECIALIZE=1` renders
+  bit-identically to the specialized pipeline, so the all-features shader that
+  `mslpatch` compiles is the right reference.
+- **Not missing instance data.** Forcing `inst_idx` to `HIT_NO_INSTANCE` moves
+  45% of pixels, so instanced shading is live and doing work.
 
-Shadow transmission did need work. Glass does not end a blocker walk in the
-WGSL -- it multiplies transmission and carries on -- which a flat
-`accept_any_intersection` cannot express. The intersection function is the only
-place that sees every occluder along the ray, so the accumulation lives there,
-in a `ray_data` payload: glass multiplies and declines to accept, opaque zeroes
-and accepts. Verified by forcing every blocker to transmit, which moves 16.7%
-of pixels. Glass-only is a no-op on *this* view -- the scene has 54 glass
-blockers but no shadow ray in this frame crosses one -- so the A/B that matters
-is the forced one.
+What it looks like: the difference concentrates on the columns and the glass
+rather than spreading evenly, and the Metal frame is slightly *brighter*
+(mean 163.7 against 160.8). Brighter, on the repeated instanced geometry,
+points at shadow rays missing occluders they should find -- the blocker TLAS
+rather than the geometry one. That is the next thing to bisect, and `-probe`
+already traces the geometry structure; it needs the blocker equivalent.
 
-### What is still missing
+Reflection and refraction needed no work: both live in `ray_color`'s segment
+loop, which calls `nearest_hit` and so the spliced traversal.
 
-- The nine screen-space kernels (penumbra, reflection filter, AA). Until they
-  run, no frame time from here is comparable.
+Shadow transmission did. Glass does not end a blocker walk in the WGSL -- it
+multiplies transmission and continues -- which a flat `accept_any_intersection`
+cannot express, so the accumulation lives in the intersection function in a
+`ray_data` payload. Verified by forcing every blocker to transmit, which moves
+16.7% of pixels. Glass-only is a no-op on this view: 54 glass blockers exist,
+but no shadow ray in this frame crosses one.
+
+### Still missing
+
 - Refit. `refitAccelerationStructure:` is the analogue of `bvh_refit.go`;
   instance transforms only need the TLAS rebuilt, deforming poses need a real
-  BLAS refit. Nothing in this design blocks it; it just builds once today.
+  BLAS refit. Nothing here blocks it; the harness just builds once.
