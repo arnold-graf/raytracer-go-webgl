@@ -31,8 +31,8 @@ int mrt_build_accel(MRT *m, char *err, int errn);
 // indirect is the WGSL binding holding dispatch arguments, or -1.
 int mrt_add_kernel(MRT *m, const char *name, const int *map, int nmap,
                    int tx, int ty, int indirect, const int *tg_bytes, int n_tg,
-                   int prims_b, int blockers_b, int holes_b, int sizes_b,
-                   int rt_handle_idx, char *err, int errn);
+                   int traces, int prims_b, int blockers_b, int holes_b,
+                   int sizes_b, int rt_handle_idx, char *err, int errn);
 
 // Runs every kernel added, in order, and returns the best frame time in ms.
 double mrt_run(MRT *m, int gx, int gy, int iters,

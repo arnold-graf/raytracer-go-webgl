@@ -71,27 +71,17 @@ reported nothing.
 
 ## Status
 
-All ten kernels dispatch, in the order `internal/webgpu/device.go` submits them.
-Two scenes, both at the in-game 512x320:
+The Metal path renders **the same image as the WGSL backend**, on both scenes,
+at the in-game 512x320:
 
-| scene | wgpu | metal |
+| scene | pixels differing by >=8 | mean level |
 |---|---|---|
-| office-sunset atrium | 20.0 ms | 10.8 ms |
-| outdoors-night-villa | 16.8 ms | 9.8 ms |
+| office-sunset atrium | 45 of 163840 (0.0%) | 160.8 vs 160.8 |
+| outdoors-night-villa | 61 of 163840 (0.0%) | 40.9 vs 40.9 |
 
-**Neither number is a result yet**, for two reasons that both have to go away
-first. The images still differ (27.2% and 32.2% of pixels by >=8), and the two
-timers measure different things: gpuprof reports wall-clock until the device is
-idle, including readback, while the harness reports `GPUEndTime - GPUStartTime`.
-Closing both is what turns this into a measurement.
-
-Textures are correct. The villa renders its cobblestone base, tree bark, wood
-grain and grass identically to the WGSL backend, which is the clearest evidence
-so far that material and texture lookups are getting the right primitive index.
-
-What still differs, by scene: office-sunset loses the surface detail on the
-nearest column; the villa's water reflection is flat where the WGSL backend's
-is wavy. Both are surface-normal-shaped rather than geometry-shaped.
+Local-contrast ratios against the reference are 1.00 whole frame, 1.00 on the
+villa's stairs and 1.00 on its grass. Traversal, instancing, textures, shadows,
+reflections, refraction, both filters and adaptive AA all agree.
 
 ### The washed-out textures were a zeroed permutation table
 

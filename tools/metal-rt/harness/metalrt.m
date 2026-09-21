@@ -27,6 +27,15 @@ typedef struct {
     int indirect;           // WGSL binding holding dispatch args, or -1
     int tg_bytes[8];        // threadgroup allocations, by index
     int n_tg;
+    // Intersection function tables are created *from a pipeline*, and the
+    // function handles inside them are only valid for that pipeline. Sharing
+    // one table across kernels leaves the others dispatching to nothing, so
+    // every ray misses and the frame quietly renders the sky. Each tracing
+    // kernel therefore gets its own tables and its own argument buffer, since
+    // the buffer stores the tables' resource IDs.
+    id<MTLIntersectionFunctionTable> geom_table, block_table;
+    id<MTLBuffer> handle;
+    int rt_handle_idx;
 } Kernel;
 
 struct MRT {
@@ -265,15 +274,17 @@ int mrt_build_accel(MRT *m, char *err, int errn) {
 // traversal-using kernel shares.
 int mrt_add_kernel(MRT *m, const char *name, const int *map, int nmap,
                    int tx, int ty, int indirect, const int *tg_bytes, int n_tg,
-                   int prims_b, int blockers_b, int holes_b, int sizes_b,
-                   int rt_handle_idx, char *err, int errn) {
+                   int traces, int prims_b, int blockers_b, int holes_b,
+                   int sizes_b, int rt_handle_idx, char *err, int errn) {
     @autoreleasepool {
         if (m->n_kernels >= MAX_KERNELS) { set_err(err, errn, @"too many kernels"); return 0; }
         NSError *e = nil;
         id<MTLFunction> kf = [m->lib newFunctionWithName:[NSString stringWithUTF8String:name]];
         if (!kf) { set_err(err, errn, [NSString stringWithFormat:@"no kernel %s", name]); return 0; }
-        id<MTLFunction> pf = [m->lib newFunctionWithName:@"prim_isect"];
-        id<MTLFunction> bf = [m->lib newFunctionWithName:@"blocker_isect"];
+        // Only the kernels that actually traverse declare rt_handle and need
+        // the intersection functions linked; the screen-space filters do not.
+        id<MTLFunction> pf = traces ? [m->lib newFunctionWithName:@"prim_isect"] : nil;
+        id<MTLFunction> bf = traces ? [m->lib newFunctionWithName:@"blocker_isect"] : nil;
 
         MTLComputePipelineDescriptor *pd = [[MTLComputePipelineDescriptor alloc] init];
         pd.computeFunction = kf;
@@ -297,38 +308,37 @@ int mrt_add_kernel(MRT *m, const char *name, const int *map, int nmap,
         k->n_tg = n_tg > 8 ? 8 : n_tg;
         for (int i = 0; i < k->n_tg; i++) k->tg_bytes[i] = tg_bytes[i];
 
-        // Tables are built once, from the first pipeline that links them.
-        if (!m->geom_table && pf && bf) {
+        if (pf && bf) {
             MTLIntersectionFunctionTableDescriptor *td =
                 [MTLIntersectionFunctionTableDescriptor intersectionFunctionTableDescriptor];
             td.functionCount = 1;
-            m->geom_table = [ps newIntersectionFunctionTableWithDescriptor:td];
-            m->block_table = [ps newIntersectionFunctionTableWithDescriptor:td];
+            k->geom_table = [ps newIntersectionFunctionTableWithDescriptor:td];
+            k->block_table = [ps newIntersectionFunctionTableWithDescriptor:td];
             id<MTLFunctionHandle> ph = [ps functionHandleWithFunction:pf];
             id<MTLFunctionHandle> bh = [ps functionHandleWithFunction:bf];
             if (!ph || !bh) { set_err(err, errn, @"intersection function not linked"); return 0; }
-            [m->geom_table setFunction:ph atIndex:0];
-            [m->block_table setFunction:bh atIndex:0];
-            [m->geom_table setBuffer:m->buffers[prims_b] offset:0 atIndex:0];
-            [m->geom_table setBuffer:m->buffers[holes_b] offset:0 atIndex:1];
-            [m->geom_table setBuffer:m->buffers[sizes_b] offset:0 atIndex:2];
-            [m->block_table setBuffer:m->buffers[blockers_b] offset:0 atIndex:0];
-            [m->block_table setBuffer:m->buffers[holes_b] offset:0 atIndex:1];
-            [m->block_table setBuffer:m->buffers[sizes_b] offset:0 atIndex:2];
-            CFRetain((__bridge CFTypeRef)m->geom_table);
-            CFRetain((__bridge CFTypeRef)m->block_table);
+            [k->geom_table setFunction:ph atIndex:0];
+            [k->block_table setFunction:bh atIndex:0];
+            [k->geom_table setBuffer:m->buffers[prims_b] offset:0 atIndex:0];
+            [k->geom_table setBuffer:m->buffers[holes_b] offset:0 atIndex:1];
+            [k->geom_table setBuffer:m->buffers[sizes_b] offset:0 atIndex:2];
+            [k->block_table setBuffer:m->buffers[blockers_b] offset:0 atIndex:0];
+            [k->block_table setBuffer:m->buffers[holes_b] offset:0 atIndex:1];
+            [k->block_table setBuffer:m->buffers[sizes_b] offset:0 atIndex:2];
+            CFRetain((__bridge CFTypeRef)k->geom_table);
+            CFRetain((__bridge CFTypeRef)k->block_table);
 
             id<MTLArgumentEncoder> ae = [kf newArgumentEncoderWithBufferIndex:rt_handle_idx];
             if (!ae) { set_err(err, errn, @"no argument encoder for rt_handle"); return 0; }
-            m->handle = [m->dev newBufferWithLength:[ae encodedLength]
+            k->handle = [m->dev newBufferWithLength:[ae encodedLength]
                                             options:MTLResourceStorageModeShared];
-            [ae setArgumentBuffer:m->handle offset:0];
+            [ae setArgumentBuffer:k->handle offset:0];
             [ae setAccelerationStructure:m->geom_tlas atIndex:0];
             [ae setAccelerationStructure:m->block_tlas atIndex:1];
-            [ae setIntersectionFunctionTable:m->geom_table atIndex:2];
-            [ae setIntersectionFunctionTable:m->block_table atIndex:3];
-            CFRetain((__bridge CFTypeRef)m->handle);
-            m->rt_handle_idx = rt_handle_idx;
+            [ae setIntersectionFunctionTable:k->geom_table atIndex:2];
+            [ae setIntersectionFunctionTable:k->block_table atIndex:3];
+            CFRetain((__bridge CFTypeRef)k->handle);
+            k->rt_handle_idx = rt_handle_idx;
         }
         return 1;
     }
@@ -344,7 +354,7 @@ static void bind_kernel(MRT *m, id<MTLComputeCommandEncoder> enc, Kernel *k) {
         if (b >= 0 && b < MAX_BUFFERS && m->buffers[b])
             [enc setBuffer:m->buffers[b] offset:0 atIndex:i];
     }
-    if (m->handle) [enc setBuffer:m->handle offset:0 atIndex:m->rt_handle_idx];
+    if (k->handle) [enc setBuffer:k->handle offset:0 atIndex:k->rt_handle_idx];
     // Threadgroup memory is not allocated by declaring it; unsized, every
     // shared read returns zero and the kernel fails silently.
     for (int i = 0; i < k->n_tg; i++)
@@ -354,8 +364,12 @@ static void bind_kernel(MRT *m, id<MTLComputeCommandEncoder> enc, Kernel *k) {
 static void make_resident(MRT *m, id<MTLComputeCommandEncoder> enc) {
     if (m->geom_tlas) [enc useResource:m->geom_tlas usage:MTLResourceUsageRead];
     if (m->block_tlas) [enc useResource:m->block_tlas usage:MTLResourceUsageRead];
-    if (m->geom_table) [enc useResource:m->geom_table usage:MTLResourceUsageRead];
-    if (m->block_table) [enc useResource:m->block_table usage:MTLResourceUsageRead];
+    for (int i = 0; i < m->n_kernels; i++) {
+        if (m->kernels[i].geom_table)
+            [enc useResource:m->kernels[i].geom_table usage:MTLResourceUsageRead];
+        if (m->kernels[i].block_table)
+            [enc useResource:m->kernels[i].block_table usage:MTLResourceUsageRead];
+    }
     for (int i = 0; i < m->n_geom; i++) {
         [enc useResource:m->geom_blas[i] usage:MTLResourceUsageRead];
         [enc useResource:m->geom_data[i] usage:MTLResourceUsageRead];

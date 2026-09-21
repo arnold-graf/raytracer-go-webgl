@@ -87,6 +87,8 @@ func main() {
 	out := flag.String("out", "", "write the output buffer here as rgba")
 	verbose := flag.Bool("v", false, "print acceleration structure sizes")
 	maxInst := flag.Int("maxinst", 0, "cap instances (0 = all), to isolate a bad placement")
+	noReflFill := flag.Bool("no-refl-fill", false, "skip refl_fill (wgpu only runs it at half-res reflections)")
+	noAA := flag.Bool("noaa", false, "skip aa_classify and aa_resolve")
 	only := flag.String("only", "", "dispatch just this kernel instead of the whole frame")
 	probe := flag.Bool("probe", false, "trace a few rays with the structures bound directly, then exit")
 	flag.Parse()
@@ -166,17 +168,46 @@ func main() {
 		name     string
 		tx, ty   int
 		indirect int
+		traces   bool
 	}{
-		{"main_", 8, 8, -1},
-		{"refl_fill", 8, 8, -1},
-		{"refl_blur_h", 8, 8, -1},
-		{"refl_blur_v", 8, 8, -1},
-		{"shadow_radius_h", 8, 8, -1},
-		{"shadow_radius_v", 8, 8, -1},
-		{"shadow_soften_h", 8, 8, -1},
-		{"shadow_soften_v", 8, 8, -1},
-		{"aa_classify", 8, 8, -1},
-		{"aa_resolve", 64, 1, aaDispatchBinding},
+		{"main_", 8, 8, -1, true},
+		{"refl_fill", 8, 8, -1, false},
+		{"refl_blur_h", 8, 8, -1, false},
+		{"refl_blur_v", 8, 8, -1, false},
+		{"shadow_radius_h", 8, 8, -1, false},
+		{"shadow_radius_v", 8, 8, -1, false},
+		{"shadow_soften_h", 8, 8, -1, false},
+		{"shadow_soften_v", 8, 8, -1, false},
+		{"aa_classify", 8, 8, -1, false},
+		{"aa_resolve", 64, 1, aaDispatchBinding, true},
+	}
+	if *noReflFill {
+		var keep []struct {
+			name     string
+			tx, ty   int
+			indirect int
+			traces   bool
+		}
+		for _, k := range chain {
+			if k.name != "refl_fill" {
+				keep = append(keep, k)
+			}
+		}
+		chain = keep
+	}
+	if *noAA {
+		var keep []struct {
+			name     string
+			tx, ty   int
+			indirect int
+			traces   bool
+		}
+		for _, k := range chain {
+			if k.name != "aa_classify" && k.name != "aa_resolve" {
+				keep = append(keep, k)
+			}
+		}
+		chain = keep
 	}
 	if *only != "" {
 		for _, k := range chain {
@@ -217,7 +248,8 @@ func main() {
 		}
 		if C.mrt_add_kernel(m, cstr(k.name), &kmap[0], C.int(len(kmap)),
 			C.int(k.tx), C.int(k.ty), C.int(k.indirect), tgp, C.int(len(tg)),
-			2, 4, 12, C.int(sizesBinding), 30, errp, C.int(len(cerr))) == 0 {
+			C.int(b2i(k.traces)), 2, 4, 12, C.int(sizesBinding), 30,
+			errp, C.int(len(cerr))) == 0 {
 			die(fmt.Errorf("add_kernel %s: %s", k.name, gostr(cerr)))
 		}
 	}
@@ -520,4 +552,11 @@ func aaListSizeSlot(mslPath string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
