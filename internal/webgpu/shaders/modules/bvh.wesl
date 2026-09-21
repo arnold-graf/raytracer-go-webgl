@@ -272,13 +272,18 @@ fn inst_nearest_hit(ro: vec3<f32>, rd: vec3<f32>, h: Hit) -> Hit {
     return best;
 }
 
-fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
-    var h: Hit;
-    h.t = T_MISS;
-    h.idx = 0xffffffffu;
-    h.kind = 0u;
-    h.inst_idx = HIT_NO_INSTANCE;
-
+// rt_nearest is the finite-geometry half of nearest_hit: the static BVH and the
+// instance TLAS/BLAS, and nothing else. It exists as its own function because it
+// is the Metal backend's splice point -- the one place Apple's intersector
+// replaces (see docs/metal-backend.md and tools/metal-rt/mslpatch).
+//
+// Keeping the split here rather than in the generated MSL is what makes the
+// splice safe. nearest_hit also walks infinite planes, terrain and water, none
+// of which live in the BVH; a patch that swapped the whole function body would
+// silently drop all three and return a cheaper, wrong answer. Splicing this
+// function instead means the Metal backend cannot lose them by construction.
+fn rt_nearest(ro: vec3<f32>, rd: vec3<f32>, h_in: Hit) -> Hit {
+    var h = h_in;
     if (params.bvh_node_count > 0u) {
         let inv = vec3<f32>(1.0) / rd;
         var stack: array<u32, BVH_STACK_SIZE>;
@@ -316,6 +321,17 @@ fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
     }
 
     h = inst_nearest_hit(ro, rd, h);
+    return h;
+}
+
+fn nearest_hit(ro: vec3<f32>, rd: vec3<f32>) -> Hit {
+    var h: Hit;
+    h.t = T_MISS;
+    h.idx = 0xffffffffu;
+    h.kind = 0u;
+    h.inst_idx = HIT_NO_INSTANCE;
+
+    h = rt_nearest(ro, rd, h);
 
     // Infinite planes are not part of the finite BVH; walk the precomputed plane
     // index list instead of scanning every primitive.

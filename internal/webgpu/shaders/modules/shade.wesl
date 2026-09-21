@@ -15,48 +15,19 @@ import package::bvh::{blocker_bvh_any_hit};
 // face_axis returns (normal.xyz, dist.w): the outward axis normal of the
 // [mn,mx] box face nearest to hp, plus that distance. Mirrors scene.faceAxis.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 fn face_axis(mn: vec3<f32>, mx: vec3<f32>, hp: vec3<f32>) -> vec4<f32> {
     var n = vec3<f32>(-1.0, 0.0, 0.0);
     var d = abs(hp.x - mn.x);
     let dxh = abs(hp.x - mx.x);
-    if (dxh < d) { n = vec3<f32>(1.0, 0.0, 0.0); d = dxh; }
+    if dxh < d { n = vec3<f32>(1.0, 0.0, 0.0); d = dxh; }
     let dyl = abs(hp.y - mn.y);
-    if (dyl < d) { n = vec3<f32>(0.0, -1.0, 0.0); d = dyl; }
+    if dyl < d { n = vec3<f32>(0.0, -1.0, 0.0); d = dyl; }
     let dyh = abs(hp.y - mx.y);
-    if (dyh < d) { n = vec3<f32>(0.0, 1.0, 0.0); d = dyh; }
+    if dyh < d { n = vec3<f32>(0.0, 1.0, 0.0); d = dyh; }
     let dzl = abs(hp.z - mn.z);
-    if (dzl < d) { n = vec3<f32>(0.0, 0.0, -1.0); d = dzl; }
+    if dzl < d { n = vec3<f32>(0.0, 0.0, -1.0); d = dzl; }
     let dzh = abs(hp.z - mx.z);
-    if (dzh < d) { n = vec3<f32>(0.0, 0.0, 1.0); d = dzh; }
+    if dzh < d { n = vec3<f32>(0.0, 0.0, 1.0); d = dzh; }
     return vec4<f32>(n, d);
 }
 
@@ -69,7 +40,7 @@ fn box_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     for (var i = 0u; i < count; i = i + 1u) {
         let hole = holes[start + i];
         let fa = face_axis(hole.mn.xyz, hole.mx.xyz, hp);
-        if (fa.w < best.w) {
+        if fa.w < best.w {
             best = vec4<f32>(-fa.xyz, fa.w);
         }
     }
@@ -79,15 +50,15 @@ fn box_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
 fn cylinder_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     let ymin = p.geo_a.w;
     let ymax = p.geo_b.x;
-    if (hp.y <= ymin + 1e-3) {
+    if hp.y <= ymin + 1e-3 {
         return vec3<f32>(0.0, -1.0, 0.0);
     }
-    if (hp.y >= ymax - 1e-3) {
+    if hp.y >= ymax - 1e-3 {
         return vec3<f32>(0.0, 1.0, 0.0);
     }
     let r0 = p.geo_a.z;
     var r1 = p.geo_b.y;
-    if (r1 == 0.0) {
+    if r1 == 0.0 {
         r1 = r0;
     }
     let h = ymax - ymin;
@@ -100,11 +71,11 @@ fn cylinder_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
 
 fn cone_cap_normal_world(p: Prim, ro: vec3<f32>, hp: vec3<f32>) -> vec3<f32> {
     var plane_out = vec3<f32>(0.0, -1.0, 0.0);
-    if ((p.info.w & PRIM_FLAG_TRANSFORMED) != 0u) {
+    if (p.info.w & PRIM_FLAG_TRANSFORMED) != 0u {
         plane_out = normalize(xf_to_world_normal(p, plane_out));
     }
     let to_hit = hp - ro;
-    if (dot(to_hit, plane_out) < 0.0) {
+    if dot(to_hit, plane_out) < 0.0 {
         return plane_out;
     }
     return -plane_out;
@@ -116,9 +87,9 @@ fn cone_normal(p: Prim, hp: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
     let rbase = p.geo_a.z;
     let ybase = p.geo_a.w;
     let ytip = p.geo_b.x;
-    if (abs(hp.y - ybase) < 0.01 && p.geo_b.y > 0.5) {
+    if abs(hp.y - ybase) < 0.01 && p.geo_b.y > 0.5 {
         // Untransformed cones only; transformed caps use cone_cap_normal_world.
-        if (rd.y > 0.0) {
+        if rd.y > 0.0 {
             return vec3<f32>(0.0, -1.0, 0.0);
         }
         return vec3<f32>(0.0, 1.0, 0.0);
@@ -127,7 +98,7 @@ fn cone_normal(p: Prim, hp: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
     let lx = hp.x - cx;
     let lz = hp.z - cz;
     var lr = sqrt(lx * lx + lz * lz);
-    if (lr == 0.0) { lr = 1e-9; }
+    if lr == 0.0 { lr = 1e-9; }
     let denom = sqrt(1.0 + k * k);
     let ny = k / denom;
     let ns = 1.0 / denom;
@@ -139,7 +110,7 @@ fn torus_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     let bigR = p.geo_a.w;
     let e = hp - center;
     var l = sqrt(e.x * e.x + e.z * e.z);
-    if (l == 0.0) { l = 1e-9; }
+    if l == 0.0 { l = 1e-9; }
     let c = vec3<f32>(e.x / l * bigR, 0.0, e.z / l * bigR);
     return normalize(e - c);
 }
@@ -149,20 +120,20 @@ fn ring_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     let cz = p.geo_a.y;
     let cy = p.geo_a.w;
     var height = p.geo_b.x;
-    if (height <= 0.0) {
+    if height <= 0.0 {
         height = 0.03;
     }
     let band_half = height * 0.5;
-    if (hp.y <= cy - band_half + 1e-4) {
+    if hp.y <= cy - band_half + 1e-4 {
         return vec3<f32>(0.0, -1.0, 0.0);
     }
-    if (hp.y >= cy + band_half - 1e-4) {
+    if hp.y >= cy + band_half - 1e-4 {
         return vec3<f32>(0.0, 1.0, 0.0);
     }
     let lx = hp.x - cx;
     let lz = hp.z - cz;
     var l = sqrt(lx * lx + lz * lz);
-    if (l == 0.0) { l = 1e-9; }
+    if l == 0.0 { l = 1e-9; }
     return vec3<f32>(lx / l, 0.0, lz / l);
 }
 
@@ -173,23 +144,23 @@ fn lens_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
     let r_front = p.geo_b.x;
     let r_back = p.geo_b.y;
     var thickness = p.geo_b.z;
-    if (thickness <= 0.0) {
+    if thickness <= 0.0 {
         thickness = 0.004;
     }
     let half_t = thickness * 0.5;
     let y_front = cy - half_t + r_front;
     let y_back = cy + half_t - r_back;
-    if (hp.y < cy) {
+    if hp.y < cy {
         var n = vec3<f32>(hp.x - cx, hp.y - y_front, hp.z - cz);
         let l = length(n);
-        if (l > 1e-12) {
+        if l > 1e-12 {
             return n / l;
         }
         return vec3<f32>(0.0, -1.0, 0.0);
     }
     var n = vec3<f32>(hp.x - cx, hp.y - y_back, hp.z - cz);
     let l = length(n);
-    if (l > 1e-12) {
+    if l > 1e-12 {
         return n / l;
     }
     return vec3<f32>(0.0, 1.0, 0.0);
@@ -197,28 +168,28 @@ fn lens_normal(p: Prim, hp: vec3<f32>) -> vec3<f32> {
 
 fn normal_at(p: Prim, hp: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
     let kind = p.info.x;
-    if (FEAT_PRIM_SPHERE && kind == PRIM_SPHERE) {
+    if FEAT_PRIM_SPHERE && kind == PRIM_SPHERE {
         return normalize(hp - p.geo_a.xyz);
     }
-    if (FEAT_PRIM_PLANE && kind == PRIM_PLANE) {
+    if FEAT_PRIM_PLANE && kind == PRIM_PLANE {
         return p.geo_a.xyz;
     }
-    if (FEAT_PRIM_BOX && kind == PRIM_BOX) {
+    if FEAT_PRIM_BOX && kind == PRIM_BOX {
         return box_normal(p, hp);
     }
-    if (FEAT_PRIM_CYLINDER && kind == PRIM_CYLINDER) {
+    if FEAT_PRIM_CYLINDER && kind == PRIM_CYLINDER {
         return cylinder_normal(p, hp);
     }
-    if (FEAT_PRIM_CONE && kind == PRIM_CONE) {
+    if FEAT_PRIM_CONE && kind == PRIM_CONE {
         return cone_normal(p, hp, rd);
     }
-    if (FEAT_PRIM_RING && kind == PRIM_RING) {
+    if FEAT_PRIM_RING && kind == PRIM_RING {
         return ring_normal(p, hp);
     }
-    if (FEAT_PRIM_LENS && kind == PRIM_LENS) {
+    if FEAT_PRIM_LENS && kind == PRIM_LENS {
         return lens_normal(p, hp);
     }
-    if (!FEAT_PRIM_TORUS) {
+    if !FEAT_PRIM_TORUS {
         return vec3<f32>(0.0, 1.0, 0.0);
     }
     return torus_normal(p, hp);
@@ -374,7 +345,7 @@ fn campfire_light_radius(sl: CampfireSample) -> f32 {
 
 fn campfire_light_count(cf: CampfireParams) -> u32 {
     let n = u32(cf.color.w);
-    if (n == 0u) {
+    if n == 0u {
         return 3u;
     }
     return min(n, 3u);
@@ -398,7 +369,7 @@ fn shadow_aux_reset() {
 // of a light's size resolves it through here, so the width formula and the tests
 // in front of it can never disagree about how big a light is.
 fn resolved_light_radius(declared_r: f32, ldist: f32) -> f32 {
-    if (declared_r > 0.0) {
+    if declared_r > 0.0 {
         return declared_r;
     }
     return min(PENUMBRA_LIGHT_RADIUS * ldist / PENUMBRA_LIGHT_REF_DIST, PENUMBRA_LIGHT_MAX_RADIUS);
@@ -430,7 +401,7 @@ fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, de
     // Every caller but the primary diffuse hit resets these on the next shade
     // and never snapshots them. The power mean below costs a pow() per blocked
     // light, so it is worth not doing for a record that is discarded.
-    if (!sh_record) {
+    if !sh_record {
         return;
     }
     // penumbra_blur_vote = false (weight_scale 0) writes the muted channel, not
@@ -445,7 +416,7 @@ fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, de
     } else {
         sh_full = sh_full + total;
     }
-    if (t_block < 0.0 || occl <= 0.0) {
+    if t_block < 0.0 || occl <= 0.0 {
         return;
     }
     let blocked = total * occl;
@@ -530,7 +501,7 @@ fn shadow_aux_note(hp: vec3<f32>, total: vec3<f32>, ldist: f32, t_block: f32, de
 }
 
 fn shadow_chan_pen(sum: f32, w: f32) -> f32 {
-    if (w > 0.0 && sum > 0.0) {
+    if w > 0.0 && sum > 0.0 {
         return pow(w / sum, 1.0 / SHADOW_WIDTH_MEAN_POWER);
     }
     return 0.0;
@@ -558,7 +529,7 @@ fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> vec2<f32> 
     var trans = 1.0;
     let blk = blocker_bvh_any_hit(origin, dir, max_t);
     let tb = blk.x;
-    if (tb >= 0.0) {
+    if tb >= 0.0 {
         trans = blk.y;
         // The approximate widest pick stops here, exactly as the plain any-hit
         // did. Falling through to the plane list and the terrain march to ask
@@ -572,7 +543,7 @@ fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> vec2<f32> 
         // Only an *opaque* hit may take that early return. A glass-only hit has
         // to go on and ask the plane list and the terrain, or a wall standing
         // behind a pane would stop casting its own shadow.
-        if (trans <= 0.0 && !SHADOW_NEAREST_BLOCKER && (!SHADOW_WIDEST_BLOCKER || !SHADOW_WIDEST_EXACT)) {
+        if trans <= 0.0 && !SHADOW_NEAREST_BLOCKER && (!SHADOW_WIDEST_BLOCKER || !SHADOW_WIDEST_EXACT) {
             prof_inc(PROF_SHADOW_BLOCK, 1u);
             return vec2<f32>(tb, 0.0);
         }
@@ -582,46 +553,46 @@ fn shadow_blocker_t(origin: vec3<f32>, dir: vec3<f32>, max_t: f32) -> vec2<f32> 
     for (var i = 0u; i < params.blocker_plane_count; i = i + 1u) {
         let bi = idx_tables[params.table_base.x + i];
         let t = intersect_blocker(bi, origin, dir);
-        if (t > RAY_EPSILON && t < limit) {
-            if (!SHADOW_NEAREST_BLOCKER && !SHADOW_WIDEST_BLOCKER) {
+        if t > RAY_EPSILON && t < limit {
+            if !SHADOW_NEAREST_BLOCKER && !SHADOW_WIDEST_BLOCKER {
                 prof_inc(PROF_SHADOW_BLOCK, 1u);
                 return vec2<f32>(t, 0.0);
             }
-            if (SHADOW_WIDEST_BLOCKER && !SHADOW_WIDEST_EXACT) {
+            if SHADOW_WIDEST_BLOCKER && !SHADOW_WIDEST_EXACT {
                 prof_inc(PROF_SHADOW_BLOCK, 1u);
                 return vec2<f32>(t, 0.0);
             }
             trans = 0.0;
-            if (SHADOW_WIDEST_BLOCKER) {
+            if SHADOW_WIDEST_BLOCKER {
                 best = max(best, t);
-            } else if (best < 0.0 || t < best) {
+            } else if best < 0.0 || t < best {
                 best = t;
             }
         }
     }
     for (var i = 0u; i < params.terrain_count; i = i + 1u) {
-        if (terrain_shadow_skip(i, origin, dir, max_t)) {
+        if terrain_shadow_skip(i, origin, dir, max_t) {
             continue;
         }
         let t = hit_terrain(i, origin, dir, max_t, true, true);
-        if (t > RAY_EPSILON && t < limit) {
-            if (!SHADOW_NEAREST_BLOCKER && !SHADOW_WIDEST_BLOCKER) {
+        if t > RAY_EPSILON && t < limit {
+            if !SHADOW_NEAREST_BLOCKER && !SHADOW_WIDEST_BLOCKER {
                 prof_inc(PROF_SHADOW_BLOCK, 1u);
                 return vec2<f32>(t, 0.0);
             }
-            if (SHADOW_WIDEST_BLOCKER && !SHADOW_WIDEST_EXACT) {
+            if SHADOW_WIDEST_BLOCKER && !SHADOW_WIDEST_EXACT {
                 prof_inc(PROF_SHADOW_BLOCK, 1u);
                 return vec2<f32>(t, 0.0);
             }
             trans = 0.0;
-            if (SHADOW_WIDEST_BLOCKER) {
+            if SHADOW_WIDEST_BLOCKER {
                 best = max(best, t);
-            } else if (best < 0.0 || t < best) {
+            } else if best < 0.0 || t < best {
                 best = t;
             }
         }
     }
-    if (best >= 0.0) {
+    if best >= 0.0 {
         prof_inc(PROF_SHADOW_BLOCK, 1u);
     }
     return vec2<f32>(best, trans);
@@ -677,37 +648,37 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
     let twm = tw_peak(tw);
     let ld = pos - hp;
     let d2 = dot(ld, ld);
-    if (d2 > cull_r2) {
+    if d2 > cull_r2 {
         return lit;
     }
     var ldist = sqrt(d2);
-    if (ldist == 0.0) {
+    if ldist == 0.0 {
         ldist = 1.0;
     }
     let ln = ld / ldist;
     let ndl = dot(n, ln);
-    if (ndl < 0.001) {
+    if ndl < 0.001 {
         return lit;
     }
     var att = light_atten(d2);
-    if (inv_r2 > 0.0) {
+    if inv_r2 > 0.0 {
         let x = d2 * inv_r2;
         var w = 1.0 - x * x;
-        if (w < 0.0) {
+        if w < 0.0 {
             w = 0.0;
         }
         att = att * w * w;
     }
-    if (cos_outer > 0.0) {
+    if cos_outer > 0.0 {
         let cos_theta = dot(-ln, spot_axis);
-        if (cos_theta < cos_outer) {
+        if cos_theta < cos_outer {
             return lit;
         }
         let edge = min(0.2, 1.0 - cos_outer);
         att = att * smoothstepf(cos_outer, cos_outer + edge, cos_theta);
     }
     let color_peak = max(color.x, max(color.y, color.z));
-    if (twm * att * ndl * color_peak < LIGHT_CULL_EPS) {
+    if twm * att * ndl * color_peak < LIGHT_CULL_EPS {
         return lit;
     }
     let unshadowed = color * (att * ndl) * albedo;
@@ -718,7 +689,7 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
     // light standing in for something broad — a bounce, a fill, the sky — draws
     // a small bright dot where the thing it stands for would spread a wide dim
     // sheen, and on anything shiny that dot is the most visible thing in frame.
-    if (no_spec < 0.5 && spec > 0.0 && shine > 0.0) {
+    if no_spec < 0.5 && spec > 0.0 && shine > 0.0 {
         let v = normalize(-rd);
         let h = normalize(ln + v);
         let ndh = max(dot(n, h), 0.0);
@@ -767,7 +738,7 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
     // is what this first did, cost four times that for nothing: no pixel of the
     // record below depth 0 is ever read.
     var skip_levels = SHADOW_SKIP_LEVELS;
-    if (sh_record) {
+    if sh_record {
         skip_levels = 0.0;
     }
     // A per-light threshold still overrides it. Bounce lights raise it: a shadow
@@ -777,20 +748,20 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
     // leaving the light out of the record wherever it fires, so it is an
     // explicit trade rather than a silent one — raise it only for lights whose
     // penumbra is not wanted at all.
-    if (shadow_levels > 0.0) {
+    if shadow_levels > 0.0 {
         skip_levels = shadow_levels;
     }
-    if (!shadow || step_levels < skip_levels) {
+    if !shadow || step_levels < skip_levels {
         return lit + total;
     }
-    if (params.shadows == 0u) {
+    if params.shadows == 0u {
         return lit + total;
     }
     let blk = shadow_blocker_t(ep, ln, ldist);
     let t_block = blk.x;
     // 0 behind anything opaque, GLASS_SHADOW_TRANSMIT behind a casting pane.
     let trans = blk.y;
-    if (t_block < 0.0) {
+    if t_block < 0.0 {
         // Recorded even though nothing is occluded: the filter widens a penumbra
         // outward as well as inward, so a lit pixel beside a shadow has to know
         // which light it would be losing.
@@ -804,7 +775,7 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
 fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, light: Light, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32, shadow: bool) -> vec3<f32> {
     var axis = vec3<f32>(0.0, 1.0, 0.0);
     var cos_outer = 0.0;
-    if (light.pos.w > 0.5) {
+    if light.pos.w > 0.5 {
         axis = spot_dir(light.falloff.z, light.falloff.w);
         cos_outer = light.color.w;
     }
@@ -815,7 +786,7 @@ fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32
     let lr = light.shape.x;
     // shape.y is 1 when the author set penumbra_blur_vote = false.
     var vote = 1.0;
-    if (light.shape.y > 0.5) {
+    if light.shape.y > 0.5 {
         vote = 0.0;
     }
     // shape.z is the per-light shadow threshold in display levels (0 inherits);
@@ -823,13 +794,12 @@ fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32
     return add_point_light_raw(lit, hp, albedo, n, ep, light.pos.xyz, light.color.xyz, light.falloff.x, light.falloff.y, tw, axis, cos_outer, rd, spec, shine, shadow, lr, vote, light.shape.z, light.shape.w);
 }
 
-
 fn ao_cell_frac(fc: f32, ncell: u32) -> vec2<f32> {
-    if (fc <= 0.0) {
+    if fc <= 0.0 {
         return vec2<f32>(0.0, 0.0);
     }
     let last = f32(ncell - 1u);
-    if (fc >= last) {
+    if fc >= last {
         return vec2<f32>(last, 0.0);
     }
     let i = floor(fc);
@@ -837,7 +807,7 @@ fn ao_cell_frac(fc: f32, ncell: u32) -> vec2<f32> {
 }
 
 fn ao_face(comp: f32, pos_face: u32) -> vec2<f32> {
-    if (comp >= 0.0) {
+    if comp >= 0.0 {
         return vec2<f32>(f32(pos_face), comp * comp);
     }
     return vec2<f32>(f32(pos_face + 1u), comp * comp);
@@ -909,12 +879,12 @@ struct CampfireSample {
 
 fn campfire_cull(cf: CampfireParams) -> vec2<f32> {
     let range = cf.core.w;
-    if (range > 0.0) {
+    if range > 0.0 {
         let r2 = range * range;
         return vec2<f32>(r2, 1.0 / r2);
     }
     let peak = max(cf.color.x, max(cf.color.y, cf.color.z)) * cf.param.x * (1.0 + cf.param.z);
-    if (peak > LIGHT_CULL_EPS * LIGHT_ATTEN_BASE) {
+    if peak > LIGHT_CULL_EPS * LIGHT_ATTEN_BASE {
         let r2 = (peak / LIGHT_CULL_EPS - LIGHT_ATTEN_BASE) / LIGHT_ATTEN_QUADRATIC;
         return vec2<f32>(r2, 0.0);
     }
@@ -926,11 +896,11 @@ fn campfire_cull(cf: CampfireParams) -> vec2<f32> {
 // down everywhere. max_dist <= 0 means uncapped. Mirrors ClampFlickerTravel()
 // in scene/campfire.go.
 fn clamp_flicker_travel(off: vec3<f32>, max_dist: f32) -> vec3<f32> {
-    if (max_dist <= 0.0) {
+    if max_dist <= 0.0 {
         return off;
     }
     let d2 = dot(off, off);
-    if (d2 <= max_dist * max_dist) {
+    if d2 <= max_dist * max_dist {
         return off;
     }
     return off * (max_dist / sqrt(d2));
@@ -946,15 +916,15 @@ const CAMPFIRE_RADIUS_PULSE_MIN: f32 = 0.3;
 
 fn campfire_sublight(cf: CampfireParams, j: u32, ts: f32) -> CampfireSample {
     var fs = cf.phase.z;
-    if (fs <= 0.0) {
+    if fs <= 0.0 {
         fs = 1.0;
     }
     var base: vec3<f32>;
     var tint: vec3<f32>;
-    if (j == 0u) {
+    if j == 0u {
         base = vec3<f32>(0.22, 0.06, 0.14);
         tint = vec3<f32>(1.00, 0.60, 0.28);
-    } else if (j == 1u) {
+    } else if j == 1u {
         base = vec3<f32>(-0.24, 0.26, -0.12);
         tint = vec3<f32>(1.00, 0.80, 0.46);
     } else {
@@ -985,7 +955,6 @@ fn scene_ambient(n: vec3<f32>) -> vec3<f32> {
     return mix(params.ambient_ground.xyz, params.ambient_sky.xyz, t);
 }
 
-
 // scene_ambient_at is scene_ambient with a position. The position is now
 // unused — the per-region ambient cubes and the probe field that both took it
 // are gone (docs/live-gi.md, docs/ambient-zones.md record why). It is kept so
@@ -1005,7 +974,7 @@ fn scene_ambient_at(p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
 fn light_span(hp: vec3<f32>) -> vec2<u32> {
     let dim = params.light_grid_dim.xyz;
     let c = floor((hp - params.light_grid_min.xyz) * params.light_grid_inv_cell.xyz);
-    if (any(c < vec3<f32>(0.0)) || any(c >= vec3<f32>(dim))) {
+    if any(c < vec3<f32>(0.0)) || any(c >= vec3<f32>(dim)) {
         return vec2<u32>(0u, 0u);
     }
     let cells = params.table_base.y + params.table_base.z;
@@ -1059,7 +1028,7 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
         let cl = core - hp;
         let cd2 = dot(cl, cl);
         let cull = campfire_cull(cf);
-        if (cd2 > cull.x) {
+        if cd2 > cull.x {
             continue;
         }
         // Each sub-light shadows itself. Positions are driven by params.time, so
@@ -1072,9 +1041,9 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
             lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true, campfire_light_radius(sl), campfire_steady_scale(cf, sl), 0.0, 0.0);
         }
     }
-    if ((params.ao_enabled & AO_ENABLED) != 0u) {
+    if (params.ao_enabled & AO_ENABLED) != 0u {
         sh_ao = ao_sample(ep, n);
-        if ((params.ao_enabled & AO_INDIRECT_ONLY) != 0u) {
+        if (params.ao_enabled & AO_INDIRECT_ONLY) != 0u {
             // Occlusion belongs to the ambient term alone. Direct light
             // already has real shadow rays, so multiplying it by a baked
             // occlusion factor darkens a surface twice — and darkens one in
@@ -1096,7 +1065,7 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
 
 // shade_specular adds Blinn–Phong point-light highlights only (no ambient/diffuse).
 fn shade_specular(hp: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32) -> vec3<f32> {
-    if (spec <= 0.0 || shine <= 0.0) {
+    if spec <= 0.0 || shine <= 0.0 {
         return vec3<f32>(0.0);
     }
     sh_record = false;
@@ -1116,7 +1085,7 @@ fn shade_specular(hp: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd:
         let cl = core - hp;
         let cd2 = dot(cl, cl);
         let cull = campfire_cull(cf);
-        if (cd2 > cull.x) {
+        if cd2 > cull.x {
             continue;
         }
         let ts = params.time * cf.param.w;
@@ -1130,7 +1099,7 @@ fn shade_specular(hp: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd:
 }
 
 fn jitter_dir(d: vec3<f32>, p: vec3<f32>, rough: f32) -> vec3<f32> {
-    if (rough <= 0.0) {
+    if rough <= 0.0 {
         return d;
     }
     return normalize(d + vec3<f32>(
@@ -1141,17 +1110,17 @@ fn jitter_dir(d: vec3<f32>, p: vec3<f32>, rough: f32) -> vec3<f32> {
 }
 
 fn terrain_albedo(i: u32, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
-    if (!FEAT_TERRAIN) { return vec3<f32>(0.5, 0.5, 0.5); }
+    if !FEAT_TERRAIN { return vec3<f32>(0.5, 0.5, 0.5); }
     let tr = terrains[i];
     let slope = 1.0 - n.y;
     let j = 0.08 * perlin(p.x * 0.7, 0.0, p.z * 0.7);
     let rock_w = smoothstepf(tr.blend.x, tr.blend.y, slope + j);
     let snow_w = smoothstepf(tr.blend.z, tr.blend.w, p.y + 2.0 * j);
     var c = texture_eval(tr.material.x, p, n, tr.color0.xyz);
-    if (rock_w > 0.001) {
+    if rock_w > 0.001 {
         c = mix3(c, texture_eval(tr.material.y, p, n, tr.color1.xyz), rock_w);
     }
-    if (snow_w > 0.001) {
+    if snow_w > 0.001 {
         c = mix3(c, texture_eval(tr.material.z, p, n, tr.color2.xyz), snow_w);
     }
     return terrain_zone_albedo(i, p, n, c);

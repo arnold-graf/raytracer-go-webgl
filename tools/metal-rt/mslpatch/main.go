@@ -115,7 +115,7 @@ var entryPoints = []struct {
 	wgslDecl string
 	wgslZero string
 }{
-	{"nearest_hit", "fn nearest_hit(", "Hit(0.0, 0u, 0u, 0u)"},
+	{"rt_nearest", "fn rt_nearest(", "h_in"},
 	{"blocker_bvh_any_hit", "fn blocker_bvh_any_hit(", "vec2<f32>(-1.0, 1.0)"},
 }
 
@@ -126,7 +126,7 @@ var (
 	// CLI has no binding map. A real backend supplies one; here it becomes an
 	// argument buffer.
 	reHandleEntry = regexp.MustCompile(`device type_\d+ const& rt_handle \[\[user\(fake\d+\)\]\]`)
-	reNearestHit  = regexp.MustCompile(`(?s)\nHit nearest_hit\(\n    metal::float3 (\w+),\n    metal::float3 (\w+),`)
+	reNearestHit  = regexp.MustCompile(`(?s)\nHit rt_nearest\(\n    metal::float3 (\w+),\n    metal::float3 (\w+),\n    Hit (\w+),`)
 	// intersect() is the per-primitive test the BVH leaf calls. Its generated
 	// signature names the prims and holes buffer types, which vary by naga
 	// version, so the intersection function is built from what is actually
@@ -141,8 +141,16 @@ const rtStruct = `
 // the dummy storage binding the WGSL declared purely to make naga thread a
 // parameter down to nearest_hit.
 struct RTHandle {
-    metal::raytracing::primitive_acceleration_structure accel;
-    metal::raytracing::intersection_function_table<> table;
+    metal::raytracing::instance_acceleration_structure geom;
+    metal::raytracing::instance_acceleration_structure blockers;
+    metal::raytracing::intersection_function_table<metal::raytracing::instancing> table;
+    metal::raytracing::intersection_function_table<metal::raytracing::instancing> blocker_table;
+    // Per-instance base into prims[]/blockers[]. Metal reports primitive_id
+    // local to its geometry; the WGSL indexes one flat array, so the harness
+    // supplies the offset that maps one to the other. Instance 0 is the static
+    // set, whose base is 0.
+    device const uint* prim_base;
+    device const uint* blocker_base;
 };
 `
 
@@ -152,9 +160,9 @@ func patch(s string) (string, error) {
 	}
 	m := reNearestHit.FindStringSubmatch(s)
 	if m == nil {
-		return "", fmt.Errorf("could not locate nearest_hit's generated signature")
+		return "", fmt.Errorf("could not locate rt_nearest's generated signature")
 	}
-	roName, rdName := m[1], m[2]
+	roName, rdName, hName := m[1], m[2], m[3]
 
 	// The raytracing header, and the handle type.
 	s = strings.Replace(s, "#include <metal_stdlib>",
@@ -170,7 +178,7 @@ func patch(s string) (string, error) {
 	s = reHandleEntry.ReplaceAllString(s, fmt.Sprintf("constant RTHandle& rt_handle [[buffer(%d)]]", rtBinding))
 	s = reHandleParam.ReplaceAllString(s, "constant RTHandle& rt_handle")
 
-	s, err := replaceBody(s, "\nHit nearest_hit(", nearestBody(roName, rdName))
+	s, err := replaceBody(s, "\nHit rt_nearest(", nearestBody(roName, rdName, hName))
 	if err != nil {
 		return "", err
 	}
@@ -201,55 +209,92 @@ func intersectionFn(s string) (string, error) {
 		return "", fmt.Errorf("could not locate intersect()'s generated signature")
 	}
 	primsT, holesT := m[4], m[5]
+	if !strings.Contains(s, "float intersect_blocker(") {
+		return "", fmt.Errorf("intersect_blocker() not found in the generated MSL")
+	}
 	return fmt.Sprintf(`
 struct PrimIsect {
     bool  accept   [[accept_intersection]];
     float distance [[distance]];
 };
 
-// prims and holes take the same buffer indices the WGSL backend binds them at
-// (see the bind group in internal/webgpu/device.go); _buffer_sizes is naga's
-// runtime-array length table.
+// The global index into prims[]/blockers[] rides in the acceleration structure
+// as per-primitive data. Metal reports primitive_id local to its geometry, and
+// a bounding box intersection function may not read instance_id, so a per-
+// instance base table is not available here -- the harness writes each AABB's
+// global index alongside it instead.
+//
+// Buffer indices are table-local: an intersection function table has its own
+// argument space, independent of the kernel's, which is what keeps these off
+// the megakernel's 31-buffer ceiling.
 [[intersection(bounding_box)]] PrimIsect prim_isect(
-    float3 origin           [[origin]],
-    float3 direction        [[direction]],
-    float  tmin             [[min_distance]],
-    float  tmax             [[max_distance]],
-    uint   prim_id          [[primitive_id]],
-    device %s const& prims  [[buffer(2)]],
-    device %s const& holes  [[buffer(12)]],
-    constant _mslBufferSizes& _buffer_sizes [[buffer(31)]]
+    float3 origin              [[origin]],
+    float3 direction           [[direction]],
+    float  tmin                [[min_distance]],
+    float  tmax                [[max_distance]],
+    const device uint* gidx    [[primitive_data]],
+    device %s const& prims     [[buffer(0)]],
+    device %s const& holes     [[buffer(1)]],
+    constant _mslBufferSizes& _buffer_sizes [[buffer(2)]]
 ) {
-    float t = intersect(prim_id, origin, direction, prims, holes, _buffer_sizes);
+    float t = intersect(gidx[0], origin, direction, prims, holes, _buffer_sizes);
     PrimIsect r;
     r.accept   = t > tmin && t < tmax;
     r.distance = t;
     return r;
 }
-`, primsT, holesT), nil
+
+// The blocker set is a separate array with a separate tree, so it gets its own
+// function and its own table; sharing one would test view geometry against
+// shadow rays.
+[[intersection(bounding_box)]] PrimIsect blocker_isect(
+    float3 origin              [[origin]],
+    float3 direction           [[direction]],
+    float  tmin                [[min_distance]],
+    float  tmax                [[max_distance]],
+    const device uint* gidx    [[primitive_data]],
+    device %s const& blockers  [[buffer(0)]],
+    device %s const& holes     [[buffer(1)]],
+    constant _mslBufferSizes& _buffer_sizes [[buffer(2)]]
+) {
+    float t = intersect_blocker(gidx[0], origin, direction, holes, blockers, _buffer_sizes);
+    PrimIsect r;
+    r.accept   = t > tmin && t < tmax;
+    r.distance = t;
+    return r;
+}
+`, primsT, holesT, primsT, holesT), nil
 }
 
-func nearestBody(ro, rd string) string {
+// nearestBody replaces rt_nearest -- the static BVH plus the instance TLAS/BLAS
+// -- and nothing else. Planes, terrain and water stay in nearest_hit's tail,
+// which is the whole reason the WGSL splits the function there.
+//
+// The result is folded into the incoming Hit rather than overwriting it, which
+// matches what the WGSL does and keeps the function correct if nearest_hit ever
+// starts passing a partially filled hit in.
+//
+// instance_id maps back to the WGSL's instance numbering by the convention the
+// harness builds the structure with: instance 0 is the static geometry, so it
+// reports HIT_NO_INSTANCE, and instance k is the WGSL's instance k-1.
+func nearestBody(ro, rd, hIn string) string {
 	return fmt.Sprintf(`
+    Hit out = %s;
     metal::raytracing::ray r;
     r.origin = %s;
     r.direction = %s;
     r.min_distance = 1e-4f;
-    r.max_distance = 1e30f;
-    metal::raytracing::intersector<> isect;
-    auto res = isect.intersect(r, rt_handle.accel, rt_handle.table);
-    Hit out;
-    if (res.type == metal::raytracing::intersection_type::none) {
-        out.t = 1e30f;
-        out.idx = 0xffffffffu;
-    } else {
+    r.max_distance = out.t;
+    metal::raytracing::intersector<metal::raytracing::instancing> isect;
+    auto res = isect.intersect(r, rt_handle.geom, rt_handle.table);
+    if (res.type != metal::raytracing::intersection_type::none && res.distance < out.t) {
         out.t = res.distance;
-        out.idx = res.primitive_id;
+        out.idx = res.primitive_id + rt_handle.prim_base[res.instance_id];
+        out.kind = 0u;
+        out.inst_idx = res.instance_id == 0u ? 0xffffffffu : res.instance_id - 1u;
     }
-    out.kind = 0u;
-    out.inst_idx = 0xffffffffu;
     return out;
-`, ro, rd)
+`, hIn, ro, rd)
 }
 
 // replaceBody swaps the body of the function whose definition starts at head,
@@ -295,9 +340,9 @@ func blockerBody(ro, rd, maxT string) string {
     r.direction = %s;
     r.min_distance = 1e-4f;
     r.max_distance = %s - 0.05f;
-    metal::raytracing::intersector<> isect;
+    metal::raytracing::intersector<metal::raytracing::instancing> isect;
     isect.accept_any_intersection(true);
-    auto res = isect.intersect(r, rt_handle.accel, rt_handle.table);
+    auto res = isect.intersect(r, rt_handle.blockers, rt_handle.blocker_table);
     if (res.type == metal::raytracing::intersection_type::none) {
         return metal::float2(-1.0f, 1.0f);
     }
