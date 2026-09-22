@@ -751,7 +751,12 @@ func (r *Renderer) RenderSquare(buf []byte, size int, cam *camera.Camera, v *ren
 	}
 }
 
-func (r *Renderer) buildRenderParams(v *render.View) renderParams {
+// packParams turns a view into the frame's packed scene, with no GPU device
+// involved. It is a free function over the cache rather than a Renderer method
+// because the Metal backend needs exactly this and must not need a wgpu device
+// to get it -- see Packer. Everything after it in buildRenderParams (capture
+// and document uploads, pipeline specialization, profiling) is wgpu-specific.
+func packParams(r *sceneCache, v *render.View) renderParams {
 	uploadStatic := false
 	uploadPartial := false
 	timeSec := 0.0
@@ -770,15 +775,15 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 		ambientGround vec.V
 	)
 	if v != nil && v.Scene != nil {
-		if !r.cache.fresh(v) {
-			r.cache.rebuild(v)
+		if !r.fresh(v) {
+			r.rebuild(v)
 			uploadStatic = true
-		} else if !r.cache.transformsFresh(v) {
-			r.cache.updateDynamicTransforms(v.Scene)
-			uploadPartial = len(r.cache.partialPrimSpans) > 0 || len(r.cache.partialBlockerSpans) > 0 || r.cache.lightsDirty || r.cache.campfiresDirty
-		} else if v.AOok && v.AOVersion != r.cache.aoVersion {
-			r.cache.ao, r.cache.aoOK = PackAOVolume(v)
-			r.cache.aoVersion = v.AOVersion
+		} else if !r.transformsFresh(v) {
+			r.updateDynamicTransforms(v.Scene)
+			uploadPartial = len(r.partialPrimSpans) > 0 || len(r.partialBlockerSpans) > 0 || r.lightsDirty || r.campfiresDirty
+		} else if v.AOok && v.AOVersion != r.aoVersion {
+			r.ao, r.aoOK = PackAOVolume(v)
+			r.aoVersion = v.AOVersion
 			uploadStatic = true
 		}
 		timeSec = v.Time
@@ -797,7 +802,7 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 			bodyGlow = float32(env.Sun.Glow)
 		}
 	}
-	c := &r.cache
+	c := r
 	rp := renderParams{
 		prims: c.prims, blockers: c.blockers, lights: c.lights, lightGrid: c.lightGrid,
 		planeIdx: c.planeIdx, blockerPlaneIdx: c.blockerPlaneIdx,
@@ -837,6 +842,11 @@ func (r *Renderer) buildRenderParams(v *render.View) renderParams {
 	if v == nil || v.Scene == nil {
 		rp = renderParams{}
 	}
+	return rp
+}
+
+func (r *Renderer) buildRenderParams(v *render.View) renderParams {
+	rp := packParams(&r.cache, v)
 	if ver := texture.CaptureGPUVersion(); ver != r.captureVer {
 		r.captureLoaded = false
 		if w, h, px, ok := texture.PackCapturesGPU(); ok && len(px)*4 <= int(r.captureBytes) {
@@ -1787,7 +1797,16 @@ func packSceneAmbient(env scene.Environment) (sky, ground vec.V) {
 	return sky, ground
 }
 
-func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [paramsSize]byte {
+// texState is the little bit of texture bookkeeping the params block needs.
+// It is passed in rather than read off a Renderer so the Metal backend can
+// build the same params without a wgpu device.
+type texState struct {
+	captureW, captureH int
+	captureLoaded      bool
+	documentLoaded     bool
+}
+
+func paramsBytesFor(cam *camera.Camera, p renderParams, fw, fh int, tex texState) [paramsSize]byte {
 	fwd, right, up := cam.Basis()
 	var out [paramsSize]byte
 	putU32(out[0:4], uint32(fw))
@@ -1845,12 +1864,12 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	putVec4(out[240:256], p.bodyDir)
 	putVec4(out[256:272], p.bodyColor)
 	putU32(out[272:276], p.colorQuant)
-	if r.captureLoaded {
+	if tex.captureLoaded {
 		putU32(out[276:280], 1)
-		putU32(out[280:284], uint32(r.captureW))
-		putU32(out[284:288], uint32(r.captureH))
+		putU32(out[280:284], uint32(tex.captureW))
+		putU32(out[284:288], uint32(tex.captureH))
 	}
-	if r.documentLoaded {
+	if tex.documentLoaded {
 		putU32(out[288:292], 1)
 	}
 	putU32(out[292:296], uint32(len(p.instTemplates)))
@@ -1905,6 +1924,13 @@ func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [
 	putU32(out[404:408], idxTablesLightGridBase)
 	putU32(out[408:412], p.lightGrid.wideCount())
 	return out
+}
+
+func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [paramsSize]byte {
+	return paramsBytesFor(cam, p, fw, fh, texState{
+		captureW: r.captureW, captureH: r.captureH,
+		captureLoaded: r.captureLoaded, documentLoaded: r.documentLoaded,
+	})
 }
 
 func (r *Renderer) readProfileCounters() error {
