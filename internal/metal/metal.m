@@ -8,6 +8,7 @@
 
 #import <Metal/Metal.h>
 #import <Foundation/Foundation.h>
+#include <string.h>
 #include "metal.h"
 
 #define MAX_BUFFERS 40
@@ -245,6 +246,13 @@ static MTLPrimitiveAccelerationStructureDescriptor *bbox_desc(Blas *bl) {
     g.opaque = NO;
     MTLPrimitiveAccelerationStructureDescriptor *d =
         [MTLPrimitiveAccelerationStructureDescriptor descriptor];
+    // Refit is only legal on a structure *built* for it. Without this flag the
+    // build succeeds, the refit is accepted, and the GPU then runs until the
+    // watchdog kills the command buffer -- which on this machine took the whole
+    // window server down with it. The header is explicit: "Enable refitting for
+    // this acceleration structure. Note that this may reduce acceleration
+    // structure quality."
+    d.usage = MTLAccelerationStructureUsageRefit;
     d.geometryDescriptors = @[g];
     return d;
 }
@@ -252,6 +260,7 @@ static MTLPrimitiveAccelerationStructureDescriptor *bbox_desc(Blas *bl) {
 static MTLInstanceAccelerationStructureDescriptor *inst_desc(MTLBackend *b, NSArray *blases) {
     MTLInstanceAccelerationStructureDescriptor *d =
         [MTLInstanceAccelerationStructureDescriptor descriptor];
+    d.usage = MTLAccelerationStructureUsageRefit;
     d.instanceDescriptorType = MTLAccelerationStructureInstanceDescriptorTypeDefault;
     d.instanceDescriptorStride = sizeof(MTLAccelerationStructureInstanceDescriptor);
     d.instancedAccelerationStructures = blases;
@@ -302,6 +311,28 @@ int mtl_accel_build(MTLBackend *b, char *err, int errn) {
 // mtl_accel_refit updates bounds in place, keeping topology -- the analogue of
 // bvh_refit.go, and the same trade: cheap, and it degrades as geometry moves
 // away from where the tree was built. The caller decides when a rebuild is due.
+// mtl_accel_refit updates bounds in place, keeping topology -- the analogue of
+// bvh_refit.go, and the same trade: cheap, and it degrades as geometry moves
+// away from where the tree was built. The caller decides when a rebuild is due.
+//
+// Two things here are not optional, and getting either wrong wedges the GPU
+// until the watchdog kills the command buffer (which surfaces as
+// kIOGPUCommandBufferCallbackErrorImpactingInteractivity, and as a beachball):
+//
+//   - Every refit in flight needs its *own* scratch. Refits encoded together
+//     may run concurrently, and one shared buffer means they overwrite each
+//     other's working memory.
+//   - The top level must be refit after the bottom level has finished, because
+//     its bounds are derived from theirs. Separate encoders give that ordering;
+//     commands within one encoder do not.
+#define REFIT_SCRATCH_ALIGN 256
+
+static size_t refit_need(MTLBackend *b, MTLAccelerationStructureDescriptor *d) {
+    size_t n = [b->dev accelerationStructureSizesWithDescriptor:d].refitScratchBufferSize;
+    if (n == 0) n = REFIT_SCRATCH_ALIGN;
+    return (n + REFIT_SCRATCH_ALIGN - 1) / REFIT_SCRATCH_ALIGN * REFIT_SCRATCH_ALIGN;
+}
+
 int mtl_accel_refit(MTLBackend *b, char *err, int errn) {
     @autoreleasepool {
         if (!b->geom_tlas || !b->block_tlas) { set_err(err, errn, @"refit before build"); return 0; }
@@ -309,40 +340,55 @@ int mtl_accel_refit(MTLBackend *b, char *err, int errn) {
         for (int i = 0; i < b->n_geom; i++) [g addObject:b->geom[i].as];
         for (int i = 0; i < b->n_blocker; i++) [bl addObject:b->block[i].as];
 
-        // One scratch buffer sized for the largest refit, reused every frame.
-        size_t need = 0;
+        // Lay every concurrent refit out at its own offset in one buffer.
+        size_t total = 0;
+        size_t goff[MAX_BLAS], boff[MAX_BLAS];
         for (int i = 0; i < b->n_geom; i++) {
-            size_t s = [b->dev accelerationStructureSizesWithDescriptor:bbox_desc(&b->geom[i])].refitScratchBufferSize;
-            if (s > need) need = s;
+            goff[i] = total; total += refit_need(b, bbox_desc(&b->geom[i]));
         }
         for (int i = 0; i < b->n_blocker; i++) {
-            size_t s = [b->dev accelerationStructureSizesWithDescriptor:bbox_desc(&b->block[i])].refitScratchBufferSize;
-            if (s > need) need = s;
+            boff[i] = total; total += refit_need(b, bbox_desc(&b->block[i]));
         }
-        size_t tg = [b->dev accelerationStructureSizesWithDescriptor:inst_desc(b, g)].refitScratchBufferSize;
-        if (tg > need) need = tg;
-        if (need > b->refit_scratch_len) {
-            if (b->refit_scratch) CFRelease((__bridge CFTypeRef)b->refit_scratch);
-            b->refit_scratch = keep([b->dev newBufferWithLength:(need ? need : 16)
-                                                       options:MTLResourceStorageModePrivate]);
-            b->refit_scratch_len = need;
-        }
+        size_t tg_off = total; total += refit_need(b, inst_desc(b, g));
+        size_t tb_off = total; total += refit_need(b, inst_desc(b, bl));
 
+        if (total > b->refit_scratch_len) {
+            if (b->refit_scratch) CFRelease((__bridge CFTypeRef)b->refit_scratch);
+            b->refit_scratch = keep([b->dev newBufferWithLength:total
+                                                       options:MTLResourceStorageModePrivate]);
+            b->refit_scratch_len = total;
+        }
+        if (getenv("RT_METAL_REFIT_TRACE"))
+            fprintf(stderr, "  refit: %d+%d blas, scratch=%zu\n", b->n_geom, b->n_blocker, total);
+
+        const char *only = getenv("RT_METAL_REFIT_ONLY");
+        int do_bot = !only || strcmp(only, "tlas") != 0;
+        int do_top = !only || strcmp(only, "blas") != 0;
         id<MTLCommandBuffer> cb = [b->queue commandBuffer];
-        id<MTLAccelerationStructureCommandEncoder> enc = [cb accelerationStructureCommandEncoder];
+        id<MTLAccelerationStructureCommandEncoder> bot = [cb accelerationStructureCommandEncoder];
+        if (do_bot)
         for (int i = 0; i < b->n_geom; i++)
-            [enc refitAccelerationStructure:b->geom[i].as descriptor:bbox_desc(&b->geom[i])
-                                destination:nil scratchBuffer:b->refit_scratch scratchBufferOffset:0];
+            [bot refitAccelerationStructure:b->geom[i].as descriptor:bbox_desc(&b->geom[i])
+                                destination:nil scratchBuffer:b->refit_scratch
+                        scratchBufferOffset:goff[i]];
+        if (do_bot)
         for (int i = 0; i < b->n_blocker; i++)
-            [enc refitAccelerationStructure:b->block[i].as descriptor:bbox_desc(&b->block[i])
-                                destination:nil scratchBuffer:b->refit_scratch scratchBufferOffset:0];
-        // The top level has to follow the bottom level in the same encoder:
-        // its own bounds are derived from theirs.
-        [enc refitAccelerationStructure:b->geom_tlas descriptor:inst_desc(b, g)
-                            destination:nil scratchBuffer:b->refit_scratch scratchBufferOffset:0];
-        [enc refitAccelerationStructure:b->block_tlas descriptor:inst_desc(b, bl)
-                            destination:nil scratchBuffer:b->refit_scratch scratchBufferOffset:0];
-        [enc endEncoding];
+            [bot refitAccelerationStructure:b->block[i].as descriptor:bbox_desc(&b->block[i])
+                                destination:nil scratchBuffer:b->refit_scratch
+                        scratchBufferOffset:boff[i]];
+        [bot endEncoding];
+
+        id<MTLAccelerationStructureCommandEncoder> top = [cb accelerationStructureCommandEncoder];
+        if (do_top) {
+        [top refitAccelerationStructure:b->geom_tlas descriptor:inst_desc(b, g)
+                            destination:nil scratchBuffer:b->refit_scratch
+                    scratchBufferOffset:tg_off];
+        [top refitAccelerationStructure:b->block_tlas descriptor:inst_desc(b, bl)
+                            destination:nil scratchBuffer:b->refit_scratch
+                    scratchBufferOffset:tb_off];
+        }
+        [top endEncoding];
+
         [cb commit];
         [cb waitUntilCompleted];
         if ([cb error]) {

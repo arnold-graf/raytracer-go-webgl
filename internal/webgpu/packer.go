@@ -29,12 +29,15 @@ type Packer struct {
 	cache  sceneCache
 	maxDim int
 
+	packed             bool
 	captureW, captureH int
 	captureVer         uint64
 	captureLoaded      bool
+	captureDirty       bool
 	capturePixels      []uint32
 	documentVer        uint64
 	documentLoaded     bool
+	documentDirty      bool
 	documentPixels     []uint32
 }
 
@@ -107,9 +110,22 @@ func BindingSizes(maxDim int) map[uint32]uint64 {
 	}
 }
 
-// Pack produces this frame's bindings. Scratch bindings -- output, shadow aux,
-// hdr pixels, AA fingerprints and the task list -- carry no bytes here; the
-// backend allocates them zeroed and the shader fills them.
+// Pack produces the bindings that changed this frame, not all of them.
+//
+// This matters more than it looks. The AO volume alone is 24 MB, and the scene
+// buffers together are far larger than a frame's worth of work; serializing and
+// re-uploading them every frame costs hundreds of milliseconds and turns a
+// moving scene into a slideshow. uploadFrame has always been incremental --
+// static buffers only when the cache was rebuilt -- and this mirrors it:
+//
+//	params      every frame, it holds the camera
+//	static set  only when the scene itself changed
+//	prims/BVH   when transforms moved, which is what an NPC pose update does
+//	lights      when the light set changed
+//
+// A backend keeps whatever a frame does not mention. Scratch bindings -- output,
+// shadow aux, hdr pixels, AA fingerprints and the task list -- never carry
+// bytes; the backend allocates them zeroed and the shader fills them.
 func (p *Packer) Pack(cam *camera.Camera, v *render.View, w, h int) *Frame {
 	rp := packParams(&p.cache, v)
 	p.syncTextures()
@@ -140,34 +156,54 @@ func (p *Packer) Pack(cam *camera.Camera, v *render.View, w, h int) *Frame {
 			f.Bindings[i] = b
 		}
 	}
-	set(2, primBytes(rp.prims))
-	set(3, lightBytes(rp.lights))
-	set(4, primBytes(rp.blockers))
-	set(5, nodeBytes(rp.bvhNodes))
-	set(6, terrainBytes(rp.terrains))
-	set(7, floatBytes(rp.samples))
-	set(8, waterBytes(rp.waters))
-	set(9, u32Bytes(PackPerm()))
-	if rp.aoOK {
-		set(10, floatBytes(rp.ao.Data))
+	full := rp.uploadStatic || !p.packed
+	p.packed = true
+
+	// Geometry that moves. On a transform-only frame these are the whole cost,
+	// and they are small: prims and the BVH together are a few hundred KB.
+	if full || rp.uploadPartial {
+		set(2, primBytes(rp.prims))
+		set(4, primBytes(rp.blockers))
+		set(5, nodeBytes(rp.bvhNodes))
 	}
-	set(11, campfireBytes(rp.campfireParams))
-	set(12, holeBytes(rp.holes))
-	set(13, u32Bytes(p.capturePixels))
-	set(14, instTemplateBytes(rp.instTemplates))
-	if n := rp.instPlacements; len(n) > 0 {
-		if len(n) > maxInstances {
-			n = n[:maxInstances]
+	if full || rp.uploadLights {
+		set(3, lightBytes(rp.lights))
+	}
+	if full || rp.uploadCampfires {
+		set(11, campfireBytes(rp.campfireParams))
+	}
+	if full {
+		set(6, terrainBytes(rp.terrains))
+		set(7, floatBytes(rp.samples))
+		set(8, waterBytes(rp.waters))
+		set(9, u32Bytes(PackPerm()))
+		if rp.aoOK {
+			set(10, floatBytes(rp.ao.Data))
 		}
-		set(15, instanceBytes(n))
+		set(12, holeBytes(rp.holes))
+		set(14, instTemplateBytes(rp.instTemplates))
+		if n := rp.instPlacements; len(n) > 0 {
+			if len(n) > maxInstances {
+				n = n[:maxInstances]
+			}
+			set(15, instanceBytes(n))
+		}
+		set(20, u32Bytes(rp.boxFaceTex))
+		set(21, terrainFeatureBytes(rp.terrainFeatures))
+		set(22, terrainPadBytes(rp.terrainPads))
+		set(23, floatBytes(rp.terrainMips))
+		set(26, terrainZoneBytes(rp.terrainZones))
+		set(27, terrainZoneVertBytes(rp.terrainZoneVerts))
 	}
-	set(19, u32Bytes(p.documentPixels))
-	set(20, u32Bytes(rp.boxFaceTex))
-	set(21, terrainFeatureBytes(rp.terrainFeatures))
-	set(22, terrainPadBytes(rp.terrainPads))
-	set(23, floatBytes(rp.terrainMips))
-	set(26, terrainZoneBytes(rp.terrainZones))
-	set(27, terrainZoneVertBytes(rp.terrainZoneVerts))
+	// Textures carry their own version counters and re-send only on a change.
+	if p.captureDirty {
+		set(13, u32Bytes(p.capturePixels))
+		p.captureDirty = false
+	}
+	if p.documentDirty {
+		set(19, u32Bytes(p.documentPixels))
+		p.documentDirty = false
+	}
 
 	// Binding 17 is three tables in one buffer, at fixed word offsets.
 	idx := make([]byte, idxTablesWords*4)
@@ -179,7 +215,9 @@ func (p *Packer) Pack(cam *camera.Camera, v *render.View, w, h int) *Frame {
 	copyAt(0, u32Bytes(rp.planeIdx))
 	copyAt(idxTablesBlockerPlaneBase, u32Bytes(rp.blockerPlaneIdx))
 	copyAt(idxTablesLightGridBase, u32Bytes(rp.lightGrid.flat()))
-	f.Bindings[17] = idx
+	if full || rp.uploadLights {
+		f.Bindings[17] = idx
+	}
 
 	return f
 }
@@ -196,12 +234,14 @@ func (p *Packer) syncTextures() {
 		} else {
 			p.captureW, p.captureH = 0, 0
 		}
+		p.captureDirty = true
 		p.captureVer = ver
 	}
 	if ver := texture.DocumentGPUVersion(); ver != p.documentVer || !p.documentLoaded {
 		if px, ok := texture.PackDocumentsGPU(); ok {
 			p.documentPixels = px
 			p.documentLoaded = true
+			p.documentDirty = true
 		}
 		p.documentVer = ver
 	}

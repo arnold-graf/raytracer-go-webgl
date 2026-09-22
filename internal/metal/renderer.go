@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"os"
 	"unsafe"
 
 	"raytracer/internal/camera"
@@ -167,6 +168,11 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 // decides when a rebuild is due, since these structures are derived from it.
 func (r *Renderer) syncAccel(f *webgpu.Frame) error {
 	rebuild := !r.built || f.StaticChanged
+	if !refitEnabled() {
+		// Rebuilding on every transform change is slower but cannot wedge the
+		// device, so it is the default. See refitEnabled.
+		rebuild = rebuild || f.TransformsChanged
+	}
 	if !rebuild && !f.TransformsChanged {
 		return nil
 	}
@@ -282,6 +288,16 @@ func (r *Renderer) Err() error { return r.frameErr }
 // should settle into refits; a climbing rebuild count means something is
 // invalidating static geometry every frame.
 func (r *Renderer) AccelStats() (builds, refits int) { return r.builds, r.refits }
+
+// refitEnabled gates in-place refitting, and defaults to off.
+//
+// Refitting a structure that was not built with
+// MTLAccelerationStructureUsageRefit is undefined, and what it did here was
+// hang the GPU until the watchdog killed the command buffer, taking the machine
+// with it. The usage flag is now set, so this should be safe -- but "should be"
+// is what the previous attempt had too, so it stays opt-in until it has been
+// run on hardware deliberately. RT_METAL_REFIT=1 enables it.
+func refitEnabled() bool { return os.Getenv("RT_METAL_REFIT") == "1" }
 
 func cstr(b []byte) string {
 	for i, c := range b {
