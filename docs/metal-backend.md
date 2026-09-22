@@ -187,23 +187,55 @@ of 30 bindings come out byte-identical to what the wgpu upload path sends. (The
 thirtieth is the AA indirect header, which the dump captures after `aa_classify`
 has written to it.)
 
-### Refit
+### Refit, and why it is off by default
 
 `mtl_accel_refit` refits in place, keeping topology -- the analogue of
-`bvh_refit.go` and the same trade: cheap, and it degrades as geometry travels
-from where the tree was built. The Go side chooses by the frame's dirty flags:
+`bvh_refit.go`. It is **gated off**: set `RT_METAL_REFIT=1` to enable it. The
+default rebuilds the structures when transforms move, which is slower and
+cannot wedge the device.
 
-- `StaticChanged` -> rebuild.
-- `TransformsChanged` alone -> refit.
-- Neither -> do nothing.
-- A structure whose box count changed -> rebuild, because a refit cannot change
-  how many boxes a structure holds.
+That caution is earned. An earlier version refit structures that had not been
+built with `MTLAccelerationStructureUsageRefit`, which is undefined. The build
+succeeded, the refit was accepted, and the GPU then ran until the watchdog
+killed the command buffer with
+`kIOGPUCommandBufferCallbackErrorImpactingInteractivity` -- 25 seconds in a
+headless reproducer, and on one run it took the machine down and cost a reboot.
+The flag is set now on both descriptor kinds, and a second bug alongside it
+(every refit in one encoder sharing a single scratch buffer, which the header
+says is undefined once a refit starts) is fixed too. Neither has been run on
+hardware since, which is exactly why the gate exists.
+
+Rebuild-per-frame costs, at 512x320 with a moving dynamic body:
+
+| scene | first frame | moving frame |
+|---|---|---|
+| office-sunset | 88 ms | 23 ms |
+| villa | 89 ms | 17 ms |
+| default.toml | 40 ms | 9 ms |
+
+The Go side chooses by the frame's dirty flags: `StaticChanged` rebuilds,
+`TransformsChanged` alone refits (when enabled), neither does nothing, and a
+structure whose box count changed always rebuilds because a refit cannot change
+how many boxes a structure holds.
 
 What moves at runtime is *dynamic bodies*: NPC limbs are primitives the cache
 repacks in spans. Instance placements are static scenery, and moving one marks
 nothing dirty -- worth knowing before testing refit against trees, as I did.
-`AccelStats()` reports builds and refits; a climbing build count in a moving
-scene means something is invalidating static geometry every frame.
+`AccelStats()` reports builds and refits.
+
+### Packing is incremental, and must stay that way
+
+`Packer.Pack` returns only the bindings that changed. This is not an
+optimization to be traded away: the AO volume alone is 24 MB, and
+re-serializing the full set every frame took a moving frame on default.toml
+from 5 ms to between 100 and 580 ms. `uploadFrame` has always been incremental
+for the same reason.
+
+A consequence worth remembering when testing: `gpuprof` re-renders one view, so
+nothing is ever dirty, the incremental path never differs from the full one and
+the refit path never runs at all. Both bugs above were invisible to it and
+appeared the moment the game moved something. The reproducer in
+`internal/metal`'s test moves a `DynamicBody` between frames.
 
 ### Parity
 
