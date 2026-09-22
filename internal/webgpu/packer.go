@@ -127,7 +127,7 @@ func (p *Packer) Pack(cam *camera.Camera, v *render.View, w, h int) *Frame {
 		Nodes:               c.bvhNodes,
 		Templates:           c.instTemplates,
 		Instances:           c.instPlacements,
-		BlockerSectionStart: c.blockerSecStart,
+		BlockerSectionStart: blockerTreeRoot(c),
 		StaticChanged:       rp.uploadStatic,
 		TransformsChanged:   rp.uploadPartial,
 	}
@@ -231,4 +231,19 @@ func BindingNames() map[string]uint32 {
 		}
 	}
 	return out
+}
+
+// blockerTreeRoot mirrors blocker_bvh_any_hit's
+//
+//	blocker_off = select(bvh_node_count, blocker_section_start, inst_count > 0)
+//
+// A scene without instancing appends its blocker tree straight after the main
+// one and has no separate section start. Using blockerSecStart unconditionally
+// points at node zero, which is the main tree's root, so the blocker structure
+// silently fills with view geometry.
+func blockerTreeRoot(c *sceneCache) uint32 {
+	if len(c.instPlacements) > 0 {
+		return c.blockerSecStart
+	}
+	return c.bvhNodeCount
 }

@@ -469,12 +469,18 @@ static void make_resident(MTLBackend *b, id<MTLComputeCommandEncoder> enc) {
             [enc useResource:b->buffers[i] usage:MTLResourceUsageRead | MTLResourceUsageWrite];
 }
 
-int mtl_frame(MTLBackend *b, int gx, int gy, char *err, int errn) {
+// enabled[i] gates kernel i for this frame, mirroring the conditionals in
+// internal/webgpu's submitTrace: a scene with no glossy surfaces must not run
+// the reflection filter, and a view with AA off must not classify or resolve.
+// Running them anyway is not just wasted time -- a pass that writes pixels when
+// the portable backend would not have run it changes the frame.
+int mtl_frame(MTLBackend *b, int gx, int gy, const int *enabled, char *err, int errn) {
     @autoreleasepool {
         refresh_handles(b);
         id<MTLCommandBuffer> cb = [b->queue commandBuffer];
         id<MTLComputeCommandEncoder> enc = nil;
         for (int i = 0; i < b->n_kernels; i++) {
+            if (enabled && !enabled[i]) continue;
             Kernel *k = &b->kernels[i];
             if (k->indirect >= 0) {
                 if (enc) { [enc endEncoding]; enc = nil; }

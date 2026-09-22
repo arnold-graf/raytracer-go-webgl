@@ -19,7 +19,9 @@ import (
 	"raytracer/internal/camera"
 	"raytracer/internal/character"
 	"raytracer/internal/joltphys"
+	"raytracer/internal/metal"
 	"raytracer/internal/npc"
+	"raytracer/internal/render"
 	"raytracer/internal/scene"
 	"raytracer/internal/sceneio"
 	"raytracer/internal/webgpu"
@@ -39,6 +41,7 @@ var defaultPlayerTOML []byte
 
 func main() {
 	scenePath := flag.String("scene", "", "path to a TOML scene file (default: built-in scene)")
+	backend := flag.String("backend", "auto", "renderer: auto, webgpu, or metal (Apple ray-tracing acceleration structures)")
 	playerPath := flag.String("player", "", "path to a TOML player-movement config (default: built-in)")
 	dumpPoses := flag.String("dump-npc-poses", "", "write JSONL NPC pose dump to path and exit")
 	dumpFrames := flag.Int("dump-npc-frames", 120, "frames for -dump-npc-poses")
@@ -101,13 +104,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	ren, err := webgpu.New(renderW, renderH)
+	ren, err := newRenderer(*backend)
 	if err != nil {
-		log.Fatalf("webgpu renderer unavailable: %v", err)
+		log.Fatal(err)
 	}
-	// Pipeline the interactive loop: submit each frame and hand back the previous
-	// one so the GPU renders while the CPU packs/blits, instead of stalling on it.
-	ren.SetPipelined(true)
 
 	if err := joltphys.Init(); err != nil {
 		log.Fatalf("jolt physics: %v", err)
@@ -123,4 +123,46 @@ func main() {
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// newRenderer picks a backend. "auto" prefers Metal where the hardware supports
+// ray tracing and falls back to the portable WGSL path everywhere else, which
+// is the only path that runs in a browser. The two render the same frame; see
+// docs/metal-backend.md.
+func newRenderer(backend string) (render.Renderer, error) {
+	switch backend {
+	case "metal":
+		r, err := metal.New(renderW, renderH)
+		if err != nil {
+			return nil, fmt.Errorf("metal renderer unavailable: %w", err)
+		}
+		log.Printf("renderer: metal (ray-tracing acceleration structures)")
+		return r, nil
+	case "webgpu":
+		return newWebGPU()
+	case "auto":
+		if metal.Supported() {
+			if r, err := metal.New(renderW, renderH); err == nil {
+				log.Printf("renderer: metal (ray-tracing acceleration structures)")
+				return r, nil
+			} else {
+				log.Printf("metal unavailable (%v); falling back to webgpu", err)
+			}
+		}
+		return newWebGPU()
+	default:
+		return nil, fmt.Errorf("unknown -backend %q: want auto, webgpu or metal", backend)
+	}
+}
+
+func newWebGPU() (render.Renderer, error) {
+	r, err := webgpu.New(renderW, renderH)
+	if err != nil {
+		return nil, fmt.Errorf("webgpu renderer unavailable: %w", err)
+	}
+	// Pipeline the interactive loop: submit each frame and hand back the previous
+	// one so the GPU renders while the CPU packs/blits, instead of stalling on it.
+	r.SetPipelined(true)
+	log.Printf("renderer: webgpu")
+	return r, nil
 }

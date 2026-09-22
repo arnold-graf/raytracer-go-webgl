@@ -38,6 +38,7 @@ int mtl_kernel(MTLBackend *b, const char *name, const int *map, int nmap,
                int sizes_b, int rt_handle_idx, char *err, int errn);
 
 // Runs the whole chain once and blocks until it completes.
-int mtl_frame(MTLBackend *b, int gx, int gy, char *err, int errn);
+// enabled[i] gates kernel i for this frame; NULL runs them all.
+int mtl_frame(MTLBackend *b, int gx, int gy, const int *enabled, char *err, int errn);
 
 #endif

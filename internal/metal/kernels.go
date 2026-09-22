@@ -121,3 +121,30 @@ func (r *Renderer) addKernels() error {
 	}
 	return nil
 }
+
+// enabledChain mirrors the conditionals in internal/webgpu's submitTrace. The
+// passes are not unconditional work: refl_fill only runs at half-res
+// reflections, the reflection filter only when some primitive asks for it, the
+// penumbra filter only with soft shadows, and AA only when the view wants it.
+// Each of these writes pixels, so running one the portable backend would have
+// skipped does not just cost time -- it changes the frame.
+func enabledChain(f *webgpu.Frame) []C.int {
+	on := make([]C.int, len(chain))
+	for i, k := range chain {
+		v := true
+		switch k.name {
+		case "refl_fill":
+			v = f.ReflFilter && f.ReflHalf
+		case "refl_blur_h", "refl_blur_v":
+			v = f.ReflFilter
+		case "shadow_radius_h", "shadow_radius_v", "shadow_soften_h", "shadow_soften_v":
+			v = f.SoftShadows
+		case "aa_classify", "aa_resolve":
+			v = f.AdaptiveAA
+		}
+		if v {
+			on[i] = 1
+		}
+	}
+	return on
+}

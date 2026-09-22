@@ -68,6 +68,8 @@ type Renderer struct {
 	maxDim int
 
 	built    bool
+	builds   int
+	refits   int
 	lastAcc  *webgpu.AccelPack
 	aaReset  []byte
 	errBuf   []byte
@@ -146,8 +148,9 @@ func (r *Renderer) Render(buf []byte, cam *camera.Camera, v *render.View, _ int)
 	C.mtl_write(r.b, C.int(aaDispatchBinding), unsafe.Pointer(&r.aaReset[0]), C.size_t(len(r.aaReset)))
 
 	gx, gy := C.int((r.w+7)/8), C.int((r.h+7)/8)
+	enabled := enabledChain(f)
 	errp := (*C.char)(unsafe.Pointer(&r.errBuf[0]))
-	if C.mtl_frame(r.b, gx, gy, errp, C.int(len(r.errBuf))) == 0 {
+	if C.mtl_frame(r.b, gx, gy, &enabled[0], errp, C.int(len(r.errBuf))) == 0 {
 		r.fail(buf, fmt.Errorf("%s", cstr(r.errBuf)))
 		return
 	}
@@ -180,8 +183,12 @@ func (r *Renderer) syncAccel(f *webgpu.Frame) error {
 			return fmt.Errorf("accel build: %s", cstr(r.errBuf))
 		}
 		r.built = true
-	} else if C.mtl_accel_refit(r.b, errp, C.int(len(r.errBuf))) == 0 {
-		return fmt.Errorf("accel refit: %s", cstr(r.errBuf))
+		r.builds++
+	} else {
+		if C.mtl_accel_refit(r.b, errp, C.int(len(r.errBuf))) == 0 {
+			return fmt.Errorf("accel refit: %s", cstr(r.errBuf))
+		}
+		r.refits++
 	}
 	r.lastAcc = pack
 	return nil
@@ -262,6 +269,12 @@ func (r *Renderer) fail(buf []byte, err error) {
 
 // Err reports why the last frame failed, if it did.
 func (r *Renderer) Err() error { return r.frameErr }
+
+// AccelStats reports how many times the acceleration structures were rebuilt
+// from scratch and how many times they were refit in place. A moving scene
+// should settle into refits; a climbing rebuild count means something is
+// invalidating static geometry every frame.
+func (r *Renderer) AccelStats() (builds, refits int) { return r.builds, r.refits }
 
 func cstr(b []byte) string {
 	for i, c := range b {
