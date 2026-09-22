@@ -474,7 +474,7 @@ builds.
 
 ---
 
-## The peak is the BVH traversal, and nothing else
+## The peak is the BVH traversal, and nothing else (superseded)
 
 `maxTotalThreadsPerThreadgroup` — Metal's verdict on how many threads of a
 compiled kernel stay resident — is now measurable, by translating the linked
@@ -512,6 +512,11 @@ That reframes several things this document says:
   at all. The wins recorded in this document under "occupancy" — the
   `box_holed_nearest` array, the traversal stacks — were *spill memory* wins.
   Two taxes, two instruments, and only one of them now has a number.
+
+Superseded: see "Everything flies under the cost of BVH was wrong" below. The
+measurements in this section stand -- `nearest_hit` alone really does reach 384
+-- but the conclusion drawn from them does not, because removing traversal
+altogether leaves the ceiling exactly where it was.
 
 If register occupancy is ever the target, the traversal loop is the only place to
 look. If frame time is the target, scratch is still the richer seam, and it is
@@ -589,6 +594,65 @@ cost, because `main_`'s sit at function scope while `aa_resolve`'s are inside th
 loop. Rank by cost; read spills as the size of the resident set. Neither is a
 byte count — the capture carries no scratch field — so confirm with frame time
 and a pixel diff, as always.
+
+## "Everything flies under the cost of BVH" was wrong, and now provably so
+
+This document has said in several places that the BVH traversal sets the
+register ceiling and the rest of the kernel fits underneath it for free. The
+Metal backend is the experiment that settles it, because it removes traversal
+from the kernel entirely rather than shrinking it. Measured on the same shader,
+same machine:
+
+| | WGSL path | Metal path |
+|---|---|---|
+| `main_` maxThreads/TG | 384 | **384** |
+| `aa_resolve` maxThreads/TG | 384 | **384** |
+| total spill cost | 8480 | **9520** |
+| segment loop's share of it | 84% | **82%** |
+
+**The ceiling does not move.** Splice out all BVH traversal: 384. Splice it out
+*and* gut `shade_diffuse` to a constant: still 384. Neither traversal nor
+shading holds the peak, and the statement "everything flies under BVH" had the
+geometry backwards -- the other branches were never flying under it, they sit at
+the same height. BVH was simply the contributor we could name, because it was
+the one we had a probe for.
+
+**Spill cost went up, not down.** Removing traversal cost 12% more spill, not
+less; the intersector call has live state of its own across it. An earlier
+measurement here showed -12% and was wrong: that splice replaced all of
+`nearest_hit`, deleting the plane, terrain and water walks along with the
+traversal. With the surgical splice `hit_terrain_mip` is back in the profile at
+3.1%, which is how you can see the difference.
+
+So the ~1.8x per-ray win is **not** a register win and **not** a spill win. It is
+the six `array<u32, BVH_STACK_SIZE>` traversal stacks disappearing -- dynamically
+indexed, therefore thread scratch by construction, therefore structurally
+invisible to the spill counters. That blindness is proven twice over: both
+`MAX_SEGS` and `BVH_STACK_SIZE` produce byte-identical spill counts while moving
+frame time.
+
+### Where that leaves the levers
+
+1. **Anti-aliasing, and by a wider margin than before.** It is 5.3 ms of the
+   WGSL frame and 4.5 ms of the Metal one -- 26% and **28%**. It got
+   proportionally *worse* on Metal, because everything around it got faster. In
+   the spill profile the AA path carries 54% of all spill cost, because the
+   segment loop is compiled three times: once in `ray_color`, again inlined into
+   `supersample_edge`, again reached from `aa_resolve`. Having those share one
+   out-of-line copy would not lower the loop's pressure but would stop
+   multiplying it. Still untried, and now the most valuable untried thing here.
+
+2. **The segment loop itself**, at 82% of spill cost, unmoved by changing
+   backends. It was competing with traversal for attention; on the Metal path
+   nothing else is left at the top.
+
+3. **Registers: a dead lever**, now twice proven. Stop reaching for it.
+
+4. **The scratch that remains.** The traversal stacks are harvested on the Metal
+   path. What is left -- the `RaySeg` stack, the terrain mip stack -- is equally
+   invisible to `tools/spills`, so it can only be measured by frame-time A/B,
+   and every such A/B needs a pixel diff, because these constants are all work
+   budgets and a faster frame is usually a smaller one.
 
 ## Scratch was the lever, and a second backend measured how big
 
