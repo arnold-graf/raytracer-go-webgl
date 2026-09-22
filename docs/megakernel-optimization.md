@@ -519,8 +519,8 @@ measurements in this section stand -- `nearest_hit` alone really does reach 384
 altogether leaves the ceiling exactly where it was.
 
 If register occupancy is ever the target, the traversal loop is the only place to
-look. If frame time is the target, scratch is still the richer seam, and it is
-still measured the old way.
+look. Scratch *was* the richer seam and is no longer: adding 640 bytes per
+thread now measures free on both backends. See the lever list below.
 
 **And the traversal is a plateau, not a hot spot.** Bisecting it further — by
 stripping and adding back, because single ablation cannot find the argmax of a
@@ -654,11 +654,37 @@ frame time.
 
 3. **Registers: a dead lever**, now twice proven. Stop reaching for it.
 
-4. **The scratch that remains.** The traversal stacks are harvested on the Metal
-   path. What is left -- the `RaySeg` stack, the terrain mip stack -- is equally
-   invisible to `tools/spills`, so it can only be measured by frame-time A/B,
-   and every such A/B needs a pixel diff, because these constants are all work
-   budgets and a faster frame is usually a smaller one.
+4. **The scratch that remains: measured, and it is not a lever.** The traversal
+   stacks are harvested on the Metal path, and what is left does not bind.
+
+   The clean test is to *add* scratch rather than remove it, because adding is
+   bit-identical -- the ray stack's high-water mark is 4 segments across five
+   scenes, so anything above that is dead space the shader never touches.
+   Raising `MAX_SEGS` from 6:
+
+   | MAX_SEGS | scratch | wgpu | metal |
+   |---|---|---|---|
+   | 6 | baseline | 20.4 ms | 15.8 ms |
+   | 8 | +128 B | 20.2 | 15.5 |
+   | 12 | +384 B | 20.3 | 16.0 |
+   | 16 | +640 B | 20.6 | 15.8 |
+
+   **640 extra bytes per thread costs nothing on either backend**, all frames
+   bit-identical, and the same holds on the villa with the terrain mip stacks
+   widened alongside. Scratch has slack now; there is no threshold nearby to
+   cross in either direction.
+
+   Removing it is correspondingly worthless. `MAX_SEGS` 6 -> 5 is bit-identical
+   and, interleaved over three rounds, neutral on both backends (wgpu 20.4 vs
+   20.5, metal 15.9 vs 15.8). `RaySeg` carries 12 bytes of padding per entry --
+   naga emits `char _pad5[12]` -- and packing `depth` and `tag` to reclaim 96
+   bytes across the stack is therefore not worth doing.
+
+   This retires the standing advice in this document that scratch is the richer
+   seam. That advice was earned -- an array out of `box_holed_nearest` was 14%,
+   the traversal stacks 7% -- but those wins crossed an occupancy threshold, and
+   the kernel is no longer anywhere near it. What binds now is registers, pinned
+   at 384, which the same document establishes is a plateau nothing lifts.
 
 ## Scratch was the lever, and a second backend measured how big
 
