@@ -638,9 +638,15 @@ frame time.
    proportionally *worse* on Metal, because everything around it got faster. In
    the spill profile the AA path carries 54% of all spill cost, because the
    segment loop is compiled three times: once in `ray_color`, again inlined into
-   `supersample_edge`, again reached from `aa_resolve`. Having those share one
-   out-of-line copy would not lower the loop's pressure but would stop
-   multiplying it. Still untried, and now the most valuable untried thing here.
+   `supersample_edge`, again reached from `aa_resolve`.
+
+   **Tried, and it is 10% slower.** Forcing those to share one out-of-line copy
+   costs 15.8 -> 17.4 ms for a bit-identical frame. Spill *cost* is a static,
+   frequency-weighted estimate: three compiled copies are three copies of code,
+   not three copies of per-thread scratch, and the compiler's inlining decision
+   is already better than the structural fix. Three further code-level AA
+   optimizations measured null or negative alongside it; see
+   [aa-tap-tuning.md](aa-tap-tuning.md).
 
 2. **The segment loop itself**, at 82% of spill cost, unmoved by changing
    backends. It was competing with traversal for attention; on the Metal path

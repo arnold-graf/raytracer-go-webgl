@@ -40,30 +40,30 @@ const profileCounterBytes = profCounterCount * 4
 // GPUProfileCounters holds atomic counter readback from the trace shader.
 // Counts accumulate over one profiled frame (all pixels × path segments).
 type GPUProfileCounters struct {
-	Pixels         uint32
-	PathSegs       uint32
-	HitPrim        uint32
-	HitInst        uint32
-	HitTerrain     uint32
-	HitWater       uint32
-	Sky            uint32
-	ShadowRays     uint32
-	ShadowBlock    uint32
-	TerrainSteps   uint32
-	MirrorBounces  uint32
-	GlassBounces   uint32
-	DiffuseRefl    uint32
-	PriHitPrim     uint32
-	PriHitInst     uint32
-	PriHitTerrain  uint32
-	PriHitWater    uint32
-	PriSky         uint32
-	BVHSteps       uint32
-	PrimTests      uint32
-	MaxSegs        uint32
-	AATasks        uint32
-	AAGeom         uint32
-	AAShade        uint32
+	Pixels        uint32
+	PathSegs      uint32
+	HitPrim       uint32
+	HitInst       uint32
+	HitTerrain    uint32
+	HitWater      uint32
+	Sky           uint32
+	ShadowRays    uint32
+	ShadowBlock   uint32
+	TerrainSteps  uint32
+	MirrorBounces uint32
+	GlassBounces  uint32
+	DiffuseRefl   uint32
+	PriHitPrim    uint32
+	PriHitInst    uint32
+	PriHitTerrain uint32
+	PriHitWater   uint32
+	PriSky        uint32
+	BVHSteps      uint32
+	PrimTests     uint32
+	MaxSegs       uint32
+	AATasks       uint32
+	AAGeom        uint32
+	AAShade       uint32
 }
 
 func decodeProfileCounters(raw []byte) GPUProfileCounters {
@@ -135,6 +135,18 @@ func FormatGPUProfile(c GPUProfileCounters, gpuMS float64) string {
 	if c.ShadowRays > 0 {
 		fmt.Fprintf(&b, "  shadow rays:       %8d  (%d blocked, %.1f%%)\n",
 			c.ShadowRays, c.ShadowBlock, 100*float64(c.ShadowBlock)/float64(c.ShadowRays))
+	}
+	// Adaptive AA re-traces a whole path per flagged pixel, so how many pixels
+	// get flagged -- and why -- is the difference between AA costing a quarter
+	// of the frame and costing a tenth. A geometry edge is a silhouette the tap
+	// genuinely resolves; a shading edge may only be a gradient.
+	if c.AATasks > 0 {
+		px := float64(c.Pixels)
+		if px == 0 {
+			px = 1
+		}
+		fmt.Fprintf(&b, "  aa tasks:          %8d  (%.1f%% of pixels; geometry %d, shading %d)\n",
+			c.AATasks, 100*float64(c.AATasks)/px, c.AAGeom, c.AAShade)
 	}
 	if c.TerrainSteps > 0 {
 		fmt.Fprintf(&b, "  terrain march steps: %6d  (%.1f per shadow/terrain test)\n",

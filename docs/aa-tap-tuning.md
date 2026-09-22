@@ -148,6 +148,50 @@ wavefront argument [bounce-kernel.md](bounce-kernel.md) closed for this renderer
 at this scene scale — and AA at 4k-16k tasks is far below even the queue sizes
 that failed there.
 
+## Four code optimizations tried, all null or negative
+
+Measured 2026-09-22 on the Metal backend, office-sunset atrium at 512x320, where
+AA is 4.5 ms of a 15.8 ms frame. The constraint was **no quality change**, so the
+classifier thresholds were off the table and only code-level changes counted.
+Every one of these was bit-identical or near enough; none of them was faster.
+
+| change | result |
+|---|---|
+| tap traces with `GLOSS_NEVER` instead of `GLOSS_ALWAYS` | 15.8 -> 16.0 ms, 0 pixels differ by >=8 |
+| `ray_color` and `supersample_edge` forced `noinline` | 15.8 -> **17.4 ms**, bit-identical |
+| `AA_RESOLVE_WG` 64 -> 32 | 16.0 ms, bit-identical |
+| `AA_RESOLVE_WG` 64 -> 128 / 256 | 15.7 / 15.5 ms, bit-identical -- **noise** |
+
+**The tap's glossy lobe is free and worthless.** `supersample_edge` traces it
+with `GLOSS_ALWAYS` and then discards it whenever `aa_tap_same_lobe` is true,
+which looked like obvious waste. It is not waste, because it costs nothing: not
+tracing it saves no time and changes no pixels. Worth recording so nobody else
+follows that scent. (`lobe_n` and `lobe_d` are assigned *before* `lobe_skip` is
+tested, so the same-lobe test stays valid either way -- which is what made the
+idea look viable.)
+
+**Sharing one segment loop is worse, not better.** `tools/spills` reports the
+loop three times -- in `ray_color`, inlined into `supersample_edge`, and reached
+from `aa_resolve` -- at 82% of all spill cost, and
+[megakernel-optimization.md](megakernel-optimization.md) called collapsing those
+copies the most valuable untried idea here. Forcing it costs **10%**. Spill
+*cost* is a static, frequency-weighted estimate; three compiled copies are three
+copies of code, not three copies of per-thread scratch, and the compiler's
+inlining decision is already better than the structural fix. A static instrument
+said "three times" and the word invited a runtime conclusion it does not
+support.
+
+**The workgroup sweep is a noise lesson, again.** A single pass showed 256 at
+15.5 ms against 64 at 15.8 and looked like a free 2%. Interleaved, three rounds
+each, both land on a median of 15.9. `types.wesl` already records an earlier
+non-interleaved sweep that appeared to show 67% and was entirely machine noise;
+this is the same shape, smaller.
+
+What this leaves is the 3.5x divergence above, and closing it still means sorting
+tasks by expected cost -- the wavefront argument
+[bounce-kernel.md](bounce-kernel.md) closed at this scene scale. AA looks close
+to a local optimum for its current structure.
+
 ## What is left
 
 - **The classifier, not the resolver.** Cost is now proportional to task count
