@@ -1,0 +1,435 @@
+{
+  "buffers": {
+    "aa_classify": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "profile_counters"
+      },
+      {
+        "index": 2,
+        "name": "hdr_pixels"
+      },
+      {
+        "index": 3,
+        "name": "aa_hits"
+      },
+      {
+        "index": 4,
+        "name": "aa_dispatch"
+      },
+      {
+        "index": 5,
+        "name": "aa_list"
+      },
+      {
+        "index": 6,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "aa_resolve": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "prims"
+      },
+      {
+        "index": 2,
+        "name": "inst_records"
+      },
+      {
+        "index": 3,
+        "name": "holes"
+      },
+      {
+        "index": 4,
+        "name": "perm"
+      },
+      {
+        "index": 5,
+        "name": "box_face_textures"
+      },
+      {
+        "index": 6,
+        "name": "capture_pixels"
+      },
+      {
+        "index": 7,
+        "name": "document_pixels"
+      },
+      {
+        "index": 8,
+        "name": "terrains"
+      },
+      {
+        "index": 9,
+        "name": "terrain_samples"
+      },
+      {
+        "index": 10,
+        "name": "terrain_pads"
+      },
+      {
+        "index": 11,
+        "name": "terrain_features"
+      },
+      {
+        "index": 12,
+        "name": "terrain_zones"
+      },
+      {
+        "index": 13,
+        "name": "terrain_zone_verts"
+      },
+      {
+        "index": 14,
+        "name": "waters"
+      },
+      {
+        "index": 15,
+        "name": "bvh_nodes"
+      },
+      {
+        "index": 16,
+        "name": "inst_templates"
+      },
+      {
+        "index": 17,
+        "name": "idx_tables"
+      },
+      {
+        "index": 18,
+        "name": "profile_counters"
+      },
+      {
+        "index": 19,
+        "name": "terrain_mip"
+      },
+      {
+        "index": 20,
+        "name": "campfires"
+      },
+      {
+        "index": 21,
+        "name": "blockers_1"
+      },
+      {
+        "index": 22,
+        "name": "lights"
+      },
+      {
+        "index": 23,
+        "name": "ao_volume"
+      },
+      {
+        "index": 24,
+        "name": "hdr_pixels"
+      },
+      {
+        "index": 25,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 26,
+        "name": "pixels"
+      },
+      {
+        "index": 27,
+        "name": "aa_dispatch"
+      },
+      {
+        "index": 28,
+        "name": "aa_list"
+      },
+      {
+        "index": 29,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "main_": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "prims"
+      },
+      {
+        "index": 2,
+        "name": "inst_records"
+      },
+      {
+        "index": 3,
+        "name": "holes"
+      },
+      {
+        "index": 4,
+        "name": "perm"
+      },
+      {
+        "index": 5,
+        "name": "box_face_textures"
+      },
+      {
+        "index": 6,
+        "name": "capture_pixels"
+      },
+      {
+        "index": 7,
+        "name": "document_pixels"
+      },
+      {
+        "index": 8,
+        "name": "terrains"
+      },
+      {
+        "index": 9,
+        "name": "terrain_samples"
+      },
+      {
+        "index": 10,
+        "name": "terrain_pads"
+      },
+      {
+        "index": 11,
+        "name": "terrain_features"
+      },
+      {
+        "index": 12,
+        "name": "terrain_zones"
+      },
+      {
+        "index": 13,
+        "name": "terrain_zone_verts"
+      },
+      {
+        "index": 14,
+        "name": "waters"
+      },
+      {
+        "index": 15,
+        "name": "bvh_nodes"
+      },
+      {
+        "index": 16,
+        "name": "inst_templates"
+      },
+      {
+        "index": 17,
+        "name": "idx_tables"
+      },
+      {
+        "index": 18,
+        "name": "profile_counters"
+      },
+      {
+        "index": 19,
+        "name": "terrain_mip"
+      },
+      {
+        "index": 20,
+        "name": "campfires"
+      },
+      {
+        "index": 21,
+        "name": "blockers_1"
+      },
+      {
+        "index": 22,
+        "name": "lights"
+      },
+      {
+        "index": 23,
+        "name": "ao_volume"
+      },
+      {
+        "index": 24,
+        "name": "hdr_pixels"
+      },
+      {
+        "index": 25,
+        "name": "aa_hits"
+      },
+      {
+        "index": 26,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 27,
+        "name": "pixels"
+      },
+      {
+        "index": 28,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "refl_blur_h": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 2,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "refl_blur_v": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "hdr_pixels"
+      },
+      {
+        "index": 2,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 3,
+        "name": "pixels"
+      },
+      {
+        "index": 4,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "refl_fill": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 2,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "shadow_radius_h": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 2,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "shadow_radius_v": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 2,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "shadow_soften_h": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 2,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "shadow_soften_v": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "hdr_pixels"
+      },
+      {
+        "index": 2,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 3,
+        "name": "pixels"
+      },
+      {
+        "index": 4,
+        "name": "_buffer_sizes"
+      }
+    ]
+  },
+  "threadgroups": {
+    "aa_classify": [
+      {
+        "index": 0,
+        "name": "aa_wg_count",
+        "bytes": 4
+      },
+      {
+        "index": 1,
+        "name": "aa_wg_base",
+        "bytes": 4
+      }
+    ]
+  },
+  "sizeFields": [
+    "size1",
+    "size2",
+    "size3",
+    "size4",
+    "size5",
+    "size6",
+    "size7",
+    "size8",
+    "size9",
+    "size10",
+    "size11",
+    "size12",
+    "size13",
+    "size14",
+    "size15",
+    "size16",
+    "size19",
+    "size20",
+    "size21",
+    "size22",
+    "size23",
+    "size25",
+    "size34",
+    "size37",
+    "size38",
+    "size39",
+    "size40",
+    "size41",
+    "size44",
+    "size45"
+  ],
+  "arrayLengthField": "size45"
+}

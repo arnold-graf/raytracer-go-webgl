@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"raytracer/internal/camera"
+	"raytracer/internal/metal"
 	"raytracer/internal/probe"
 	"raytracer/internal/render"
 	"raytracer/internal/scene"
@@ -47,6 +48,7 @@ func main() {
 	camX := flag.Float64("cam-x", 0, "override camera X (0 = scene default)")
 	camY := flag.Float64("cam-y", 0, "override camera Y (0 = scene default)")
 	camZ := flag.Float64("cam-z", 0, "override camera Z (0 = scene default)")
+	useMetal := flag.Bool("metal", false, "render with internal/metal (Apple ray-tracing acceleration structures)")
 	warmup := flag.Int("warmup", 3, "frames to discard before measuring")
 	frames := flag.Int("frames", 20, "measured frames per configuration")
 	ablate := flag.Bool("ablate", true, "run the feature ablation matrix after the baseline")
@@ -128,6 +130,11 @@ func main() {
 	}
 
 	buf := make([]byte, renderW*renderH*4)
+
+	if *useMetal {
+		runMetal(renderW, renderH, cam, view, buf, *dump, *warmup, *frames)
+		return
+	}
 
 	fmt.Printf("GPU profile: %s  (%dx%d)  %s\n", *scenePath, renderW, renderH, camLabel)
 	fmt.Printf("  bounce depth %d, adaptive AA %v%s\n\n", *depth, *aa, appConfigNote(renderW, renderH, *depth, *aa))
@@ -291,4 +298,39 @@ func printNotes() {
 	fmt.Fprintln(os.Stderr, "    uploads geometry once and re-sends only when the scene changes.")
 	fmt.Fprintln(os.Stderr, "  • Use -profile for shader workload counters; -mountains for the slow villa view.")
 	fmt.Fprintln(os.Stderr, "  • In-game HUD [0]: gpu ms budget + live workload counters (paths/shadows/terrain/bounces).")
+}
+
+// runMetal renders the same view through internal/metal. It exists so the two
+// backends can be compared on one command line: same scene, same camera, same
+// packer, and only the traversal differs.
+func runMetal(renderW, renderH int, cam *camera.Camera, view *render.View, buf []byte, dump string, warmup, frames int) {
+	mr, err := metal.New(renderW, renderH)
+	if err != nil {
+		log.Fatalf("metal unavailable: %v", err)
+	}
+	defer mr.Release()
+
+	for i := 0; i < warmup; i++ {
+		mr.Render(buf, cam, view, 1)
+	}
+	best := time.Duration(0)
+	for i := 0; i < frames; i++ {
+		t0 := time.Now()
+		mr.Render(buf, cam, view, 1)
+		d := time.Since(t0)
+		if best == 0 || d < best {
+			best = d
+		}
+	}
+	if err := mr.Err(); err != nil {
+		log.Fatalf("metal render: %v", err)
+	}
+	fmt.Printf("metal    %5.1f ms  (pack + accel + dispatch + readback, best of %d)\n",
+		float64(best.Microseconds())/1000.0, frames)
+	if dump != "" {
+		if err := os.WriteFile(dump, buf, 0o644); err != nil {
+			log.Fatalf("dump: %v", err)
+		}
+		fmt.Printf("wrote %s\n", dump)
+	}
 }

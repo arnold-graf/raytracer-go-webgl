@@ -13,10 +13,14 @@ package webgpu
 // renderer uses.
 
 import (
+	"fmt"
+	"regexp"
+
 	"raytracer/internal/camera"
 	"raytracer/internal/gpuscene"
 	"raytracer/internal/render"
 	"raytracer/internal/texture"
+	"raytracer/internal/webgpu/shaders"
 )
 
 // Packer holds the scene cache between frames, so a static scene is packed once
@@ -208,4 +212,23 @@ func (p *Packer) texState() texState {
 		captureW: p.captureW, captureH: p.captureH,
 		captureLoaded: p.captureLoaded, documentLoaded: p.documentLoaded,
 	}
+}
+
+// reBinding matches the megakernel's resource declarations. naga names each
+// Metal kernel argument after the WGSL global it came from, and it numbers
+// those arguments in signature order rather than by binding, so this map is the
+// only link from a generated MSL argument back to a @group(0) @binding(n).
+var reBinding = regexp.MustCompile(`@group\(0\)\s+@binding\((\d+)\)\s+var(?:<[^>]*>)?\s+(\w+)\s*:`)
+
+// BindingNames maps each resource's WGSL name to its binding number, read from
+// the linked shader itself so it cannot fall out of step with it.
+func BindingNames() map[string]uint32 {
+	out := map[string]uint32{}
+	for _, m := range reBinding.FindAllStringSubmatch(shaders.LinkedWGSL(), -1) {
+		var n uint32
+		if _, err := fmt.Sscanf(m[1], "%d", &n); err == nil {
+			out[m[2]] = n
+		}
+	}
+	return out
 }

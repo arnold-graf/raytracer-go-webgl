@@ -27,6 +27,16 @@ var (
 	// resource, which is the WGSL global's name. That is the only link back
 	// from a Metal buffer index to a @group(0) @binding(n), because naga
 	// numbers arguments in signature order and not by binding.
+	// naga lowers arrayLength(&arr) on an array<u32> to this shape. The shader
+	// calls arrayLength exactly once, in aa_classify's guard against the AA
+	// task list, and that use is semantic rather than a bounds check: a
+	// consumer that leaves the field permissive lets threads past the list
+	// read uninitialised entries. Recording which field it reads, and the
+	// order of the size struct, lets a backend set just that one correctly.
+	reSizesStruct = regexp.MustCompile(`(?s)struct _mslBufferSizes \{(.*?)\};`)
+	reSizeField   = regexp.MustCompile(`uint (size\d+);`)
+	reArrayLen    = regexp.MustCompile(`1 \+ \(_buffer_sizes\.(size\d+) - 0 - 4\) / 4`)
+
 	reFakeNamed = regexp.MustCompile(`(\w+)(\s*)\[\[user\(fake\d+\)\]\]`)
 	// Threadgroup memory arrives the same way buffers do: as an argument with
 	// no index, because the CLI has no binding map. Unlike a buffer, leaving it
@@ -112,10 +122,24 @@ func main() {
 	// The manifest is what lets a harness bind dumped buffers to the right
 	// Metal indices; see tools/metal-rt/harness.
 	mf := os.Args[2] + ".json"
+	var sizeFields []string
+	if m := reSizesStruct.FindStringSubmatch(s); m != nil {
+		for _, f := range reSizeField.FindAllStringSubmatch(m[1], -1) {
+			sizeFields = append(sizeFields, f[1])
+		}
+	}
+	arrayLenField := ""
+	if all := reArrayLen.FindAllStringSubmatch(s, -1); len(all) == 1 {
+		arrayLenField = all[0][1]
+	} else if len(all) > 1 {
+		die(fmt.Errorf("%d arrayLength lowerings; the single-use assumption no longer holds", len(all)))
+	}
 	j, err := json.MarshalIndent(struct {
-		Buffers      map[string][]argBinding `json:"buffers"`
-		Threadgroups map[string][]tgBinding  `json:"threadgroups"`
-	}{manifest, threadgroups}, "", "  ")
+		Buffers          map[string][]argBinding `json:"buffers"`
+		Threadgroups     map[string][]tgBinding  `json:"threadgroups"`
+		SizeFields       []string                `json:"sizeFields"`
+		ArrayLengthField string                  `json:"arrayLengthField"`
+	}{manifest, threadgroups, sizeFields, arrayLenField}, "", "  ")
 	if err != nil {
 		die(err)
 	}
