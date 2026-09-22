@@ -283,6 +283,50 @@ It also forfeits the browser for that backend. Whether that matters depends on
 whether anyone intends to ship this on the web; if so, WGSL stays the reference
 implementation and Metal is the fast path on Apple hardware.
 
+## What a ray costs now
+
+A whole-frame speedup understates this backend, because a frame also contains
+fixed costs -- the penumbra filter, AA classification, shading -- that Metal
+does not accelerate. The number that matters for deciding what to *spend* the
+win on is the marginal cost of a ray, which is the slope of frame time against
+ray count.
+
+Measured by moving `SHADOW_SKIP_LEVELS` from 1.0 to 0.0, which adds 466,848
+shadow rays per frame at 512x320 on the office-sunset atrium and leaves path
+segments unchanged, so the delta is shadow rays and nothing else:
+
+| round | wgpu | metal |
+|---|---|---|
+| 1 | 7.28 | 3.64 |
+| 2 | 7.93 | 4.93 |
+| 3 | 6.64 | 4.07 |
+| **median** | **7.3 ms per million shadow rays** | **4.1 ms per million** |
+
+**Roughly 1.8x cheaper, somewhere between 1.6x and 2.0x.** Quote it as a range.
+Three interleaved rounds spread 6.6-7.9 on wgpu and 3.6-4.9 on Metal, and
+`types.wesl` records an earlier non-interleaved sweep of this same constant that
+appeared to show a 67% effect and was entirely machine noise.
+
+Two caveats on the basis. gpuprof's `gpu` line is submit-to-idle for the WGSL
+path, while its `-metal` line includes packing and readback; for a *slope* that
+mostly cancels, because packing does not change with the ray count, but the
+absolute figures are not directly comparable. And this is one scene at one
+resolution.
+
+### What that buys
+
+At the 20.3 ms the WGSL path spends on this frame, Metal has about 4.5 ms spare,
+which is roughly **1.1 M extra shadow rays -- about 6 to 7 more per pixel** at
+512x320.
+
+There is no knob that spends it today. Soft shadows here come from the
+screen-space penumbra filter (`SHADOW_SOFTEN_TAPS = 61`) fed by one `ShadowAux`
+record per pixel, not from ray count, so turning this headroom into better
+shadows means sampling area lights rather than tuning a constant. That is a
+shader change and a different quality ceiling: a filter can only widen what one
+sample knows, while real sampling resolves overlapping occluders the filter has
+to approximate.
+
 ## What the earlier measurements said, and which held
 
 Kept because the reasoning is instructive and two of the three conclusions are
@@ -299,6 +343,11 @@ primary rays, generating them exactly as `pixel_ray_dir` does.
 |---|---|
 | ours, `main` gutted to `nearest_hit`, `-aa=false`, best of 3 | 2.5 ms — **65.5M rays/s** |
 | Metal intersector, same rays, same geometry | 0.272 ms — **601.9M rays/s** |
+
+**These two rates are historical and should not be quoted as ray costs.** They
+are an isolated traversal benchmark against a flattened scene with a slab test
+in place of `hit_prim`; the real figure, in a whole frame with real shading, is
+about 1.8x and is above under "What a ray costs now".
 
 9.2x. Three confounds, all favouring Metal: the benchmark's scene is flattened
 while ours runs a TLAS/BLAS split; its intersection function is a slab test

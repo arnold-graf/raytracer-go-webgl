@@ -382,6 +382,11 @@ In rough order of how directly the measurements support them:
    from 15k to ~190k, which saturates. Every per-queue argument above flips.
 2. **More rays per pixel** — multiple samples, deeper paths, multi-tap soft
    shadows. Same mechanism.
+   The Metal backend makes this cheaper rather than structurally different: a
+   ray costs roughly half what it does on the WGSL path
+   ([metal-backend.md](metal-backend.md#what-a-ray-costs-now)), so the point at
+   which more rays per pixel is affordable arrives sooner. The queueing argument
+   above is unchanged by it.
 3. **Much heavier per-hit shading** (many more lights per cluster, area lights,
    real material models). This is the one case where the memory-versus-registers
    trade genuinely reverses, because shading's register footprint is what the

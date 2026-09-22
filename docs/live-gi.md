@@ -513,6 +513,12 @@ hundred thousand rays — costs tens of milliseconds here.
 What transfers is the structure, not the number. The budget is rays per frame,
 and two scheduling mistakes cost more than the rays did:
 
+> The budget is also backend-dependent now. On the Metal path a ray costs about
+> half what it does on the WGSL path
+> ([metal-backend.md](metal-backend.md#what-a-ray-costs-now)), which is closer
+> to the paper's assumptions than this section had to assume -- though still far
+> from an RT core's one-to-two orders.
+
 - **One thread per probe leaves the GPU idle.** 2048 probes is 32 workgroups of
   long serial threads; it measured the same at 256 probes as at 2048, which is
   the signature of a latency-bound pass. A lane per ray took it from +17 ms to

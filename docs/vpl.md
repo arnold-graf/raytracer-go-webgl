@@ -294,6 +294,15 @@ The frame nearly triples and shadow rays nearly quadruple. **That is the whole
 cost — it is shadow rays, not shading maths.** Two things were tried against it
 before the one that worked, and both failed for the same reason.
 
+> **These are WGSL-path numbers, and a shadow ray no longer costs one thing.**
+> The Metal backend traces them at roughly half the marginal cost -- about 4 ms
+> per million against 7 ms, measured three interleaved rounds, see
+> [metal-backend.md](metal-backend.md#what-a-ray-costs-now). That does not
+> rescue this experiment: 16 M shadow rays is still 16 M, and halving their cost
+> leaves the frame far outside budget. It does move the threshold at which a
+> ray-count-bound idea becomes affordable, so a rejection recorded here on cost
+> alone is worth re-pricing before being treated as settled.
+
 ### The light grid cannot help here, and it was not even trying
 
 Profiling turned up something worth writing down: with 24 VPLs per room,

@@ -606,6 +606,17 @@ renders **the same image** as this one and is **1.28x faster on office-sunset,
 1.27x on the villa**, timed like for like at 512x320. See
 [metal-backend.md](metal-backend.md).
 
+**And the whole-frame figure understates it.** A frame carries fixed costs the
+intersector does not touch -- the penumbra filter, AA classification, shading --
+so the number that matters for deciding what to spend the win on is the marginal
+cost of a ray. Measured by adding 466,848 shadow rays and taking the slope, over
+three interleaved rounds: **about 7.3 ms per million on the WGSL path against
+4.1 on Metal, so roughly 1.8x cheaper**, spread 1.6x to 2.0x. See
+[metal-backend.md](metal-backend.md#what-a-ray-costs-now). At the WGSL path's
+own frame budget that is room for something like 6 or 7 more shadow rays per
+pixel, which no existing knob spends -- soft shadows here come from a 61-tap
+screen-space filter over one record per pixel, not from ray count.
+
 That is the largest single result in this document, and it did not come from
 any of the levers this document spent two passes on. It is worth being precise
 about why the earlier estimate missed:
