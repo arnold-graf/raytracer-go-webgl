@@ -187,41 +187,48 @@ of 30 bindings come out byte-identical to what the wgpu upload path sends. (The
 thirtieth is the AA indirect header, which the dump captures after `aa_classify`
 has written to it.)
 
-### Refit, and why it is off by default
+### Refit
 
 `mtl_accel_refit` refits in place, keeping topology -- the analogue of
-`bvh_refit.go`. It is **gated off**: set `RT_METAL_REFIT=1` to enable it. The
-default rebuilds the structures when transforms move, which is slower and
-cannot wedge the device.
+`bvh_refit.go`. It is **on by default**; `RT_METAL_REFIT=0` forces a rebuild on
+every transform change instead.
 
-That caution is earned. An earlier version refit structures that had not been
-built with `MTLAccelerationStructureUsageRefit`, which is undefined. The build
-succeeded, the refit was accepted, and the GPU then ran until the watchdog
-killed the command buffer with
-`kIOGPUCommandBufferCallbackErrorImpactingInteractivity` -- 25 seconds in a
-headless reproducer, and on one run it took the machine down and cost a reboot.
-The flag is set now on both descriptor kinds, and a second bug alongside it
-(every refit in one encoder sharing a single scratch buffer, which the header
-says is undefined once a refit starts) is fixed too. Neither has been run on
-hardware since, which is exactly why the gate exists.
+Best moving frame at 512x320, with a dynamic body moving each frame:
 
-Rebuild-per-frame costs, at 512x320 with a moving dynamic body:
-
-| scene | first frame | moving frame |
+| scene | rebuild | refit |
 |---|---|---|
-| office-sunset | 88 ms | 23 ms |
-| villa | 89 ms | 17 ms |
-| default.toml | 40 ms | 9 ms |
+| office-sunset | 22.2 ms | 13.2 ms |
+| villa | 16.5 ms | 14.4 ms |
+
+It was off by default for a while, and the reason is worth keeping. Refitting a
+structure not built with `MTLAccelerationStructureUsageRefit` is undefined: the
+build succeeds, the refit is accepted, and the GPU then runs until the watchdog
+kills the command buffer with
+`kIOGPUCommandBufferCallbackErrorImpactingInteractivity`. Here that took 25
+seconds headless, and on one run took the machine down and cost a reboot. A
+second bug alongside it -- every refit in one encoder sharing a single scratch
+buffer, which the header says is undefined once a refit starts -- is fixed too,
+with per-refit offsets and the top level refit in its own encoder, since its
+bounds derive from the bottom level's.
+
+Two tests guard it. `TestRefitAfterTransformChange` covers both scene shapes,
+because they exercise different structures: a non-instanced scene refits one
+BLAS pair, an instanced one fifteen plus two top-level structures, and the
+instanced case is what hung. `TestRefitMatchesRebuild` checks the property that
+"it did not hang" does not -- that a refit structure still traces correctly. It
+comes out at 0 of 40960 pixels differing from a rebuilt structure.
 
 The Go side chooses by the frame's dirty flags: `StaticChanged` rebuilds,
-`TransformsChanged` alone refits (when enabled), neither does nothing, and a
-structure whose box count changed always rebuilds because a refit cannot change
-how many boxes a structure holds.
+`TransformsChanged` alone refits, neither does nothing, and a structure whose
+box count changed always rebuilds because a refit cannot change how many boxes
+a structure holds.
 
 What moves at runtime is *dynamic bodies*: NPC limbs are primitives the cache
 repacks in spans. Instance placements are static scenery, and moving one marks
 nothing dirty -- worth knowing before testing refit against trees, as I did.
-`AccelStats()` reports builds and refits.
+`AccelStats()` reports builds and refits; in a moving scene it should settle
+into refits, and a climbing build count means something is invalidating static
+geometry every frame.
 
 ### Packing is incremental, and must stay that way
 

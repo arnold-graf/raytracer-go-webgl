@@ -289,15 +289,17 @@ func (r *Renderer) Err() error { return r.frameErr }
 // invalidating static geometry every frame.
 func (r *Renderer) AccelStats() (builds, refits int) { return r.builds, r.refits }
 
-// refitEnabled gates in-place refitting, and defaults to off.
+// refitEnabled gates in-place refitting. RT_METAL_REFIT=0 forces a rebuild on
+// every transform change, which is slower but exercises none of the refit path.
 //
-// Refitting a structure that was not built with
-// MTLAccelerationStructureUsageRefit is undefined, and what it did here was
-// hang the GPU until the watchdog killed the command buffer, taking the machine
-// with it. The usage flag is now set, so this should be safe -- but "should be"
-// is what the previous attempt had too, so it stays opt-in until it has been
-// run on hardware deliberately. RT_METAL_REFIT=1 enables it.
-func refitEnabled() bool { return os.Getenv("RT_METAL_REFIT") == "1" }
+// It was off by default for a while, and the reason is worth keeping: refitting
+// a structure not built with MTLAccelerationStructureUsageRefit is undefined,
+// and here it hung the GPU until the watchdog killed the command buffer, taking
+// the machine with it. The flag is set now, and TestRefitMatchesRebuild checks
+// the stronger property that "it did not hang" does not -- that a refit
+// structure still traces the scene correctly, on both a non-instanced and an
+// instanced scene.
+func refitEnabled() bool { return os.Getenv("RT_METAL_REFIT") != "0" }
 
 func cstr(b []byte) string {
 	for i, c := range b {
