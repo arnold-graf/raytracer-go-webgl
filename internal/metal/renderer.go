@@ -19,6 +19,7 @@ import (
 	_ "embed"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"unsafe"
 
 	"raytracer/internal/camera"
@@ -260,7 +261,13 @@ func (r *Renderer) uploadAccel(p *webgpu.AccelPack, rebuild bool) error {
 	return nil
 }
 
+// fail blacks the frame and reports once. Reporting every frame would bury the
+// first and only cause of the failure under thousands of copies of it, and a
+// renderer that silently draws black is the hardest kind of bug to notice.
 func (r *Renderer) fail(buf []byte, err error) {
+	if r.frameErr == nil {
+		log.Printf("metal: render failed, frames will be black until it recovers: %v", err)
+	}
 	r.frameErr = err
 	for i := 0; i+3 < len(buf); i += 4 {
 		buf[i], buf[i+1], buf[i+2], buf[i+3] = 0, 0, 0, 255

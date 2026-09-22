@@ -165,37 +165,71 @@ closed, for three reasons of increasing severity:
 
 The third is the one that cannot be worked around at any version we can reach.
 
-## What remains, to wire it into the game
+## It is wired into the game
 
-`render.Renderer` is a one-method interface -- `Render(buf, cam, v, pixSize)` --
-so the Metal backend is a sibling of `internal/webgpu`, not a replacement:
+    go run . -backend auto      # metal where the hardware supports it
+    go run . -backend metal
+    go run . -backend webgpu
+
+`auto` prefers Metal where `supportsRaytracing` is true and falls back to the
+portable WGSL path, which is the only one that runs in a browser. Both run the
+interactive loop cleanly.
 
     internal/render     Renderer interface, View          (unchanged)
-    internal/webgpu     WGSL megakernel                   (unchanged, stays the default)
-    internal/metal      MTLAccelerationStructure + MSL    (new, from the harness)
+    internal/webgpu     WGSL megakernel + the Packer      (still the default)
+    internal/metal      MTLAccelerationStructure + MSL
 
-The harness already does geometry, intersection functions, shading, the
-screen-space passes and dispatch. What it does not do yet:
+`internal/metal` packs nothing of its own. `webgpu.Packer` produces the bytes
+for every binding with no GPU device involved, and each backend uploads them
+its own way. That was validated before anything was built on it: `packdump`
+writes the Packer's output in the same layout `RT_DUMP_BUFFERS` produces, and 29
+of 30 bindings come out byte-identical to what the wgpu upload path sends. (The
+thirtieth is the AA indirect header, which the dump captures after `aa_classify`
+has written to it.)
 
-1. **Per-frame upload.** The harness loads a dump once. The backend has to run
-   the same packers against its own `MTLBuffer`s, and honour the dirty-span
-   logic `uploadFrame` uses so a static scene is not re-sent every frame.
-2. **Refit.** The harness builds once.
-   `refitAccelerationStructure:descriptor:destination:scratchBuffer:` is the
-   analogue of `bvh_refit.go`. Two cases, different costs: moving NPCs change
-   only instance transforms, so the TLAS is rebuilt (~50 KB for 197 instances);
-   deforming poses change BLAS bounding boxes and need a real refit, which like
-   ours keeps topology and degrades as geometry moves from where it was built.
-3. **Resolution changes.** Buffer sizes are baked from the dump. The backend
-   needs to reallocate on resize, as `internal/webgpu` does.
-4. **Device and lifetime.** The harness leaks by design (CFRetain, no release).
-   A long-running game needs real ownership.
-5. **A feature gate.** Detect Apple silicon with `supportsRaytracing`, fall back
-   to `internal/webgpu` otherwise, and keep a flag to force either for A/B.
+### Refit
 
-Pin the naga version and keep `tools/metal-rt/verify.sh` in CI from the first
-commit. The failure mode is not "two renderers diverge" but "naga changed and
-the splice missed", and the byte-compare harness catches it immediately.
+`mtl_accel_refit` refits in place, keeping topology -- the analogue of
+`bvh_refit.go` and the same trade: cheap, and it degrades as geometry travels
+from where the tree was built. The Go side chooses by the frame's dirty flags:
+
+- `StaticChanged` -> rebuild.
+- `TransformsChanged` alone -> refit.
+- Neither -> do nothing.
+- A structure whose box count changed -> rebuild, because a refit cannot change
+  how many boxes a structure holds.
+
+What moves at runtime is *dynamic bodies*: NPC limbs are primitives the cache
+repacks in spans. Instance placements are static scenery, and moving one marks
+nothing dirty -- worth knowing before testing refit against trees, as I did.
+`AccelStats()` reports builds and refits; a climbing build count in a moving
+scene means something is invalidating static geometry every frame.
+
+### Parity
+
+Through the same `gpuprof` command line, with and without `-metal`:
+
+| scene | pixels differing by >=8 |
+|---|---|
+| office-sunset atrium | 0.00% |
+| outdoors-night-villa | 0.00% |
+| default.toml | 0.5%, mean level identical |
+
+The last is an open item. It is not AA (it survives `-aa=false` on both sides)
+and not leaf coverage (default.toml's five infinite planes live outside the BVH
+by design, so 31 leaves for 36 prims is correct). The differing pixels are
+isolated specks on small bright features, which is what a tie between two
+primitives at near-equal distance looks like when two traversals order them
+differently.
+
+### Still open
+
+- **Resize.** Buffers are sized at `New` from the initial dimensions. The game
+  is fixed-resolution so nothing hits this, but a resizable target needs
+  reallocation, as `internal/webgpu` does.
+- **Pipelining.** The wgpu path overlaps CPU and GPU with `SetPipelined(true)`;
+  the Metal path blocks on `waitUntilCompleted` every frame.
+- The `default.toml` specks above.
 
 ## What it costs
 
