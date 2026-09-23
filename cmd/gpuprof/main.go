@@ -59,6 +59,8 @@ func main() {
 	quant := flag.Uint("quant", 1, "color mode: 0 = 8-bit dither, 1 = 15-bit, 2 = crush, 3 = raw, 4 = path-tracer grain")
 	depth := flag.Uint("depth", defaultBounceDepth, "max mirror/glass bounce depth (app uses 4; 0 = shader default of 2)")
 	clock := flag.Float64("time", 0, "animation clock in seconds (campfire sub-lights, flames, water ripples)")
+	bounce := flag.Int("bounce", 0, "traced indirect rays per primary diffuse hit (0 = off, as key 8 off)")
+	bounceAmb := flag.Float64("bounce-ambient", 0, "share of the ambient constant kept while -bounce is on")
 	flag.Parse()
 
 	renderW, renderH := *width, *height
@@ -126,6 +128,8 @@ func main() {
 		GIBoundsOK:     giOK,
 		AdaptiveAA:     *aa,
 		ColorQuant:     uint32(*quant),
+		BounceRays:     *bounce,
+		BounceAmbient:  *bounceAmb,
 		MaxBounceDepth: uint32(*depth),
 	}
 

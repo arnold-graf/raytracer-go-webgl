@@ -321,6 +321,13 @@ var<private> sh_ao: f32 = 1.0;
 // light unattenuated or it puts back more than the frame deposited.
 var<private> sh_ao_direct: f32 = 1.0;
 
+// The ambient term shade_diffuse actually deposited, after AO. ray_color reads
+// it to take the constant back out when the traced diffuse bounce is on: the
+// two are the same quantity estimated two ways -- indirect light arriving from
+// the rest of the room -- so adding both counts it twice. See the bounce
+// section in trace.wesl.
+var<private> sh_ambient: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+
 // Linear Rec.709 luminance, for weighting penumbra widths by how much light each
 // blocked source actually contributes.
 fn shadow_luma(c: vec3<f32>) -> f32 {
@@ -362,6 +369,7 @@ fn shadow_aux_reset() {
     sh_pen_w_m = 0.0;
     sh_ao = 1.0;
     sh_ao_direct = 1.0;
+    sh_ambient = vec3<f32>(0.0, 0.0, 0.0);
 }
 
 // A declared radius is a world size and is used as given. An undeclared one
@@ -1041,6 +1049,7 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
             lit = add_point_light_raw(lit, hp, alb, n, ep, sl.pos, sl.col, cull.x, cull.y, tw, vec3<f32>(0.0, 1.0, 0.0), 0.0, rd, spec, shine, true, campfire_light_radius(sl), campfire_steady_scale(cf, sl), 0.0, 0.0);
         }
     }
+    sh_ambient = ambient;
     if (params.ao_enabled & AO_ENABLED) != 0u {
         sh_ao = ao_sample(ep, n);
         if (params.ao_enabled & AO_INDIRECT_ONLY) != 0u {
@@ -1059,6 +1068,9 @@ fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw:
             lit = lit * sh_ao;
             sh_ao_direct = sh_ao;
         }
+        // Both branches leave exactly ambient*ao of the constant in `lit`,
+        // which is what a caller taking it back out has to subtract.
+        sh_ambient = ambient * sh_ao;
     }
     return lit;
 }

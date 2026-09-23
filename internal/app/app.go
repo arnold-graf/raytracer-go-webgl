@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -60,6 +61,13 @@ type Game struct {
 	thinGlassGhost bool
 	ao             bool
 	adaptiveAA     bool
+	// bounce turns on one traced bounce of indirect light off primary diffuse
+	// hits (key 8, off by default). bounceRays and bounceAmbient come from the
+	// environment because this is an experiment with no settled defaults; see
+	// docs/diffuse-bounce.md.
+	bounce        bool
+	bounceRays    int
+	bounceAmbient float64
 	// colorQuant: 0 = 8-bit dither, 1 = 15-bit (default), 2 = crush (24 levels/ch),
 	// 4 = path-tracer grain. Key 5 cycles quantCycle; 3 (raw RGB) is reserved for
 	// portal capture and deliberately left out of the cycle.
@@ -178,6 +186,9 @@ func New(rw, rh int, sc *scene.Scene, basePlayerCfg camera.Config, scenePath, pl
 		thinGlassGhost: true,
 		ao:             true,
 		adaptiveAA:     true,
+		bounce:         false,
+		bounceRays:     envInt("RAYTRACER_BOUNCE_RAYS", 2, 1, 16),
+		bounceAmbient:  envFloat("RAYTRACER_BOUNCE_AMBIENT", 0, 0, 1),
 		colorQuant:     1,
 		buf:            make([]byte, rw*rh*4),
 		frame:          ebiten.NewImage(rw, rh),
@@ -310,6 +321,8 @@ func (g *Game) view() *render.View {
 		AOVersion:      aoVer,
 		ColorQuant:     g.colorQuant,
 		AdaptiveAA:     g.adaptiveAA,
+		BounceRays:     boolInt(g.bounce, g.bounceRays),
+		BounceAmbient:  g.bounceAmbient,
 		MaxBounceDepth: 4,
 	}
 }
@@ -884,7 +897,12 @@ func (g *Game) handleToggles() {
 		g.adaptiveAA = !g.adaptiveAA
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit8) {
-		g.thinGlassGhost = !g.thinGlassGhost
+		// One traced bounce of indirect light. It took this binding from the
+		// thin-glass ghost, which now stays on: the ghost is a look, and this
+		// is the question of whether the renderer can afford GI at all.
+		g.bounce = !g.bounce
+		log.Printf("bounce: %s (%d ray(s)/hit, ambient kept %.2f)",
+			map[bool]string{true: "on", false: "off"}[g.bounce], g.bounceRays, g.bounceAmbient)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit9) {
 		// Virtual point lights on/off. The set is generated once and attached or
@@ -1037,8 +1055,8 @@ func (g *Game) backendName() string {
 
 func (g *Game) statusLine() string {
 	if g.locked {
-		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s npc[6]:%s AA[7]:%s ghost[8]:%s vpl[9]:%s px[-/+]:%d fps[H]:%s  HUD[0]  ESC release",
-			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), onOff(g.adaptiveAA), onOff(g.thinGlassGhost), onOff(vpl.Active(g.sc)), g.pixSize, capLabel(g.fpsCap))
+		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s npc[6]:%s AA[7]:%s bounce[8]:%s vpl[9]:%s px[-/+]:%d fps[H]:%s  HUD[0]  ESC release",
+			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), onOff(g.adaptiveAA), bounceLabel(g.bounce, g.bounceRays), onOff(vpl.Active(g.sc)), g.pixSize, capLabel(g.fpsCap))
 	}
 	return "click to capture mouse"
 }
@@ -1052,6 +1070,62 @@ func onOff(b bool) string {
 		return "on"
 	}
 	return "off"
+}
+
+// bounceLabel shows the ray count alongside the state, because the count is the
+// whole cost of the feature and it is set from the environment rather than here.
+func bounceLabel(on bool, rays int) string {
+	if !on {
+		return "off"
+	}
+	return fmt.Sprintf("%dr", rays)
+}
+
+func boolInt(on bool, v int) int {
+	if !on {
+		return 0
+	}
+	return v
+}
+
+// envInt reads an integer knob, clamped to [lo, hi]. An unset or unparseable
+// value takes the default silently; a value out of range is clamped and said
+// so, because a silently clamped ray budget would misreport every measurement
+// taken with it.
+func envInt(name string, def, lo, hi int) int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		log.Printf("%s=%q: not an integer; using %d", name, raw, def)
+		return def
+	}
+	if v < lo || v > hi {
+		c := min(max(v, lo), hi)
+		log.Printf("%s=%d out of range [%d, %d]; using %d", name, v, lo, hi, c)
+		return c
+	}
+	return v
+}
+
+func envFloat(name string, def, lo, hi float64) float64 {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		log.Printf("%s=%q: not a number; using %g", name, raw, def)
+		return def
+	}
+	if v < lo || v > hi {
+		c := math.Min(math.Max(v, lo), hi)
+		log.Printf("%s=%g out of range [%g, %g]; using %g", name, v, lo, hi, c)
+		return c
+	}
+	return v
 }
 
 // quantCycle is the order key 5 steps through. 3 (raw RGB) is omitted: it is

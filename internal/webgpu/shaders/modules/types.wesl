@@ -89,6 +89,15 @@ struct Params {
     light_grid_inv_cell: vec4<f32>,
     light_grid_dim: vec4<u32>,
     table_base: vec4<u32>,
+    // bounce_rays: cosine-weighted indirect rays cast from each primary diffuse
+    // hit. 0 is off, which is the default; key 8 toggles it. Capped by
+    // BOUNCE_MAX_RAYS in trace.wesl. See docs/diffuse-bounce.md.
+    bounce_rays: u32,
+    // bounce_ambient: the share of the ambient constant left in place while the
+    // bounce is on. 0 replaces ambient with the traced bounce outright, which is
+    // the comparison worth looking at; 1 adds the bounce on top and double-counts
+    // indirect light on purpose.
+    bounce_ambient: f32,
 };
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).

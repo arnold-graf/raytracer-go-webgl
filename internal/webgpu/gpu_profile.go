@@ -32,6 +32,7 @@ const (
 	profAATasks
 	profAAGeom
 	profAAShade
+	profBounceRays
 	profCounterCount
 )
 
@@ -64,6 +65,7 @@ type GPUProfileCounters struct {
 	AATasks       uint32
 	AAGeom        uint32
 	AAShade       uint32
+	BounceRays    uint32
 }
 
 func decodeProfileCounters(raw []byte) GPUProfileCounters {
@@ -99,6 +101,7 @@ func decodeProfileCounters(raw []byte) GPUProfileCounters {
 	c.AATasks = vals[profAATasks]
 	c.AAGeom = vals[profAAGeom]
 	c.AAShade = vals[profAAShade]
+	c.BounceRays = vals[profBounceRays]
 	return c
 }
 
@@ -135,6 +138,13 @@ func FormatGPUProfile(c GPUProfileCounters, gpuMS float64) string {
 	if c.ShadowRays > 0 {
 		fmt.Fprintf(&b, "  shadow rays:       %8d  (%d blocked, %.1f%%)\n",
 			c.ShadowRays, c.ShadowBlock, 100*float64(c.ShadowBlock)/float64(c.ShadowRays))
+	}
+	// Each indirect ray is a traversal plus a full direct-lighting evaluation at
+	// whatever it hits, so this counter and the shadow-ray one move together:
+	// the bounce is bought in shadow rays as much as in traversals.
+	if c.BounceRays > 0 {
+		fmt.Fprintf(&b, "  bounce rays:       %8d  (%.2f per pixel)\n",
+			c.BounceRays, float64(c.BounceRays)/pix)
 	}
 	// Adaptive AA re-traces a whole path per flagged pixel, so how many pixels
 	// get flagged -- and why -- is the difference between AA costing a quarter

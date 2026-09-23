@@ -48,8 +48,20 @@ type View struct {
 	AdaptiveAA bool
 
 	// ThinGlassGhost enables the second-pane reflection lobe on default thin
-	// glass (double-pane look). Toggled in-app with key 8.
+	// glass (double-pane look). It kept key 8 until the diffuse bounce took the
+	// binding, and is now always on.
 	ThinGlassGhost bool
+
+	// BounceRays is how many cosine-weighted indirect rays each primary diffuse
+	// hit casts. 0 is off, which is the default; key 8 toggles it. One extra
+	// bounce only -- the second hit gathers direct light and stops. See
+	// docs/diffuse-bounce.md.
+	BounceRays int
+
+	// BounceAmbient is the share of the scene's ambient constant kept while the
+	// bounce is on. The two model the same thing, so 0 (the default) swaps one
+	// for the other instead of adding them.
+	BounceAmbient float64
 
 	// MaxBounceDepth caps mirror/glass/water recursion in the tracer (default 2 when 0).
 	// Raised while the spyglass is up so rays can pass through its lenses and scene glass.

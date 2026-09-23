@@ -4,7 +4,7 @@
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
 import package::types::{AA_RESOLVE_WG, GLOSSY_MIN_CONTRIB, HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, ShadowAux, aa_dispatch, aa_hits, aa_list, hdr_pixels, params, pixels, prims, shadow_aux, waters};
-import package::profile::{PROF_AA_GEOM, PROF_AA_SHADE, PROF_AA_TASKS, PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MAX_SEGS, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc, prof_max};
+import package::profile::{PROF_AA_GEOM, PROF_AA_SHADE, PROF_AA_TASKS, PROF_BOUNCE_RAYS, PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MAX_SEGS, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc, prof_max};
 import package::math::{surface_grazing_weight, tonemap};
 import package::texture::{plane_albedo, prim_texture_bump_normal, texture_eval, texture_eval_box, texture_eval_surface};
 import package::sky::{sky};
@@ -14,7 +14,7 @@ import package::terrain_zone::{terrain_zone_shade_normal, terrain_zone_surface};
 import package::flame::{accumulate_flame, heat_shimmer_dir};
 import package::instance::{inst_local_point, inst_world_normal};
 import package::bvh::{nearest_hit};
-import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, shade_diffuse, shade_ghost, shade_specular, shadow_aux_snapshot, terrain_albedo, tw_peak};
+import package::shade::{cone_cap_normal_world, jitter_dir, normal_at, sh_ambient, shade_diffuse, shade_ghost, shade_specular, shadow_aux_snapshot, terrain_albedo, tw_peak};
 
 // RaySeg is one pending ray in the bounded work stack: a ray plus the
 // multiplicative weight (throughput) its radiance contributes to the pixel, and
@@ -302,6 +302,134 @@ fn surface_at(hit: Hit, ro: vec3<f32>, rd: vec3<f32>, hp: vec3<f32>) -> Surface 
     }
 
     return Surface(mat, surf, blur, alb, n, spec_strength, shininess);
+}
+
+// --------------------------------------------------- one diffuse bounce ----
+//
+// An experiment (key 8, off by default): primary diffuse hits cast
+// cosine-weighted rays into the hemisphere, shade whatever they land on with
+// the same direct-lighting loop, and add that back as indirect light. Path
+// depth 2 and no further -- the second hit's own bounce is not traced, so a
+// third-order path never exists.
+//
+// This is the one thing the megakernel does not otherwise do. Every other
+// recursion here is deterministic: a mirror has exactly one outgoing direction
+// and glass has two, so the ray *tree* in ray_color resolves them exactly.
+// A diffuse surface reflects into the whole hemisphere, and there is no
+// direction that stands for it. The integral has to be sampled, which is the
+// line between this renderer and cmd/pathtrace -- see docs/path-tracer.md.
+//
+// What each ray is worth. The rendering equation's diffuse term is
+//
+//     integral over hemisphere of  (albedo/PI) * L_in(w) * cos(theta) dw
+//
+// and a cosine-weighted sample has pdf cos(theta)/PI. Estimator = f*L*cos/pdf,
+// so the cosine and both PIs cancel and the whole weight a bounce ray carries
+// is the albedo. Nothing else to divide out, and nothing here to tune: if the
+// bounce reads too bright or too dim against cmd/pathtrace, the bug is
+// elsewhere. This is exactly the cancellation pt_linked.wgsl relies on when it
+// writes `beta = beta * s.alb` next to `rd = pt_cosine_dir(s.n)`.
+//
+// Noise. One sample per pixel is an unbiased estimate of that integral with
+// enormous variance, and this path has no denoiser -- the temporal + a-trous
+// reconstruction lives in pathtrace.go and serves the offline tracer only. So
+// the sample count is a real knob (RAYTRACER_BOUNCE_RAYS) and the default is
+// low. Expect to see the variance; that *is* the experiment.
+
+// Sample count above which the loop is not worth entering unrolled. Purely a
+// guard on the uniform so a bad value cannot hang the GPU.
+const BOUNCE_MAX_RAYS: u32 = 16u;
+
+// Quantisation of the hit point used to seed the sampler, in cells per metre.
+// The seed is world-anchored rather than pixel-anchored on purpose: the noise
+// then sticks to the surface and stays put as the camera moves, instead of
+// boiling frame to frame. It also decorrelates the adaptive-AA taps, which
+// re-enter ray_color at sub-pixel offsets and would otherwise draw the same
+// directions as the centre ray and average to nothing.
+//
+// The cost is that the grain has a world size: back away and it goes below a
+// pixel, walk up to a wall and it grows into visible blotches. 1024/m puts the
+// crossover at roughly arm's length for this renderer's field of view.
+const BOUNCE_SEED_SCALE: f32 = 1024.0;
+
+fn bounce_hash(v: u32) -> u32 {
+    let state = v * 747796405u + 2891336453u;
+    let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+fn bounce_u01(seed: u32) -> f32 {
+    return f32(bounce_hash(seed)) * (1.0 / 4294967296.0);
+}
+
+fn bounce_seed(hp: vec3<f32>) -> u32 {
+    let q = vec3<i32>(floor(hp * BOUNCE_SEED_SCALE));
+    return bounce_hash((u32(q.x) * 73856093u) ^ (u32(q.y) * 19349663u) ^ (u32(q.z) * 83492791u));
+}
+
+// Cosine-weighted direction about n, by Malley's method: sample the unit disc
+// uniformly and lift it to the hemisphere. The frame is Duff et al.'s
+// branchless orthonormal basis, which has no singularity at either pole --
+// worth the four extra multiplies here, because a degenerate frame at n.z = -1
+// would put a seam of black pixels across every downward-facing surface.
+fn bounce_dir(n: vec3<f32>, u1: f32, u2: f32) -> vec3<f32> {
+    let r = sqrt(u1);
+    let phi = 6.2831853 * u2;
+    let dx = r * cos(phi);
+    let dy = r * sin(phi);
+    let dz = sqrt(max(0.0, 1.0 - u1));
+
+    let sgn = select(-1.0, 1.0, n.z >= 0.0);
+    let a = -1.0 / (sgn + n.z);
+    let b = n.x * n.y * a;
+    let t0 = vec3<f32>(1.0 + sgn * n.x * n.x * a, sgn * b, -sgn * n.x);
+    let t1 = vec3<f32>(b, sgn + n.y * n.y * a, -n.y);
+    return normalize(t0 * dx + t1 * dy + n * dz);
+}
+
+// bounce_gather returns the indirect radiance leaving this hit, already
+// weighted by albedo. `tw` is the throughput the *primary* segment carries;
+// each ray is handed its own share of it so shade_diffuse's display-space
+// shadow gate can tell how little a bounce-lit shadow is worth and skip the
+// ray. That gate is the reason this is affordable at all.
+fn bounce_gather(hp: vec3<f32>, ep: vec3<f32>, n: vec3<f32>, alb: vec3<f32>, tw: vec3<f32>, rays: u32) -> vec3<f32> {
+    let seed = bounce_seed(hp);
+    let inv = 1.0 / f32(rays);
+    let sub_tw = tw * alb * inv;
+    var sum = vec3<f32>(0.0, 0.0, 0.0);
+    for (var i = 0u; i < rays; i = i + 1u) {
+        let s = seed + i * 0x9e3779b9u;
+        let rd = bounce_dir(n, bounce_u01(s), bounce_u01(s ^ 0x85ebca6bu));
+        prof_inc(PROF_BOUNCE_RAYS, 1u);
+        let hit = nearest_hit(ep, rd);
+        if hit.idx == 0xffffffffu {
+            // The sky is indirect light like any other. Note this is the same
+            // sky() the primary miss uses, so a bounce off a floor picks up
+            // the real gradient rather than the ambient constant's average.
+            sum = sum + sky(rd);
+            continue;
+        }
+        let bhp = ep + rd * hit.t;
+        let sf = surface_at(hit, ep, rd, bhp);
+        if sf.mat == MAT_EMIT {
+            sum = sum + sf.alb;
+            continue;
+        }
+        // record = false: the primary hit's shadow record was snapshotted
+        // before this ran, and shade_diffuse resets those accumulators on
+        // entry, so a bounce can never be mistaken for the pixel's own shadow.
+        //
+        // spec/shine 0: a bounce stands in for a broad patch of wall, and a
+        // point light standing in for something broad draws a small bright dot
+        // where the thing it represents would spread a wide dim sheen. Same
+        // reason [[light]] carries `specular = false`.
+        sum = sum + shade_diffuse(bhp, sf.alb, sf.n, bhp + sf.n * SURFACE_EPSILON, sub_tw, rd, 0.0, 0.0, false);
+    }
+    return alb * sum * inv;
+}
+
+fn bounce_rays_wanted() -> u32 {
+    return min(params.bounce_rays, BOUNCE_MAX_RAYS);
 }
 
 fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult {
@@ -624,6 +752,28 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
             // Weighted by tw so a shadow seen through glass is softened by the
             // same amount its light was attenuated.
             sh_out = shadow_aux_snapshot(tw, n, hit.t);
+        }
+        // Traced indirect light, primary hits only: one extra bounce and no
+        // more. It runs after the snapshot above because bounce_gather calls
+        // shade_diffuse again and resets every shadow accumulator it reads.
+        //
+        // Depth 0 only is what keeps this bounded. A bounce spawned at every
+        // depth would multiply with the reflection tree -- a glossy floor
+        // reflecting a wall would gather a hemisphere at both ends -- and the
+        // segment stack has no room for it (MAX_SEGS is measured, not spare).
+        let brays = bounce_rays_wanted();
+        if brays != 0u && depth == 0u && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) {
+            // Take the ambient constant back out first. It is a stand-in for
+            // exactly the quantity the bounce now measures, so keeping both
+            // counts indirect light twice and reads as "GI made the scene
+            // brighter" rather than "GI moved the light around". Captured into
+            // a local because bounce_gather overwrites sh_ambient.
+            //
+            // params.bounce_ambient puts a share of it back, for scenes tuned
+            // so hard against the constant that removing it leaves them black.
+            let amb = sh_ambient;
+            lit = max(lit - amb * (1.0 - params.bounce_ambient), vec3<f32>(0.0, 0.0, 0.0));
+            lit = lit + bounce_gather(hp, ep, n, alb, tw, brays);
         }
         let refl = surf.z;
         // A glossy lobe on a *primary* hit is the sheen the scene author asked

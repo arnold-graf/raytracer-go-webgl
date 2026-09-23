@@ -93,19 +93,19 @@
       },
       {
         "index": 15,
-        "name": "bvh_nodes"
+        "name": "profile_counters"
       },
       {
         "index": 16,
-        "name": "inst_templates"
+        "name": "bvh_nodes"
       },
       {
         "index": 17,
-        "name": "idx_tables"
+        "name": "inst_templates"
       },
       {
         "index": 18,
-        "name": "profile_counters"
+        "name": "idx_tables"
       },
       {
         "index": 19,
@@ -113,15 +113,15 @@
       },
       {
         "index": 20,
-        "name": "campfires"
-      },
-      {
-        "index": 21,
         "name": "blockers_1"
       },
       {
-        "index": 22,
+        "index": 21,
         "name": "lights"
+      },
+      {
+        "index": 22,
+        "name": "campfires"
       },
       {
         "index": 23,
@@ -215,19 +215,19 @@
       },
       {
         "index": 15,
-        "name": "bvh_nodes"
+        "name": "profile_counters"
       },
       {
         "index": 16,
-        "name": "inst_templates"
+        "name": "bvh_nodes"
       },
       {
         "index": 17,
-        "name": "idx_tables"
+        "name": "inst_templates"
       },
       {
         "index": 18,
-        "name": "profile_counters"
+        "name": "idx_tables"
       },
       {
         "index": 19,
@@ -235,15 +235,15 @@
       },
       {
         "index": 20,
-        "name": "campfires"
-      },
-      {
-        "index": 21,
         "name": "blockers_1"
       },
       {
-        "index": 22,
+        "index": 21,
         "name": "lights"
+      },
+      {
+        "index": 22,
+        "name": "campfires"
       },
       {
         "index": 23,
@@ -416,20 +416,20 @@
     "size14",
     "size15",
     "size16",
-    "size19",
+    "size17",
     "size20",
     "size21",
     "size22",
-    "size23",
-    "size25",
-    "size34",
+    "size35",
+    "size36",
     "size37",
     "size38",
     "size39",
     "size40",
     "size41",
-    "size44",
-    "size45"
+    "size42",
+    "size45",
+    "size46"
   ],
-  "arrayLengthField": "size45"
+  "arrayLengthField": "size46"
 }

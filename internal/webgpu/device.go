@@ -26,7 +26,7 @@ import (
 const (
 	fovScale = 0.5773502691896257 // tan(60deg / 2)
 	// WGSL Params size; must match trace_linked.wgsl (struct is padded to 16-byte alignment).
-	paramsSize   = 416
+	paramsSize   = 432
 	aaHitStride  = 4  // packed u32 fingerprint per pixel
 	hdrPixStride = 16 // vec4<f32> per pixel
 	// aa_dispatch: [workgroup_count_x, 1, 1, task_count].
@@ -763,6 +763,8 @@ func packParams(r *sceneCache, v *render.View) renderParams {
 	shadows := false
 	mirror := false
 	thinGlassGhost := false
+	bounceRays := uint32(0)
+	bounceAmbient := float32(0)
 	aoEnabled := false
 	sky := 0
 	var (
@@ -790,6 +792,10 @@ func packParams(r *sceneCache, v *render.View) renderParams {
 		shadows = v.Shadow
 		mirror = v.Mirror
 		thinGlassGhost = v.ThinGlassGhost
+		if v.BounceRays > 0 {
+			bounceRays = uint32(v.BounceRays)
+			bounceAmbient = float32(v.BounceAmbient)
+		}
 		aoEnabled = v.AO
 		sky = v.Scene.Env.Sky
 		ambientSky, ambientGround = packSceneAmbient(v.Scene.Env)
@@ -818,6 +824,7 @@ func packParams(r *sceneCache, v *render.View) renderParams {
 		waters:         c.waters,
 		campfireParams: c.campfireParams, holes: c.holes, boxFaceTex: c.boxFaceTex, ao: c.ao, aoOK: c.aoOK && aoEnabled,
 		shadows: shadows, mirror: mirror, thinGlassGhost: thinGlassGhost, timeSec: timeSec, sky: sky,
+		bounceRays: bounceRays, bounceAmbient: bounceAmbient,
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
 		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
 		ambientSky: ambientSky, ambientGround: ambientGround,
@@ -1287,6 +1294,8 @@ type renderParams struct {
 	shadows          bool
 	mirror           bool
 	thinGlassGhost   bool
+	bounceRays       uint32
+	bounceAmbient    float32
 	timeSec          float64
 	sky              int
 	// Visible celestial body (sun/moon disc) drawn in the sky. bodyDir points
@@ -1923,6 +1932,10 @@ func paramsBytesFor(cam *camera.Camera, p renderParams, fw, fh int, tex texState
 	putU32(out[400:404], idxTablesBlockerPlaneBase)
 	putU32(out[404:408], idxTablesLightGridBase)
 	putU32(out[408:412], p.lightGrid.wideCount())
+	// Traced diffuse bounce (key 8). Past table_base's vec4, so these two need
+	// no packing games -- Params grew from 416 to 432 bytes to hold them.
+	putU32(out[416:420], p.bounceRays)
+	putF32(out[420:424], p.bounceAmbient)
 	return out
 }
 
