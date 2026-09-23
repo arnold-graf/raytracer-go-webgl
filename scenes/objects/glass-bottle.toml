@@ -12,6 +12,8 @@ height = 0.2
 transmit = 0.9
 two_pane = true
 shadow = true
+specular = 0.5
+shininess = 50
 
 # liquid inside the bottle
 # [[cylinder]]
@@ -40,3 +42,5 @@ width = 0.05
 height = 0.1
 two_pane = true
 shadow = true
+specular = 0.5
+shininess = 50
