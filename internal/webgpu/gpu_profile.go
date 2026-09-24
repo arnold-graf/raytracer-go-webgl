@@ -33,6 +33,8 @@ const (
 	profAAGeom
 	profAAShade
 	profBounceRays
+	profBounceNoHist
+	profBounceReuse
 	profCounterCount
 )
 
@@ -66,6 +68,8 @@ type GPUProfileCounters struct {
 	AAGeom        uint32
 	AAShade       uint32
 	BounceRays    uint32
+	BounceNoHist  uint32
+	BounceReuse   uint32
 }
 
 func decodeProfileCounters(raw []byte) GPUProfileCounters {
@@ -102,6 +106,8 @@ func decodeProfileCounters(raw []byte) GPUProfileCounters {
 	c.AAGeom = vals[profAAGeom]
 	c.AAShade = vals[profAAShade]
 	c.BounceRays = vals[profBounceRays]
+	c.BounceNoHist = vals[profBounceNoHist]
+	c.BounceReuse = vals[profBounceReuse]
 	return c
 }
 
@@ -145,6 +151,10 @@ func FormatGPUProfile(c GPUProfileCounters, gpuMS float64) string {
 	if c.BounceRays > 0 {
 		fmt.Fprintf(&b, "  bounce rays:       %8d  (%.2f per pixel)\n",
 			c.BounceRays, float64(c.BounceRays)/pix)
+	}
+	if c.BounceNoHist > 0 {
+		fmt.Fprintf(&b, "  no history:        %8d  (%5.1f%% of pixels)  reuse found one for %d\n",
+			c.BounceNoHist, 100*float64(c.BounceNoHist)/pix, c.BounceReuse)
 	}
 	// Adaptive AA re-traces a whole path per flagged pixel, so how many pixels
 	// get flagged -- and why -- is the difference between AA costing a quarter

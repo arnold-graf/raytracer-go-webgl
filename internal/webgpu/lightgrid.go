@@ -2,8 +2,10 @@ package webgpu
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"sort"
+	"time"
 
 	"raytracer/internal/scene"
 	"raytracer/internal/vec"
@@ -92,7 +94,28 @@ func (g *lightGrid) cellCount() int {
 func (c *sceneCache) setLights(s *scene.Scene) {
 	c.lights = PackLights(s)
 	c.lightGrid = buildLightGrid(c.lights)
+	dropped := 0
+	if lightCullEnabled() {
+		start := time.Now()
+		var kept int
+		dropped, kept = cullOccludedLights(&c.lightGrid, c.lights, s)
+		if dropped+kept > 0 {
+			log.Printf("light grid: occlusion culled %d of %d cell-light pairs (%.0f%%) in %v",
+				dropped, dropped+kept, 100*float64(dropped)/float64(dropped+kept),
+				time.Since(start).Round(time.Millisecond))
+		}
+	}
+	// One line that says where the per-point cost actually is. The wide count
+	// is the number every shaded point evaluates no matter where it stands, and
+	// on office-sunset it is 74 of 315 -- which is why occlusion culling the
+	// *clustered* pairs changed nothing measurable.
+	log.Printf("light grid: %d lights (%d wide: %d outside bounds, %d too broad), %d cells, %d pairs",
+		len(c.lights), len(c.lightGrid.Wide), lightGridWideEscaped, lightGridWideTooBig,
+		c.lightGrid.cellCount(), len(c.lightGrid.Indices)+dropped)
 }
+
+// Set by the last buildLightGrid, for the diagnostic line above.
+var lightGridWideEscaped, lightGridWideTooBig int
 
 // uploadLightGrid writes the cluster tables. The grid is only rebuilt when the
 // lights change, so this rides along with the light buffer rather than running
@@ -156,6 +179,12 @@ func buildLightGrid(lights []GPULight) lightGrid {
 	//
 	// Excluding lights here is safe because anything not fully inside these
 	// bounds is classified wide below and evaluated everywhere.
+	// Widening this to include every light -- margin = max radius -- moves
+	// office-sunset from 74 wide lights to 3, and makes the frame *slower*:
+	// 33.9 -> 41.6 ms on the server room. The box then spans the whole scene,
+	// the cells coarsen to match, and the occupied ones hold far more lights
+	// than before. Fewer wide lights is not the goal; shorter per-point lists
+	// is, and a single uniform grid cannot have both here.
 	margin := quantile(radii, 0.75)
 	lo := vec.V{X: math.Inf(1), Y: math.Inf(1), Z: math.Inf(1)}
 	hi := vec.V{X: math.Inf(-1), Y: math.Inf(-1), Z: math.Inf(-1)}
@@ -227,11 +256,19 @@ func buildLightGrid(lights []GPULight) lightGrid {
 	}
 
 	var wide []uint32
+	wideEscaped, wideTooBig := 0, 0
 	cells := make([][]int, len(lights))
 	total := 0
 	for li := range lights {
 		c := cellsOf(li)
 		if c == nil {
+			p, r := pos[li], radii[li]+eps
+			if p.X-r < lo.X || p.Y-r < lo.Y || p.Z-r < lo.Z ||
+				p.X+r > hi.X || p.Y+r > hi.Y || p.Z+r > hi.Z {
+				wideEscaped++
+			} else {
+				wideTooBig++
+			}
 			wide = append(wide, uint32(li))
 			continue
 		}
@@ -260,6 +297,9 @@ func buildLightGrid(lights []GPULight) lightGrid {
 		}
 	}
 
+	if len(wide) > 0 {
+		lightGridWideEscaped, lightGridWideTooBig = wideEscaped, wideTooBig
+	}
 	return lightGrid{
 		Min:     lo,
 		InvCell: vec.V{X: 1 / cell.X, Y: 1 / cell.Y, Z: 1 / cell.Z},

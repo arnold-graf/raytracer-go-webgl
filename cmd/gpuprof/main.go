@@ -24,6 +24,7 @@ import (
 	"raytracer/internal/render"
 	"raytracer/internal/scene"
 	"raytracer/internal/sceneio"
+	"raytracer/internal/vec"
 	"raytracer/internal/webgpu"
 )
 
@@ -54,6 +55,8 @@ func main() {
 	ablate := flag.Bool("ablate", true, "run the feature ablation matrix after the baseline")
 	profile := flag.Bool("profile", false, "collect GPU shader workload counters (one profiled frame)")
 	dump := flag.String("dump", "", "write the final RGBA frame buffer to this file (for A/B pixel diffs)")
+	camVel := flag.String("cam-vel", "", "camera translation per frame as x,y,z (world units); the -cam-* pose is the END of the path")
+	camYawVel := flag.Float64("cam-yaw-vel", 0, "camera yaw per frame in degrees; the -yaw-deg pose is the END of the path")
 	mountains := flag.Bool("mountains", false, "use mountain-view camera preset (yaw=0°, villa valley view)")
 	aa := flag.Bool("aa", true, "enable adaptive anti-aliasing (two-pass), as the app does")
 	quant := flag.Uint("quant", 1, "color mode: 0 = 8-bit dither, 1 = 15-bit, 2 = crush, 3 = raw, 4 = path-tracer grain")
@@ -61,6 +64,21 @@ func main() {
 	clock := flag.Float64("time", 0, "animation clock in seconds (campfire sub-lights, flames, water ripples)")
 	bounce := flag.Int("bounce", 0, "traced indirect rays per primary diffuse hit (0 = off, as key 8 off)")
 	bounceAmb := flag.Float64("bounce-ambient", 0, "share of the ambient constant kept while -bounce is on")
+	bounceTemporal := flag.Bool("bounce-temporal", true, "accumulate the indirect term across frames (reprojected)")
+	bounceAtrous := flag.Int("bounce-atrous", 3, "edge-avoiding wavelet passes over the indirect term, 0..4")
+	bounceBlue := flag.Bool("bounce-blue", true, "low-discrepancy bounce direction sampler instead of white noise")
+	bounceHalf := flag.Bool("bounce-half", true, "gather the hemisphere on half the pixels per frame (inverting checkerboard)")
+	bounceHalfTile := flag.Bool("bounce-half-tile", true, "half rate at 8x8 workgroup granularity instead of per pixel")
+	bounceHistNearest := flag.Bool("bounce-hist-nearest", false, "nearest-tap history fetch instead of bilinear (A/B)")
+	bounceMinify := flag.Bool("bounce-minify", false, "discount reprojected history by how badly the fetch undersampled it")
+	bounceVelHist := flag.Bool("bounce-vel-history", true, "shorten the running mean while the camera moves")
+	bounceCoherent := flag.Bool("bounce-coherent", true, "rotate the bounce sampler per tile (coherent rays) instead of per pixel")
+	bounceSpread := flag.Float64("bounce-spread", 0.15, "fraction of the per-pixel rotation kept inside a coherent tile")
+	bounceTile := flag.Float64("bounce-tile", 4, "coherent sampling tile edge in pixels (0 = shader default)")
+	bounceAdapt := flag.Bool("bounce-adapt", true, "extra bounce rays where the previous frustum had no history")
+	bounceReuse := flag.Bool("bounce-reuse", false, "seed disoccluded pixels from a converged neighbour")
+	bounceClamp := flag.Float64("bounce-clamp", render.DefaultBounceClamp, "neighbourhood clamp width in standard deviations (0 = off)")
+	bounceShadowRR := flag.Float64("bounce-shadow-rr", render.DefaultBounceShadowRR, "display levels above which a bounce hit always traces a light's shadow ray (0 = trace every one)")
 	flag.Parse()
 
 	renderW, renderH := *width, *height
@@ -116,21 +134,36 @@ func main() {
 	aoData, aoOK := pb.BakeAO()
 	giMin, giMax, giOK := pb.LitBounds()
 	view := &render.View{
-		Scene:          sc,
-		Time:           *clock,
-		Shadow:         true,
-		Mirror:         true,
-		AO:             true,
-		AOData:         aoData,
-		AOok:           aoOK,
-		GIMin:          giMin,
-		GIMax:          giMax,
-		GIBoundsOK:     giOK,
-		AdaptiveAA:     *aa,
-		ColorQuant:     uint32(*quant),
-		BounceRays:     *bounce,
-		BounceAmbient:  *bounceAmb,
-		MaxBounceDepth: uint32(*depth),
+		Scene:             sc,
+		Time:              *clock,
+		Shadow:            true,
+		Mirror:            true,
+		AO:                true,
+		AOData:            aoData,
+		AOok:              aoOK,
+		GIMin:             giMin,
+		GIMax:             giMax,
+		GIBoundsOK:        giOK,
+		AdaptiveAA:        *aa,
+		ColorQuant:        uint32(*quant),
+		BounceRays:        *bounce,
+		BounceAmbient:     *bounceAmb,
+		BounceTemporal:    *bounceTemporal,
+		BounceAtrous:      *bounceAtrous,
+		BounceShadowRR:    *bounceShadowRR,
+		BounceClamp:       *bounceClamp,
+		BounceReuse:       *bounceReuse,
+		BounceAdapt:       *bounceAdapt,
+		BounceCoherent:    *bounceCoherent,
+		BounceTile:        *bounceTile,
+		BounceSpread:      *bounceSpread,
+		BounceMinify:      *bounceMinify,
+		BounceVelHistory:  *bounceVelHist,
+		BounceHistNearest: *bounceHistNearest,
+		BounceBlueNoise:   *bounceBlue,
+		BounceHalf:        *bounceHalf,
+		BounceHalfTile:    *bounceHalfTile,
+		MaxBounceDepth:    uint32(*depth),
 	}
 
 	buf := make([]byte, renderW*renderH*4)
@@ -144,12 +177,25 @@ func main() {
 	fmt.Printf("  bounce depth %d, adaptive AA %v%s\n\n", *depth, *aa, appConfigNote(renderW, renderH, *depth, *aa))
 	printSceneContext(sc)
 
+	motion := parseMotion(*camVel, *camYawVel)
+	if !motion.still() {
+		fmt.Printf("  camera motion: %+.3f,%+.3f,%+.3f per frame, yaw %+.2f deg/frame"+
+			"  (arriving at the -cam pose on the last frame)\n\n",
+			motion.vel.X, motion.vel.Y, motion.vel.Z, *camYawVel)
+	}
+
 	// Baseline at the configured camera.
-	base := bench(r, buf, cam, view, *warmup, *frames, false)
+	base := bench(r, buf, cam, view, *warmup, *frames, false, motion)
 	printTiming("baseline", base)
 
 	if *dump != "" {
-		r.Render(buf, cam, view, 1)
+		// With motion, bench's last frame is the one that arrived at the target
+		// pose carrying whatever history the path left behind -- which is the
+		// whole measurement. Re-rendering would give it a free still frame to
+		// re-converge in and hide exactly what we came to see.
+		if motion.still() {
+			r.Render(buf, cam, view, 1)
+		}
 		if err := os.WriteFile(*dump, buf, 0o644); err != nil {
 			log.Fatalf("dump frame: %v", err)
 		}
@@ -161,10 +207,16 @@ func main() {
 		fmt.Println("Shader counters (single profiled frame, counters add ~5-15%% GPU overhead):")
 		fmt.Println()
 		r.SetProfiling(true)
+		// Walk the same path the timing run did. A still frame appended after a
+		// moving sequence reprojects perfectly and reports no disocclusion at
+		// all, which is the opposite of what the counters are being asked.
+		pstep, prestore := motion.rewind(cam, *warmup+1)
 		for i := 0; i < *warmup; i++ {
 			r.Render(buf, cam, view, 1)
+			pstep()
 		}
 		r.Render(buf, cam, view, 1)
+		prestore()
 		r.SetProfiling(false)
 		t := r.LastTiming()
 		fmt.Print(webgpu.FormatGPUProfile(r.LastGPUProfile(), float64(t.GPU)/float64(time.Millisecond)))
@@ -190,7 +242,7 @@ func main() {
 		}
 		for _, c := range configs {
 			view.Mirror, view.Shadow, view.AO = c.mirror, c.shadow, c.aoFlag
-			t := bench(r, buf, cam, view, *warmup, *frames, false)
+			t := bench(r, buf, cam, view, *warmup, *frames, false, motion)
 			fmt.Printf("%-22s  %5.1fms %5.1fms %5.1fms %5.1fms %5.1fms %6.0f\n",
 				c.name,
 				ms(t.Pack), ms(t.Upload), ms(t.GPU), ms(t.Readback), ms(t.Total),
@@ -237,14 +289,64 @@ func appConfigNote(w, h int, depth uint, aa bool) string {
 		defaultRenderW, defaultRenderH, defaultBounceDepth)
 }
 
-func bench(r *webgpu.Renderer, buf []byte, cam *camera.Camera, view *render.View, warmup, n int, profile bool) webgpu.FrameTiming {
+// camMotion walks the camera between frames so temporal reprojection is
+// actually exercised. A fixed camera is the one case that hides ghosting
+// entirely, which is why every number measured before this existed was blind
+// to it.
+//
+// The authored -cam-* pose is the *end* of the path rather than the start, so a
+// still render at the same flags lands on the same pose and the two are
+// directly comparable: what separates them is what the temporal filter dragged
+// along behind it.
+type camMotion struct {
+	vel    vec.V
+	yawVel float64 // radians per frame
+}
+
+func (m camMotion) still() bool { return m.vel == (vec.V{}) && m.yawVel == 0 }
+
+func parseMotion(vel string, yawDegPerFrame float64) camMotion {
+	m := camMotion{yawVel: yawDegPerFrame * math.Pi / 180}
+	if vel != "" {
+		if _, err := fmt.Sscanf(vel, "%f,%f,%f", &m.vel.X, &m.vel.Y, &m.vel.Z); err != nil {
+			log.Fatalf("-cam-vel %q: want x,y,z", vel)
+		}
+	}
+	return m
+}
+
+// rewind backs the camera up so that frame n-1 lands on the authored pose, and
+// returns the per-frame step plus a restore for the caller (the ablation matrix
+// runs bench repeatedly and must start each run from the same place).
+func (m camMotion) rewind(cam *camera.Camera, n int) (step, restore func()) {
+	pos, yaw := cam.Pos, cam.Yaw
+	restore = func() { cam.Pos, cam.Yaw = pos, yaw }
+	if m.still() || n <= 1 {
+		return func() {}, restore
+	}
+	k := float64(n - 1)
+	cam.Pos = pos.Sub(m.vel.Scale(k))
+	cam.Yaw = yaw - m.yawVel*k
+	return func() {
+		cam.Pos = cam.Pos.Add(m.vel)
+		cam.Yaw += m.yawVel
+	}, restore
+}
+
+func bench(r *webgpu.Renderer, buf []byte, cam *camera.Camera, view *render.View, warmup, n int, profile bool, motion camMotion) webgpu.FrameTiming {
 	r.SetProfiling(profile)
+	step, restore := motion.rewind(cam, warmup+n)
+	defer restore()
 	for i := 0; i < warmup; i++ {
 		r.Render(buf, cam, view, 1)
+		step()
 	}
 	var acc webgpu.FrameTiming
 	for i := 0; i < n; i++ {
 		r.Render(buf, cam, view, 1)
+		if i < n-1 {
+			step()
+		}
 		t := r.LastTiming()
 		acc.Pack += t.Pack
 		acc.Upload += t.Upload

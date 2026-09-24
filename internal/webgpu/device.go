@@ -26,18 +26,42 @@ import (
 const (
 	fovScale = 0.5773502691896257 // tan(60deg / 2)
 	// WGSL Params size; must match trace_linked.wgsl (struct is padded to 16-byte alignment).
-	paramsSize   = 432
+	paramsSize   = 544
 	aaHitStride  = 4  // packed u32 fingerprint per pixel
 	hdrPixStride = 16 // vec4<f32> per pixel
 	// aa_dispatch: [workgroup_count_x, 1, 1, task_count].
 	aaDispatchBytes = 16
 	// Must match AA_RESOLVE_WG in types.wesl.
 	aaResolveWG = 64
-	// struct ShadowAux in types.wesl (std430, 192-byte stride), one per pixel.
+	// Must match BOUNCE_ATROUS_MAX in types.wesl: how many a-trous entry points
+	// the shader defines, and so the most passes a frame can run.
+	bounceAtrousMax = 4
+	// Bits of params.bounce_temporal; must match types.wesl.
+	bounceTemporalOn    = 1
+	bounceTemporalReset = 2
+	// params.bounce_flags bits; must match BOUNCE_FLAG_* in types.wesl.
+	bounceFlagBlue        = 1
+	bounceFlagHalf        = 2
+	bounceFlagHalfTile    = 4
+	bounceFlagHistNearest = 8
+	bounceFlagMinify      = 16
+	bounceFlagVelHistory  = 32
+	bounceFlagReuse       = 64
+	bounceFlagAdapt       = 128
+	bounceFlagCoherent    = 512
+	// Bits 2 and up of params.bounce_temporal carry a free-running frame
+	// counter; the sampler mixes it in so successive frames draw independent
+	// directions. Must match BOUNCE_TEMPORAL_FRAME_SHIFT in types.wesl.
+	bounceFrameShift = 2
+	// struct ShadowAux in types.wesl (std430), one per pixel.
 	// shadowAuxStride is the byte stride of one ShadowAux in types.wesl. It
-	// carries the reflection filter's per-pixel record too; there is no spare
-	// buffer binding for a second one. Two shadow channels (112) plus lobes (80).
-	shadowAuxStride = 192
+	// carries the reflection filter's per-pixel record too, and the diffuse
+	// bounce's reconstruction state; there is no spare buffer binding for
+	// either. Two shadow channels (112) plus lobes (80) plus bounce (80).
+	//
+	// At maxDim 1024 this buffer is 285 MB. That is the price of a third
+	// per-pixel filter in a megakernel with every Metal binding spoken for.
+	shadowAuxStride = 272
 	workgroupXY     = 8
 	// Six square portal captures (see texture.MaxCaptureDim).
 	maxCaptureDim = texture.MaxCaptureDim
@@ -113,6 +137,10 @@ type Renderer struct {
 	shadowPipelineH    *wgpu.ComputePipeline
 	shadowPipelineV    *wgpu.ComputePipeline
 	reflFillPipeline   *wgpu.ComputePipeline
+	bounceTemporalPipe *wgpu.ComputePipeline
+	bounceAtrousPipes  [4]*wgpu.ComputePipeline
+	bounceResolvePipe  *wgpu.ComputePipeline
+	bounceHist         bounceHistory
 	reflBlurH          *wgpu.ComputePipeline
 	reflBlurV          *wgpu.ComputePipeline
 	bind               *wgpu.BindGroup
@@ -743,6 +771,10 @@ func (r *Renderer) RenderSquare(buf []byte, size int, cam *camera.Camera, v *ren
 	// drain any in-flight pipelined frame first so it isn't clobbered or lost.
 	r.discardPending()
 	rp := r.buildRenderParams(v)
+	// The bounce's history is per-pixel and belongs to the main camera. A
+	// portal renders a different camera into the same buffers, so letting it
+	// run the filter would have each frame reproject into the other's history.
+	rp.bounceRays, rp.bounceAtrous, rp.bounceTemporal = 0, 0, 0
 	if err := r.render(buf[:size*size*4], cam, rp, size, size); err != nil {
 		for i := 0; i < size*size; i++ {
 			o := i * 4
@@ -765,6 +797,15 @@ func packParams(r *sceneCache, v *render.View) renderParams {
 	thinGlassGhost := false
 	bounceRays := uint32(0)
 	bounceAmbient := float32(0)
+	bounceAtrous := uint32(0)
+	bounceTemporal := uint32(0)
+	var bounceFilt [4]float32
+	bounceShadowRR := float32(0)
+	bounceFlags := uint32(0)
+	bounceClamp := float32(0)
+	bounceMotion := float32(0)
+	bounceTile := float32(0)
+	bounceSpread := float32(0)
 	aoEnabled := false
 	sky := 0
 	var (
@@ -795,6 +836,54 @@ func packParams(r *sceneCache, v *render.View) renderParams {
 		if v.BounceRays > 0 {
 			bounceRays = uint32(v.BounceRays)
 			bounceAmbient = float32(v.BounceAmbient)
+			bounceAtrous = uint32(min(max(v.BounceAtrous, 0), bounceAtrousMax))
+			if v.BounceTemporal {
+				bounceTemporal = 1
+			}
+			// A zero element means "unset", not "zero": every one of these is a
+			// denominator or a cap where zero disables the thing it tunes, and
+			// an all-zero block silently reduces the filter to a no-op that
+			// still costs six dispatches.
+			bounceShadowRR = float32(v.BounceShadowRR)
+			bounceClamp = float32(v.BounceClamp)
+			if v.BounceHistNearest {
+				bounceFlags |= bounceFlagHistNearest
+			}
+			if v.BounceMinify {
+				bounceFlags |= bounceFlagMinify
+			}
+			if v.BounceVelHistory {
+				bounceFlags |= bounceFlagVelHistory
+			}
+			if v.BounceReuse {
+				bounceFlags |= bounceFlagReuse
+			}
+			if v.BounceAdapt {
+				bounceFlags |= bounceFlagAdapt
+			}
+			if v.BounceCoherent {
+				bounceFlags |= bounceFlagCoherent
+				bounceTile = float32(v.BounceTile)
+				bounceSpread = float32(v.BounceSpread)
+			}
+			if v.BounceBlueNoise {
+				bounceFlags |= bounceFlagBlue
+			}
+			// Half rate leans on the temporal filter to cover the frame each
+			// pixel skips, so it is only offered when that filter is running.
+			if v.BounceHalf && v.BounceTemporal {
+				bounceFlags |= bounceFlagHalf
+				if v.BounceHalfTile {
+					bounceFlags |= bounceFlagHalfTile
+				}
+			}
+			for i := range bounceFilt {
+				if v.BounceFilter[i] != 0 {
+					bounceFilt[i] = float32(v.BounceFilter[i])
+				} else {
+					bounceFilt[i] = float32(render.DefaultBounceFilter[i])
+				}
+			}
 		}
 		aoEnabled = v.AO
 		sky = v.Scene.Env.Sky
@@ -825,6 +914,9 @@ func packParams(r *sceneCache, v *render.View) renderParams {
 		campfireParams: c.campfireParams, holes: c.holes, boxFaceTex: c.boxFaceTex, ao: c.ao, aoOK: c.aoOK && aoEnabled,
 		shadows: shadows, mirror: mirror, thinGlassGhost: thinGlassGhost, timeSec: timeSec, sky: sky,
 		bounceRays: bounceRays, bounceAmbient: bounceAmbient,
+		bounceAtrous: bounceAtrous, bounceTemporal: bounceTemporal, bounceFilt: bounceFilt,
+		bounceShadowRR: bounceShadowRR, bounceFlags: bounceFlags, bounceClamp: bounceClamp,
+		bounceMotion: bounceMotion, bounceTile: bounceTile, bounceSpread: bounceSpread,
 		bodyEnabled: bodyEnabled, bodyDir: bodyDir, bodyColor: bodyColor,
 		bodyCosRadius: bodyCosRadius, bodyGlow: bodyGlow,
 		ambientSky: ambientSky, ambientGround: ambientGround,
@@ -1203,6 +1295,28 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 		return fmt.Errorf("create reflection blur v pipeline: %w", err)
 	}
 
+	// The bounce reconstruction's six entry points, built through a helper
+	// rather than another rung of the release ladder above: six more manual
+	// unwinds would be six more places to forget one.
+	bouncePipes, err := r.buildEntryPipelines(shader, []string{
+		"bounce_temporal",
+		"bounce_atrous_0", "bounce_atrous_1", "bounce_atrous_2", "bounce_atrous_3",
+		"bounce_resolve",
+	})
+	if err != nil {
+		pipeline.Release()
+		aaClassifyPipeline.Release()
+		aaPipeline.Release()
+		shadowRadiusH.Release()
+		shadowRadiusV.Release()
+		shadowPipelineH.Release()
+		shadowPipelineV.Release()
+		reflFillPipeline.Release()
+		reflBlurH.Release()
+		reflBlurV.Release()
+		return err
+	}
+
 	if r.pipeline != nil {
 		r.pipeline.Release()
 	}
@@ -1233,6 +1347,20 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 	if r.reflBlurV != nil {
 		r.reflBlurV.Release()
 	}
+	if r.bounceTemporalPipe != nil {
+		r.bounceTemporalPipe.Release()
+	}
+	for i := range r.bounceAtrousPipes {
+		if r.bounceAtrousPipes[i] != nil {
+			r.bounceAtrousPipes[i].Release()
+		}
+	}
+	if r.bounceResolvePipe != nil {
+		r.bounceResolvePipe.Release()
+	}
+	r.bounceTemporalPipe = bouncePipes[0]
+	copy(r.bounceAtrousPipes[:], bouncePipes[1:5])
+	r.bounceResolvePipe = bouncePipes[5]
 	r.reflFillPipeline = reflFillPipeline
 	r.reflBlurH, r.reflBlurV = reflBlurH, reflBlurV
 	r.pipeline, r.aaClassifyPipeline, r.aaPipeline = pipeline, aaClassifyPipeline, aaPipeline
@@ -1240,6 +1368,27 @@ func (r *Renderer) buildPipelines(f shaders.Features) error {
 	r.shadowPipelineH, r.shadowPipelineV = shadowPipelineH, shadowPipelineV
 	r.feat, r.featValid = f, true
 	return nil
+}
+
+// buildEntryPipelines creates one compute pipeline per entry point, releasing
+// whatever it already built if any of them fails.
+func (r *Renderer) buildEntryPipelines(shader *wgpu.ShaderModule, entries []string) ([]*wgpu.ComputePipeline, error) {
+	out := make([]*wgpu.ComputePipeline, 0, len(entries))
+	for _, e := range entries {
+		pl, err := r.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
+			Label:   e + " pipeline",
+			Layout:  r.pipeLayout,
+			Compute: wgpu.ProgrammableStageDescriptor{Module: shader, EntryPoint: e},
+		})
+		if err != nil {
+			for _, p := range out {
+				p.Release()
+			}
+			return nil, fmt.Errorf("create %s pipeline: %w", e, err)
+		}
+		out = append(out, pl)
+	}
+	return out, nil
 }
 
 // syncPipelineFeatures recompiles the tracer when the scene gains or loses an
@@ -1296,6 +1445,19 @@ type renderParams struct {
 	thinGlassGhost   bool
 	bounceRays       uint32
 	bounceAmbient    float32
+	bounceAtrous     uint32
+	bounceTemporal   uint32
+	bounceFilt       [4]float32
+	bounceShadowRR   float32
+	bounceFlags      uint32
+	bounceClamp      float32
+	bounceMotion     float32
+	bounceTile       float32
+	bounceSpread     float32
+	prevCamPos       vec.V
+	prevFwd          vec.V
+	prevRight        vec.V
+	prevUp           vec.V
 	timeSec          float64
 	sky              int
 	// Visible celestial body (sun/moon disc) drawn in the sky. bodyDir points
@@ -1340,6 +1502,7 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 			return err
 		}
 	}
+	r.bounceHist.apply(cam, &p)
 	params := r.paramsBytes(cam, p, fw, fh)
 	if err := r.wb(r.params, 0, params[:]); err != nil {
 		return err
@@ -1523,7 +1686,22 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 // submitTrace encodes and submits one compute dispatch, copying the rendered
 // output (and, when profiling, the atomic counters) into dst. It does not wait
 // on the GPU; the returned submission index lets the caller poll for it later.
-func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveAA, softShadows, reflFilter, reflHalf bool) (wgpu.SubmissionIndex, error) {
+// submitTrace records the frame's whole compute chain. It takes the frame's
+// renderParams rather than a list of bools: the pass sequence is now five
+// optional stages deep and every one of them was already being read off `p` at
+// the call site.
+func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, p renderParams) (wgpu.SubmissionIndex, error) {
+	profiled := p.profileEnabled
+	adaptiveAA := p.adaptiveAA
+	softShadows := p.softShadows
+	reflFilter := p.reflFilter
+	reflHalf := p.reflHalf
+	// The reconstruction runs only when the bounce is on and something asked
+	// for it; with neither stage enabled the indirect term went inline at the
+	// hit and there is nothing held out to add back.
+	bounceAtrous := int(p.bounceAtrous)
+	bounceTemporal := p.bounceTemporal&bounceTemporalOn != 0
+	bounceFilter := p.bounceRays != 0 && (bounceAtrous > 0 || bounceTemporal)
 	if adaptiveAA {
 		// Empty task list, and an indirect header that dispatches nothing if
 		// aa_classify finds no edges at all.
@@ -1556,6 +1734,27 @@ func (r *Renderer) submitTrace(dst *wgpu.Buffer, fw, fh int, profiled, adaptiveA
 		pass.SetPipeline(r.reflBlurH)
 		pass.DispatchWorkgroups(gx, gy, 1)
 		pass.SetPipeline(r.reflBlurV)
+		pass.DispatchWorkgroups(gx, gy, 1)
+	}
+	if bounceFilter {
+		// Indirect reconstruction, between the reflection filter and the
+		// penumbra one. The indirect term is missing from hdr_pixels until
+		// bounce_resolve adds it back, and both the penumbra filter and AA
+		// classification read that buffer -- so this has to finish first or
+		// edges would be detected against a frame with no indirect light in it.
+		//
+		// Consecutive dispatches inside one compute pass see each other's
+		// storage writes, which is what lets the a-trous levels ping-pong
+		// through one record without a barrier between them.
+		if bounceTemporal {
+			pass.SetPipeline(r.bounceTemporalPipe)
+			pass.DispatchWorkgroups(gx, gy, 1)
+		}
+		for i := 0; i < bounceAtrous; i++ {
+			pass.SetPipeline(r.bounceAtrousPipes[i])
+			pass.DispatchWorkgroups(gx, gy, 1)
+		}
+		pass.SetPipeline(r.bounceResolvePipe)
 		pass.DispatchWorkgroups(gx, gy, 1)
 	}
 	if softShadows {
@@ -1685,7 +1884,7 @@ func (r *Renderer) render(buf []byte, cam *camera.Camera, p renderParams, fw, fh
 		return err
 	}
 	gpuStart := time.Now()
-	sub, err := r.submitTrace(r.read, fw, fh, p.profileEnabled, p.adaptiveAA, p.softShadows, p.reflFilter, p.reflHalf)
+	sub, err := r.submitTrace(r.read, fw, fh, p)
 	if err != nil {
 		return err
 	}
@@ -1724,7 +1923,7 @@ func (r *Renderer) renderPipelined(buf []byte, cam *camera.Camera, p renderParam
 	size := uint64(r.w * r.h * 4)
 	curSlot := r.pipeParity
 
-	sub, err := r.submitTrace(r.reads[curSlot], r.w, r.h, p.profileEnabled, p.adaptiveAA, p.softShadows, p.reflFilter, p.reflHalf)
+	sub, err := r.submitTrace(r.reads[curSlot], r.w, r.h, p)
 	if err != nil {
 		return err
 	}
@@ -1936,7 +2135,66 @@ func paramsBytesFor(cam *camera.Camera, p renderParams, fw, fh int, tex texState
 	// no packing games -- Params grew from 416 to 432 bytes to hold them.
 	putU32(out[416:420], p.bounceRays)
 	putF32(out[420:424], p.bounceAmbient)
+	putU32(out[424:428], p.bounceAtrous)
+	putU32(out[428:432], p.bounceTemporal)
+	// Previous frame's basis, for the temporal pass's reprojection.
+	putVec4(out[432:448], p.prevCamPos)
+	putVec4(out[448:464], p.prevFwd)
+	putVec4(out[464:480], p.prevRight)
+	putVec4(out[480:496], p.prevUp)
+	putF32(out[496:500], p.bounceFilt[0])
+	putF32(out[500:504], p.bounceFilt[1])
+	putF32(out[504:508], p.bounceFilt[2])
+	putF32(out[508:512], p.bounceFilt[3])
+	putF32(out[512:516], p.bounceShadowRR)
+	putU32(out[516:520], p.bounceFlags)
+	putF32(out[520:524], p.bounceClamp)
+	putF32(out[524:528], p.bounceMotion)
+	putF32(out[528:532], p.bounceTile)
+	putF32(out[532:536], p.bounceSpread)
 	return out
+}
+
+// bounceHistory is the frame-to-frame state the indirect reconstruction needs:
+// the previous camera basis to reproject against, and a counter that
+// decorrelates the sampler between frames. Both backends keep one, because both
+// drive the same passes off the same params block.
+type bounceHistory struct {
+	camPos, fwd, right, up vec.V
+	basisOK                bool
+	wasOn                  bool
+	frame                  uint32
+}
+
+// apply hands the frame the previous basis and decides whether the history
+// buffer may be trusted at all.
+//
+// The buffer is never cleared -- it holds whatever the last frame that ran the
+// filter left in it. Reprojecting across a gap (the toggle off and back, a
+// scene swap, the first frame after a resize) would blend this frame against an
+// estimate of something else, so any gap starts clean instead.
+func (b *bounceHistory) apply(cam *camera.Camera, p *renderParams) {
+	fwd, right, up := cam.Basis()
+	on := p.bounceRays != 0 && p.bounceTemporal&bounceTemporalOn != 0
+	if on {
+		p.prevCamPos, p.prevFwd = b.camPos, b.fwd
+		p.prevRight, p.prevUp = b.right, b.up
+		if b.basisOK {
+			// Translation plus a rotation term in the same units: a radian of
+			// yaw sweeps about as much of the frame as one focal length of
+			// travel, which is what fov_scale is.
+			turn := math.Acos(math.Min(1, math.Max(-1, fwd.Dot(b.fwd))))
+			p.bounceMotion = float32(cam.Pos.Sub(b.camPos).Len() + turn/fovScale)
+		}
+		if !b.basisOK || !b.wasOn {
+			p.bounceTemporal |= bounceTemporalReset
+		}
+		b.frame++
+		p.bounceTemporal |= b.frame << bounceFrameShift
+	}
+	b.camPos, b.fwd, b.right, b.up = cam.Pos, fwd, right, up
+	b.basisOK = true
+	b.wasOn = on
 }
 
 func (r *Renderer) paramsBytes(cam *camera.Camera, p renderParams, fw, fh int) [paramsSize]byte {
@@ -1999,6 +2257,17 @@ func (r *Renderer) Release() {
 	}
 	if r.pipeline != nil {
 		r.pipeline.Release()
+	}
+	if r.bounceTemporalPipe != nil {
+		r.bounceTemporalPipe.Release()
+	}
+	for i := range r.bounceAtrousPipes {
+		if r.bounceAtrousPipes[i] != nil {
+			r.bounceAtrousPipes[i].Release()
+		}
+	}
+	if r.bounceResolvePipe != nil {
+		r.bounceResolvePipe.Release()
 	}
 	if r.aaPipeline != nil {
 		r.aaPipeline.Release()

@@ -3,7 +3,7 @@
 // evaluates point lights and flickering campfires, samples baked ambient
 // occlusion, and assembles direct diffuse lighting (shade_diffuse).
 
-import package::types::{AO_ENABLED, AO_INDIRECT_ONLY, CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_KNEE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_SKIP_LEVELS, SHADOW_WIDEST_BLOCKER, SHADOW_WIDEST_EXACT, SHADOW_WIDTH_FLOOR, SHADOW_WIDTH_MEAN_POWER, ShadowAux, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
+import package::types::{AO_ENABLED, AO_INDIRECT_ONLY, BOUNCE_SHADOW_RR_MIN_P, CampfireParams, FEAT_CAMPFIRE, FEAT_PRIM_BOX, FEAT_PRIM_CONE, FEAT_PRIM_CYLINDER, FEAT_PRIM_LENS, FEAT_PRIM_PLANE, FEAT_PRIM_RING, FEAT_PRIM_SPHERE, FEAT_PRIM_TORUS, FEAT_TERRAIN, GHOST_SHADOW_TW, LIGHT_ATTEN_BASE, LIGHT_ATTEN_KNEE, LIGHT_ATTEN_QUADRATIC, LIGHT_CULL_EPS, Light, PRIM_BOX, PRIM_CONE, PRIM_CYLINDER, PRIM_FLAG_TRANSFORMED, PRIM_LENS, PRIM_PLANE, PRIM_RING, PRIM_SPHERE, Prim, RAY_EPSILON, SHADOW_NEAREST_BLOCKER, SHADOW_SKIP_LEVELS, SHADOW_WIDEST_BLOCKER, SHADOW_WIDEST_EXACT, SHADOW_WIDTH_FLOOR, SHADOW_WIDTH_MEAN_POWER, ShadowAux, ao_volume, campfires, holes, idx_tables, lights, params, terrains};
 import package::profile::{PROF_SHADOW_BLOCK, PROF_SHADOW_RAYS, prof_inc};
 import package::math::{display_step_levels, mix3, perlin, smoothstepf};
 import package::texture::{texture_eval};
@@ -321,6 +321,22 @@ var<private> sh_ao: f32 = 1.0;
 // light unattenuated or it puts back more than the frame deposited.
 var<private> sh_ao_direct: f32 = 1.0;
 
+// Russian-roulette state for shadow rays cast from bounce hits. sh_rr_on is set
+// only by shade_diffuse when its caller hands it a nonzero seed, which only
+// bounce_gather does; every other shading path leaves it false and traces every
+// shadow ray exactly as before. See BOUNCE_SHADOW_RR_MIN_P in types.wesl.
+var<private> sh_rr_on: bool = false;
+var<private> sh_rr_state: u32 = 0u;
+
+// PCG, the same one grain_pcg uses. Duplicated here rather than imported
+// because trace.wesl imports this module and the dependency cannot run both
+// ways.
+fn sh_rr_u01() -> f32 {
+    sh_rr_state = sh_rr_state * 747796405u + 2891336453u;
+    let word = ((sh_rr_state >> ((sh_rr_state >> 28u) + 4u)) ^ sh_rr_state) * 277803737u;
+    return f32((word >> 22u) ^ word) * (1.0 / 4294967296.0);
+}
+
 // The ambient term shade_diffuse actually deposited, after AO. ray_color reads
 // it to take the constant back out when the traced diffuse bounce is on: the
 // two are the same quantity estimated two ways -- indirect light arriving from
@@ -526,6 +542,10 @@ fn shadow_aux_snapshot(tw: vec3<f32>, n: vec3<f32>, depth: f32) -> ShadowAux {
         frac_m, pen_m, frac_m, 0.0, tw * sh_full_m * sh_ao_direct, 0.0,
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
+        vec3<f32>(0.0, 0.0, 0.0), 0.0,
+        // Bounce filter slots: ping, pong, history, history-write, prev geometry.
+        vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
+        vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), 0.0);
 }
 
@@ -765,6 +785,28 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
     if params.shadows == 0u {
         return lit + total;
     }
+    // Roulette, bounce hits only. `step_levels` is already the right importance
+    // measure: it is how far this light's contribution moves the pixel in
+    // display space, against what the point has accumulated so far. A light
+    // that would visibly shift the pixel gets p = 1 and is traced as always;
+    // a marginal one is traced sometimes and scaled up when it is.
+    //
+    // Dropping the light *entirely* on a miss, rather than keeping it
+    // unshadowed, is what makes this unbiased and keeps it non-negative:
+    // E[kept] = p * (total * V / p) + (1 - p) * 0 = total * V. Rouletting only
+    // the shadow *deficit* would have lower variance but can go negative on a
+    // fully blocked light, and clamping that back to zero puts the bias
+    // straight back.
+    var rr = 1.0;
+    if sh_rr_on && params.bounce_shadow_rr > 0.0 {
+        let p = clamp(step_levels / params.bounce_shadow_rr, BOUNCE_SHADOW_RR_MIN_P, 1.0);
+        if p < 1.0 {
+            if sh_rr_u01() >= p {
+                return lit;
+            }
+            rr = 1.0 / p;
+        }
+    }
     let blk = shadow_blocker_t(ep, ln, ldist);
     let t_block = blk.x;
     // 0 behind anything opaque, GLASS_SHADOW_TRANSMIT behind a casting pane.
@@ -774,10 +816,10 @@ fn add_point_light_raw(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3
         // outward as well as inward, so a lit pixel beside a shadow has to know
         // which light it would be losing.
         shadow_aux_note(hp, total, ldist, -1.0, light_r, pen_weight_scale, 0.0);
-        return lit + total;
+        return lit + total * rr;
     }
     shadow_aux_note(hp, total, ldist, t_block, light_r, pen_weight_scale, 1.0 - trans);
-    return lit + total * trans;
+    return lit + total * trans * rr;
 }
 
 fn add_point_light(lit: vec3<f32>, hp: vec3<f32>, albedo: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, light: Light, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32, shadow: bool) -> vec3<f32> {
@@ -999,6 +1041,7 @@ fn wide_span() -> vec2<u32> {
 
 fn shade_ghost(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> vec3<f32> {
     sh_record = false;
+    sh_rr_on = false;
     // Faint second-pane lobe: ambient + direct light, no shadow/AO/campfire rays.
     let tw_skip = vec3<f32>(GHOST_SHADOW_TW);
     var lit = alb * scene_ambient_at(hp, n);
@@ -1014,8 +1057,12 @@ fn shade_ghost(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>) -> ve
     return lit;
 }
 
-fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32, record: bool) -> vec3<f32> {
+// rr_seed nonzero turns on the bounce shadow roulette for this hit and seeds
+// it; zero traces every shadow ray. Only bounce_gather passes a seed.
+fn shade_diffuse(hp: vec3<f32>, alb: vec3<f32>, n: vec3<f32>, ep: vec3<f32>, tw: vec3<f32>, rd: vec3<f32>, spec: f32, shine: f32, record: bool, rr_seed: u32) -> vec3<f32> {
     shadow_aux_reset();
+    sh_rr_on = rr_seed != 0u;
+    sh_rr_state = rr_seed;
     sh_record = record && params.soft_shadows != 0u;
     let ambient = alb * scene_ambient_at(hp, n);
     var lit = ambient;

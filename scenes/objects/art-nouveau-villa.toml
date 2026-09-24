@@ -35,6 +35,8 @@
 # [vpl]
 # lights = 48
 # expand = 2.0
+# gain = 2
+# shadow_levels = 1000
 
 # Flatten the ground under the house. Parent scenes declare [[terrain.pad]] on
 # their [[terrain]] table (absolute fixed elevation for valley sites, relative

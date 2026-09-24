@@ -59,6 +59,7 @@ rough = 0.02
 transmit = 0.9
 specular = 0.5
 shininess = 150
+# shadow = true
 
 [[sphere]] # filament (warm emitter inside the orb)
 albedo = [9.0, 5.4, 2.2]

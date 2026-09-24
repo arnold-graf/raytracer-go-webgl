@@ -152,6 +152,102 @@
         "name": "_buffer_sizes"
       }
     ],
+    "bounce_atrous_0_": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 2,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "bounce_atrous_1_": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 2,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "bounce_atrous_2_": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 2,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "bounce_atrous_3_": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 2,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "bounce_resolve": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "hdr_pixels"
+      },
+      {
+        "index": 2,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 3,
+        "name": "pixels"
+      },
+      {
+        "index": 4,
+        "name": "_buffer_sizes"
+      }
+    ],
+    "bounce_temporal": [
+      {
+        "index": 0,
+        "name": "params"
+      },
+      {
+        "index": 1,
+        "name": "profile_counters"
+      },
+      {
+        "index": 2,
+        "name": "shadow_aux"
+      },
+      {
+        "index": 3,
+        "name": "_buffer_sizes"
+      }
+    ],
     "main_": [
       {
         "index": 0,
@@ -414,22 +510,22 @@
     "size12",
     "size13",
     "size14",
-    "size15",
-    "size16",
     "size17",
-    "size20",
-    "size21",
+    "size18",
+    "size19",
     "size22",
-    "size35",
-    "size36",
-    "size37",
-    "size38",
+    "size23",
+    "size24",
     "size39",
     "size40",
     "size41",
     "size42",
+    "size44",
     "size45",
-    "size46"
+    "size46",
+    "size47",
+    "size50",
+    "size51"
   ],
-  "arrayLengthField": "size46"
+  "arrayLengthField": "size51"
 }

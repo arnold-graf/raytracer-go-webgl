@@ -68,6 +68,19 @@ type Game struct {
 	bounce        bool
 	bounceRays    int
 	bounceAmbient float64
+	// Reconstruction for the bounce. Both default on: one sample per pixel of a
+	// hemisphere integral is not watchable raw, so the honest default for the
+	// toggle is the filtered version. RAYTRACER_BOUNCE_DENOISE=0 turns both off
+	// to show what is underneath.
+	bounceTemporal bool
+	bounceAtrous   int
+	bounceShadowRR float64
+	bounceClamp    float64
+	bounceAdapt    bool
+	bounceTile     float64
+	bounceSpread   float64
+	bounceBlue     bool
+	bounceHalf     bool
 	// colorQuant: 0 = 8-bit dither, 1 = 15-bit (default), 2 = crush (24 levels/ch),
 	// 4 = path-tracer grain. Key 5 cycles quantCycle; 3 (raw RGB) is reserved for
 	// portal capture and deliberately left out of the cycle.
@@ -187,8 +200,17 @@ func New(rw, rh int, sc *scene.Scene, basePlayerCfg camera.Config, scenePath, pl
 		ao:             true,
 		adaptiveAA:     true,
 		bounce:         false,
-		bounceRays:     envInt("RAYTRACER_BOUNCE_RAYS", 2, 1, 16),
+		bounceRays:     envInt("RAYTRACER_BOUNCE_RAYS", 1, 1, 16),
 		bounceAmbient:  envFloat("RAYTRACER_BOUNCE_AMBIENT", 0, 0, 1),
+		bounceTemporal: envInt("RAYTRACER_BOUNCE_DENOISE", 1, 0, 1) != 0,
+		bounceAtrous:   envInt("RAYTRACER_BOUNCE_ATROUS", 3, 0, 4),
+		bounceShadowRR: envFloat("RAYTRACER_BOUNCE_SHADOW_RR", render.DefaultBounceShadowRR, 0, 64),
+		bounceClamp:    envFloat("RAYTRACER_BOUNCE_CLAMP", render.DefaultBounceClamp, 0, 16),
+		bounceAdapt:    envInt("RAYTRACER_BOUNCE_ADAPT", 1, 0, 1) != 0,
+		bounceTile:     envFloat("RAYTRACER_BOUNCE_TILE", 4, 1, 16),
+		bounceSpread:   envFloat("RAYTRACER_BOUNCE_SPREAD", 0.15, 0, 1),
+		bounceBlue:     envInt("RAYTRACER_BOUNCE_BLUE", 1, 0, 1) != 0,
+		bounceHalf:     envInt("RAYTRACER_BOUNCE_HALF", 1, 0, 1) != 0,
 		colorQuant:     1,
 		buf:            make([]byte, rw*rh*4),
 		frame:          ebiten.NewImage(rw, rh),
@@ -323,6 +345,25 @@ func (g *Game) view() *render.View {
 		AdaptiveAA:     g.adaptiveAA,
 		BounceRays:     boolInt(g.bounce, g.bounceRays),
 		BounceAmbient:  g.bounceAmbient,
+		BounceTemporal: g.bounceTemporal,
+		BounceAtrous:   boolInt(g.bounceTemporal, g.bounceAtrous),
+		BounceShadowRR: g.bounceShadowRR,
+		BounceClamp:    g.bounceClamp,
+		// Shortens the running mean while the camera moves: -10% on the
+		// low-frequency error walking forwards, nothing backwards, free.
+		BounceVelHistory: true,
+		BounceAdapt:      g.bounceAdapt,
+		// Rays coherent within a 4x4 tile: -37% of the bounce for noise that
+		// only shows before the temporal filter has averaged a tile out.
+		BounceCoherent:  g.bounceTile != 1,
+		BounceTile:      g.bounceTile,
+		BounceSpread:    g.bounceSpread,
+		BounceBlueNoise: g.bounceBlue,
+		BounceHalf:      g.bounceHalf,
+		// Workgroup granularity always: the per-pixel checkerboard halves the
+		// ray count and saves 13%, because traced and skipped pixels share a
+		// SIMD group. Per workgroup it saves 37% for the same rays.
+		BounceHalfTile: true,
 		MaxBounceDepth: 4,
 	}
 }
@@ -901,8 +942,9 @@ func (g *Game) handleToggles() {
 		// thin-glass ghost, which now stays on: the ghost is a look, and this
 		// is the question of whether the renderer can afford GI at all.
 		g.bounce = !g.bounce
-		log.Printf("bounce: %s (%d ray(s)/hit, ambient kept %.2f)",
-			map[bool]string{true: "on", false: "off"}[g.bounce], g.bounceRays, g.bounceAmbient)
+		log.Printf("bounce: %s (%d ray(s)/hit, ambient kept %.2f, temporal %v, a-trous %d, half %v, blue %v, shadow-rr %.0f)",
+			map[bool]string{true: "on", false: "off"}[g.bounce], g.bounceRays, g.bounceAmbient,
+			g.bounceTemporal, g.bounceAtrous, g.bounceHalf, g.bounceBlue, g.bounceShadowRR)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit9) {
 		// Virtual point lights on/off. The set is generated once and attached or
@@ -1056,7 +1098,7 @@ func (g *Game) backendName() string {
 func (g *Game) statusLine() string {
 	if g.locked {
 		return fmt.Sprintf("mirror[1]:%s shadow[2]:%s AO[3]:%s noclip[4]:%s color[5]:%s npc[6]:%s AA[7]:%s bounce[8]:%s vpl[9]:%s px[-/+]:%d fps[H]:%s  HUD[0]  ESC release",
-			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), onOff(g.adaptiveAA), bounceLabel(g.bounce, g.bounceRays), onOff(vpl.Active(g.sc)), g.pixSize, capLabel(g.fpsCap))
+			onOff(g.mirror), onOff(g.shadow), onOff(g.ao), onOff(g.cam.NoClip), quantLabel(g.colorQuant), onOff(g.npcDebug), onOff(g.adaptiveAA), bounceLabel(g.bounce, g.bounceRays, g.bounceTemporal), onOff(vpl.Active(g.sc)), g.pixSize, capLabel(g.fpsCap))
 	}
 	return "click to capture mouse"
 }
@@ -1074,9 +1116,12 @@ func onOff(b bool) string {
 
 // bounceLabel shows the ray count alongside the state, because the count is the
 // whole cost of the feature and it is set from the environment rather than here.
-func bounceLabel(on bool, rays int) string {
+func bounceLabel(on bool, rays int, denoised bool) string {
 	if !on {
 		return "off"
+	}
+	if denoised {
+		return fmt.Sprintf("%dr+dn", rays)
 	}
 	return fmt.Sprintf("%dr", rays)
 }

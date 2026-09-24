@@ -21,11 +21,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"unsafe"
 
 	"raytracer/internal/camera"
 	"raytracer/internal/render"
 	"raytracer/internal/webgpu"
+	"raytracer/internal/webgpu/shaders"
 )
 
 //go:embed trace.metallib
@@ -33,6 +35,41 @@ var traceLib []byte
 
 //go:embed trace.metal.json
 var traceManifest []byte
+
+//go:embed trace.sha256
+var traceModulesSHA string
+
+// warnIfStale reports when the embedded Metal library was built from different
+// shader sources than the ones on disk.
+//
+// The two backends fail differently here and only one of them is loud. The
+// WebGPU path relinks itself -- shaders/resolve.go reruns link.sh whenever a
+// module is newer than trace_linked.wgsl -- so a .wesl edit is picked up by the
+// next `go run`. The Metal library is embedded, so the same edit changes
+// nothing at all until `sh internal/metal/gen.sh` is run *and* the binary is
+// rebuilt. Since -backend auto prefers Metal, the default experience of editing
+// a shader is that it silently does not take effect.
+//
+// That has cost real time more than once, so it is a warning rather than a
+// comment somewhere.
+func warnIfStale() {
+	dir, err := shaders.Dir()
+	if err != nil {
+		// No source tree next to the binary: a shipped build, where the
+		// embedded library is authoritative and there is nothing to compare.
+		return
+	}
+	live, err := shaders.ModulesSHA256(dir)
+	if err != nil {
+		return
+	}
+	if want := strings.TrimSpace(traceModulesSHA); want != "" && want != live {
+		log.Printf("metal: WARNING -- trace.metallib was built from different shader sources "+
+			"(embedded %s, on disk %s). Shader edits will NOT take effect on this backend. "+
+			"Run `sh internal/metal/gen.sh` and rebuild, or use -backend webgpu.",
+			want[:12], live[:12])
+	}
+}
 
 const (
 	// sizesBinding parks naga's runtime-array size table past the real
@@ -84,6 +121,7 @@ func New(w, h int) (*Renderer, error) {
 	if !Supported() {
 		return nil, fmt.Errorf("metal: no ray-tracing capable device")
 	}
+	warnIfStale()
 	maxDim := w
 	if h > maxDim {
 		maxDim = h

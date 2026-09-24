@@ -29,6 +29,8 @@ type Packer struct {
 	cache  sceneCache
 	maxDim int
 
+	bounceHist bounceHistory
+
 	packed             bool
 	captureW, captureH int
 	captureVer         uint64
@@ -53,6 +55,13 @@ type Frame struct {
 	SoftShadows   bool
 	ReflFilter    bool
 	ReflHalf      bool
+	// BounceFilter is on when the indirect term is held out of the pixel for
+	// the reconstruction passes. BounceTemporal and BounceAtrous say which of
+	// them run; with BounceFilter false the term went inline at the hit and
+	// none of them may run, or the frame loses its indirect light entirely.
+	BounceFilter   bool
+	BounceTemporal bool
+	BounceAtrous   int
 
 	// Acceleration structure inputs, in the packed BVH's own terms.
 	Nodes               []GPUBVHNode
@@ -128,6 +137,10 @@ func BindingSizes(maxDim int) map[uint32]uint64 {
 // bytes; the backend allocates them zeroed and the shader fills them.
 func (p *Packer) Pack(cam *camera.Camera, v *render.View, w, h int) *Frame {
 	rp := packParams(&p.cache, v)
+	// Same bookkeeping the wgpu path does in uploadFrame. Without it the Metal
+	// backend reprojects against a zero basis and reseeds the sampler
+	// identically every frame, so the filter runs and averages nothing.
+	p.bounceHist.apply(cam, &rp)
 	p.syncTextures()
 
 	c := &p.cache
@@ -140,6 +153,9 @@ func (p *Packer) Pack(cam *camera.Camera, v *render.View, w, h int) *Frame {
 		SoftShadows:         rp.softShadows,
 		ReflFilter:          rp.reflFilter,
 		ReflHalf:            rp.reflHalf,
+		BounceFilter:        rp.bounceRays != 0 && (rp.bounceAtrous > 0 || rp.bounceTemporal&bounceTemporalOn != 0),
+		BounceTemporal:      rp.bounceTemporal&bounceTemporalOn != 0,
+		BounceAtrous:        int(rp.bounceAtrous),
 		Nodes:               c.bvhNodes,
 		Templates:           c.instTemplates,
 		Instances:           c.instPlacements,

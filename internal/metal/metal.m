@@ -13,7 +13,10 @@
 
 #define MAX_BUFFERS 40
 #define MAX_BLAS 64
-#define MAX_KERNELS 12
+// One slot per entry in kernels.go's chain, which is now 16: main_, the three
+// reflection passes, the six bounce passes, the four penumbra passes and the
+// two AA passes.
+#define MAX_KERNELS 20
 
 // naga numbers a kernel's arguments in signature order, so the same buffer sits
 // at a different index in main_ than in aa_resolve; each kernel carries its own

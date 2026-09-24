@@ -29,15 +29,15 @@ type View struct {
 	// AOData is the baked ambient-occlusion volume; AOok is false when the scene
 	// has no finite geometry to occlude against. The backend uploads it only
 	// when both AOok and the AO toggle are set.
-	AOData    probe.AOData
-	AOok      bool
+	AOData probe.AOData
+	AOok   bool
 	// Bounds for the live GI probe grid: the built environment, excluding
 	// the outsized primitives that dominate the scene's raw extent. Set from
 	// probe.Probe.LitBounds. Zero-value GIBoundsOK falls back to the AO
 	// volume's own box.
 	GIMin, GIMax vec.V
 	GIBoundsOK   bool
-	AOVersion uint64 // bumps when AOData is replaced (e.g. after an async bake)
+	AOVersion    uint64 // bumps when AOData is replaced (e.g. after an async bake)
 
 	// ColorQuant selects the post-dither color depth: 0 = 8-bit dither, 1 = 15-bit (default),
 	// 2 = crush (24 levels/ch), 4 = path-tracer grain instead of the ordered dither.
@@ -63,10 +63,162 @@ type View struct {
 	// for the other instead of adding them.
 	BounceAmbient float64
 
+	// BounceTemporal accumulates the indirect term across frames, reprojecting
+	// the previous estimate through the camera's motion. This is what turns a
+	// 2-ray estimate into an effective sample count in the dozens while the
+	// camera is still.
+	BounceTemporal bool
+
+	// BounceAtrous is how many edge-avoiding wavelet passes filter what
+	// temporal accumulation leaves, 0..4. It is what covers the frames right
+	// after a disocclusion, when there is no history to reproject.
+	BounceAtrous int
+
+	// BounceShadowRR is the display-level contribution at which a light's
+	// shadow ray is always traced from a bounce hit; below it the ray is
+	// rouletted, unbiased, so the saving costs variance rather than accuracy.
+	// 0 traces every one. See DefaultBounceShadowRR.
+	BounceShadowRR float64
+
+	// BounceBlueNoise swaps the white-noise direction sampler for a
+	// low-discrepancy one (R2 over frames and samples, rotated by a
+	// screen-space interleaved-gradient offset). Same ray count, less variance.
+	BounceBlueNoise bool
+
+	// BounceHalf gathers a hemisphere on half the pixels each frame, in a
+	// checkerboard that inverts every frame; the rest keep their reprojected
+	// history. Requires BounceTemporal, and is ignored without it.
+	BounceHalf bool
+
+	// BounceHalfTile makes that checkerboard one 8x8 workgroup per cell rather
+	// than one pixel, so whole SIMD groups skip the gather instead of masking
+	// half their lanes.
+	BounceHalfTile bool
+
+	// BounceHistNearest forces the history fetch back to a single nearest tap,
+	// so the bilinear gather can be measured against what it replaced.
+	BounceHistNearest bool
+
+	// BounceMinify discounts a reprojected history sample by how badly the
+	// fetch undersampled it. Targets backing away, where the previous frame was
+	// magnified relative to now.
+	BounceMinify bool
+
+	// BounceVelHistory shortens the running mean in proportion to camera speed.
+	BounceVelHistory bool
+
+	// BounceReuse seeds a freshly disoccluded pixel from a converged neighbour
+	// on the same surface, rather than leaving it on its own one-or-two-sample
+	// estimate for the a-trous to smear.
+	BounceReuse bool
+
+	// BounceAdapt spends extra bounce rays on points that were outside the
+	// previous frame's frustum and so have no history to average.
+	BounceAdapt bool
+
+	// BounceCoherent rotates the bounce sampler per tile rather than per pixel,
+	// so neighbouring pixels trace near-parallel rays.
+	BounceCoherent bool
+
+	// BounceSpread is how much of the per-pixel rotation survives inside a
+	// coherent tile, 0..1. It is what stops a tile being 16 copies of one
+	// sample; see BOUNCE_SPREAD.
+	BounceSpread float64
+
+	// BounceTile is that tile's edge in pixels. 0 takes the shader default.
+	// Larger is faster and shares more of a tile's noise, which reads as cloud
+	// until the temporal filter has averaged the tile out.
+	BounceTile float64
+
+	// BounceClamp is how many standard deviations of the current neighbourhood
+	// the reprojected history may sit outside before it is pulled back in.
+	// 0 disables the clamp. See DefaultBounceClamp.
+	BounceClamp float64
+
+	// BounceFilter tunes the reconstruction. Any element left at zero takes the
+	// corresponding DefaultBounceFilter value, so a caller can set one knob
+	// without restating the rest.
+	BounceFilter [4]float64
+
 	// MaxBounceDepth caps mirror/glass/water recursion in the tracer (default 2 when 0).
 	// Raised while the spyglass is up so rays can pass through its lenses and scene glass.
 	MaxBounceDepth uint32
 }
+
+// DefaultBounceFilter is the reconstruction's tuning, indexed as the shader's
+// params.bounce_filt: (temporal alpha floor, max history, phi_normal,
+// phi_depth).
+//
+//	alpha 0.05   Floor on the newest frame's weight in the running mean. Below
+//	             the 1/(len+1) true-average rate it does nothing; above it, it
+//	             is what stops a *stale* history from outvoting a real lighting
+//	             change forever. 0.05 is a 20-frame effective window.
+//	history 32   Cap on the running mean's length. SVGF ships 32 for the same
+//	             reason: an uncapped mean keeps converging, which sounds good
+//	             until the light moves and the pixel takes a thousand frames to
+//	             notice. It also bounds how wrong a bad reprojection can be.
+//	normal 64    Exponent on dot(n, n_tap). Steep: two surfaces at 10 degrees
+//	             already share almost no indirect light in a corner, which is
+//	             exactly where over-blurring shows as a glow across the seam.
+//	depth 0.05   Relative depth tolerance for a tap. Relative, not absolute,
+//	             because these scenes span 200 world units and a fixed epsilon
+//	             is either useless near the camera or blind far from it.
+var DefaultBounceFilter = [4]float64{0.05, 32, 64, 0.05}
+
+// DefaultBounceShadowRR is where a bounce hit's shadow rays stop being traced
+// unconditionally, in display levels.
+//
+// It is a variance/time dial, not a quality one: the estimator is unbiased at
+// any setting, so raising it does not darken or brighten anything, it only
+// moves more of the indirect term's shadowing into noise for the a-trous pass
+// to absorb.
+//
+// Swept on the villa hearth at 1024x640, interleaved, against tracing every
+// ray. The cost column is RMS deviation from a 16-ray reference *with no
+// temporal history*, which is the honest case -- a settled camera hides this
+// entirely:
+//
+//	 0   233.0 ms          RMS 0.00894   trace every shadow ray
+//	12   207.7 ms (-10.8%) RMS 0.00890
+//	24   197.9 ms (-15.1%) RMS 0.00892   ← default
+//	48   193.2 ms (-17.1%) RMS 0.00913   first measurable variance, little left to win
+//
+// 24 is where the curve flattens. Past it the saving is 2% and the noise starts
+// to move. The same sweep on the office atrium is only -2.8%, because bounce
+// hits there already cast 0.54 shadow rays each and there is nothing to
+// roulette -- the win is specific to dim interiors with many small lights,
+// which is exactly where the bounce was most expensive.
+var DefaultBounceShadowRR = 24.0
+
+// DefaultBounceClamp is the neighbourhood clamp's width, in standard deviations
+// of the local spread. **Off by default, because it was measured not to work
+// here**, and the reason is worth keeping.
+//
+// Clamping the reprojected history to the current neighbourhood is the standard
+// anti-ghosting tool, and it assumes the neighbourhood is a more trustworthy
+// picture of "what is here now" than the history is. At 2 samples per pixel it
+// is not. The bias that actually shows up under motion is a broad, smooth ~0.4
+// display levels across a large surface; the 3x3 neighbourhood it would be
+// compared against has a standard deviation of several levels. The clamp cannot
+// see the error, and all it does is throw away temporal convergence.
+//
+// Measured on the villa hearth, moving backwards at 0.4 units/frame. The middle
+// column is the ghosting the clamp is supposed to remove:
+//
+//	gamma   still low-freq   moving low-freq
+//	0             0.076            0.403
+//	1.25          0.678            0.474
+//	2             0.300            0.415
+//	3             0.158            0.405
+//
+// The moving column barely moves at any width, while the still column degrades
+// by up to 9x. Every apparent "improvement" in a ghosting-over-floor ratio was
+// the floor rising, not the ghosting falling.
+//
+// Kept, because the argument changes at higher sample counts: the tool is sound
+// and it is the neighbourhood's variance that is not. Raise it if the bounce
+// ever runs at 8+ rays.
+var DefaultBounceClamp = 0.0
 
 // Renderer is the drawing backend the app depends on. Render fills buf
 // (len = W*H*4, RGBA) by rendering v from cam. pixSize is a quality/speed knob

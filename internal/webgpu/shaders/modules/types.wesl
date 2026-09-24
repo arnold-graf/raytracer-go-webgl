@@ -98,7 +98,209 @@ struct Params {
     // the comparison worth looking at; 1 adds the bounce on top and double-counts
     // indirect light on purpose.
     bounce_ambient: f32,
+    // bounce_atrous: how many edge-avoiding wavelet passes run over the
+    // indirect term, 0..BOUNCE_ATROUS_MAX. 0 leaves it unfiltered spatially.
+    // Its parity also says which of bounce/bounce_h holds the final result.
+    bounce_atrous: u32,
+    // bounce_temporal: bit 0 enables reprojection and accumulation; bit 1 says
+    // this frame must ignore whatever history the buffer holds (first frame
+    // after a resize, a scene swap, or the toggle coming on). Bits 2 and up are
+    // a free-running frame counter, which is what decorrelates the sampler
+    // between frames -- see BOUNCE_TEMPORAL_FRAME_SHIFT.
+    bounce_temporal: u32,
+    // The previous frame's camera basis, for reprojection. Orthonormal, so
+    // inverting pixel_ray_dir is three dot products.
+    prev_cam_pos: vec4<f32>,
+    prev_fwd: vec4<f32>,
+    prev_right: vec4<f32>,
+    prev_up: vec4<f32>,
+    // (temporal_alpha, max_history, phi_normal, phi_depth).
+    bounce_filt: vec4<f32>,
+    // bounce_shadow_rr: the display-level contribution at which a light's
+    // shadow ray is *always* traced from a bounce hit. Below it the ray is
+    // rouletted; 0 disables the roulette and traces every one, as before.
+    // See BOUNCE_SHADOW_RR_MIN_P.
+    bounce_shadow_rr: f32,
+    // bounce_flags: BOUNCE_FLAG_* below.
+    bounce_flags: u32,
+    // bounce_clamp: how many standard deviations of the current neighbourhood
+    // the reprojected history may sit outside before it is pulled back in.
+    // 0 disables the clamp, which is what the filter shipped with. See
+    // BOUNCE_CLAMP_* below.
+    bounce_clamp: f32,
+    // bounce_motion: how far the camera moved last frame, in world units, plus
+    // a rotation term expressed the same way. Drives BOUNCE_FLAG_VEL_HISTORY.
+    bounce_motion: f32,
+    // bounce_tile: edge in pixels of the coherent sampling tile. A uniform and
+    // not a constant because a shader constant cannot be swept without
+    // regenerating the Metal library, and this is a look knob.
+    bounce_tile: f32,
+    // bounce_spread: how much of the per-pixel rotation survives inside a
+    // coherent tile, 0..1. 0 gives every pixel in the tile one identical
+    // sample; 1 is the per-pixel sampler with no coherence at all.
+    bounce_spread: f32,
 };
+
+// A clamped history is one the reprojection got wrong, so it should stop being
+// treated as 32 frames of evidence. BOUNCE_CLAMP_TRUST is the share of the
+// history length that survives when the clamp bites hard, which is what lets a
+// pixel snap back instead of easing out of the error over the ~20 frames the
+// alpha floor would otherwise take.
+const BOUNCE_CLAMP_TRUST: f32 = 0.25;
+
+// How far the clamp has to move a value, relative to the neighbourhood's own
+// spread, before that trust penalty applies. Below this the clamp is just
+// trimming noise and the history is fine.
+const BOUNCE_CLAMP_BITE: f32 = 0.5;
+
+// BOUNCE_FLAG_BLUE swaps the hash-per-sample white-noise direction sampler for
+// a low-discrepancy one: an R2 sequence over (frame, sample) Cranley-Patterson
+// rotated by a screen-space interleaved-gradient offset. Same ray count, better
+// distributed, so less variance for the denoiser to remove.
+const BOUNCE_FLAG_BLUE: u32 = 1u;
+
+// BOUNCE_FLAG_HALF traces the hemisphere on half the pixels each frame, in a
+// checkerboard that inverts every frame. The other half keeps its reprojected
+// history, or is filled from its neighbours where it has none.
+const BOUNCE_FLAG_HALF: u32 = 2u;
+
+// BOUNCE_FLAG_HALF_TILE makes that checkerboard one 8x8 workgroup per cell
+// instead of one pixel. A per-pixel checkerboard halves the ray count and
+// almost nothing else: traced and skipped pixels share a 32-lane SIMD group, so
+// the group still walks the gather and the skipped lanes are merely masked off.
+// Deciding per workgroup means whole SIMD groups skip it.
+const BOUNCE_FLAG_HALF_TILE: u32 = 4u;
+
+// BOUNCE_FLAG_HIST_NEAREST forces the history fetch back to a single nearest
+// tap, so bilinear can be measured against what it replaced.
+const BOUNCE_FLAG_HIST_NEAREST: u32 = 8u;
+
+// BOUNCE_FLAG_MINIFY discounts a history sample by how badly the fetch is
+// undersampling it, on the theory that backing away magnifies the previous
+// frame so a 2x2 tap point-samples a wider footprint than it covers.
+//
+// **Off by default: measured to do nothing.** Front office, backing away at
+// 0.4 units/frame, low-frequency error in linear radiance: 0.889 without,
+// 0.894 with. The theory is sound and the mechanism is not what is wrong here
+// -- backing away is worst because it continuously reveals new floor at the
+// bottom of frame, so that band never accumulates any history to undersample.
+const BOUNCE_FLAG_MINIFY: u32 = 16u;
+
+// BOUNCE_FLAG_COHERENT rotates the low-discrepancy sampler per *tile* rather
+// than per pixel, so neighbouring pixels trace near-parallel bounce rays.
+//
+// Incoherence is the single largest measured inefficiency in the renderer.
+// Villa hearth, 2 rays, same ray count and same shading: 157.2 ms of bounce
+// with per-pixel rotation against 69.2 ms with none at all. 88 ms of a 201 ms
+// frame is threads in a SIMD group walking different parts of the tree and
+// touching different geometry at the far end.
+//
+// Taking the rotation off entirely is not an option -- it is what decorrelates
+// neighbouring pixels, and without it a tile's pixels all sample the same
+// direction and share one estimate. Rotating per tile keeps that correlation
+// *inside* a tile, where the a-trous is about to average over it anyway, while
+// the frame counter keeps successive frames independent so the temporal mean
+// still converges. Spatially correlated, temporally decorrelated: the opposite
+// of the usual arrangement, and it costs nothing to try.
+const BOUNCE_FLAG_COHERENT: u32 = 512u;
+
+// Default tile edge for that rotation, overridden by params.bounce_tile. The
+// knob trades coherence against how much of a tile's noise is shared. Villa hearth, 2 rays, bounce cost and
+// RMS against a 16-ray reference, the fresh column being 4 frames of history --
+// the case with no temporal averaging to hide the correlation:
+//
+//	tile   bounce ms   settled    fresh   tile spread
+//	1         154.8    0.00941  0.00919     --         per-pixel, what this replaces
+//	2         131.3    0.00941  0.00930    0.42
+//	4          97.0    0.00947  0.00984    0.86        <- default
+//	8          69.0    0.00959  0.01154    1.72        visibly blotchy when fresh
+//
+// The cloud a tile produces is not really a sampling artifact, it is a *count*
+// one. With one rotation per tile, all 16 pixels of a 4x4 draw the same
+// direction and return the same estimate, so the a-trous averaging over that
+// tile has 16 copies of one sample to work with rather than 16 samples. The
+// tile's effective sample count is 1.
+//
+// BOUNCE_SPREAD fixes that without giving the coherence back. Each pixel keeps
+// a *fraction* of its own rotation on top of the tile's, so the tile's rays
+// span a small cone instead of a single direction: near enough to walk the same
+// part of the tree, far enough apart that averaging them means something.
+const BOUNCE_COHERENT_TILE: f32 = 2.0;
+
+// BOUNCE_FLAG_ADAPT spends extra rays on a point that was outside the previous
+// frame's frustum, and so has no history to average however long it waits.
+//
+// Backing away widens the view, so a border band around the whole frame is new
+// every frame: measured at 12.1% of pixels at 0.4 units/frame against 0.2%
+// walking forwards, which is the whole of that direction's asymmetry. Those
+// pixels cannot be helped by reuse -- the band is deeper than any sane search
+// -- and cannot be helped by waiting, because the next frame reveals a fresh
+// one. Samples are the only thing that reaches them.
+const BOUNCE_FLAG_ADAPT: u32 = 128u;
+
+// Ray multiplier for such a pixel. At 12% of the frame, 4x costs about a third
+// more bounce rays and buys the band the convergence the rest of the frame gets
+// from 30 frames of accumulation.
+const BOUNCE_ADAPT_BOOST: u32 = 4u;
+
+// BOUNCE_FLAG_REUSE seeds a freshly disoccluded pixel from a converged
+// neighbour instead of leaving it on its own one-or-two-sample estimate.
+//
+// **Off by default: measured worse.** It finds a usable neighbour for 0.8% of
+// the pixels that need one backing away (610 of 79,242), because the region is
+// a border band far deeper than the search, and every one of its neighbours is
+// in the same band with no history either. Walking forwards it fires on 96% of
+// a much smaller set and makes that direction *worse* -- 0.365 to 1.698 -- by
+// planting a neighbour's value across a lighting gradient the plane test cannot
+// see. Same surface is not the same lighting, and the a-trous at least has a
+// luminance edge-stop where this has none.
+const BOUNCE_FLAG_REUSE: u32 = 64u;
+
+// How much history a reused estimate is credited with. It is a neighbour's
+// answer, not this pixel's, so it must not arrive already converged: seeding
+// the value kills the noise burst, and the low length keeps alpha high so the
+// pixel's own samples overwrite the borrowed one within a few frames. Seeding
+// the *length* as well would trade a noise burst for a smear.
+const BOUNCE_REUSE_LEN: f32 = 4.0;
+
+// Minimum history a neighbour must have before it is worth borrowing from.
+// Below this it is barely better converged than the pixel doing the borrowing.
+const BOUNCE_REUSE_MIN_LEN: f32 = 6.0;
+
+// How far off the borrower's surface plane a neighbour may sit, relative to
+// depth. A plane test, not a depth test: the floor is the surface this exists
+// for and it is seen at a grazing angle, where depth changes fast along the
+// surface but offset from the plane does not.
+const BOUNCE_REUSE_PLANE_REL: f32 = 0.02;
+
+// BOUNCE_FLAG_VEL_HISTORY shortens the running mean while the camera moves. A
+// 32-frame window at 0.4 units/frame reaches back over 12 world units of camera
+// travel, and every one of those frames was resampled into this one.
+const BOUNCE_FLAG_VEL_HISTORY: u32 = 32u;
+
+// How hard camera speed shortens the history, in inverse world-units per frame.
+// eff = max_history / (1 + K * speed), so 0.4 units/frame at K = 7.5 takes a
+// 32-frame window down to 8.
+const BOUNCE_MOTION_K: f32 = 7.5;
+
+// Ceiling on the minification discount, so a grazing surface whose depth ratio
+// explodes cannot throw the history away entirely.
+const BOUNCE_MINIFY_MAX: f32 = 8.0;
+
+// BOUNCE_TEMPORAL_ON / _RESET are the bits of params.bounce_temporal.
+const BOUNCE_TEMPORAL_ON: u32 = 1u;
+const BOUNCE_TEMPORAL_RESET: u32 = 2u;
+// Where the frame counter starts inside params.bounce_temporal. It is packed
+// into the flag word rather than given a field because it is only ever read
+// through the same uniform the flags are, and Params has no cheap 16-byte hole
+// left.
+const BOUNCE_TEMPORAL_FRAME_SHIFT: u32 = 2u;
+
+// BOUNCE_ATROUS_MAX is how many a-trous entry points exist. Each doubles its
+// hole size, so n passes reach a radius of 2*(2^n - 1) pixels for a fixed 5x5
+// tap count each -- the same separable-cost argument the penumbra filter makes
+// in soft-shadows.md.
+const BOUNCE_ATROUS_MAX: u32 = 4u;
 
 // Prim mirrors GPUPrimitive in scene.go (std430, 144-byte stride).
 struct Prim {
@@ -411,6 +613,39 @@ struct ShadowAux {
     // every shadow beside a window.
     lobe_normal: vec3<f32>,
     lobe_depth: f32,
+
+    // --- diffuse bounce filter ---
+    //
+    // Same argument as the reflection filter above: there is no spare buffer
+    // binding for a record of its own, so the indirect term's whole
+    // reconstruction pipeline rides here. Five vec4s, 80 bytes per pixel.
+    //
+    // bounce/bounce_h are the a-trous ping and pong. xyz is indirect radiance
+    // and w carries the temporal history length forward through the passes,
+    // which is what the filter uses in place of SVGF's stored luminance
+    // moments: a short history means the estimate is untrustworthy and should
+    // be filtered hard, which is the same signal variance was providing.
+    bounce: vec3<f32>,
+    bounce_len: f32,
+    bounce_h: vec3<f32>,
+    bounce_len_h: f32,
+
+    // The temporal history proper. bounce_temporal *reads* hist at the
+    // reprojected pixel and *writes* hist_w at its own, so the two never alias
+    // inside one dispatch; bounce_resolve copies w -> hist at end of frame.
+    // That split is what makes the reprojection safe without ping-ponging the
+    // whole record on frame parity.
+    bounce_hist: vec3<f32>,
+    bounce_hist_len: f32,
+    bounce_hist_w: vec3<f32>,
+    bounce_hist_len_w: f32,
+
+    // Last frame's shading normal and camera distance, written by
+    // bounce_resolve after everything else has read this frame's. Reprojection
+    // compares against these to decide whether the pixel it landed on was
+    // looking at the same surface.
+    bounce_prev_n: vec3<f32>,
+    bounce_prev_z: f32,
 };
 
 @group(0) @binding(18)
@@ -611,7 +846,6 @@ const DOCUMENT_TEX_H: u32 = 512u;
 const AO_ENABLED: u32 = 1u;
 const AO_INDIRECT_ONLY: u32 = 2u;
 
-
 const RAY_EPSILON: f32 = 1e-4;
 // Nudge ray origins off surfaces before shadow and bounce rays.
 const SURFACE_EPSILON: f32 = 5e-4;
@@ -677,6 +911,39 @@ const LIGHT_CULL_EPS: f32 = 0.0025;
 // see the note at the gate in shade.wesl for why that cannot be decided per
 // pixel against `lit`.
 const SHADOW_SKIP_LEVELS: f32 = 1.0;
+
+// --- bounce shadow roulette ---
+//
+// Shadow rays cast *from bounce hits* are the single largest cost the traced
+// indirect term carries. Measured in the villa at the hearth, 1024x640: the
+// bounce adds 192 ms, and 136 ms of that (71%) is shadow rays -- each bounce ray
+// provokes 3.09 of them, because in a dark room SHADOW_SKIP_LEVELS' display-space
+// gate never fires and every one of the fire's sub-lights counts as significant.
+//
+// The obvious saving is to raise that threshold for bounce hits, and it is a
+// trap. The note on SHADOW_SKIP_LEVELS above records why: a threshold on a
+// smoothly varying quantity does not fire per pixel, it fires on an iso-surface
+// around each light, "drawing a hard arc across every wall in range where
+// shadows abruptly stop being traced". Reported once already as round hard rings
+// of light. Raising the same threshold at bounce hits would draw the same rings
+// in the indirect term.
+//
+// So the decision is randomised instead. Each light's shadow ray is kept with
+// probability p proportional to how much that light's shadow could shift the
+// pixel, and a kept light is scaled by 1/p: an unbiased estimator of exactly
+// what the full loop computes. The iso-surface becomes white noise, and white
+// noise is what the a-trous pass is already there to remove. Nothing in the
+// frame is quietly darkened or brightened; the mean is preserved by
+// construction.
+//
+// BOUNCE_SHADOW_RR_MIN_P floors the probability, which bounds the variance: a
+// kept light is amplified by at most 1/0.25 = 4x, and only lights already worth
+// a few display levels are ever amplified at all.
+//
+//	0.15 → cheaper, visible sparkle on the first frames after a disocclusion
+//	0.25 → current default
+//	0.5  → barely cheaper than tracing every ray
+const BOUNCE_SHADOW_RR_MIN_P: f32 = 0.25;
 
 // Throughput handed to the ghost (second glass pane) lighting pass. Small enough
 // that every light's shadow test folds to "not worth a ray", which is what makes

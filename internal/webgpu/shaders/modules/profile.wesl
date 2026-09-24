@@ -38,7 +38,12 @@ const PROF_AA_SHADE: u32 = 23u;
 // Indirect rays cast by the diffuse bounce (key 8). Zero when it is off, so the
 // counter doubles as a check that the toggle reached the shader.
 const PROF_BOUNCE_RAYS: u32 = 24u;
-const PROF_COUNTER_COUNT: u32 = 25u;
+// Pixels whose reprojection found no history this frame, and of those, the ones
+// spatial reuse found a neighbour for. Together they say whether a disocclusion
+// fix is aimed at a band or at half the screen.
+const PROF_BOUNCE_NOHIST: u32 = 25u;
+const PROF_BOUNCE_REUSE: u32 = 26u;
+const PROF_COUNTER_COUNT: u32 = 27u;
 
 fn prof_inc(idx: u32, delta: u32) {
     if (params.profile_enabled != 0u && idx < PROF_COUNTER_COUNT) {

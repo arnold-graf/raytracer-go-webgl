@@ -44,6 +44,11 @@ func resolveSource() string {
 	return linkedWGSL
 }
 
+// Dir returns the modules/ parent directory when the source tree is present
+// next to the binary, so callers can compare live sources against what they
+// embedded. It fails on a shipped build, where there is nothing to compare.
+func Dir() (string, error) { return shaderDir() }
+
 func shaderDir() (string, error) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

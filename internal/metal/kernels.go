@@ -17,7 +17,10 @@ import (
 // The dispatch chain, in the order internal/webgpu submits it: main_, the
 // reflection filter, the four separable penumbra passes and aa_classify share
 // one encoder so each sees the last one's writes; aa_resolve runs in its own,
-// dispatched indirectly from the task list aa_classify built.
+// dispatched indirectly from the task list aa_classify built. The six bounce
+// passes sit between the reflection filter and the penumbra one, because the
+// indirect term is missing from hdr_pixels until bounce_resolve puts it back
+// and both the penumbra filter and aa_classify read that buffer.
 //
 // Only main_ and aa_resolve traverse, so only they need the intersection
 // functions linked and an rt_handle argument buffer.
@@ -31,6 +34,15 @@ var chain = []struct {
 	{"refl_fill", 8, 8, -1, false},
 	{"refl_blur_h", 8, 8, -1, false},
 	{"refl_blur_v", 8, 8, -1, false},
+	{"bounce_temporal", 8, 8, -1, false},
+	// Trailing underscore for the same reason main_ has one: naga mangles an
+	// entry point whose name ends in a digit, because _<n> is its own
+	// disambiguation suffix. The WGSL names have no underscore.
+	{"bounce_atrous_0_", 8, 8, -1, false},
+	{"bounce_atrous_1_", 8, 8, -1, false},
+	{"bounce_atrous_2_", 8, 8, -1, false},
+	{"bounce_atrous_3_", 8, 8, -1, false},
+	{"bounce_resolve", 8, 8, -1, false},
 	{"shadow_radius_h", 8, 8, -1, false},
 	{"shadow_radius_v", 8, 8, -1, false},
 	{"shadow_soften_h", 8, 8, -1, false},
@@ -141,6 +153,21 @@ func enabledChain(f *webgpu.Frame) []C.int {
 			v = f.SoftShadows
 		case "aa_classify", "aa_resolve":
 			v = f.AdaptiveAA
+		case "bounce_temporal":
+			v = f.BounceFilter && f.BounceTemporal
+		case "bounce_atrous_0_":
+			v = f.BounceFilter && f.BounceAtrous > 0
+		case "bounce_atrous_1_":
+			v = f.BounceFilter && f.BounceAtrous > 1
+		case "bounce_atrous_2_":
+			v = f.BounceFilter && f.BounceAtrous > 2
+		case "bounce_atrous_3_":
+			v = f.BounceFilter && f.BounceAtrous > 3
+		case "bounce_resolve":
+			// Not optional once anything was held out: without it the pixel
+			// keeps the ambient term this frame already subtracted and never
+			// gets the indirect light that replaced it.
+			v = f.BounceFilter
 		}
 		if v {
 			on[i] = 1

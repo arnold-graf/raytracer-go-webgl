@@ -3,8 +3,8 @@
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
-import package::types::{AA_RESOLVE_WG, GLOSSY_MIN_CONTRIB, HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, ShadowAux, aa_dispatch, aa_hits, aa_list, hdr_pixels, params, pixels, prims, shadow_aux, waters};
-import package::profile::{PROF_AA_GEOM, PROF_AA_SHADE, PROF_AA_TASKS, PROF_BOUNCE_RAYS, PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MAX_SEGS, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc, prof_max};
+import package::types::{AA_RESOLVE_WG, BOUNCE_ADAPT_BOOST, BOUNCE_CLAMP_BITE, BOUNCE_CLAMP_TRUST, BOUNCE_COHERENT_TILE, BOUNCE_FLAG_ADAPT, BOUNCE_FLAG_BLUE, BOUNCE_FLAG_COHERENT, BOUNCE_FLAG_HALF, BOUNCE_FLAG_HALF_TILE, BOUNCE_FLAG_HIST_NEAREST, BOUNCE_FLAG_MINIFY, BOUNCE_FLAG_REUSE, BOUNCE_FLAG_VEL_HISTORY, BOUNCE_MINIFY_MAX, BOUNCE_MOTION_K, BOUNCE_REUSE_LEN, BOUNCE_REUSE_MIN_LEN, BOUNCE_REUSE_PLANE_REL, BOUNCE_TEMPORAL_FRAME_SHIFT, BOUNCE_TEMPORAL_ON, BOUNCE_TEMPORAL_RESET, GLOSSY_MIN_CONTRIB, HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, ShadowAux, aa_dispatch, aa_hits, aa_list, hdr_pixels, params, pixels, prims, shadow_aux, waters};
+import package::profile::{PROF_AA_GEOM, PROF_AA_SHADE, PROF_AA_TASKS, PROF_BOUNCE_NOHIST, PROF_BOUNCE_RAYS, PROF_BOUNCE_REUSE, PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MAX_SEGS, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc, prof_max};
 import package::math::{surface_grazing_weight, tonemap};
 import package::texture::{plane_albedo, prim_texture_bump_normal, texture_eval, texture_eval_box, texture_eval_surface};
 import package::sky::{sky};
@@ -111,6 +111,14 @@ struct TraceResult {
     // private accumulators in shade.wesl. Zero contribution means this pixel has
     // no shadow worth softening.
     sh: ShadowAux,
+    // The traced indirect term, *excluded* from color when bounce_held_out().
+    // Already carries the glossy (1 - refl) split, so the reconstruction passes
+    // can add it straight back into hdr_pixels.
+    bounce: vec3<f32>,
+    // The ambient constant still *included* in color, which is nonzero only for
+    // an AA tap. Everywhere else the bounce replaced it and this is zero.
+    // supersample_edge needs it to put the tap on the centre's footing.
+    ambient: vec3<f32>,
 };
 
 // MAX_SEGS bounds the ray tree work stack. `stack` is a dynamically indexed
@@ -350,6 +358,17 @@ const BOUNCE_MAX_RAYS: u32 = 16u;
 // The cost is that the grain has a world size: back away and it goes below a
 // pixel, walk up to a wall and it grows into visible blotches. 1024/m puts the
 // crossover at roughly arm's length for this renderer's field of view.
+//
+// The frame counter is mixed in *only* when temporal accumulation is on, and
+// that is not a detail -- it is the whole relationship between the sampler and
+// the denoiser. A world-anchored seed alone draws the same directions every
+// frame, so a still camera accumulates the identical sample over and over and
+// the running mean converges to the one noisy estimate it started with:
+// temporal accumulation does exactly nothing, which is precisely what the first
+// build of this filter did. Averaging needs independent samples. With the
+// denoiser off, that same stability is what keeps the grain from boiling -- so
+// the two halves of this feature want opposite things from the sampler, and the
+// flag decides which one is being asked for.
 const BOUNCE_SEED_SCALE: f32 = 1024.0;
 
 fn bounce_hash(v: u32) -> u32 {
@@ -362,9 +381,149 @@ fn bounce_u01(seed: u32) -> f32 {
     return f32(bounce_hash(seed)) * (1.0 / 4294967296.0);
 }
 
+// The pixel this invocation is shading, for the screen-space half of the
+// low-discrepancy sampler. Set once in main(); never read on the AA path,
+// which does not gather a hemisphere at all.
+var<private> bounce_pixel: vec2<f32> = vec2<f32>(0.0, 0.0);
+
+var<private> bounce_gid: vec2<u32> = vec2<u32>(0u, 0u);
+
+fn bounce_frame() -> u32 {
+    return params.bounce_temporal >> BOUNCE_TEMPORAL_FRAME_SHIFT;
+}
+
+// BOUNCE_FLAG_HALF: this pixel gathers a hemisphere this frame.
+//
+// A checkerboard that inverts every frame, rather than a fixed half. A fixed
+// one would leave the other half permanently dependent on its neighbours, which
+// is a static spatial bias -- the thing most likely to read as a pattern. This
+// way every pixel is sampled every other frame and the temporal filter, which
+// is already reprojecting and averaging, closes the gap. The pixels that skip a
+// frame keep last frame's estimate rather than a neighbour's.
+fn bounce_traced(gid: vec2<u32>) -> bool {
+    if (params.bounce_flags & BOUNCE_FLAG_HALF) == 0u {
+        return true;
+    }
+    if (params.bounce_flags & BOUNCE_FLAG_HALF_TILE) != 0u {
+        // Workgroup granularity: @workgroup_size is 8x8, so this is constant
+        // across every SIMD group and the skip is a real branch rather than a
+        // lane mask.
+        return (((gid.x >> 3u) + (gid.y >> 3u) + bounce_frame()) & 1u) == 0u;
+    }
+    return ((gid.x + gid.y + bounce_frame()) & 1u) == 0u;
+}
+
+// --- low-discrepancy sampling (BOUNCE_FLAG_BLUE) ---
+//
+// White noise is the worst estimator that is still unbiased: two neighbouring
+// pixels can draw nearly the same direction, or two wildly different ones, and
+// nothing in the sequence prevents clumps. At one or two samples per pixel that
+// clumping *is* the noise the reconstruction then has to remove.
+//
+// What replaces it has two halves, and neither needs a texture -- which matters,
+// because every Metal buffer binding is spoken for and a blue-noise mask would
+// need one.
+//
+//   R2, over (frame, sample). Roberts' generalised golden ratio: very low
+//   discrepancy from two multiplies. It spreads a *pixel's own* samples evenly
+//   over the frames the temporal filter will average, which is where most of
+//   the variance reduction comes from.
+//
+//   Interleaved gradient noise, over the pixel. A Cranley-Patterson rotation by
+//   a per-pixel offset, so neighbouring pixels sit at different points of that
+//   sequence instead of all starting together. IGN is the cheap screen-space
+//   function with a genuinely blue spectrum -- energy pushed to high
+//   frequencies, which is what a spatial filter removes best.
+//
+// Rotating a low-discrepancy sequence by a per-pixel offset keeps it
+// low-discrepancy, because the rotation is measure-preserving on the unit
+// torus, so the estimator stays unbiased.
+const BOUNCE_R2_A1: f32 = 0.7548776662466927;
+const BOUNCE_R2_A2: f32 = 0.5698402909980532;
+
+fn bounce_ign(p: vec2<f32>) -> f32 {
+    return fract(52.9829189 * fract(dot(p, vec2<f32>(0.06711056, 0.00583715))));
+}
+
+fn bounce_sample_2d(i: u32, rays: u32) -> vec2<f32> {
+    // One index through frames and samples together, so a pixel's rays never
+    // repeat a direction across the temporal window.
+    let n = f32(bounce_frame() * rays + i);
+    let r2 = vec2<f32>(fract(n * BOUNCE_R2_A1), fract(n * BOUNCE_R2_A2));
+    // The second offset swaps the pixel's components rather than translating
+    // it. IGN is fract(c * fract(dot(p, k))), so ign(p + d) shares all of p's
+    // structure with a constant inner shift: measured correlation +0.29, and
+    // the pair covers 12.5% of the unit square -- it collapses onto diagonals,
+    // making a 2D rotation effectively 1D. ign(p.yx + d) is a different linear
+    // form: correlation +0.0001, full occupancy.
+    // The per-pixel rotation: what full decorrelation looks like.
+    let pix = vec2<f32>(
+        bounce_ign(bounce_pixel),
+        bounce_ign(bounce_pixel.yx + vec2<f32>(11.0, 23.0)),
+    );
+    var off = pix;
+    if (params.bounce_flags & BOUNCE_FLAG_COHERENT) != 0u {
+        var tile = params.bounce_tile;
+        if tile < 1.0 {
+            tile = BOUNCE_COHERENT_TILE;
+        }
+        // The tile grid is deliberately *not* jittered per frame. Offsetting it
+        // so a pixel shares with a different set each frame sounds like free
+        // decorrelation and is neither: the win needs the tile aligned to the
+        // dispatch, so an offset grid makes a workgroup span several tiles and
+        // brings the divergence back (98.3 -> 117.9 ms), while neighbouring
+        // pixels still share most of their tiles over a 32-frame window and
+        // their histories stay just as correlated (tile spread 0.857 -> 0.849).
+        let rot = floor(bounce_pixel / tile);
+        let base = vec2<f32>(
+            bounce_ign(rot),
+            bounce_ign(rot.yx + vec2<f32>(11.0, 23.0)),
+        );
+        // One rotation for the tile, plus a fraction of each pixel's own.
+        //
+        // At spread 0 a tile is sixteen copies of one sample, so the a-trous
+        // averaging over it has nothing to average and the tile's effective
+        // sample count is one -- which is the cloud, and it is a count problem
+        // rather than a sampling one. At 1 the sum of two uniforms is uniform
+        // again and this is exactly the per-pixel sampler, coherence and all.
+        // In between the tile's rays span a cone: near enough to walk the same
+        // part of the tree, far enough apart that averaging them means
+        // something.
+        off = base + params.bounce_spread * pix;
+    }
+    return fract(r2 + off);
+}
+
 fn bounce_seed(hp: vec3<f32>) -> u32 {
     let q = vec3<i32>(floor(hp * BOUNCE_SEED_SCALE));
-    return bounce_hash((u32(q.x) * 73856093u) ^ (u32(q.y) * 19349663u) ^ (u32(q.z) * 83492791u));
+    var h = (u32(q.x) * 73856093u) ^ (u32(q.y) * 19349663u) ^ (u32(q.z) * 83492791u);
+    if (params.bounce_temporal & BOUNCE_TEMPORAL_ON) != 0u {
+        h = h ^ ((params.bounce_temporal >> BOUNCE_TEMPORAL_FRAME_SHIFT) * 2654435761u);
+    }
+    return bounce_hash(h);
+}
+
+// bounce_new_to_view reports that a world point was outside the previous
+// frame's frustum, so no amount of waiting will give it a history.
+//
+// Deliberately only the frustum test, not the full validity check the temporal
+// pass does: that one needs the stored record at the reprojected pixel, and
+// this runs in the megakernel's hot path where a dependent storage read costs
+// more than the rays it would save. Disocclusion behind a silhouette is missed
+// and keeps the ordinary ray count; the border band, which is 12.1% of the
+// frame backing away against 0.2% walking forwards, is caught exactly.
+fn bounce_new_to_view(wp: vec3<f32>) -> bool {
+    if (params.bounce_temporal & BOUNCE_TEMPORAL_ON) == 0u {
+        return false;
+    }
+    if (params.bounce_temporal & BOUNCE_TEMPORAL_RESET) != 0u {
+        return true;
+    }
+    let pr = bounce_reproject(wp);
+    if pr.z <= 0.0 {
+        return true;
+    }
+    return pr.x < 0.0 || pr.y < 0.0 || pr.x >= f32(params.width) || pr.y >= f32(params.height);
 }
 
 // Cosine-weighted direction about n, by Malley's method: sample the unit disc
@@ -397,9 +556,14 @@ fn bounce_gather(hp: vec3<f32>, ep: vec3<f32>, n: vec3<f32>, alb: vec3<f32>, tw:
     let inv = 1.0 / f32(rays);
     let sub_tw = tw * alb * inv;
     var sum = vec3<f32>(0.0, 0.0, 0.0);
+    let blue = (params.bounce_flags & BOUNCE_FLAG_BLUE) != 0u;
     for (var i = 0u; i < rays; i = i + 1u) {
         let s = seed + i * 0x9e3779b9u;
-        let rd = bounce_dir(n, bounce_u01(s), bounce_u01(s ^ 0x85ebca6bu));
+        var u = vec2<f32>(bounce_u01(s), bounce_u01(s ^ 0x85ebca6bu));
+        if blue {
+            u = bounce_sample_2d(i, rays);
+        }
+        let rd = bounce_dir(n, u.x, u.y);
         prof_inc(PROF_BOUNCE_RAYS, 1u);
         let hit = nearest_hit(ep, rd);
         if hit.idx == 0xffffffffu {
@@ -423,13 +587,33 @@ fn bounce_gather(hp: vec3<f32>, ep: vec3<f32>, n: vec3<f32>, alb: vec3<f32>, tw:
         // point light standing in for something broad draws a small bright dot
         // where the thing it represents would spread a wide dim sheen. Same
         // reason [[light]] carries `specular = false`.
-        sum = sum + shade_diffuse(bhp, sf.alb, sf.n, bhp + sf.n * SURFACE_EPSILON, sub_tw, rd, 0.0, 0.0, false);
+        // The roulette seed is this ray's own, decorrelated from the direction
+        // draw and forced nonzero (zero means "trace every shadow ray"). It
+        // already carries the frame counter through bounce_seed, so successive
+        // frames roulette differently and the temporal mean converges.
+        sum = sum + shade_diffuse(bhp, sf.alb, sf.n, bhp + sf.n * SURFACE_EPSILON, sub_tw, rd, 0.0, 0.0, false, (s ^ 0xb5297a4du) | 1u);
     }
     return alb * sum * inv;
 }
 
+// Cleared by aa_resolve before it re-enters ray_color. An AA tap must not
+// gather its own hemisphere: it would pay a second full bounce on the most
+// expensive pixels in the frame and get back an unfiltered, single-sample
+// estimate to blend at 30% over a filtered one -- the same mistake the glossy
+// lobe comment above describes, with more noise. supersample_edge hands the tap
+// the centre's filtered indirect instead.
+var<private> bounce_allowed: bool = true;
+
 fn bounce_rays_wanted() -> u32 {
     return min(params.bounce_rays, BOUNCE_MAX_RAYS);
+}
+
+// True when the indirect term is held out of the pixel for the reconstruction
+// passes rather than added inline at the hit. With neither filter enabled there
+// is nothing downstream to add it back, so it goes straight into `lit`.
+fn bounce_held_out() -> bool {
+    return params.bounce_rays != 0u &&
+        (params.bounce_atrous != 0u || (params.bounce_temporal & BOUNCE_TEMPORAL_ON) != 0u);
 }
 
 fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult {
@@ -448,6 +632,10 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
     var refr_seen = false;
     var lobe_n = vec3<f32>(0.0, 0.0, 0.0);
     var lobe_d = 0.0;
+    // The held-out indirect term, and the ambient constant an AA tap kept in
+    // place of one. Only the primary hit contributes to either.
+    var bounce_out = vec3<f32>(0.0, 0.0, 0.0);
+    var ambient_out = vec3<f32>(0.0, 0.0, 0.0);
     var stack: array<RaySeg, MAX_SEGS>;
     stack[0] = RaySeg(origin, dir0, vec3<f32>(1.0, 1.0, 1.0), 0u, 0u);
     var sp = 1u;
@@ -458,6 +646,10 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
         vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
+        vec3<f32>(0.0, 0.0, 0.0), 0.0,
+        // Bounce filter slots: ping, pong, history, history-write, prev geometry.
+        vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
+        vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), 0.0);
     // sh_out.soft_applied / soft_applied_m stay 0 here; only shadow_soften_v sets them.
 
@@ -746,7 +938,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
 
         // Diffuse / checker, plus mirror/metal/glass falling through here at the
         // depth cap (or when reflections are disabled): shaded as diffuse.
-        var lit = shade_diffuse(hp, alb, n, ep, tw, rd, spec_strength, shininess, depth == 0u);
+        var lit = shade_diffuse(hp, alb, n, ep, tw, rd, spec_strength, shininess, depth == 0u, 0u);
         if depth == 0u {
             // Snapshot before any deeper segment shades and resets these.
             // Weighted by tw so a shadow seen through glass is softened by the
@@ -761,8 +953,13 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
         // depth would multiply with the reflection tree -- a glossy floor
         // reflecting a wall would gather a hemisphere at both ends -- and the
         // segment stack has no room for it (MAX_SEGS is measured, not spare).
+        var seg_bounce = vec3<f32>(0.0, 0.0, 0.0);
+        var seg_ambient = vec3<f32>(0.0, 0.0, 0.0);
         let brays = bounce_rays_wanted();
         if brays != 0u && depth == 0u && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) {
+            // At half rate the ambient swap still happens on every pixel -- it
+            // is the shading rule, not the sampling rate, and a pixel shaded by
+            // a different rule than its neighbours is the halo bug again.
             // Take the ambient constant back out first. It is a stand-in for
             // exactly the quantity the bounce now measures, so keeping both
             // counts indirect light twice and reads as "GI made the scene
@@ -772,8 +969,45 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
             // params.bounce_ambient puts a share of it back, for scenes tuned
             // so hard against the constant that removing it leaves them black.
             let amb = sh_ambient;
-            lit = max(lit - amb * (1.0 - params.bounce_ambient), vec3<f32>(0.0, 0.0, 0.0));
-            lit = lit + bounce_gather(hp, ep, n, alb, tw, brays);
+            // Swapping that constant for a traced estimate is a *shading*
+            // decision; gathering a hemisphere is a *sampling* one. They were
+            // one branch, and an AA tap -- which skips the sampling -- skipped
+            // the shading with it. The tap then carried an ambient term the
+            // centre had removed, was handed the centre's indirect on top, and
+            // came out brighter than its own pixel by exactly that constant. At
+            // AA_TAP_WEIGHT on the pixels AA flags, that is a bright outline
+            // around every silhouette in the frame. Measured on the server-room
+            // view: 93% of AA pixels brightened, mean +5.9 levels, peak +96,
+            // against an even 50/50 at +0.5 with the bounce off.
+            if bounce_allowed {
+                lit = max(lit - amb * (1.0 - params.bounce_ambient), vec3<f32>(0.0, 0.0, 0.0));
+                if bounce_traced(bounce_gid) {
+                    var rays = brays;
+                    if (params.bounce_flags & BOUNCE_FLAG_ADAPT) != 0u && bounce_new_to_view(hp) {
+                        // Nothing to accumulate here and nothing to borrow, so
+                        // spend the budget instead. Arithmetic only: the test is
+                        // whether this point was inside the previous frustum,
+                        // which needs no storage read in the hot path.
+                        rays = min(rays * BOUNCE_ADAPT_BOOST, BOUNCE_MAX_RAYS);
+                    }
+                    seg_bounce = bounce_gather(hp, ep, n, alb, tw, rays);
+                }
+                // Inline when nothing downstream will add it back, but reported
+                // either way: an AA tap landing on this surface wants it. tw is
+                // 1 at depth 0, so the glossy split below is the one weight
+                // these still owe.
+                if !bounce_held_out() {
+                    lit = lit + seg_bounce;
+                }
+            } else {
+                // An AA tap gathers nothing, so the constant stays in and is
+                // reported instead. supersample_edge swaps it for the centre's
+                // estimate where the tap shares the centre's surface, and keeps
+                // it where it does not: a tap on different geometry has no
+                // indirect estimate of its own, and this constant is precisely
+                // what stood in for one before the bounce existed.
+                seg_ambient = amb;
+            }
         }
         let refl = surf.z;
         // A glossy lobe on a *primary* hit is the sheen the scene author asked
@@ -786,6 +1020,10 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
         }
         if refl > 0.0 && reflective && twm * refl > glossy_min && (mat == MAT_DIFFUSE || mat == MAT_CHECKER) && sp < MAX_SEGS {
             let c_lit_r = tw * lit * (1.0 - refl);
+            // Accumulated, not assigned: the loop keeps popping segments after
+            // the primary hit, and every one of them carries seg_bounce = 0.
+            bounce_out = bounce_out + seg_bounce * (1.0 - refl);
+            ambient_out = ambient_out + seg_ambient * (1.0 - refl);
             accum = accum + c_lit_r;
             refl_acc = refl_acc + c_lit_r * rmask;
             refr_acc = refr_acc + c_lit_r * tmask;
@@ -822,13 +1060,15 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
             continue;
         }
         let c_lit = tw * lit;
+        bounce_out = bounce_out + seg_bounce;
+        ambient_out = ambient_out + seg_ambient;
         accum = accum + c_lit;
         refl_acc = refl_acc + c_lit * rmask;
         refr_acc = refr_acc + c_lit * tmask;
     }
     prof_max(PROF_MAX_SEGS, max_sp);
     return TraceResult(max(accum - refl_acc - refr_acc, vec3<f32>(0.0, 0.0, 0.0)),
-        refl_acc, refl_t, refl_blur, refr_acc, refr_t, refr_blur, lobe_n, lobe_d, primary, sh_out);
+        refl_acc, refl_t, refl_blur, refr_acc, refr_t, refr_blur, lobe_n, lobe_d, primary, sh_out, bounce_out, ambient_out);
 }
 
 // ---------------------------------------------------------------- grain ----
@@ -1261,6 +1501,35 @@ fn aa_tap_same_lobe(aux: ShadowAux, res: TraceResult) -> bool {
     return abs(res.lobe_d - aux.lobe_depth) <= aux.lobe_depth * REFL_DEPTH_REL;
 }
 
+// True when an AA tap landed on the same surface as the centre, so the centre's
+// reconstructed indirect describes it too. Indirect light is low-frequency and
+// the reconstruction has already blurred it across exactly this neighbourhood,
+// so the bar is the filter's own: same orientation, same distance.
+fn aa_tap_same_surface(aux: ShadowAux, tapsh: ShadowAux) -> bool {
+    if aux.depth <= 0.0 || tapsh.depth <= 0.0 {
+        return false;
+    }
+    if dot(aux.normal, tapsh.normal) < BOUNCE_REPROJ_MIN_DOT {
+        return false;
+    }
+    return abs(tapsh.depth - aux.depth) <= BOUNCE_REPROJ_DEPTH_REL * max(aux.depth, 1.0);
+}
+
+// The reconstructed indirect belonging to the geometry an AA tap landed on.
+//
+// The tap was aimed at a neighbour by analyze_edge -- that is what the 0.25 /
+// 0.75 offsets mean -- so when it leaves the centre's surface it has almost
+// certainly landed on whatever that neighbour is looking at, and that pixel
+// holds a filtered estimate for exactly that geometry. It is one storage read,
+// against a whole second hemisphere gather for the alternative.
+fn aa_tap_neighbor_bounce(gx: f32, gy: f32, tap: vec2<f32>) -> vec3<f32> {
+    let dx = i32(sign(tap.x - 0.5));
+    let dy = i32(sign(tap.y - 0.5));
+    let nx = clamp(i32(gx) + dx, 0, i32(params.width) - 1);
+    let ny = clamp(i32(gy) + dy, 0, i32(params.height) - 1);
+    return shadow_aux[pixel_index(u32(nx), u32(ny))].bounce;
+}
+
 fn supersample_edge(gx: f32, gy: f32, center: vec3<f32>, tap: vec2<f32>, idx: u32) -> vec3<f32> {
     let ro = params.cam_pos.xyz;
     let aux = shadow_aux[idx];
@@ -1297,6 +1566,28 @@ fn supersample_edge(gx: f32, gy: f32, center: vec3<f32>, tap: vec2<f32>, idx: u3
             e = e + aux.refl_color + aux.refr_color;
         } else {
             e = e + res.refl + res.refr;
+        }
+        // The tap traced no hemisphere of its own (bounce_allowed is off in
+        // aa_resolve), so it is still carrying the ambient constant. On the
+        // centre's surface, swap that constant for the centre's own estimate:
+        // the two model the same quantity, the reconstruction has already
+        // blurred it across exactly this neighbourhood, and the tap then sits
+        // on identical footing to the pixel it is being averaged into.
+        //
+        // Off the centre's surface -- which is where AA fires most -- it takes
+        // the aimed-at neighbour's estimate instead. Leaving the constant in
+        // was the first attempt and is wrong for the same reason as adding the
+        // indirect on top of it: every other pixel in the frame has had that
+        // constant replaced, so a tap that keeps it is shaded by different
+        // rules than everything it is averaged into. In a dim room the constant
+        // is the larger of the two, so keeping it drew the halo right back --
+        // 79% of AA pixels still brightening, against 50% with the bounce off.
+        if params.bounce_rays != 0u {
+            var ind = aux.bounce;
+            if !aa_tap_same_surface(aux, res.sh) {
+                ind = aa_tap_neighbor_bounce(gx, gy, tap);
+            }
+            e = max(e - res.ambient, vec3<f32>(0.0, 0.0, 0.0)) + ind;
         }
         sum = sum + e;
     }
@@ -1460,6 +1751,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // difference. refl_half_ok inside ray_color makes that call per surface,
     // because only it knows the roughness at the hit.
     let lead = (gid.x & 1u) == 0u && (gid.y & 1u) == 0u;
+    bounce_pixel = vec2<f32>(gx, gy);
+    bounce_gid = g2;
     let tr = ray_color(ro, pixel_ray_dir(gx, gy, 0.5, 0.5), select(GLOSS_IF_SHARP, GLOSS_ALWAYS, lead));
 
     prof_inc(PROF_BVH_STEPS, bvh_steps_acc);
@@ -1492,16 +1785,57 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         col = col + tr.refl + tr.refr;
     }
 
+    // The indirect term starts its reconstruction here: raw estimate into the
+    // a-trous ping, history length zero until bounce_temporal says otherwise.
+    //
+    // The four carried-over fields are the whole reason this reads the record
+    // before writing it. `aux` is tr.sh, built fresh by shadow_aux_snapshot
+    // with every bounce slot zeroed, and the assignment at the end of main
+    // stores the entire struct -- so without this the history and last frame's
+    // geometry are erased at the top of every frame and the temporal pass finds
+    // nothing to reproject into, every frame, forever. The filter then runs in
+    // full and changes nothing, which is exactly what it did until this read
+    // was added.
+    let bfilt = bounce_held_out();
+    let bon = params.bounce_rays != 0u;
+    if bon {
+        // Stored whether or not the reconstruction runs. With it off the term
+        // is already inside `col`, and this copy exists only so an AA tap can
+        // be handed the same estimate the centre used instead of the ambient
+        // constant it is still carrying.
+        //
+        // The length is this frame's sample count: 0 for a pixel that gathered,
+        // -1 for one that half rate skipped. Written into the pong slot as well
+        // because bounce_temporal's fill reads neighbours, and the pong is the
+        // one slot no invocation of that dispatch writes -- so the fill cannot
+        // race a neighbour that has already updated itself.
+        aux.bounce = tr.bounce;
+        aux.bounce_h = tr.bounce;
+        var n_samp = 0.0;
+        if !bounce_traced(g2) {
+            n_samp = -1.0;
+        }
+        aux.bounce_len = n_samp;
+        aux.bounce_len_h = n_samp;
+    }
+    if bfilt {
+        let keep = shadow_aux[idx];
+        aux.bounce_hist = keep.bounce_hist;
+        aux.bounce_hist_len = keep.bounce_hist_len;
+        aux.bounce_prev_n = keep.bounce_prev_n;
+        aux.bounce_prev_z = keep.bounce_prev_z;
+    }
+
     // The soften pass needs the linear colour to add light back into, so the
     // scratch is written whenever it runs even if adaptive AA is off. It carries
     // its own normal and depth for surface continuity and does not read aa_hits.
-    if params.adaptive_aa != 0u || soft || filt {
+    if params.adaptive_aa != 0u || soft || filt || bfilt {
         hdr_pixels[idx] = vec4<f32>(col, display_luma(col));
     }
     if params.adaptive_aa != 0u {
         aa_hits[idx] = pack_hit(tr.primary);
     }
-    if soft || filt {
+    if soft || filt || bfilt || bon {
         shadow_aux[idx] = aux;
     }
     write_pixel(g2, col);
@@ -1690,6 +2024,622 @@ fn refl_blur_v(@builtin(global_invocation_id) gid: vec3<u32>) {
     shadow_aux[idx].refl_color = lobe_r;
     shadow_aux[idx].refr_color = lobe_t;
     let col = max(hdr_pixels[idx].xyz + lobe_r + lobe_t, vec3<f32>(0.0, 0.0, 0.0));
+    hdr_pixels[idx] = vec4<f32>(col, display_luma(col));
+    write_pixel(vec2<u32>(gid.xy), col);
+}
+
+// ------------------------------- indirect reconstruction (SVGF-shaped) ----
+//
+// One sample per pixel of a hemisphere integral is unwatchable on its own (see
+// docs/diffuse-bounce.md: 52% RMS at one ray). These three passes are what make
+// it watchable, and they are the reason a real-time path tracer is a denoiser
+// with a tracer attached rather than the other way round.
+//
+//   bounce_temporal   reproject last frame's estimate through the camera's
+//                     motion and blend -- an exponential moving average whose
+//                     effective sample count is the history length.
+//   bounce_atrous_0..3  edge-avoiding wavelet passes over what is left, each
+//                     doubling its hole size.
+//   bounce_resolve    add the result back into hdr_pixels, roll the history
+//                     forward, and stamp this frame's geometry as next frame's
+//                     reprojection target.
+//
+// They run inside the same compute pass as main(), after the reflection filter
+// and before the penumbra filter and AA classification -- so edge detection
+// sees the reconstructed image rather than the noise.
+//
+// Deliberately *not* SVGF: there are no stored luminance moments. SVGF keeps a
+// running mean and mean-of-squares per pixel to estimate variance and drive the
+// luminance edge-stop. That is two more floats of per-pixel state in a record
+// that has no binding to spare, and the signal it produces is largely the one
+// the history length already carries -- a pixel with four frames behind it is
+// noisy, a pixel with thirty is not. So the history length drives the edge-stop
+// directly. The cost is a filter that cannot tell a genuinely high-variance
+// region from a merely young one, which shows up as slightly over-filtered
+// indirect detail just after a disocclusion.
+
+// How far a reprojected sample may disagree in depth before its history is
+// dropped, relative to the distance itself.
+const BOUNCE_REPROJ_DEPTH_REL: f32 = 0.05;
+
+// Minimum normal agreement for a reprojected pixel to count as the same
+// surface. Looser than the reflection filter's REFL_MIN_DOT because indirect
+// light is low-frequency: mixing two nearby orientations costs little, while
+// rejecting history costs a visible burst of noise.
+const BOUNCE_REPROJ_MIN_DOT: f32 = 0.85;
+
+fn bounce_luma(c: vec3<f32>) -> f32 {
+    return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+}
+
+// bounce_reproject returns the pixel the given world point occupied in the
+// previous frame, and whether it landed on screen at all.
+fn bounce_reproject(wp: vec3<f32>) -> vec3<f32> {
+    let d = wp - params.prev_cam_pos.xyz;
+    let pz = dot(d, params.prev_fwd.xyz);
+    if pz <= 1e-4 {
+        return vec3<f32>(0.0, 0.0, -1.0);
+    }
+    let a = dot(d, params.prev_right.xyz) / pz;
+    let b = dot(d, params.prev_up.xyz) / pz;
+    let u = a / (params.aspect * params.fov_scale);
+    let v = b / params.fov_scale;
+    let px = (u * 0.5 + 0.5) * f32(params.width);
+    let py = (0.5 - v * 0.5) * f32(params.height);
+    return vec3<f32>(px, py, length(d));
+}
+
+// bounce_fill averages the four orthogonal neighbours that gathered this frame
+// and sit on the same surface. Reads the pong slot, which main() wrote and
+// nothing in the temporal dispatch touches, so it cannot see a neighbour
+// half-updated.
+fn bounce_fill(gid: vec2<u32>, me: ShadowAux) -> vec3<f32> {
+    var acc = vec3<f32>(0.0, 0.0, 0.0);
+    var w = 0.0;
+    for (var k = 0u; k < 4u; k = k + 1u) {
+        var d = vec2<i32>(-1, 0);
+        if k == 1u {
+            d = vec2<i32>(1, 0);
+        } else if k == 2u {
+            d = vec2<i32>(0, -1);
+        } else if k == 3u {
+            d = vec2<i32>(0, 1);
+        }
+        let tx = i32(gid.x) + d.x;
+        let ty = i32(gid.y) + d.y;
+        if tx < 0 || ty < 0 || tx >= i32(params.width) || ty >= i32(params.height) {
+            continue;
+        }
+        let t = shadow_aux[pixel_index(u32(tx), u32(ty))];
+        if t.depth <= 0.0 || t.bounce_len_h < 0.0 {
+            continue;
+        }
+        if dot(t.normal, me.normal) < BOUNCE_REPROJ_MIN_DOT {
+            continue;
+        }
+        if abs(t.depth - me.depth) > BOUNCE_REPROJ_DEPTH_REL * max(me.depth, 1.0) {
+            continue;
+        }
+        acc = acc + t.bounce_h;
+        w = w + 1.0;
+    }
+    if w > 0.0 {
+        return acc / w;
+    }
+    return vec3<f32>(0.0, 0.0, 0.0);
+}
+
+// The reprojected history, gathered bilinearly over the four pixels the
+// previous frame's sample point falls between.
+//
+// Nearest sampling is fine while the camera pushes forward, because the history
+// is then magnified and neighbouring pixels land on the same previous pixel --
+// blocky, but stable. Backing up is the opposite: the world contracts, the
+// previous frame was magnified relative to now, and adjacent pixels reproject
+// more than one apart, so nearest sampling skips history pixels outright. That
+// is undersampling, and it is why moving backwards looked so much worse than
+// moving forwards.
+//
+// Each tap is kept only if it was looking at the same surface and the weights
+// are renormalised over whichever survive, so a reprojection straddling a
+// silhouette takes the side that matches rather than being rejected outright.
+struct BounceHistory {
+    color: vec3<f32>,
+    len: f32,
+    w: f32,
+};
+
+fn bounce_history(pr: vec3<f32>, me: ShadowAux) -> BounceHistory {
+    // pr is a continuous pixel coordinate where pixel i spans [i, i+1), so
+    // centres sit at i + 0.5 and the bilinear base is half a pixel back.
+    var fx = pr.x - 0.5;
+    var fy = pr.y - 0.5;
+    if (params.bounce_flags & BOUNCE_FLAG_HIST_NEAREST) != 0u {
+        // Snap to the nearest tap: the three off-centre weights go to zero and
+        // the gather below collapses to the single read this used to do.
+        fx = floor(pr.x);
+        fy = floor(pr.y);
+    }
+    let ix = i32(floor(fx));
+    let iy = i32(floor(fy));
+    let tx = fx - f32(ix);
+    let ty = fy - f32(iy);
+
+    var acc = vec3<f32>(0.0, 0.0, 0.0);
+    var acc_len = 0.0;
+    var wsum = 0.0;
+    for (var k = 0u; k < 4u; k = k + 1u) {
+        var dx = 0;
+        var dy = 0;
+        var w = (1.0 - tx) * (1.0 - ty);
+        if k == 1u {
+            dx = 1;
+            w = tx * (1.0 - ty);
+        } else if k == 2u {
+            dy = 1;
+            w = (1.0 - tx) * ty;
+        } else if k == 3u {
+            dx = 1;
+            dy = 1;
+            w = tx * ty;
+        }
+        if w <= 0.0 {
+            continue;
+        }
+        let px = ix + dx;
+        let py = iy + dy;
+        // Out of frame is a rejection, not a clamp. Taking the nearest edge
+        // pixel's history instead was tried and is monotonically harmful; see
+        // the note on spatially borrowed estimates in docs/diffuse-bounce.md.
+        if px < 0 || py < 0 || px >= i32(params.width) || py >= i32(params.height) {
+            continue;
+        }
+        let t = shadow_aux[pixel_index(u32(px), u32(py))];
+        if t.bounce_prev_z <= 0.0 {
+            continue;
+        }
+        if abs(t.bounce_prev_z - pr.z) > BOUNCE_REPROJ_DEPTH_REL * max(pr.z, 1.0) {
+            continue;
+        }
+        if dot(t.bounce_prev_n, me.normal) <= BOUNCE_REPROJ_MIN_DOT {
+            continue;
+        }
+        acc = acc + t.bounce_hist * w;
+        acc_len = acc_len + t.bounce_hist_len * w;
+        wsum = wsum + w;
+    }
+    if wsum <= 0.0 {
+        return BounceHistory(vec3<f32>(0.0, 0.0, 0.0), 0.0, 0.0);
+    }
+    return BounceHistory(acc / wsum, acc_len / wsum, wsum);
+}
+
+// --- spatial reuse on disocclusion ---
+//
+// A pixel whose reprojection failed has nothing to average: it shows its raw
+// one-or-two-sample estimate, and the a-trous -- whose phi_lum is 4/sqrt(len+1),
+// so it filters hardest exactly where history is shortest -- turns that into a
+// coarse blotch. Backing up produces a band of these along the bottom of the
+// frame continuously, because the camera keeps revealing floor that has never
+// accumulated anything. That band is what the streaks on the floor are.
+//
+// Its neighbours are not in that position. They have been accumulating for
+// frames, on the same surface. Borrowing one is the same approximation the
+// a-trous already makes -- that indirect light is low-frequency across a
+// surface -- except it starts from a converged value rather than two samples.
+//
+// Reads neighbours' bounce_hist, which is last frame's and which nothing in
+// this dispatch writes (the temporal pass writes bounce_hist_w), so it cannot
+// see a neighbour half-updated.
+struct BounceReuse {
+    color: vec3<f32>,
+    ok: bool,
+};
+
+// Whether a neighbour is close enough to the borrower's surface plane to speak
+// for it. Distance *along* the surface is fine and expected; distance *off* it
+// is not. Comparing depths directly would reject almost every tap on a floor
+// seen at a grazing angle, which is the case this exists to serve.
+fn bounce_reuse_ok(me: ShadowAux, wp_me: vec3<f32>, tx: i32, ty: i32, t: ShadowAux) -> bool {
+    if t.depth <= 0.0 || t.bounce_hist_len < BOUNCE_REUSE_MIN_LEN {
+        return false;
+    }
+    if dot(t.normal, me.normal) < BOUNCE_REPROJ_MIN_DOT {
+        return false;
+    }
+    let dir = pixel_ray_dir(f32(tx), f32(ty), 0.5, 0.5);
+    let wp = params.cam_pos.xyz + dir * t.depth;
+    return abs(dot(wp - wp_me, me.normal)) <= BOUNCE_REUSE_PLANE_REL * max(me.depth, 1.0);
+}
+
+fn bounce_reuse(gid: vec2<u32>, me: ShadowAux, wp_me: vec3<f32>) -> BounceReuse {
+    // Rings outward, taking the first that yields anything. Radius 1 is skipped:
+    // a disoccluded pixel's immediate neighbours were disoccluded in the same
+    // frame and have no more history than it does. The band this walks out of
+    // is a few pixels deep, so 16 is reach enough without turning into a search.
+    for (var ring = 0u; ring < 4u; ring = ring + 1u) {
+        let r = i32(2u << ring);
+        var acc = vec3<f32>(0.0, 0.0, 0.0);
+        var n = 0.0;
+        for (var k = 0u; k < 8u; k = k + 1u) {
+            var d = vec2<i32>(r, 0);
+            if k == 1u {
+                d = vec2<i32>(-r, 0);
+            } else if k == 2u {
+                d = vec2<i32>(0, r);
+            } else if k == 3u {
+                d = vec2<i32>(0, -r);
+            } else if k == 4u {
+                d = vec2<i32>(r, r);
+            } else if k == 5u {
+                d = vec2<i32>(-r, r);
+            } else if k == 6u {
+                d = vec2<i32>(r, -r);
+            } else if k == 7u {
+                d = vec2<i32>(-r, -r);
+            }
+            let tx = i32(gid.x) + d.x;
+            let ty = i32(gid.y) + d.y;
+            if tx < 0 || ty < 0 || tx >= i32(params.width) || ty >= i32(params.height) {
+                continue;
+            }
+            let t = shadow_aux[pixel_index(u32(tx), u32(ty))];
+            if !bounce_reuse_ok(me, wp_me, tx, ty, t) {
+                continue;
+            }
+            acc = acc + t.bounce_hist;
+            n = n + 1.0;
+        }
+        if n > 0.0 {
+            return BounceReuse(acc / n, true);
+        }
+    }
+    return BounceReuse(vec3<f32>(0.0, 0.0, 0.0), false);
+}
+
+// --- neighbourhood clamping ---
+//
+// The reprojection test is geometry only: same normal, same depth. It cannot
+// tell a wall from the same wall in different light, so walking past a doorway
+// hands a pixel a history that is bright where the surface is now shadowed, and
+// the alpha floor then drags that error out over ~20 frames. That is the
+// ghosting, and it is worst exactly where the contrast is.
+//
+// So the history is also checked against what the neighbourhood *currently*
+// looks like, and pulled back inside it when it disagrees. Mean plus or minus
+// gamma standard deviations rather than a min/max box: at one or two samples
+// per pixel the extremes of a 3x3 are noise, and a box drawn round them is too
+// wide to clamp anything.
+//
+// The statistics come from bounce_h, the pong slot, which holds this frame's
+// raw samples and which nothing in this dispatch writes -- the same property
+// that makes bounce_fill safe.
+struct BounceBox {
+    mean: vec3<f32>,
+    sd: vec3<f32>,
+    n: f32,
+};
+
+// Inside a skipped 8x8 tile nothing within a 3x3 gathered this frame, so the
+// neighbourhood has to reach far enough to land in the tiles that did.
+fn bounce_box_stride(traced: bool) -> i32 {
+    if traced || (params.bounce_flags & BOUNCE_FLAG_HALF_TILE) == 0u {
+        return 1;
+    }
+    return 4;
+}
+
+fn bounce_box(gid: vec2<u32>, me: ShadowAux, stride: i32) -> BounceBox {
+    var m1 = vec3<f32>(0.0, 0.0, 0.0);
+    var m2 = vec3<f32>(0.0, 0.0, 0.0);
+    var n = 0.0;
+    for (var dy = -1; dy <= 1; dy = dy + 1) {
+        for (var dx = -1; dx <= 1; dx = dx + 1) {
+            let tx = i32(gid.x) + dx * stride;
+            let ty = i32(gid.y) + dy * stride;
+            if tx < 0 || ty < 0 || tx >= i32(params.width) || ty >= i32(params.height) {
+                continue;
+            }
+            let t = shadow_aux[pixel_index(u32(tx), u32(ty))];
+            // bounce_len_h < 0 marks a pixel half rate skipped: it carries no
+            // sample from this frame and says nothing about what is there now.
+            if t.depth <= 0.0 || t.bounce_len_h < 0.0 {
+                continue;
+            }
+            if dot(t.normal, me.normal) < BOUNCE_REPROJ_MIN_DOT {
+                continue;
+            }
+            if abs(t.depth - me.depth) > BOUNCE_REPROJ_DEPTH_REL * max(me.depth, 1.0) {
+                continue;
+            }
+            let c = t.bounce_h;
+            m1 = m1 + c;
+            m2 = m2 + c * c;
+            n = n + 1.0;
+        }
+    }
+    if n < 2.0 {
+        return BounceBox(vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), 0.0);
+    }
+    let mean = m1 / n;
+    let sd = sqrt(max(m2 / n - mean * mean, vec3<f32>(0.0, 0.0, 0.0)));
+    return BounceBox(mean, sd, n);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn bounce_temporal(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x >= params.width || gid.y >= params.height {
+        return;
+    }
+    let idx = pixel_index(gid.x, gid.y);
+    var aux = shadow_aux[idx];
+    let cur = aux.bounce;
+
+    // main() wrote -1 where half rate skipped the gather, so `cur` is not a
+    // sample and must not be averaged into anything.
+    let traced = aux.bounce_len >= 0.0;
+    var hist = cur;
+    var len = 0.0;
+    var have_hist = false;
+    let reset = (params.bounce_temporal & BOUNCE_TEMPORAL_RESET) != 0u;
+    // depth 0 marks a pixel with no diffuse surface under it -- sky, or a
+    // primary hit the bounce never ran on. Nothing to reproject.
+    let dir = pixel_ray_dir(f32(gid.x), f32(gid.y), 0.5, 0.5);
+    let wp = params.cam_pos.xyz + dir * aux.depth;
+    if !reset && (params.bounce_temporal & BOUNCE_TEMPORAL_ON) != 0u && aux.depth > 0.0 {
+        let pr = bounce_reproject(wp);
+        if pr.z > 0.0 {
+            // Reads prev_* and hist; writes bounce, bounce_len and hist_w. The
+            // two sets are disjoint, so neighbours racing inside this dispatch
+            // cannot see a half-updated record and the reprojection needs no
+            // frame-parity ping-pong of the whole struct.
+            let h = bounce_history(pr, aux);
+            if h.w > 0.0 {
+                have_hist = true;
+                var cap = max(params.bounce_filt.y, 1.0);
+                if (params.bounce_flags & BOUNCE_FLAG_VEL_HISTORY) != 0u {
+                    // A 32-frame window is 32 successive resamples of the same
+                    // data. While the camera moves, that is a long time to keep
+                    // trusting, so shorten it in proportion to how fast.
+                    cap = max(cap / (1.0 + BOUNCE_MOTION_K * params.bounce_motion), 1.0);
+                }
+                len = min(h.len, cap);
+                if (params.bounce_flags & BOUNCE_FLAG_MINIFY) != 0u {
+                    // Discount by how badly this fetch undersampled the history.
+                    // depth / prev_depth above 1 means the camera was closer
+                    // before, so the previous frame was magnified and the four
+                    // taps are point-sampling a wider footprint than they cover.
+                    let minify = clamp(aux.depth / max(pr.z, 1e-4), 1.0, BOUNCE_MINIFY_MAX);
+                    len = len / minify;
+                }
+                // The 1/(len+1) floor makes the first frames a true running
+                // mean -- frame two is a straight average of two samples, not
+                // alpha-weighted -- so a freshly disoccluded pixel converges at
+                // the fastest rate an unbiased estimator allows before the
+                // exponential tail takes over.
+                var blended = h.color;
+                if traced {
+                    let alpha = max(params.bounce_filt.x, 1.0 / (len + 1.0));
+                    blended = mix(h.color, cur, alpha);
+                }
+                // Not traced: no new sample, so the history carries forward.
+                // Half rate costs this pixel a frame of latency, not an
+                // estimate -- which is why the checkerboard inverts rather than
+                // staying put.
+                //
+                // Clamped either way. A clamp needs a neighbourhood, not a new
+                // sample, so a tile half rate skipped corrects at the same speed
+                // as one it traced. Without that the two halves disagree
+                // whenever reprojection is unreliable, and the disagreement is
+                // an 8x8 checkerboard.
+                if params.bounce_clamp > 0.0 {
+                    let box = bounce_box(gid.xy, aux, bounce_box_stride(traced));
+                    if box.n > 0.0 {
+                        let lo = box.mean - box.sd * params.bounce_clamp;
+                        let hi = box.mean + box.sd * params.bounce_clamp;
+                        let clamped = clamp(blended, lo, hi);
+                        let bite = length(clamped - blended) / max(length(box.sd), 1e-4);
+                        if bite > BOUNCE_CLAMP_BITE {
+                            // The reprojection got this one wrong, so it is not
+                            // worth 32 frames of trust any more. Dropping the
+                            // length raises alpha, which is what lets the pixel
+                            // snap back instead of easing out of the error over
+                            // the ~20 frames the alpha floor would take.
+                            len = len * BOUNCE_CLAMP_TRUST;
+                        }
+                        blended = clamped;
+                    }
+                }
+                hist = blended;
+            }
+        }
+    }
+    var new_len = len + 1.0;
+    if !have_hist && aux.depth > 0.0 {
+        prof_inc(PROF_BOUNCE_NOHIST, 1u);
+    }
+    if !have_hist && aux.depth > 0.0 && (params.bounce_flags & BOUNCE_FLAG_REUSE) != 0u {
+        // Reprojection found nothing, so this pixel is about to show whatever a
+        // couple of samples happened to say. Start it from a neighbour that has
+        // been averaging the same surface for a while instead.
+        let r = bounce_reuse(gid.xy, aux, wp);
+        if r.ok {
+            prof_inc(PROF_BOUNCE_REUSE, 1u);
+            if traced {
+                // Blend this frame's own sample in at the weight
+                // BOUNCE_REUSE_LEN implies, so the borrowed value is a starting
+                // point rather than an answer.
+                let a = 1.0 / (BOUNCE_REUSE_LEN + 1.0);
+                hist = mix(r.color, cur, a);
+            } else {
+                hist = r.color;
+            }
+            new_len = BOUNCE_REUSE_LEN;
+            have_hist = true;
+        }
+    }
+    if !traced {
+        // A skipped pixel gained no confidence this frame.
+        new_len = min(new_len, max(len, 0.0));
+        if !have_hist {
+            // Skipped *and* freshly disoccluded, with no neighbour worth
+            // borrowing. Its neighbours in the checkerboard all gathered this
+            // frame, so take theirs rather than leave a zero for the a-trous to
+            // spread.
+            hist = bounce_fill(gid.xy, aux);
+            new_len = 0.0;
+        }
+    }
+    aux.bounce = hist;
+    aux.bounce_len = new_len;
+    aux.bounce_hist_w = hist;
+    aux.bounce_hist_len_w = new_len;
+    shadow_aux[idx] = aux;
+}
+
+// 5x5 separable-in-spirit B3 spline row, applied as a full 2D gather so one
+// pass is one dispatch. 25 taps is cheap next to a bounce ray.
+fn bounce_kernel(i: i32) -> f32 {
+    if i == 0 {
+        return 0.375;
+    }
+    if i == 1 || i == -1 {
+        return 0.25;
+    }
+    return 0.0625;
+}
+
+// One a-trous level. `step` is the hole size; `flip` says the source is the
+// pong slot rather than the ping.
+fn bounce_atrous_level(gid: vec3<u32>, step: i32, flip: bool) {
+    if gid.x >= params.width || gid.y >= params.height {
+        return;
+    }
+    let idx = pixel_index(gid.x, gid.y);
+    var aux = shadow_aux[idx];
+    var centre = aux.bounce;
+    var len = aux.bounce_len;
+    if flip {
+        centre = aux.bounce_h;
+        len = aux.bounce_len_h;
+    }
+    // Sky and non-diffuse pixels carry no estimate; leave them alone rather
+    // than letting a neighbour's indirect bleed onto a wall seen through glass.
+    if aux.depth <= 0.0 {
+        if flip {
+            aux.bounce = centre;
+            aux.bounce_len = len;
+        } else {
+            aux.bounce_h = centre;
+            aux.bounce_len_h = len;
+        }
+        shadow_aux[idx] = aux;
+        return;
+    }
+
+    // A long history is already an average of many samples, so the luminance
+    // edge-stop can be tight and keep indirect detail; a young one has nothing
+    // worth preserving and wants the stop wide open. This is the variance term
+    // SVGF would compute from stored moments, read off the sample count
+    // instead.
+    let phi_lum = 4.0 / sqrt(len + 1.0);
+    let n_c = aux.normal;
+    let z_c = aux.depth;
+    let l_c = bounce_luma(centre);
+
+    var acc = centre * bounce_kernel(0) * bounce_kernel(0);
+    var wsum = bounce_kernel(0) * bounce_kernel(0);
+    for (var dy = -2; dy <= 2; dy = dy + 1) {
+        for (var dx = -2; dx <= 2; dx = dx + 1) {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            let tx = i32(gid.x) + dx * step;
+            let ty = i32(gid.y) + dy * step;
+            if tx < 0 || ty < 0 || tx >= i32(params.width) || ty >= i32(params.height) {
+                continue;
+            }
+            let t = shadow_aux[pixel_index(u32(tx), u32(ty))];
+            if t.depth <= 0.0 {
+                continue;
+            }
+            var tc = t.bounce;
+            if flip {
+                tc = t.bounce_h;
+            }
+            // Normal, depth and luminance edge-stops (Dammertz et al.). Depth
+            // is compared in relative terms so the tolerance stays meaningful
+            // at both ends of a scene that spans 200 world units.
+            let w_n = pow(max(dot(n_c, t.normal), 0.0), params.bounce_filt.z);
+            let dz = abs(z_c - t.depth) / max(params.bounce_filt.w * z_c, 1e-4);
+            let w_z = exp(-dz);
+            let dl = abs(l_c - bounce_luma(tc)) / max(phi_lum * (l_c + 0.05), 1e-4);
+            let w_l = exp(-dl);
+            let w = bounce_kernel(dx) * bounce_kernel(dy) * w_n * w_z * w_l;
+            acc = acc + tc * w;
+            wsum = wsum + w;
+        }
+    }
+    let outc = acc / max(wsum, 1e-6);
+    if flip {
+        aux.bounce = outc;
+        aux.bounce_len = len;
+    } else {
+        aux.bounce_h = outc;
+        aux.bounce_len_h = len;
+    }
+    shadow_aux[idx] = aux;
+}
+
+// Four entry points rather than one with a uniform: every dispatch in a compute
+// pass shares one params buffer, so the hole size cannot be re-uploaded between
+// them. Baking it per level is what lets all four run in the same pass.
+@compute @workgroup_size(8, 8, 1)
+fn bounce_atrous_0(@builtin(global_invocation_id) gid: vec3<u32>) {
+    bounce_atrous_level(gid, 1, false);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn bounce_atrous_1(@builtin(global_invocation_id) gid: vec3<u32>) {
+    bounce_atrous_level(gid, 2, true);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn bounce_atrous_2(@builtin(global_invocation_id) gid: vec3<u32>) {
+    bounce_atrous_level(gid, 4, false);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn bounce_atrous_3(@builtin(global_invocation_id) gid: vec3<u32>) {
+    bounce_atrous_level(gid, 8, true);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn bounce_resolve(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x >= params.width || gid.y >= params.height {
+        return;
+    }
+    let idx = pixel_index(gid.x, gid.y);
+    var aux = shadow_aux[idx];
+    // An odd number of a-trous passes leaves the result in the pong slot.
+    var lit = aux.bounce;
+    if (params.bounce_atrous & 1u) != 0u {
+        lit = aux.bounce_h;
+    }
+
+    // Parked back in bounce so an AA tap can be handed the neighbourhood's
+    // conclusion instead of gathering a hemisphere of its own.
+    aux.bounce = lit;
+    // Roll the history forward and stamp this frame's geometry as next frame's
+    // reprojection target. Both are own-pixel reads, so no other invocation can
+    // observe them half-written.
+    aux.bounce_hist = aux.bounce_hist_w;
+    aux.bounce_hist_len = aux.bounce_hist_len_w;
+    aux.bounce_prev_n = aux.normal;
+    aux.bounce_prev_z = aux.depth;
+    shadow_aux[idx] = aux;
+
+    let col = max(hdr_pixels[idx].xyz + lit, vec3<f32>(0.0, 0.0, 0.0));
     hdr_pixels[idx] = vec4<f32>(col, display_luma(col));
     write_pixel(vec2<u32>(gid.xy), col);
 }
@@ -2338,6 +3288,9 @@ fn aa_resolve(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= atomicLoad(&aa_dispatch[3]) {
         return;
     }
+    // Taps re-enter ray_color; none of them gathers a hemisphere. See
+    // bounce_allowed.
+    bounce_allowed = false;
     let task = aa_list[gid.x];
     let px = aa_task_pixel(task);
     let idx = pixel_index(px.x, px.y);
