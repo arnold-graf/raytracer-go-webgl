@@ -16,8 +16,8 @@ pitch = 0.04
 
 [environment]
 sky = "night_stars"
-# ambient_sky = [0.060, 0.075, 0.100]
-# ambient_ground = [0.001, 0.001, 0.001]
+ambient_sky = [0.01, 0.01, 0.02]
+ambient_ground = [0.01, 0.01, 0.02]
 sun_dir = [1, -1.2, 0.90]
 sun_color = [0.16, 0.19, 0.27]
 
@@ -32,7 +32,7 @@ center = [-500.0, 2000, -500]
 radius = 200.0
 material = "diffuse"
 texture = "cement"
-albedo = [30.0, 30.0, 35.0]
+albedo = [50.0, 50.0, 55.0]
 
 # Moonlight as a distant point light (shadows only come from [[light]]/campfire;
 # sun_dir and [environment.sun] are sky-only). Placed along -sun_dir so shadow
@@ -41,8 +41,9 @@ albedo = [30.0, 30.0, 35.0]
 [[light]]
 pos = [-111.0, 133.0, -100.0]
 color = [1, 1, 2.4]
-brightness = 100.0
+brightness = 170.0
 range = 0
+radius = 5
 penumbra_blur_vote = false
 
 [player.movement]
@@ -263,7 +264,7 @@ file = "objects/campfire.toml"
 at = [-9.0, 0, 5.0]
 [include.props]
 brightness = 1.4
-range = 30.0
+range = 70.0
 flicker = 0.25
 speed = 1.0
 flame_ember = [3.0, 0.2, 0.0]
