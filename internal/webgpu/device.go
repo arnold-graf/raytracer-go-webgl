@@ -926,6 +926,7 @@ func packParams(r *sceneCache, v *render.View) renderParams {
 		ambientSky: ambientSky, ambientGround: ambientGround,
 		uploadStatic: uploadStatic, uploadPartial: uploadPartial,
 		uploadLights:        c.lightsDirty,
+		uploadLightGrid:     c.gridDirty,
 		uploadCampfires:     c.campfiresDirty,
 		partialPrimSpans:    c.partialPrimSpans,
 		partialBlockerSpans: c.partialBlockerSpans,
@@ -1490,6 +1491,7 @@ type renderParams struct {
 	// uploadPartial re-sends only dirty primitive spans + refit BVH after NPC pose updates.
 	uploadPartial       bool
 	uploadLights        bool
+	uploadLightGrid     bool // lightGrid was rebuilt; lights alone reuse the uploaded one
 	uploadCampfires     bool
 	partialPrimSpans    [][2]int
 	partialBlockerSpans [][2]int
@@ -1662,10 +1664,11 @@ func (r *Renderer) uploadFrame(cam *camera.Camera, p renderParams, fw, fh int) e
 				}
 			}
 		}
-		if p.uploadLights {
+		if p.uploadLightGrid {
 			if err := r.uploadLightGrid(&p.lightGrid); err != nil {
 				return err
 			}
+			r.cache.gridDirty = false
 		}
 		if p.uploadLights && len(p.lights) > 0 {
 			if err := r.wb(r.lights, 0, lightBytes(p.lights)); err != nil {

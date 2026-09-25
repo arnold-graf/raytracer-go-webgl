@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"slices"
 	"sort"
 	"time"
 
@@ -93,25 +94,70 @@ func (g *lightGrid) cellCount() int {
 // cells at the wrong lights.
 func (c *sceneCache) setLights(s *scene.Scene) {
 	c.lights = PackLights(s)
+	c.rebuildLightGrid(s)
+}
+
+// refreshLights repacks the lights after a transform-only change and marks what
+// actually needs re-uploading. Doors, documents and NPCs move every frame they
+// animate, but they rarely touch a light, so most calls change nothing. When
+// lights did change, the grid is kept as long as it still covers them.
+func (c *sceneCache) refreshLights(s *scene.Scene) {
+	lights := PackLights(s)
+	if slices.Equal(lights, c.lights) {
+		return
+	}
+	c.lights = lights
+	c.lightsDirty = true
+	if !gridCovers(c.gridBasis, lights) {
+		c.rebuildLightGrid(s)
+		c.gridDirty = true
+	}
+}
+
+// gridCovers reports whether a grid built from basis is still exact for
+// lights. Cells list every light whose sphere reaches them, and the shader
+// culls each light by its own radius anyway, so a grid built for a light's
+// larger radius stays correct as it shrinks: a lamp fading out keeps its grid.
+// Moving a light, growing its reach or changing the count needs a new one.
+func gridCovers(basis, lights []GPULight) bool {
+	if len(basis) != len(lights) {
+		return false
+	}
+	for i := range lights {
+		b, l := &basis[i], &lights[i]
+		if b.Pos[0] != l.Pos[0] || b.Pos[1] != l.Pos[1] || b.Pos[2] != l.Pos[2] || l.Falloff[0] > b.Falloff[0] {
+			return false
+		}
+	}
+	return true
+}
+
+// rebuildLightGrid clusters c.lights and records them as the grid's basis.
+func (c *sceneCache) rebuildLightGrid(s *scene.Scene) {
 	c.lightGrid = buildLightGrid(c.lights)
-	dropped := 0
+	c.gridBasis = c.lights
+	c.gridCulled = 0
 	if lightCullEnabled() {
 		start := time.Now()
-		var kept int
-		dropped, kept = cullOccludedLights(&c.lightGrid, c.lights, s)
+		dropped, kept := cullOccludedLights(&c.lightGrid, c.lights, s)
+		c.gridCulled = dropped
 		if dropped+kept > 0 {
 			log.Printf("light grid: occlusion culled %d of %d cell-light pairs (%.0f%%) in %v",
 				dropped, dropped+kept, 100*float64(dropped)/float64(dropped+kept),
 				time.Since(start).Round(time.Millisecond))
 		}
 	}
-	// One line that says where the per-point cost actually is. The wide count
-	// is the number every shaded point evaluates no matter where it stands, and
-	// on office-sunset it is 74 of 315 -- which is why occlusion culling the
-	// *clustered* pairs changed nothing measurable.
+}
+
+// logLightGrid prints one line that says where the per-point cost actually is.
+// The wide count is the number every shaded point evaluates no matter where it
+// stands, and on office-sunset it is 74 of 315 -- which is why occlusion
+// culling the *clustered* pairs changed nothing measurable. It runs on a full
+// cache rebuild only; animation-driven grid refreshes stay quiet.
+func (c *sceneCache) logLightGrid() {
 	log.Printf("light grid: %d lights (%d wide: %d outside bounds, %d too broad), %d cells, %d pairs",
 		len(c.lights), len(c.lightGrid.Wide), lightGridWideEscaped, lightGridWideTooBig,
-		c.lightGrid.cellCount(), len(c.lightGrid.Indices)+dropped)
+		c.lightGrid.cellCount(), len(c.lightGrid.Indices)+c.gridCulled)
 }
 
 // Set by the last buildLightGrid, for the diagnostic line above.

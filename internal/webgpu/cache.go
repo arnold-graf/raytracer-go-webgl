@@ -1,6 +1,8 @@
 package webgpu
 
 import (
+	"slices"
+
 	"raytracer/internal/render"
 	"raytracer/internal/scene"
 )
@@ -24,6 +26,7 @@ type sceneCache struct {
 	partialPrimSpans    [][2]int // coalesced GPU prim index spans dirtied last partial update
 	partialBlockerSpans [][2]int
 	lightsDirty         bool
+	gridDirty           bool // lightGrid changed since its last upload
 	campfiresDirty      bool
 
 	prims    []GPUPrimitive
@@ -38,6 +41,8 @@ type sceneCache struct {
 	blockerNodeCount uint32
 	lights           []GPULight
 	lightGrid        lightGrid
+	gridBasis        []GPULight // the lights lightGrid was built from
+	gridCulled       int        // pairs occlusion culling dropped from lightGrid
 	terrains         []GPUTerrain
 	samples          []float32
 	terrainFeatures  []GPUTerrainFeature
@@ -108,6 +113,7 @@ func (c *sceneCache) rebuild(v *render.View) {
 afterPack:
 
 	c.setLights(v.Scene)
+	c.logLightGrid()
 	c.terrains, c.samples, c.terrainFeatures, c.terrainPads, c.terrainMips, c.terrainZones, c.terrainZoneVerts = PackTerrains(v.Scene)
 	c.waters = PackWaters(v.Scene)
 	c.campfireParams = PackCampfireParams(v.Scene)
@@ -128,6 +134,7 @@ afterPack:
 	c.partialPrimSpans = nil
 	c.partialBlockerSpans = nil
 	c.lightsDirty = false
+	c.gridDirty = false
 	c.campfiresDirty = false
 	c.valid = true
 }
@@ -174,14 +181,7 @@ func (c *sceneCache) updateDynamicTransforms(s *scene.Scene) {
 		}
 	}
 	if len(dirtyPrim) == 0 {
-		if sceneHasDynamicLights(s) {
-			c.setLights(s)
-			c.lightsDirty = true
-		}
-		if sceneHasDynamicCampfires(s) {
-			c.campfireParams = PackCampfireParams(s)
-			c.campfiresDirty = true
-		}
+		c.refreshDynamicLights(s)
 		c.xformGen = s.TransformGeneration()
 		c.partialPrimSpans = nil
 		c.partialBlockerSpans = nil
@@ -202,15 +202,23 @@ func (c *sceneCache) updateDynamicTransforms(s *scene.Scene) {
 	}
 	c.partialPrimSpans = coalesceIndices(dirtyPrim)
 	c.partialBlockerSpans = coalesceIndices(dirtyBlocker)
+	c.refreshDynamicLights(s)
+	c.xformGen = s.TransformGeneration()
+}
+
+// refreshDynamicLights repacks lights and campfires when the scene has dynamic
+// ones, flagging an upload only for what actually changed. Any transform edit
+// lands here, so a swinging door must not cost a light re-upload.
+func (c *sceneCache) refreshDynamicLights(s *scene.Scene) {
 	if sceneHasDynamicLights(s) {
-		c.setLights(s)
-		c.lightsDirty = true
+		c.refreshLights(s)
 	}
 	if sceneHasDynamicCampfires(s) {
-		c.campfireParams = PackCampfireParams(s)
-		c.campfiresDirty = true
+		if params := PackCampfireParams(s); !slices.Equal(params, c.campfireParams) {
+			c.campfireParams = params
+			c.campfiresDirty = true
+		}
 	}
-	c.xformGen = s.TransformGeneration()
 }
 
 func sceneHasDynamicCampfires(s *scene.Scene) bool {
