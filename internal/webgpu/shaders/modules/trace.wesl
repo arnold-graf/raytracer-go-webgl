@@ -3,7 +3,7 @@
 // refraction segments, dispatches by material, then main() tonemaps, dithers,
 // quantizes to retro color depth, and writes RGBA8 pixels.
 
-import package::types::{AA_RESOLVE_WG, BOUNCE_ADAPT_BOOST, BOUNCE_CLAMP_BITE, BOUNCE_CLAMP_TRUST, BOUNCE_COHERENT_TILE, BOUNCE_FLAG_ADAPT, BOUNCE_FLAG_BLUE, BOUNCE_FLAG_COHERENT, BOUNCE_FLAG_HALF, BOUNCE_FLAG_HALF_TILE, BOUNCE_FLAG_HIST_NEAREST, BOUNCE_FLAG_MINIFY, BOUNCE_FLAG_REUSE, BOUNCE_FLAG_VEL_HISTORY, BOUNCE_MINIFY_MAX, BOUNCE_MOTION_K, BOUNCE_REUSE_LEN, BOUNCE_REUSE_MIN_LEN, BOUNCE_REUSE_PLANE_REL, BOUNCE_TEMPORAL_FRAME_SHIFT, BOUNCE_TEMPORAL_ON, BOUNCE_TEMPORAL_RESET, GLOSSY_MIN_CONTRIB, HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, ShadowAux, aa_dispatch, aa_hits, aa_list, hdr_pixels, params, pixels, prims, shadow_aux, waters};
+import package::types::{AA_RESOLVE_WG, BOUNCE_ADAPT_BOOST, BOUNCE_CLAMP_BITE, BOUNCE_CLAMP_TRUST, BOUNCE_COHERENT_TILE, BOUNCE_FLAG_ADAPT, BOUNCE_FLAG_BLUE, BOUNCE_FLAG_COHERENT, BOUNCE_FLAG_HALF, BOUNCE_FLAG_HALF_TILE, BOUNCE_FLAG_HIST_NEAREST, BOUNCE_FLAG_MINIFY, BOUNCE_FLAG_NO_DEMOD, BOUNCE_FLAG_REUSE, BOUNCE_FLAG_VEL_HISTORY, BOUNCE_MINIFY_MAX, BOUNCE_MOTION_K, BOUNCE_REUSE_LEN, BOUNCE_REUSE_MIN_LEN, BOUNCE_REUSE_PLANE_REL, BOUNCE_TEMPORAL_FRAME_SHIFT, BOUNCE_TEMPORAL_ON, BOUNCE_TEMPORAL_RESET, GLOSSY_MIN_CONTRIB, HIT_NO_INSTANCE, Hit, MAT_CHECKER, MAT_DIFFUSE, MAT_EMIT, MAT_GLASS, MAT_METAL, MAT_MIRROR, PRIM_BOX, PRIM_CONE, PRIM_FLAG_GLASS_THIN, PRIM_FLAG_TRANSFORMED, SEG_MIN_CONTRIB, SURFACE_EPSILON, ShadowAux, aa_dispatch, aa_hits, aa_list, hdr_pixels, params, pixels, prims, shadow_aux, waters};
 import package::profile::{PROF_AA_GEOM, PROF_AA_SHADE, PROF_AA_TASKS, PROF_BOUNCE_NOHIST, PROF_BOUNCE_RAYS, PROF_BOUNCE_REUSE, PROF_BVH_STEPS, PROF_DIFFUSE_REFL, PROF_GLASS_BOUNCES, PROF_HIT_INST, PROF_HIT_PRIM, PROF_HIT_TERRAIN, PROF_HIT_WATER, PROF_MAX_SEGS, PROF_MIRROR_BOUNCES, PROF_PATH_SEGS, PROF_PIXELS, PROF_PRIM_TESTS, PROF_PRI_HIT_INST, PROF_PRI_HIT_PRIM, PROF_PRI_HIT_TERRAIN, PROF_PRI_HIT_WATER, PROF_PRI_SKY, PROF_SKY, bvh_steps_acc, prim_tests_acc, prof_inc, prof_max};
 import package::math::{surface_grazing_weight, tonemap};
 import package::texture::{plane_albedo, prim_texture_bump_normal, texture_eval, texture_eval_box, texture_eval_surface};
@@ -111,6 +111,9 @@ struct TraceResult {
     // private accumulators in shade.wesl. Zero contribution means this pixel has
     // no shadow worth softening.
     sh: ShadowAux,
+    // The albedo of the surface the indirect term belongs to, held out of it so
+    // the filters run on irradiance. See bounce_alb in types.wesl.
+    bounce_alb: vec3<f32>,
     // The traced indirect term, *excluded* from color when bounce_held_out().
     // Already carries the glossy (1 - refl) split, so the reconstruction passes
     // can add it straight back into hdr_pixels.
@@ -593,7 +596,14 @@ fn bounce_gather(hp: vec3<f32>, ep: vec3<f32>, n: vec3<f32>, alb: vec3<f32>, tw:
         // frames roulette differently and the temporal mean converges.
         sum = sum + shade_diffuse(bhp, sf.alb, sf.n, bhp + sf.n * SURFACE_EPSILON, sub_tw, rd, 0.0, 0.0, false, (s ^ 0xb5297a4du) | 1u);
     }
-    return alb * sum * inv;
+    // Irradiance, with the primary albedo deliberately *not* applied: see
+    // bounce_alb in types.wesl. bounce_resolve multiplies it back in after the
+    // filters have run. The albedo is still in sub_tw above, which is the true
+    // throughput the shadow gate needs.
+    if (params.bounce_flags & BOUNCE_FLAG_NO_DEMOD) != 0u {
+        return alb * sum * inv;
+    }
+    return sum * inv;
 }
 
 // Cleared by aa_resolve before it re-enters ray_color. An AA tap must not
@@ -603,6 +613,15 @@ fn bounce_gather(hp: vec3<f32>, ep: vec3<f32>, n: vec3<f32>, alb: vec3<f32>, tw:
 // lobe comment above describes, with more noise. supersample_edge hands the tap
 // the centre's filtered indirect instead.
 var<private> bounce_allowed: bool = true;
+
+// The albedo bounce_resolve remodulates by: the surface's, or white when the
+// A/B flag has already folded it into the filtered term.
+fn bounce_demod_alb(alb: vec3<f32>) -> vec3<f32> {
+    if (params.bounce_flags & BOUNCE_FLAG_NO_DEMOD) != 0u {
+        return vec3<f32>(1.0, 1.0, 1.0);
+    }
+    return alb;
+}
 
 fn bounce_rays_wanted() -> u32 {
     return min(params.bounce_rays, BOUNCE_MAX_RAYS);
@@ -635,6 +654,8 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
     // The held-out indirect term, and the ambient constant an AA tap kept in
     // place of one. Only the primary hit contributes to either.
     var bounce_out = vec3<f32>(0.0, 0.0, 0.0);
+    // The albedo bounce_out was demodulated by, carried out alongside it.
+    var bounce_alb_out = vec3<f32>(1.0, 1.0, 1.0);
     var ambient_out = vec3<f32>(0.0, 0.0, 0.0);
     var stack: array<RaySeg, MAX_SEGS>;
     stack[0] = RaySeg(origin, dir0, vec3<f32>(1.0, 1.0, 1.0), 0u, 0u);
@@ -647,10 +668,11 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), 0.0,
-        // Bounce filter slots: ping, pong, history, history-write, prev geometry.
+        // Bounce filter slots: ping, pong, history, history-write, prev
+        // geometry, held-out albedo.
         vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
-        vec3<f32>(0.0, 0.0, 0.0), 0.0);
+        vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(1.0, 1.0, 1.0), 0.0);
     // sh_out.soft_applied / soft_applied_m stay 0 here; only shadow_soften_v sets them.
 
     loop {
@@ -981,6 +1003,14 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
             // against an even 50/50 at +0.5 with the bounce off.
             if bounce_allowed {
                 lit = max(lit - amb * (1.0 - params.bounce_ambient), vec3<f32>(0.0, 0.0, 0.0));
+                // Set here and nowhere else. The accumulation below runs for
+                // every segment at every depth, so assigning the albedo there
+                // left it holding whatever the *last* segment of the ray tree
+                // hit -- the far side of a glass pane, a mirror's subject --
+                // and remodulating by that drew hard vertical bars down the
+                // atrium columns. Same shape as the bug where bounce_out was
+                // assigned rather than accumulated.
+                bounce_alb_out = bounce_demod_alb(alb);
                 if bounce_traced(bounce_gid) {
                     var rays = brays;
                     if (params.bounce_flags & BOUNCE_FLAG_ADAPT) != 0u && bounce_new_to_view(hp) {
@@ -997,7 +1027,8 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
                 // 1 at depth 0, so the glossy split below is the one weight
                 // these still owe.
                 if !bounce_held_out() {
-                    lit = lit + seg_bounce;
+                    // Nothing downstream will remodulate, so do it here.
+                    lit = lit + alb * seg_bounce;
                 }
             } else {
                 // An AA tap gathers nothing, so the constant stays in and is
@@ -1068,7 +1099,7 @@ fn ray_color(origin: vec3<f32>, dir0: vec3<f32>, gloss_mode: u32) -> TraceResult
     }
     prof_max(PROF_MAX_SEGS, max_sp);
     return TraceResult(max(accum - refl_acc - refr_acc, vec3<f32>(0.0, 0.0, 0.0)),
-        refl_acc, refl_t, refl_blur, refr_acc, refr_t, refr_blur, lobe_n, lobe_d, primary, sh_out, bounce_out, ambient_out);
+        refl_acc, refl_t, refl_blur, refr_acc, refr_t, refr_blur, lobe_n, lobe_d, primary, sh_out, bounce_alb_out, bounce_out, ambient_out);
 }
 
 // ---------------------------------------------------------------- grain ----
@@ -1811,6 +1842,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         // race a neighbour that has already updated itself.
         aux.bounce = tr.bounce;
         aux.bounce_h = tr.bounce;
+        aux.bounce_alb = tr.bounce_alb;
         var n_samp = 0.0;
         if !bounce_traced(g2) {
             n_samp = -1.0;
@@ -2627,9 +2659,14 @@ fn bounce_resolve(@builtin(global_invocation_id) gid: vec3<u32>) {
         lit = aux.bounce_h;
     }
 
+    // Everything above this point carried irradiance; the albedo goes back on
+    // here, after the filters can no longer smear it across texels.
+    let radiance = lit * aux.bounce_alb;
+
     // Parked back in bounce so an AA tap can be handed the neighbourhood's
-    // conclusion instead of gathering a hemisphere of its own.
-    aux.bounce = lit;
+    // conclusion instead of gathering a hemisphere of its own. Remodulated,
+    // because that is what the tap adds to its own colour.
+    aux.bounce = radiance;
     // Roll the history forward and stamp this frame's geometry as next frame's
     // reprojection target. Both are own-pixel reads, so no other invocation can
     // observe them half-written.
@@ -2639,7 +2676,7 @@ fn bounce_resolve(@builtin(global_invocation_id) gid: vec3<u32>) {
     aux.bounce_prev_z = aux.depth;
     shadow_aux[idx] = aux;
 
-    let col = max(hdr_pixels[idx].xyz + lit, vec3<f32>(0.0, 0.0, 0.0));
+    let col = max(hdr_pixels[idx].xyz + radiance, vec3<f32>(0.0, 0.0, 0.0));
     hdr_pixels[idx] = vec4<f32>(col, display_luma(col));
     write_pixel(vec2<u32>(gid.xy), col);
 }

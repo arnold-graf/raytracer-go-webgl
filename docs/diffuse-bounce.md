@@ -588,6 +588,92 @@ forwards, sized only when backing away. The obstacle is memory rather than time
 -- `shadow_aux` is already 285 MB at maxDim 1024 and a 12% margin adds ~71 MB of
 which a band pixel needs 48 bytes of the 272.
 
+## Albedo demodulation
+
+The filters carry **irradiance**, not radiance: `bounce_gather` returns
+`sum / rays` with the primary surface's albedo deliberately left out,
+`ShadowAux.bounce_alb` holds it, and `bounce_resolve` multiplies it back in
+after the filters can no longer smear it.
+
+This is not bookkeeping. The a-trous stops on normal, depth and luminance, and a
+texture edge is none of the three, so a filter run on albedo-modulated radiance
+blurs freely across texels: marble veining and upholstery weave wash out where
+the indirect term replaces the ambient constant. The temporal pass does the same
+thing more slowly, accumulating a neighbour's `albedo x light` whenever
+reprojection lands a texel off.
+
+The penumbra filter has always avoided this trap, and says so in its own note --
+it stores a *ratio* precisely because "filtering the blocked radiance directly
+turns the filter into an unsharp mask on the texture". This is the same lesson,
+applied to the bounce about a month later than it should have been.
+
+Measured as the RMS gradient in linear radiance, which is what a smeared texture
+loses. Front office, the crop through the doorway onto the atrium columns, and
+the floor:
+
+| | columns | floor |
+|---|---|---|
+| radiance filtered | 0.1499 | 0.0329 |
+| **demodulated** | **0.1548** | **0.0347** |
+
++3.3% and +5.4%, and brightness-neutral as it must be: the crop means move
+0.4773 -> 0.4786 and 0.2454 -> 0.2456. `-bounce-no-demod` keeps the old
+behaviour for A/B.
+
+It also makes the temporal history albedo-independent, so reprojecting onto a
+neighbouring texel of the same surface stops being wrong.
+
+**A bug worth recording**, because it is the second instance of one shape. The
+albedo was first assigned in the per-segment accumulation at the bottom of
+`ray_color`, which runs for every segment at every depth -- so on any pixel with
+recursion it ended up holding whatever the *last* segment of the ray tree hit,
+the far side of a glass pane or a mirror's subject. Remodulating by that drew
+hard vertical bars down the atrium columns and moved the crop mean by 20%. It is
+the same mistake as assigning rather than accumulating `bounce_out`: the
+accumulation loop is not the primary hit, and anything that belongs to the
+primary hit has to be set where the bounce actually happens.
+
+## Known problems, and the shape of their fixes
+
+### Glass is skipped entirely
+
+The bounce fires only at `depth == 0`, so anything seen through a pane never
+gets one -- most of the atrium view's background, and the reason the front
+office's glass wall reads flat.
+
+*(a)* Fire at the **first diffuse vertex** on the path rather than at depth 0,
+gated on throughput. Cheaper than it sounds: the bounce is an inline gather, not
+a segment on the ray stack, so `MAX_SEGS` is not involved. It is a private
+"already bounced" flag.
+
+*(b)* The structural half. The reconstruction rebuilds the world point as
+`cam_pos + dir * depth`, which assumes a **straight** ray. Through refracting
+glass the hit is not on that ray, so reprojection, the neighbourhood tests and
+the disocclusion check are all wrong for those pixels. The fix is to store the
+**world position** of the first diffuse vertex instead of the camera distance --
+`depth` has to stay, since the penumbra and reflection filters use it, so this
+is additive: one more vec3 in `ShadowAux`.
+
+### Ghosting under motion
+
+Characterised above: backing away disoccludes 12.1% of pixels per frame against
+0.2% walking forwards, because pulling back widens the view and a border band
+was never on screen. Four ways of *inventing* a value for those pixels all
+measured worse, and the rule they establish is that a spatially borrowed
+estimate of indirect light is worse than no estimate.
+
+The guard band is the only approach that computes the real one: render the
+indirect term over a margin wider than the display, so the band stops being
+disoccluded. It can be very cheap -- those pixels are never displayed, so they
+need no primary direct lighting, no reflection tree, no AA, no a-trous and no
+resolve, and they can run at a lower sample rate and be sized from camera
+velocity, which is zero standing still and zero walking forwards.
+
+The obstacle is memory and bindings rather than time. `shadow_aux` is 302 MB at
+maxDim 1024 and a 12% margin adds ~75 MB, of which a band pixel needs 48 of the
+288 bytes -- and there is no spare Metal binding for a leaner buffer. See
+docs/metal-backend.md on the binding wall.
+
 ## Limits
 
 - **The AA taps do not trace their own bounce**; they are handed a neighbouring

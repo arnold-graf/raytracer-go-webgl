@@ -75,6 +75,7 @@ func main() {
 	bounceCoherent := flag.Bool("bounce-coherent", true, "rotate the bounce sampler per tile (coherent rays) instead of per pixel")
 	bounceSpread := flag.Float64("bounce-spread", 0.15, "fraction of the per-pixel rotation kept inside a coherent tile")
 	bounceTile := flag.Float64("bounce-tile", 4, "coherent sampling tile edge in pixels (0 = shader default)")
+	bounceNoDemod := flag.Bool("bounce-no-demod", false, "filter albedo-modulated radiance, as before demodulation (A/B)")
 	bounceAdapt := flag.Bool("bounce-adapt", true, "extra bounce rays where the previous frustum had no history")
 	bounceReuse := flag.Bool("bounce-reuse", false, "seed disoccluded pixels from a converged neighbour")
 	bounceClamp := flag.Float64("bounce-clamp", render.DefaultBounceClamp, "neighbourhood clamp width in standard deviations (0 = off)")
@@ -154,6 +155,7 @@ func main() {
 		BounceClamp:       *bounceClamp,
 		BounceReuse:       *bounceReuse,
 		BounceAdapt:       *bounceAdapt,
+		BounceNoDemod:     *bounceNoDemod,
 		BounceCoherent:    *bounceCoherent,
 		BounceTile:        *bounceTile,
 		BounceSpread:      *bounceSpread,

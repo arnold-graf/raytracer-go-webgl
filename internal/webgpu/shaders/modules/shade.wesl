@@ -543,10 +543,11 @@ fn shadow_aux_snapshot(tw: vec3<f32>, n: vec3<f32>, depth: f32) -> ShadowAux {
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), -1.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), 0.0,
-        // Bounce filter slots: ping, pong, history, history-write, prev geometry.
+        // Bounce filter slots: ping, pong, history, history-write, prev
+        // geometry, held-out albedo.
         vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
         vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0,
-        vec3<f32>(0.0, 0.0, 0.0), 0.0);
+        vec3<f32>(0.0, 0.0, 0.0), 0.0, vec3<f32>(1.0, 1.0, 1.0), 0.0);
 }
 
 // Returns (t_block, transmittance); see blocker_bvh_any_hit. Planes and terrain

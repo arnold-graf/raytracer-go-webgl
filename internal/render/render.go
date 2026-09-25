@@ -130,6 +130,10 @@ type View struct {
 	// until the temporal filter has averaged the tile out.
 	BounceTile float64
 
+	// BounceNoDemod folds the primary albedo back into the filtered term,
+	// reproducing the behaviour before demodulation for A/B.
+	BounceNoDemod bool
+
 	// BounceClamp is how many standard deviations of the current neighbourhood
 	// the reprojected history may sit outside before it is pulled back in.
 	// 0 disables the clamp. See DefaultBounceClamp.

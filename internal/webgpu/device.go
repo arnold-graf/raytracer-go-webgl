@@ -49,6 +49,7 @@ const (
 	bounceFlagReuse       = 64
 	bounceFlagAdapt       = 128
 	bounceFlagCoherent    = 512
+	bounceFlagNoDemod     = 1024
 	// Bits 2 and up of params.bounce_temporal carry a free-running frame
 	// counter; the sampler mixes it in so successive frames draw independent
 	// directions. Must match BOUNCE_TEMPORAL_FRAME_SHIFT in types.wesl.
@@ -59,9 +60,9 @@ const (
 	// bounce's reconstruction state; there is no spare buffer binding for
 	// either. Two shadow channels (112) plus lobes (80) plus bounce (80).
 	//
-	// At maxDim 1024 this buffer is 285 MB. That is the price of a third
+	// At maxDim 1024 this buffer is 302 MB. That is the price of a third
 	// per-pixel filter in a megakernel with every Metal binding spoken for.
-	shadowAuxStride = 272
+	shadowAuxStride = 288
 	workgroupXY     = 8
 	// Six square portal captures (see texture.MaxCaptureDim).
 	maxCaptureDim = texture.MaxCaptureDim
@@ -860,6 +861,9 @@ func packParams(r *sceneCache, v *render.View) renderParams {
 			}
 			if v.BounceAdapt {
 				bounceFlags |= bounceFlagAdapt
+			}
+			if v.BounceNoDemod {
+				bounceFlags |= bounceFlagNoDemod
 			}
 			if v.BounceCoherent {
 				bounceFlags |= bounceFlagCoherent

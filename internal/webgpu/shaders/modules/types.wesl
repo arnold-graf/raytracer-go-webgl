@@ -227,6 +227,11 @@ const BOUNCE_FLAG_COHERENT: u32 = 512u;
 // part of the tree, far enough apart that averaging them means something.
 const BOUNCE_COHERENT_TILE: f32 = 2.0;
 
+// BOUNCE_FLAG_NO_DEMOD puts the primary albedo back inside the filtered term,
+// reproducing what the bounce did before demodulation, so the two can be
+// measured against each other.
+const BOUNCE_FLAG_NO_DEMOD: u32 = 1024u;
+
 // BOUNCE_FLAG_ADAPT spends extra rays on a point that was outside the previous
 // frame's frustum, and so has no history to average however long it waits.
 //
@@ -646,6 +651,22 @@ struct ShadowAux {
     // looking at the same surface.
     bounce_prev_n: vec3<f32>,
     bounce_prev_z: f32,
+
+    // The primary surface's albedo, held out of the filtered term.
+    //
+    // Everything above carries *irradiance* -- incoming light with no albedo in
+    // it -- and bounce_resolve multiplies this back in on the way out. That is
+    // not bookkeeping, it is what stops the filter chain from smearing the
+    // texture: the a-trous stops on normal, depth and luminance, and a texture
+    // edge is none of the three, so a filter run on albedo-modulated radiance
+    // blurs freely across texels. The penumbra filter above avoids the same
+    // trap by storing a *ratio*, and says so in its own note -- this is the
+    // same lesson applied to the bounce.
+    //
+    // It also makes the temporal history albedo-independent, so reprojecting
+    // onto a neighbouring texel of the same surface stops being wrong.
+    bounce_alb: vec3<f32>,
+    bounce_alb_pad: f32,
 };
 
 @group(0) @binding(18)
