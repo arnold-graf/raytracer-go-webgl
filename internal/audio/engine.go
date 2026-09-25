@@ -1,8 +1,10 @@
 package audio
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
+	"os"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2/audio"
@@ -18,6 +20,7 @@ const sampleRate = 44100
 // [[sound]] in a scene file).
 type AmbientEmitter struct {
 	Sound  string
+	File   string // audio file to loop instead of a synthesized Sound
 	Pos    vec.V
 	Gain   float64
 	Radius float64
@@ -30,12 +33,19 @@ type Engine struct {
 	player   *audio.Player
 	rng      *rand.Rand
 	ambients []AmbientEmitter
-	// occ is the smoothed occlusion factor per ambient (1 = clear line of sight,
+	// occ is the smoothed occlusion gain per ambient (1 = clear line of sight,
 	// →0 = fully muffled behind walls), eased over time to avoid popping when the
-	// listener crosses a doorway.
-	occ []float64
+	// listener crosses a doorway. bright is the matching high-frequency content,
+	// which drops faster than loudness as the sound bends round obstacles.
+	occ    []float64
+	bright []float64
+	// paths finds and remembers each ambient's route to the listener.
+	paths []pathProbe
 	// ambAtn is the smoothed distance attenuation per ambient (0 outside radius).
 	ambAtn []float64
+	// files caches decoded audio files by path, so rebuilding the ambients (a
+	// campfire toggled on) doesn't decode the same recording again.
+	files map[string][]float32
 }
 
 // NewEngine initializes the audio context and starts the streaming player. It
@@ -132,10 +142,12 @@ func (e *Engine) SetAmbients(emitters []AmbientEmitter) {
 	for i, em := range emitters {
 		var buf []float32
 		sub := rand.New(rand.NewSource(int64(i*7919 + 42)))
-		switch em.Sound {
-		case "crickets":
+		switch {
+		case em.File != "":
+			buf = e.loadFile(em.File)
+		case em.Sound == "crickets":
 			buf = SynthesizeCrickets(sampleRate, sub)
-		case "fan":
+		case em.Sound == "fan":
 			buf = SynthesizeFan(sampleRate, sub)
 		default:
 			continue
@@ -147,8 +159,14 @@ func (e *Engine) SetAmbients(emitters []AmbientEmitter) {
 
 		n := float64(len(buf))
 		var heads []*ambientHead
-		switch em.Sound {
-		case "crickets":
+		switch {
+		case em.File != "":
+			// A recording already varies on its own; extra heads would only
+			// double every crackle. A random start keeps two fires apart.
+			heads = []*ambientHead{
+				{pos: sub.Float64() * n, speed: 1.0, gain: 1.0},
+			}
+		case em.Sound == "crickets":
 			// Three read heads at slightly different, mutually-incommensurate speeds
 			// and random phases. Their sum drifts continuously so the chirp pattern
 			// never repeats on the buffer's period, killing the obvious loop.
@@ -157,39 +175,53 @@ func (e *Engine) SetAmbients(emitters []AmbientEmitter) {
 				{pos: sub.Float64() * n, speed: 0.937 + sub.Float64()*0.02, gain: 0.5},
 				{pos: sub.Float64() * n, speed: 1.063 + sub.Float64()*0.02, gain: 0.42},
 			}
-		case "fan":
+		case em.Sound == "fan":
 			// Single head: a steady loop avoids extra wrap points that can click on drones.
 			heads = []*ambientHead{
 				{pos: sub.Float64() * n, speed: 1.0, gain: 1.0},
 			}
 		}
-		voices = append(voices, &ambientVoice{buf: buf, heads: heads})
+		voices = append(voices, &ambientVoice{buf: buf, heads: heads, lpAlpha: 1})
 	}
 	e.ambients = kept
 	e.occ = make([]float64, len(kept))
+	e.bright = make([]float64, len(kept))
 	e.ambAtn = make([]float64, len(kept))
+	e.paths = make([]pathProbe, len(kept))
 	e.mixer.SetAmbients(voices)
 }
 
-// OcclusionFunc returns how open the path is from listener to target (1 = clear
-// line of sight, 0 = fully blocked by walls). The audio engine eases this over
-// time so crossing a doorway doesn't pop.
-type OcclusionFunc func(listener, target vec.V) float64
+// loadFile returns the decoded loop for an audio file, decoding it on first
+// use. A file that fails to decode is reported once and stays silent.
+func (e *Engine) loadFile(path string) []float32 {
+	if buf, ok := e.files[path]; ok {
+		return buf
+	}
+	buf, err := LoadLoop(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "audio: %v\n", err)
+	}
+	if e.files == nil {
+		e.files = make(map[string][]float32)
+	}
+	e.files[path] = buf
+	return buf
+}
 
 // UpdateAmbients recomputes distance attenuation, stereo pan, and wall
-// occlusion for every ambient emitter. Call once per frame.
-func (e *Engine) UpdateAmbients(listenerPos, listenerRight vec.V, occFn OcclusionFunc) {
+// occlusion for every ambient emitter. cast answers the ray queries that find
+// how sound gets round obstacles; nil treats every path as clear. Call once per
+// frame.
+func (e *Engine) UpdateAmbients(listenerPos, listenerRight vec.V, cast RayCast) {
 	if e == nil || len(e.ambients) == 0 {
 		return
 	}
-	if len(e.occ) != len(e.ambients) {
-		e.occ = make([]float64, len(e.ambients))
-	}
-	if len(e.ambAtn) != len(e.ambients) {
-		e.ambAtn = make([]float64, len(e.ambients))
-	}
 	gL := make([]float64, len(e.ambients))
 	gR := make([]float64, len(e.ambients))
+	lp := make([]float64, len(e.ambients))
+	for i := range lp {
+		lp[i] = 1
+	}
 	const occEase = 0.25 // ~0.4 s to settle at 60 Hz polls
 	for i, em := range e.ambients {
 		dx := em.Pos.X - listenerPos.X
@@ -205,20 +237,29 @@ func (e *Engine) UpdateAmbients(listenerPos, listenerRight vec.V, occFn Occlusio
 		if e.ambAtn[i] < 1e-6 {
 			e.ambAtn[i] = 0
 			e.occ[i] += (0 - e.occ[i]) * occEase
+			e.bright[i] += (0 - e.bright[i]) * occEase
+			e.paths[i] = pathProbe{}
 			continue
 		}
 		atten := e.ambAtn[i]
 
-		// Ray-traced occlusion: walls between listener and emitter muffle the
-		// sound. Eased so stepping through a doorway fades rather than pops.
-		targetOcc := 1.0
-		if occFn != nil {
-			targetOcc = occFn(listenerPos, em.Pos)
+		// Ray-traced occlusion: sound that has to bend round an obstacle comes
+		// quieter and duller the longer its detour. Eased so stepping through a
+		// doorway fades rather than pops.
+		targetOcc, targetBright := 1.0, 1.0
+		if cast != nil {
+			targetOcc, targetBright = e.paths[i].update(listenerPos, em.Pos, cast, e.rng)
 		}
 		e.occ[i] += (targetOcc - e.occ[i]) * occEase
+		e.bright[i] += (targetBright - e.bright[i]) * occEase
 		atten *= e.occ[i]
+		lp[i] = lowpassAlpha(e.bright[i])
 
 		// Equal-power pan from horizontal direction relative to the listener.
+		// Sound taking a detour arrives from the detour, not through the wall.
+		if p := &e.paths[i]; p.hasBest {
+			dx, dz = p.best.X-listenerPos.X, p.best.Z-listenerPos.Z
+		}
 		horiz := vec.V{X: dx, Z: dz}
 		if horiz.LenSq() < 1e-12 {
 			gL[i], gR[i] = atten*0.707, atten*0.707
@@ -231,7 +272,25 @@ func (e *Engine) UpdateAmbients(listenerPos, listenerRight vec.V, occFn Occlusio
 		gL[i] = atten * math.Sqrt(lW)
 		gR[i] = atten * math.Sqrt(rW)
 	}
-	e.mixer.UpdateAmbientGains(gL, gR)
+	e.mixer.UpdateAmbientGains(gL, gR, lp)
+}
+
+// Occluded ambients are low-passed with a cutoff swept from mutedCutoff (fully
+// muffled) up to openCutoff (clear, where the filter is bypassed).
+const (
+	mutedCutoff = 500.0
+	openCutoff  = 16000.0
+)
+
+// lowpassAlpha maps brightness (0 = muffled, 1 = clear) to a one-pole low-pass
+// coefficient, sweeping the cutoff logarithmically so each step sounds even.
+func lowpassAlpha(bright float64) float64 {
+	if bright >= 0.99 {
+		return 1
+	}
+	b := math.Max(bright, 0)
+	fc := mutedCutoff * math.Pow(openCutoff/mutedCutoff, b)
+	return 1 - math.Exp(-2*math.Pi*fc/sampleRate)
 }
 
 func clampPan(v float64) float64 {

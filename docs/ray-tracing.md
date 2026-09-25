@@ -177,16 +177,25 @@ These feed a **Freeverb-style algorithmic reverb** (comb + allpass delay lines).
 
 Values are **eased over time** so doorways fade instead of popping.
 
-#### 2. Ambient occlusion for sound (`ambientOcclusion`)
+#### 2. Occlusion for ambient sounds (`pathProbe`, `internal/audio/occlusion.go`)
 
-For each `[[sound]]` emitter (e.g. crickets in trees):
+For each `[[sound]]` emitter (crickets, a campfire crackle) within its radius:
 
-- Ray from **listener → emitter**
-- If a wall is hit well before the source: muffling ≈ `(hitDist / totalDist)³`
-- Combined with distance falloff + stereo pan
-- Occlusion is **smoothed** over ~0.4 s
-
-So crickets outside go nearly silent when you’re inside, even if you’re “within radius.”
+- Ray from **listener → emitter**. If it's clear, the sound plays unchanged.
+- Otherwise, look for a **one-bounce detour**: a point in open space that both
+  ends can see. A few random directions are tried per frame from each end, and
+  the best detour so far is kept, so the search spreads over frames (~20 rays
+  per blocked emitter per frame).
+- The detour's **extra length** over the direct path sets the loudness
+  (halved at +2 m) and the high frequencies (halved at +1 m). Sound bends
+  round a staircase with little loss, but comes through a distant doorway
+  quiet and dull.
+- With no path at all it drops to a quiet, heavily low-passed thump (10 %),
+  never silence.
+- A detoured sound is **panned toward the detour point**, so it seems to
+  come from the gap it passes through.
+- Loudness and brightness are **smoothed** over ~0.4 s; brightness drives a
+  per-voice one-pole low-pass (500 Hz – 16 kHz).
 
 #### 3. Footsteps — no ray tracing
 
@@ -198,7 +207,7 @@ Footsteps are **procedurally synthesized** buffers (grass/wood/stone/snow), trig
 
 ```
 dry_L = dry_R = sum(one-shot footsteps)
-amb_L, amb_R = sum(spatial looping ambients, already panned + occluded)
+amb_L, amb_R = sum(spatial looping ambients, low-passed, panned + occluded)
 rev_L, rev_R = Freeverb(dry)   // reverb only on footsteps, not ambients
 
 out_L = dry + wetL × rev_L + amb_L

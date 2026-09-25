@@ -39,6 +39,10 @@ type ambientVoice struct {
 	heads []*ambientHead
 	gainL float64
 	gainR float64
+	// lpAlpha is the one-pole low-pass coefficient that muffles an occluded
+	// source (1 = bypass); lpState is the filter's memory.
+	lpAlpha float64
+	lpState float64
 }
 
 func (a *ambientVoice) sample() (l, r float64) {
@@ -49,6 +53,8 @@ func (a *ambientVoice) sample() (l, r float64) {
 	for _, h := range a.heads {
 		s += h.sample(a.buf)
 	}
+	a.lpState += (s - a.lpState) * a.lpAlpha
+	s = a.lpState
 	return s * a.gainL, s * a.gainR
 }
 
@@ -120,9 +126,10 @@ func (m *Mixer) SetAmbients(amb []*ambientVoice) {
 	m.mu.Unlock()
 }
 
-// UpdateAmbientGains sets per-ear levels for each ambient voice (caller holds
-// the slice exclusively between SetAmbients and the next SetAmbients).
-func (m *Mixer) UpdateAmbientGains(gainsL, gainsR []float64) {
+// UpdateAmbientGains sets per-ear levels and the muffling low-pass coefficient
+// for each ambient voice (caller holds the slice exclusively between
+// SetAmbients and the next SetAmbients).
+func (m *Mixer) UpdateAmbientGains(gainsL, gainsR, lpAlphas []float64) {
 	m.mu.Lock()
 	for i := range m.ambients {
 		if i < len(gainsL) {
@@ -130,6 +137,9 @@ func (m *Mixer) UpdateAmbientGains(gainsL, gainsR []float64) {
 		}
 		if i < len(gainsR) {
 			m.ambients[i].gainR = gainsR[i]
+		}
+		if i < len(lpAlphas) {
+			m.ambients[i].lpAlpha = lpAlphas[i]
 		}
 	}
 	m.mu.Unlock()

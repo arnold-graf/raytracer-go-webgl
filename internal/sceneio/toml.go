@@ -468,8 +468,16 @@ func (d soundDTO) build() (scene.Ambience, error) {
 	if radius == 0 {
 		radius = 20
 	}
+	var file string
+	if isAudioFile(d.Sound) {
+		var err error
+		if file, err = resolveAudioPath(d.Sound); err != nil {
+			return scene.Ambience{}, err
+		}
+	}
 	return scene.Ambience{
 		Sound:  d.Sound,
+		File:   file,
 		Pos:    d.At.toV(),
 		Gain:   gain,
 		Radius: radius,

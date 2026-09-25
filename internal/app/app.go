@@ -518,6 +518,7 @@ func (g *Game) setupAmbience() {
 	for _, a := range g.sc.Ambiences {
 		emitters = append(emitters, audio.AmbientEmitter{
 			Sound:  a.Sound,
+			File:   a.File,
 			Pos:    a.Pos,
 			Gain:   a.Gain,
 			Radius: a.Radius,
@@ -527,33 +528,18 @@ func (g *Game) setupAmbience() {
 }
 
 // updateAmbience refreshes distance attenuation, stereo pan, and wall occlusion
-// for each ambient emitter from the listener pose.
+// for each ambient emitter from the listener pose. Occlusion rays run against
+// the acoustic probe, which ignores terrain.
 func (g *Game) updateAmbience() {
 	if g.snd == nil {
 		return
 	}
 	_, right, _ := g.cam.Basis()
-	g.snd.UpdateAmbients(g.cam.Pos, right, g.ambientOcclusion)
-}
-
-// ambientOcclusion ray-traces from the listener toward an ambient emitter. A wall
-// hit before the source heavily muffles the sound (cubed falloff), so crickets
-// outside are near-silent indoors even when within the distance radius.
-func (g *Game) ambientOcclusion(listener, target vec.V) float64 {
-	dx := target.X - listener.X
-	dy := target.Y - listener.Y
-	dz := target.Z - listener.Z
-	dist := math.Hypot(dx, math.Hypot(dy, dz))
-	if dist < 0.2 {
-		return 1
+	var cast audio.RayCast
+	if g.pb != nil {
+		cast = g.pb.Distance
 	}
-	dir := vec.V{X: dx / dist, Y: dy / dist, Z: dz / dist}
-	hit := g.pb.Distance(listener, dir, dist)
-	ratio := hit / dist
-	if ratio >= 0.95 {
-		return 1 // clear line of sight (or emitter is the nearest surface)
-	}
-	return ratio * ratio * ratio
+	g.snd.UpdateAmbients(g.cam.Pos, right, cast)
 }
 
 func clampf(v, lo, hi float64) float64 {

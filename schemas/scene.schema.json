@@ -263,11 +263,20 @@
     },
     "sound_id": {
       "type": "string",
-      "enum": [
-        "crickets",
-        "fan"
+      "anyOf": [
+        {
+          "enum": [
+            "crickets",
+            "fan"
+          ],
+          "description": "Named ambient sound loop synthesized at load time."
+        },
+        {
+          "pattern": "\\.([Mm][Pp]3|[Oo][Gg][Gg]|[Ww][Aa][Vv])$",
+          "description": "Audio file (mp3, ogg or wav) under assets/audio/, e.g. \"fire-crackling.mp3\", looped seamlessly."
+        }
       ],
-      "description": "Named ambient sound loop synthesized at load time."
+      "description": "Synthesized sound id (crickets, fan) or an audio file name under assets/audio/."
     },
     "rotate_x": {
       "allOf": [
